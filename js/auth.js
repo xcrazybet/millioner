@@ -1,15 +1,22 @@
-// Ensure you have these imports at the very top
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { firebaseConfig } from "../config.js";
 
-const db = getFirestore(app); // Connects to your "x-bet-prod-jd" database
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 export const registerUser = async (email, password) => {
     try {
+        // 1. Create the User in Firebase Auth
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
-        // THIS IS THE LINE THAT CREATES THE WALLET IN YOUR SCREENSHOT
+        // 2. Create the Wallet in Firestore Database
+        // This is what will make the "wallets" collection appear in your screenshot
         await setDoc(doc(db, "wallets", user.uid), {
+            uid: user.uid,
             email: user.email,
             balance: 1000,
             createdAt: new Date()
@@ -17,6 +24,9 @@ export const registerUser = async (email, password) => {
 
         return { user: user, error: null };
     } catch (error) {
+        console.error("Firebase Error:", error);
         return { user: null, error: error.message };
     }
 };
+
+export { auth, db };
