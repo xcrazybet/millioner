@@ -3,44 +3,143 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-BET | Professional Dashboard</title>
+    <title>X-BET PRO | Global Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/dashboard.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* In-page critical overrides for immediate professional look */
+        .status-win { color: #22c55e; font-weight: bold; animation: pulse 1s; }
+        .status-loss { color: #ef4444; font-weight: bold; }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .transaction-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px;
+            border-bottom: 1px solid #334155;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+    </style>
 </head>
-<body class="bg-dark text-light">
+<body>
     <nav class="navbar">
-        <div class="logo">X-BET PRO</div>
+        <div class="logo">X-BET <span style="color: #fff; font-weight: 400;">PRO</span></div>
         <div class="user-profile">
-            <span id="userEmail" class="badge">--</span>
-            <button onclick="handleLogout()" class="btn-logout">Logout</button>
+            <span id="userEmail" class="badge">Loading...</span>
+            <button id="logoutBtn" class="btn-action" style="background: #334155; color: white; margin-left: 15px;">Logout</button>
         </div>
     </nav>
 
     <main class="container">
         <section class="balance-section">
             <div class="card">
-                <small>Total Balance</small>
-                <h1 id="balanceDisplay">$0.00</h1>
-                <div class="card-actions">
-                    <button class="btn-primary">Deposit</button>
-                    <button class="btn-secondary">Withdraw</button>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <small style="color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Available Credits</small>
+                        <h1 id="balanceDisplay">$0.00</h1>
+                    </div>
+                    <div style="text-align: right;">
+                        <span class="status-win">● Live Connection</span>
+                    </div>
+                </div>
+                <div class="card-actions" style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button class="btn-action" style="flex: 1;">Deposit</button>
+                    <button class="btn-action" style="flex: 1; background: #334155; color: white;">Withdraw</button>
                 </div>
             </div>
         </section>
 
-        <section class="game-grid">
-            <div class="game-card">
-                <h3>High-Low Coin Flip</h3>
-                <p>Double your money (50/50)</p>
+        <div class="game-grid" style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 2rem; margin-top: 2rem;">
+            
+            <section class="game-card">
+                <h3 style="margin-top: 0;">Multiplayer Coin Flip</h3>
+                <p style="color: var(--text-muted);">Predict the outcome and double your stake instantly.</p>
+                
+                <div style="background: #0f172a; padding: 30px; border-radius: 12px; text-align: center; margin: 20px 0;">
+                    <div id="coinGraphic" style="font-size: 4rem; margin-bottom: 10px;">🪙</div>
+                    <div id="statusMessage" class="status-msg">Enter amount and choose side</div>
+                </div>
+
                 <div class="input-group">
-                    <input type="number" id="betInput" placeholder="Bet Amount" class="form-control">
+                    <input type="number" id="betInput" placeholder="Min: $10" class="form-control" min="10">
                     <button id="betBtn" class="btn-action">Place Bet</button>
                 </div>
-                <div id="statusMessage" class="status-msg"></div>
-            </div>
-        </section>
+            </section>
+
+            <section class="card" style="padding: 1.5rem;">
+                <h3 style="margin-top: 0;">Recent Activity</h3>
+                <div id="transactionHistory">
+                    <div style="color: var(--text-muted); text-align: center; padding: 20px;">No recent bets</div>
+                </div>
+            </section>
+        </div>
     </main>
 
-    <script type="module" src="js/main.js"></script>
+    <script type="module">
+        import { auth, logoutUser } from './js/modules/auth.js';
+        import { initDashboard } from './js/modules/dashboard.js';
+        import { executeSecureBet } from './js/utils/api.js';
+        import { listenToTransactions } from './js/modules/transactions.js';
+
+        // 1. Initialize Dashboard & Real-time Listeners
+        initDashboard();
+        
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                listenToTransactions('transactionHistory');
+            } else {
+                window.location.href = 'login.html';
+            }
+        });
+
+        // 2. Handle Betting Logic
+        const betBtn = document.getElementById('betBtn');
+        const statusMsg = document.getElementById('statusMessage');
+        const betInput = document.getElementById('betInput');
+
+        betBtn.addEventListener('click', async () => {
+            const amount = parseFloat(betInput.value);
+            const user = auth.currentUser;
+
+            if (!user || isNaN(amount) || amount < 10) {
+                statusMsg.innerText = "⚠️ Minimum bet is $10";
+                statusMsg.className = "status-msg status-loss";
+                return;
+            }
+
+            // UI Feedback
+            betBtn.disabled = true;
+            betBtn.innerText = "WAITING...";
+            statusMsg.innerText = "🎲 Shuffling...";
+
+            try {
+                const result = await executeSecureBet(user.uid, amount, 'CoinFlip_v1');
+                
+                if (result.isWin) {
+                    statusMsg.innerText = `WINNER! +$${amount.toFixed(2)}`;
+                    statusMsg.className = "status-msg status-win";
+                } else {
+                    statusMsg.innerText = `LOSS: -$${amount.toFixed(2)}`;
+                    statusMsg.className = "status-msg status-loss";
+                }
+            } catch (err) {
+                statusMsg.innerText = "❌ " + err;
+                statusMsg.className = "status-msg status-loss";
+            } finally {
+                betBtn.disabled = false;
+                betBtn.innerText = "Place Bet";
+                betInput.value = "";
+            }
+        });
+
+        // 3. Logout
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            logoutUser().then(() => window.location.href = 'login.html');
+        });
+    </script>
 </body>
 </html>
