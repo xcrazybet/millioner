@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can only read/write their own document
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false; // ONLY via Cloud Functions
+      
+      // Admin override for user management
+      allow read: if isAdmin();
+      match /transactions/{transaction} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+    }
+    
+    // Transaction security
+    match /transactions/{transactionId} {
+      allow create: if false; // Only via Cloud Functions
+      allow read: if request.auth != null && 
+        (resource.data.senderId == request.auth.uid || 
+         resource.data.receiverId == request.auth.uid);
+      allow update, delete: if false;
+      
+      // Admin can read all transactions
+      allow read: if isAdmin();
+    }
+    
+    // System configuration - admin only
+    match /system/{document} {
+      allow read: if isAdmin();
+      allow write: if isSuperAdmin();
+    }
+    
+    // Admin actions log
+    match /admin_logs/{logId} {
+      allow create: if isAdmin();
+      allow read: if isAdmin();
+    }
+    
+    // Helper functions
+    function isAdmin() {
+      return request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'super_admin'];
+    }
+    
+    function isSuperAdmin() {
+      return request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin';
+    }
+    
+    // Rate limiting
+    function rateLimit(collection, maxPerMinute) {
+      let time = request.time;
+      let minuteAgo = time - duration.value(1, 'm');
+      let recentWrites = getAfter(
+        /databases/$(database)/documents/$(collection),
+        minuteAgo
+      ).size;
+      return recentWrites < maxPerMinute;
+    }
+  }
+}
