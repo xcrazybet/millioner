@@ -7,6 +7,7 @@
     <!-- Import Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <style>
         * {
             margin: 0;
@@ -226,6 +227,36 @@
             to { transform: rotate(360deg); }
         }
         
+        .wallet-info {
+            background-color: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .wallet-info h3 {
+            color: #4ade80;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .wallet-info p {
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .wallet-id {
+            background-color: rgba(59, 130, 246, 0.1);
+            padding: 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+            word-break: break-all;
+            margin-top: 5px;
+        }
+        
         @media (max-width: 480px) {
             .container {
                 border-radius: 8px;
@@ -293,8 +324,15 @@
                 </button>
             </form>
             
+            <div id="wallet-info" class="wallet-info">
+                <h3>🎉 Wallet Created Successfully!</h3>
+                <p><strong>Wallet ID:</strong> <span id="wallet-id-display" class="wallet-id"></span></p>
+                <p><strong>Starting Balance:</strong> <span id="wallet-balance" style="color: #4ade80; font-weight: bold;"></span></p>
+                <p><strong>Status:</strong> <span id="wallet-status" style="color: #60a5fa;">Active</span></p>
+            </div>
+            
             <div class="login-link">
-                Already have an account? <a href="#">Sign in here</a>
+                Already have an account? <a href="#" id="login-link">Sign in here</a>
             </div>
         </div>
     </div>
@@ -314,6 +352,7 @@
         // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
+        const db = firebase.firestore();
 
         document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('registration-form');
@@ -323,8 +362,66 @@
             const submitBtn = document.getElementById('submit-btn');
             const btnText = document.getElementById('btn-text');
             const btnLoader = document.getElementById('btn-loader');
+            const walletInfo = document.getElementById('wallet-info');
+            const walletIdDisplay = document.getElementById('wallet-id-display');
+            const walletBalance = document.getElementById('wallet-balance');
+            const loginLink = document.getElementById('login-link');
 
-            // Firebase Auth State Observer (optional, for debugging)
+            // Generate a unique wallet ID
+            function generateWalletId() {
+                const timestamp = Date.now().toString(36);
+                const randomStr = Math.random().toString(36).substring(2, 8);
+                return `WALLET-${timestamp}-${randomStr}`.toUpperCase();
+            }
+
+            // Create user wallet in Firestore
+            async function createUserWallet(uid, email, username) {
+                const walletId = generateWalletId();
+                const startingBalance = 1000.00; // Starting balance for new users
+                const walletData = {
+                    walletId: walletId,
+                    userId: uid,
+                    email: email,
+                    username: username,
+                    balance: startingBalance,
+                    currency: "USD",
+                    status: "active",
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    transactions: [],
+                    lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+                };
+
+                try {
+                    // Save wallet to Firestore
+                    await db.collection("wallets").doc(uid).set(walletData);
+                    
+                    // Also create a subcollection for transaction history
+                    await db.collection("wallets").doc(uid).collection("transactions").add({
+                        type: "initial_deposit",
+                        amount: startingBalance,
+                        description: "Welcome bonus - Initial account funding",
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        status: "completed",
+                        newBalance: startingBalance
+                    });
+
+                    return {
+                        success: true,
+                        walletId: walletId,
+                        balance: startingBalance,
+                        data: walletData
+                    };
+                } catch (error) {
+                    console.error("Error creating wallet:", error);
+                    return {
+                        success: false,
+                        error: error.message
+                    };
+                }
+            }
+
+            // Firebase Auth State Observer
             auth.onAuthStateChanged((user) => {
                 if (user) {
                     console.log("User is signed in:", user.email);
@@ -333,12 +430,21 @@
                 }
             });
 
+            // Login link handler
+            loginLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                showStatus('Redirecting to login page...', 'success');
+                // In a real app, you would redirect to login page
+                // window.location.href = '/login.html';
+            });
+
             form.addEventListener('submit', async function(event) {
                 event.preventDefault();
                 
-                // Clear any previous status messages
+                // Clear any previous status messages and wallet info
                 statusMessage.style.display = 'none';
                 statusMessage.className = 'status-message';
+                walletInfo.style.display = 'none';
                 
                 // Check if verification checkboxes are checked
                 if (!termsCheckbox.checked || !complianceCheckbox.checked) {
@@ -384,36 +490,50 @@
                 try {
                     // Create user with Firebase Authentication
                     const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                    const user = userCredential.user;
                     
                     // Update user profile with username
-                    await userCredential.user.updateProfile({
+                    await user.updateProfile({
                         displayName: username
                     });
                     
-                    // Send email verification (optional)
-                    await userCredential.user.sendEmailVerification();
+                    // Create wallet for the user
+                    const walletResult = await createUserWallet(user.uid, email, username);
                     
-                    // Success message
+                    if (!walletResult.success) {
+                        throw new Error(`Wallet creation failed: ${walletResult.error}`);
+                    }
+                    
+                    // Send email verification
+                    await user.sendEmailVerification();
+                    
+                    // Show success message with wallet info
                     showStatus(`Account created successfully! Welcome ${username}. A verification email has been sent to ${email}.`, 'success');
                     
-                    // Log user info to console
+                    // Display wallet information
+                    walletIdDisplay.textContent = walletResult.walletId;
+                    walletBalance.textContent = `$${walletResult.balance.toFixed(2)}`;
+                    walletInfo.style.display = 'block';
+                    
+                    // Log success to console
                     console.log("User registered successfully:", {
-                        uid: userCredential.user.uid,
-                        email: userCredential.user.email,
+                        uid: user.uid,
+                        email: user.email,
                         username: username,
-                        emailVerified: userCredential.user.emailVerified
+                        walletId: walletResult.walletId,
+                        startingBalance: walletResult.balance,
+                        emailVerified: user.emailVerified
                     });
                     
-                    // Reset form
+                    // Reset form (but keep wallet info visible)
                     form.reset();
                     termsCheckbox.checked = false;
                     complianceCheckbox.checked = false;
                     
-                    // Optionally redirect after successful registration
+                    // Auto-hide wallet info after 10 seconds
                     setTimeout(() => {
-                        // window.location.href = '/dashboard.html'; // Redirect to dashboard
-                        showStatus('You can now sign in with your credentials.', 'success');
-                    }, 3000);
+                        walletInfo.style.display = 'none';
+                    }, 10000);
                     
                 } catch (error) {
                     // Handle Firebase errors
@@ -440,7 +560,7 @@
                     }
                     
                     showStatus(errorMessage, 'error');
-                    console.error("Firebase registration error:", error.code, error.message);
+                    console.error("Registration error:", error.code, error.message);
                 } finally {
                     // Reset loading state
                     setLoading(false);
@@ -492,7 +612,7 @@
             });
             
             // Test Firebase connection on page load
-            console.log("Firebase initialized successfully");
+            console.log("Firebase and Firestore initialized successfully");
         });
     </script>
 </body>
