@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Account - Gaming Platform</title>
+    <!-- Import Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <style>
         * {
             margin: 0;
@@ -162,6 +165,13 @@
             transform: translateY(0);
         }
         
+        .btn:disabled {
+            background: #475569;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
         .login-link {
             text-align: center;
             margin-top: 25px;
@@ -177,10 +187,6 @@
         
         .login-link a:hover {
             text-decoration: underline;
-        }
-        
-        .hidden {
-            display: none;
         }
         
         .status-message {
@@ -202,6 +208,22 @@
             background-color: rgba(239, 68, 68, 0.1);
             color: #f87171;
             border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
         
         @media (max-width: 480px) {
@@ -257,7 +279,7 @@
                 <div class="form-group">
                     <label for="password">Password</label>
                     <input type="password" id="password" name="password" placeholder="Create a strong password" required>
-                    <div class="password-requirements">Password must be at least 8 characters long with a mix of letters and numbers</div>
+                    <div class="password-requirements">Password must be at least 8 characters long</div>
                 </div>
                 
                 <div class="form-group">
@@ -265,7 +287,10 @@
                     <input type="password" id="confirm-password" name="confirm-password" placeholder="Re-enter your password" required>
                 </div>
                 
-                <button type="submit" class="btn">Create Account</button>
+                <button type="submit" class="btn" id="submit-btn">
+                    <span id="btn-text">Create Account</span>
+                    <span id="btn-loader" class="loading" style="display: none;"></span>
+                </button>
             </form>
             
             <div class="login-link">
@@ -275,13 +300,40 @@
     </div>
 
     <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+            measurementId: "G-PTV4XMYQ6P"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+
         document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('registration-form');
             const statusMessage = document.getElementById('status-message');
             const termsCheckbox = document.getElementById('terms');
             const complianceCheckbox = document.getElementById('compliance');
-            
-            form.addEventListener('submit', function(event) {
+            const submitBtn = document.getElementById('submit-btn');
+            const btnText = document.getElementById('btn-text');
+            const btnLoader = document.getElementById('btn-loader');
+
+            // Firebase Auth State Observer (optional, for debugging)
+            auth.onAuthStateChanged((user) => {
+                if (user) {
+                    console.log("User is signed in:", user.email);
+                } else {
+                    console.log("No user is signed in");
+                }
+            });
+
+            form.addEventListener('submit', async function(event) {
                 event.preventDefault();
                 
                 // Clear any previous status messages
@@ -326,29 +378,98 @@
                     return;
                 }
                 
-                // Simulate successful registration
-                showStatus('Account created successfully! Redirecting to login...', 'success');
+                // Show loading state
+                setLoading(true);
                 
-                // In a real application, you would submit the form data to a server here
-                console.log({
-                    username: username,
-                    email: email,
-                    password: password
-                });
-                
-                // Reset form after successful submission
-                setTimeout(() => {
+                try {
+                    // Create user with Firebase Authentication
+                    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                    
+                    // Update user profile with username
+                    await userCredential.user.updateProfile({
+                        displayName: username
+                    });
+                    
+                    // Send email verification (optional)
+                    await userCredential.user.sendEmailVerification();
+                    
+                    // Success message
+                    showStatus(`Account created successfully! Welcome ${username}. A verification email has been sent to ${email}.`, 'success');
+                    
+                    // Log user info to console
+                    console.log("User registered successfully:", {
+                        uid: userCredential.user.uid,
+                        email: userCredential.user.email,
+                        username: username,
+                        emailVerified: userCredential.user.emailVerified
+                    });
+                    
+                    // Reset form
                     form.reset();
                     termsCheckbox.checked = false;
                     complianceCheckbox.checked = false;
-                    statusMessage.style.display = 'none';
-                }, 3000);
+                    
+                    // Optionally redirect after successful registration
+                    setTimeout(() => {
+                        // window.location.href = '/dashboard.html'; // Redirect to dashboard
+                        showStatus('You can now sign in with your credentials.', 'success');
+                    }, 3000);
+                    
+                } catch (error) {
+                    // Handle Firebase errors
+                    let errorMessage = "Registration failed. Please try again.";
+                    
+                    switch(error.code) {
+                        case 'auth/email-already-in-use':
+                            errorMessage = "This email address is already in use.";
+                            break;
+                        case 'auth/invalid-email':
+                            errorMessage = "The email address is not valid.";
+                            break;
+                        case 'auth/operation-not-allowed':
+                            errorMessage = "Email/password accounts are not enabled.";
+                            break;
+                        case 'auth/weak-password':
+                            errorMessage = "The password is too weak. Please use a stronger password.";
+                            break;
+                        case 'auth/network-request-failed':
+                            errorMessage = "Network error. Please check your internet connection.";
+                            break;
+                        default:
+                            errorMessage = error.message || "An error occurred during registration.";
+                    }
+                    
+                    showStatus(errorMessage, 'error');
+                    console.error("Firebase registration error:", error.code, error.message);
+                } finally {
+                    // Reset loading state
+                    setLoading(false);
+                }
             });
             
             function showStatus(message, type) {
                 statusMessage.textContent = message;
                 statusMessage.className = `status-message ${type}`;
                 statusMessage.style.display = 'block';
+                
+                // Auto-hide error messages after 5 seconds
+                if (type === 'error') {
+                    setTimeout(() => {
+                        statusMessage.style.display = 'none';
+                    }, 5000);
+                }
+            }
+            
+            function setLoading(isLoading) {
+                if (isLoading) {
+                    submitBtn.disabled = true;
+                    btnText.textContent = "Creating Account...";
+                    btnLoader.style.display = 'inline-block';
+                } else {
+                    submitBtn.disabled = false;
+                    btnText.textContent = "Create Account";
+                    btnLoader.style.display = 'none';
+                }
             }
             
             function isValidEmail(email) {
@@ -356,17 +477,22 @@
                 return emailRegex.test(email);
             }
             
-            // Optional: Add real-time password validation
+            // Real-time password validation
             const passwordInput = document.getElementById('password');
             const confirmPasswordInput = document.getElementById('confirm-password');
             
             confirmPasswordInput.addEventListener('input', function() {
-                if (passwordInput.value !== confirmPasswordInput.value) {
+                if (passwordInput.value !== confirmPasswordInput.value && confirmPasswordInput.value !== '') {
                     confirmPasswordInput.style.borderColor = '#f87171';
+                    confirmPasswordInput.style.boxShadow = '0 0 0 2px rgba(239, 68, 68, 0.2)';
                 } else {
                     confirmPasswordInput.style.borderColor = '#475569';
+                    confirmPasswordInput.style.boxShadow = 'none';
                 }
             });
+            
+            // Test Firebase connection on page load
+            console.log("Firebase initialized successfully");
         });
     </script>
 </body>
