@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Balance Migration Tool</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .log { background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0; max-height: 400px; overflow-y: auto; }
+        .success { color: green; }
+        .error { color: red; }
+        .warning { color: orange; }
+        button { padding: 10px 20px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💰 Balance Migration Tool</h1>
+        <p>This will migrate all user balances from legacy system to unified wallet system.</p>
+        
+        <div>
+            <button onclick="startMigration()">Start Migration</button>
+            <button onclick="checkStatus()">Check Status</button>
+            <button onclick="fixMissingWallets()">Fix Missing Wallets</button>
+        </div>
+        
+        <div id="status"></div>
+        <div class="log" id="log"></div>
+    </div>
+    
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.appspot.com",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+        
+        const app = firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        
+        let migrationRunning = false;
+        let migratedCount = 0;
+        let errorCount = 0;
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = type;
+            entry.textContent = `[${time}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        async function startMigration() {
+            if (migrationRunning) {
+                log("Migration already running", 'warning');
+                return;
+            }
+            
+            migrationRunning = true;
+            migratedCount = 0;
+            errorCount = 0;
+            
+            log("Starting balance migration...", 'info');
+            
+            try {
+                // 1. Get all users from USERS collection
+                const usersSnapshot = await db.collection('users').get();
+                log(`Found ${usersSnapshot.size} users in legacy system`, 'info');
+                
+                // 2. Migrate each user
+                for (const userDoc of usersSnapshot.docs) {
+                    const userData = userDoc.data();
+                    const userId = userDoc.id;
+                    
+                    log(`Processing ${userData.email || userId}...`, 'info');
+                    
+                    try {
+                        // Check if wallet already exists
+                        const walletDoc = await db.collection('wallets').doc(userId).get();
+                        
+                        if (walletDoc.exists) {
+                            // Update existing wallet with legacy balance if higher
+                            const walletData = walletDoc.data();
+                            const legacyBalance = userData.balance || 0;
+                            const currentBalance = walletData.balance || 0;
+                            
+                            if (legacyBalance > currentBalance) {
+                                await db.collection('wallets').doc(userId).update({
+                                    balance: legacyBalance,
+                                    migratedFromLegacy: true,
+                                    migrationDate: firebase.firestore.FieldValue.serverTimestamp()
+                                });
+                                log(`Updated wallet with legacy balance: $${legacyBalance}`, 'success');
+                                migratedCount++;
+                            } else {
+                                log(`Wallet already has equal or higher balance`, 'warning');
+                            }
+                        } else {
+                            // Create new wallet from legacy data
+                            const walletData = {
+                                userId: userId,
+                                email: userData.email || '',
+                                username: userData.username || userData.email?.split('@')[0] || 'user',
+                                balance: userData.balance || 0,
+                                walletId: 'WALLET-' + userId.substring(0, 8).toUpperCase(),
+                                createdAt: userData.createdAt || firebase.firestore.FieldValue.serverTimestamp(),
+                                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                                totalDeposits: userData.totalDeposits || 0,
+                                totalWithdrawn: userData.totalWithdrawn || 0,
+                                transactionCount: userData.transactionCount || 0,
+                                migratedFromLegacy: true,
+                                migrationDate: firebase.firestore.FieldValue.serverTimestamp(),
+                                sourceCollection: 'users'
+                            };
+                            
+                            await db.collection('wallets').doc(userId).set(walletData);
+                            log(`Created wallet with balance: $${walletData.balance}`, 'success');
+                            migratedCount++;
+                        }
+                        
+                        // Copy transactions
+                        await migrateUserTransactions(userId);
+                        
+                    } catch (error) {
+                        errorCount++;
+                        log(`Error migrating ${userId}: ${error.message}`, 'error');
+                    }
+                }
+                
+                log(`Migration completed! Success: ${migratedCount}, Errors: ${errorCount}`, 'success');
+                
+            } catch (error) {
+                log(`Migration failed: ${error.message}`, 'error');
+            }
+            
+            migrationRunning = false;
+        }
+        
+        async function migrateUserTransactions(userId) {
+            try {
+                // Get transactions from legacy system
+                const legacyTxSnapshot = await db.collection('transactions')
+                    .where('userId', '==', userId)
+                    .limit(100)
+                    .get();
+                
+                if (legacyTxSnapshot.size > 0) {
+                    log(`Copying ${legacyTxSnapshot.size} transactions...`, 'info');
+                    
+                    // Copy each transaction
+                    for (const txDoc of legacyTxSnapshot.docs) {
+                        const txData = txDoc.data();
+                        
+                        // Check if transaction already exists in new system
+                        const existingTx = await db.collection('transactions')
+                            .where('legacyId', '==', txDoc.id)
+                            .limit(1)
+                            .get();
+                        
+                        if (existingTx.empty) {
+                            // Copy transaction with legacy ID reference
+                            await db.collection('transactions').add({
+                                ...txData,
+                                legacyId: txDoc.id,
+                                migrated: true,
+                                migrationDate: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                log(`Transaction migration error: ${error.message}`, 'warning');
+            }
+        }
+        
+        async function checkStatus() {
+            try {
+                const usersCount = (await db.collection('users').get()).size;
+                const walletsCount = (await db.collection('wallets').get()).size;
+                
+                log(`Status Check:`, 'info');
+                log(`- Users (legacy): ${usersCount}`, 'info');
+                log(`- Wallets (new): ${walletsCount}`, 'info');
+                log(`- Migration needed: ${Math.max(0, usersCount - walletsCount)}`, 'info');
+                
+            } catch (error) {
+                log(`Status check failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function fixMissingWallets() {
+            try {
+                log("Checking for users without wallets...", 'info');
+                
+                const usersSnapshot = await db.collection('users').get();
+                let fixedCount = 0;
+                
+                for (const userDoc of usersSnapshot.docs) {
+                    const userId = userDoc.id;
+                    const userData = userDoc.data();
+                    
+                    const walletDoc = await db.collection('wallets').doc(userId).get();
+                    
+                    if (!walletDoc.exists) {
+                        // Create missing wallet
+                        const walletData = {
+                            userId: userId,
+                            email: userData.email || '',
+                            username: userData.username || userData.email?.split('@')[0] || 'user',
+                            balance: userData.balance || 0,
+                            walletId: 'WALLET-' + userId.substring(0, 8).toUpperCase(),
+                            createdAt: userData.createdAt || firebase.firestore.FieldValue.serverTimestamp(),
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                            totalDeposits: userData.totalDeposits || 0,
+                            totalWithdrawn: userData.totalWithdrawn || 0,
+                            transactionCount: 0,
+                            missingWalletFixed: true,
+                            fixDate: firebase.firestore.FieldValue.serverTimestamp()
+                        };
+                        
+                        await db.collection('wallets').doc(userId).set(walletData);
+                        log(`Fixed missing wallet for ${userData.email || userId}`, 'success');
+                        fixedCount++;
+                    }
+                }
+                
+                log(`Fixed ${fixedCount} missing wallets`, 'success');
+                
+            } catch (error) {
+                log(`Fix failed: ${error.message}`, 'error');
+            }
+        }
+        
+        log("Migration tool ready. Please login as admin.", 'info');
+        
+        // Auto login check
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                log(`Logged in as: ${user.email}`, 'success');
+            } else {
+                log("Please login as admin first", 'warning');
+                // Auto redirect to login
+                setTimeout(() => {
+                    window.location.href = 'admin-login.html';
+                }, 2000);
+            }
+        });
+    </script>
+</body>
+</html>
