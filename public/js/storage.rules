@@ -1,0 +1,57 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Payment proofs folder
+    match /payment_proofs/{userId}/{fileName} {
+      // User can upload their own payment proofs
+      allow create: if request.auth != null && 
+        request.auth.uid == userId &&
+        // File size limit: 5MB
+        request.resource.size < 5 * 1024 * 1024 &&
+        // File type validation (images and PDFs)
+        request.resource.contentType.matches('image/.*') ||
+        request.resource.contentType.matches('application/pdf');
+      
+      // User can read their own files
+      allow read: if request.auth != null && 
+        request.auth.uid == userId;
+      
+      // Admins can read all files
+      allow read: if request.auth != null && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      
+      // Users can delete their own files
+      allow delete: if request.auth != null && 
+        request.auth.uid == userId;
+      
+      // Prevent updates
+      allow update: if false;
+    }
+    
+    // Profile pictures folder
+    match /profile_pictures/{userId}/{fileName} {
+      // User can upload their own profile picture
+      allow create: if request.auth != null && 
+        request.auth.uid == userId &&
+        // File size limit: 2MB
+        request.resource.size < 2 * 1024 * 1024 &&
+        // Only image files
+        request.resource.contentType.matches('image/.*');
+      
+      // Anyone can read profile pictures
+      allow read: if true;
+      
+      // User can delete their own profile picture
+      allow delete: if request.auth != null && 
+        request.auth.uid == userId;
+      
+      // Prevent updates
+      allow update: if false;
+    }
+    
+    // Deny all other operations
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
