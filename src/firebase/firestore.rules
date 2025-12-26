@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ================= HELPERS =================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isActiveAdmin() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function getAdminRole() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role;
+    }
+    
+    function isFinanceAdmin() {
+      return isActiveAdmin() && (getAdminRole() == 'super_admin' || getAdminRole() == 'finance');
+    }
+    
+    function isSuperAdmin() {
+      return isActiveAdmin() && getAdminRole() == 'super_admin';
+    }
+
+    // ================= WALLETS =================
+    match /wallets/{userId} {
+      allow read: if isOwner(userId) || isActiveAdmin();
+      allow write: if false; // Only via Cloud Functions
+    }
+    
+    // ================= TRANSACTIONS =================
+    match /transactions/{transactionId} {
+      allow read: if isActiveAdmin() || 
+        (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if false; // Only via Cloud Functions
+    }
+    
+    // ================= DEPOSIT REQUESTS =================
+    match /deposit_requests/{requestId} {
+      allow read: if isActiveAdmin() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      allow update, delete: if false;
+    }
+    
+    // ================= WITHDRAWAL REQUESTS =================
+    match /withdrawals/{withdrawalId} {
+      allow read: if isActiveAdmin() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      allow update, delete: if false;
+    }
+    
+    // ================= ADMINS =================
+    match /admins/{adminId} {
+      allow read: if isActiveAdmin();
+      allow write: if false; // Only via Cloud Functions
+    }
+    
+    // ================= USER PROFILES =================
+    match /user_profiles/{userId} {
+      allow read: if isOwner(userId) || isActiveAdmin();
+      allow write: if isOwner(userId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'avatar', 'updatedAt']);
+    }
+    
+    // ================= NOTIFICATIONS =================
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if false; // Only via Cloud Functions
+      allow update: if isSignedIn() && 
+        request.auth.uid == resource.data.userId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
+    }
+    
+    // ================= LOGS =================
+    match /admin_logs/{logId} {
+      allow read, write: if isActiveAdmin();
+    }
+    
+    match /audit_logs/{logId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    // ================= DEFAULT DENY =================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
