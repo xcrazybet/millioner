@@ -784,6 +784,7 @@
                 <li><a href="#" onclick="showSection('users')"><i class="fas fa-users"></i> Users</a></li>
                 <li><a href="#" onclick="showSection('transactions')"><i class="fas fa-exchange-alt"></i> Transactions</a></li>
                 <li><a href="#" onclick="showSection('withdrawals')"><i class="fas fa-money-check-alt"></i> Withdrawals</a></li>
+                <li><a href="#" onclick="showSection('depositRequests')"><i class="fas fa-money-bill-wave"></i> Deposit Requests</a></li>
                 <li><a href="#" onclick="showSection('audit')"><i class="fas fa-history"></i> Audit Logs</a></li>
                 <li><a href="#" onclick="showSection('settings')"><i class="fas fa-cog"></i> Settings</a></li>
             </ul>
@@ -837,8 +838,8 @@
                     </div>
                     <div class="stat-card">
                         <div class="stat-info">
-                            <h3 id="todayDeposits">$0</h3>
-                            <p>Today's Deposits</p>
+                            <h3 id="pendingDeposits">0</h3>
+                            <p>Pending Deposits</p>
                             <div class="stat-change" id="depositChange"></div>
                         </div>
                         <div class="stat-icon stat-profit">
@@ -1010,9 +1011,8 @@
                                 <option value="all">All Types</option>
                                 <option value="deposit">Deposits</option>
                                 <option value="withdrawal">Withdrawals</option>
-                                <option value="bonus">Bonuses</option>
-                                <option value="bet_won">Wins</option>
-                                <option value="bet_lost">Losses</option>
+                                <option value="send">Transfers</option>
+                                <option value="receive">Received</option>
                                 <option value="admin_adjustment">Adjustments</option>
                             </select>
                         </div>
@@ -1138,6 +1138,85 @@
                 </div>
             </div>
 
+            <!-- Deposit Requests Section -->
+            <div class="section" id="depositRequestsSection" style="display: none;">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-money-bill-wave"></i> Deposit Requests</h2>
+                        <div class="card-tools">
+                            <button class="btn btn-primary" onclick="loadDepositRequests()">
+                                <i class="fas fa-sync"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Tabs -->
+                    <div class="tabs">
+                        <div class="tab active" onclick="showDepositRequestTab('pending')">Pending</div>
+                        <div class="tab" onclick="showDepositRequestTab('approved')">Approved</div>
+                        <div class="tab" onclick="showDepositRequestTab('rejected')">Rejected</div>
+                    </div>
+                    
+                    <div class="tab-content active" id="pendingDepositsTab">
+                        <div style="overflow-x: auto;">
+                            <table id="pendingDepositsTable">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>User</th>
+                                        <th>Amount</th>
+                                        <th>Method</th>
+                                        <th>Proof</th>
+                                        <th>Requested</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content" id="approvedDepositsTab">
+                        <div style="overflow-x: auto;">
+                            <table id="approvedDepositsTable">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>User</th>
+                                        <th>Amount</th>
+                                        <th>Method</th>
+                                        <th>Approved By</th>
+                                        <th>Approved At</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-content" id="rejectedDepositsTab">
+                        <div style="overflow-x: auto;">
+                            <table id="rejectedDepositsTable">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>User</th>
+                                        <th>Amount</th>
+                                        <th>Method</th>
+                                        <th>Reason</th>
+                                        <th>Rejected By</th>
+                                        <th>Rejected At</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="pagination" id="depositsPagination"></div>
+                </div>
+            </div>
+
             <!-- Audit Logs Section -->
             <div class="section" id="auditSection" style="display: none;">
                 <div class="card">
@@ -1162,6 +1241,7 @@
                                 <option value="login">Logins</option>
                                 <option value="balance_adjustment">Balance Adjustments</option>
                                 <option value="withdrawal">Withdrawals</option>
+                                <option value="deposit">Deposits</option>
                                 <option value="user_status">User Status</option>
                             </select>
                         </div>
@@ -1321,6 +1401,17 @@
         </div>
     </div>
 
+    <!-- Deposit Request Modal -->
+    <div class="modal" id="depositRequestModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Deposit Request Details</h3>
+                <button class="close-modal" onclick="closeModal('depositRequestModal')">&times;</button>
+            </div>
+            <div id="depositRequestContent"></div>
+        </div>
+    </div>
+
     <!-- Withdrawal Action Modal -->
     <div class="modal" id="withdrawalActionModal">
         <div class="modal-content">
@@ -1396,6 +1487,7 @@
         let allUsers = [];
         let allTransactions = [];
         let allAuditLogs = [];
+        let allDepositRequests = [];
         let filteredUsers = [];
         let filteredTransactions = [];
         let filteredAuditLogs = [];
@@ -1444,6 +1536,19 @@
             }).format(timestamp);
         }
 
+        function formatFullDate(timestamp) {
+            if (!timestamp) return "N/A";
+            if (timestamp.toDate) timestamp = timestamp.toDate();
+            return new Intl.DateTimeFormat('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            }).format(timestamp);
+        }
+
         function formatCurrency(amount) {
             return new Intl.NumberFormat('en-US', {
                 style: 'currency',
@@ -1466,7 +1571,8 @@
                 completed: '<span class="badge badge-success">Completed</span>',
                 failed: '<span class="badge badge-danger">Failed</span>',
                 approved: '<span class="badge badge-success">Approved</span>',
-                rejected: '<span class="badge badge-danger">Rejected</span>'
+                rejected: '<span class="badge badge-danger">Rejected</span>',
+                processing: '<span class="badge badge-info">Processing</span>'
             };
             return badges[status] || '<span class="badge badge-secondary">Unknown</span>';
         }
@@ -1476,6 +1582,8 @@
                 deposit: '<span class="badge badge-success">Deposit</span>',
                 withdrawal: '<span class="badge badge-warning">Withdrawal</span>',
                 bonus: '<span class="badge badge-info">Bonus</span>',
+                send: '<span class="badge badge-primary">Sent</span>',
+                receive: '<span class="badge badge-success">Received</span>',
                 bet_won: '<span class="badge badge-success">Win</span>',
                 bet_lost: '<span class="badge badge-danger">Loss</span>',
                 admin_adjustment: '<span class="badge badge-primary">Adjustment</span>',
@@ -1561,9 +1669,6 @@
                 
                 allUsers = [];
                 let totalBalance = 0;
-                let todayDeposits = 0;
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
                 
                 usersSnapshot.forEach(doc => {
                     const user = {
@@ -1574,27 +1679,21 @@
                     totalBalance += user.balance || 0;
                 });
                 
-                // Load transactions for today
-                const todayTxSnapshot = await db.collection('transactions')
-                    .where('timestamp', '>=', today)
-                    .where('type', '==', 'deposit')
+                // Load pending deposits
+                const pendingDepositsSnapshot = await db.collection('deposit_requests')
+                    .where('status', '==', 'pending')
                     .get();
                 
-                todayTxSnapshot.forEach(doc => {
-                    const tx = doc.data();
-                    todayDeposits += tx.amount || 0;
-                });
-                
                 // Load pending withdrawals
-                const withdrawalsSnapshot = await db.collection('withdrawals')
+                const pendingWithdrawalsSnapshot = await db.collection('withdrawals')
                     .where('status', '==', 'pending')
                     .get();
                 
                 // Update stats
                 document.getElementById('totalUsers').textContent = allUsers.length.toLocaleString();
                 document.getElementById('totalBalance').textContent = formatCurrency(totalBalance);
-                document.getElementById('todayDeposits').textContent = formatCurrency(todayDeposits);
-                document.getElementById('pendingWithdrawals').textContent = withdrawalsSnapshot.size;
+                document.getElementById('pendingDeposits').textContent = pendingDepositsSnapshot.size;
+                document.getElementById('pendingWithdrawals').textContent = pendingWithdrawalsSnapshot.size;
                 
                 // Update recent users table
                 const recentUsersTable = document.getElementById('recentUsersTable').querySelector('tbody');
@@ -1640,7 +1739,7 @@
                     row.innerHTML = `
                         <td>${getTransactionBadge(tx.type)}</td>
                         <td>${formatCurrency(tx.amount || 0)}</td>
-                        <td><small>${tx.userId ? tx.userId.substring(0, 8) + '...' : 'N/A'}</small></td>
+                        <td><small>${tx.userEmail ? tx.userEmail.substring(0, 10) + '...' : 'N/A'}</small></td>
                         <td>${formatDate(tx.timestamp)}</td>
                     `;
                 });
@@ -1955,6 +2054,7 @@
                             <option value="bonus">Bonus</option>
                             <option value="refund">Refund</option>
                             <option value="correction">Correction</option>
+                            <option value="manual_deposit">Manual Deposit</option>
                             <option value="other">Other</option>
                         </select>
                     </div>
@@ -2002,38 +2102,52 @@
                 `Are you sure you want to ${action} $${amount.toFixed(2)} to this user?`,
                 async () => {
                     try {
+                        // Get user data first
+                        const userDoc = await db.collection('wallets').doc(userId).get();
+                        if (!userDoc.exists) {
+                            showToast('error', 'User wallet not found');
+                            return;
+                        }
+                        const user = userDoc.data();
+
                         // Use transaction for atomic operation
                         await db.runTransaction(async (transaction) => {
-                            const userRef = db.collection('wallets').doc(userId);
-                            const userDoc = await transaction.get(userRef);
-                            
-                            if (!userDoc.exists) {
-                                throw new Error('User not found');
-                            }
-
-                            // Update balance
-                            transaction.update(userRef, {
+                            // 1. Update WALLETS collection (MASTER SOURCE)
+                            const walletRef = db.collection('wallets').doc(userId);
+                            transaction.update(walletRef, {
                                 balance: newBalance,
                                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                             });
 
-                            // Create transaction record
+                            // 2. Update USERS collection (for backward compatibility)
+                            const userRef = db.collection('users').doc(userId);
+                            const userDoc = await transaction.get(userRef);
+                            if (userDoc.exists) {
+                                transaction.update(userRef, {
+                                    balance: newBalance,
+                                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                                });
+                            }
+
+                            // 3. Create transaction record (for dashboard)
                             const txRef = db.collection('transactions').doc();
                             transaction.set(txRef, {
                                 userId: userId,
-                                type: 'admin_adjustment',
+                                type: action === 'add' ? 'deposit' : 'withdraw',
                                 amount: amount,
-                                action: action,
+                                description: `Admin adjustment: ${reason} - ${notes || 'No notes'}`,
+                                status: 'completed',
+                                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                                userEmail: user.email,
+                                username: user.username,
+                                adminEmail: currentAdmin.email,
                                 reason: reason,
                                 notes: notes,
                                 previousBalance: currentBalance,
-                                newBalance: newBalance,
-                                adminEmail: currentAdmin.email,
-                                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                                status: 'completed'
+                                newBalance: newBalance
                             });
 
-                            // Create admin log
+                            // 4. Create admin log
                             const logRef = db.collection('admin_logs').doc();
                             transaction.set(logRef, {
                                 adminId: currentAdmin.uid,
@@ -2053,9 +2167,10 @@
                         closeModal('adjustBalanceModal');
                         loadUsers();
                         loadDashboardData();
+                        
                     } catch (error) {
                         console.error('Error adjusting balance:', error);
-                        showToast('error', 'Failed to update balance');
+                        showToast('error', 'Failed to update balance: ' + error.message);
                     }
                 }
             );
@@ -2073,6 +2188,16 @@
                             status: newStatus,
                             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                         });
+
+                        // Update users collection for compatibility
+                        const userRef = db.collection('users').doc(userId);
+                        const userDoc = await userRef.get();
+                        if (userDoc.exists) {
+                            await userRef.update({
+                                status: newStatus,
+                                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        }
 
                         // Create admin log
                         await db.collection('admin_logs').add({
@@ -2095,6 +2220,696 @@
                     }
                 }
             );
+        }
+
+        // ====================
+        // DEPOSIT REQUESTS MANAGEMENT
+        // ====================
+        async function loadDepositRequests() {
+            try {
+                showLoading(true);
+                
+                // Load pending deposit requests
+                const pendingSnapshot = await db.collection('deposit_requests')
+                    .where('status', '==', 'pending')
+                    .orderBy('createdAt', 'desc')
+                    .get();
+                
+                const pendingTable = document.getElementById('pendingDepositsTable').querySelector('tbody');
+                pendingTable.innerHTML = '';
+                
+                if (pendingSnapshot.empty) {
+                    pendingTable.innerHTML = `
+                        <tr>
+                            <td colspan="7" class="empty-state">
+                                <i class="fas fa-clock"></i>
+                                <p>No pending deposit requests</p>
+                            </td>
+                        </tr>
+                    `;
+                } else {
+                    pendingSnapshot.forEach(doc => {
+                        const request = doc.data();
+                        const row = pendingTable.insertRow();
+                        row.innerHTML = `
+                            <td><small>${doc.id.substring(0, 8)}...</small></td>
+                            <td><small>${request.userEmail || 'N/A'}</small></td>
+                            <td><strong>${formatCurrency(request.amount || 0)}</strong></td>
+                            <td>${request.method || 'Unknown'}</td>
+                            <td>${request.proofUrl ? 
+                                `<a href="${request.proofUrl}" target="_blank" class="btn btn-sm btn-info">View Proof</a>` : 
+                                'No proof'}</td>
+                            <td>${formatDate(request.createdAt)}</td>
+                            <td class="action-buttons">
+                                <button class="btn btn-success btn-sm" onclick="processDepositRequest('${doc.id}', 'approve')" title="Approve">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                                <button class="btn btn-danger btn-sm" onclick="processDepositRequest('${doc.id}', 'reject')" title="Reject">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="viewDepositRequestDetails('${doc.id}')" title="View">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </td>
+                        `;
+                    });
+                }
+                
+                // Load approved deposit requests
+                const approvedSnapshot = await db.collection('deposit_requests')
+                    .where('status', '==', 'approved')
+                    .orderBy('approvedAt', 'desc')
+                    .limit(50)
+                    .get();
+                
+                const approvedTable = document.getElementById('approvedDepositsTable').querySelector('tbody');
+                approvedTable.innerHTML = '';
+                
+                approvedSnapshot.forEach(doc => {
+                    const request = doc.data();
+                    const row = approvedTable.insertRow();
+                    row.innerHTML = `
+                        <td><small>${doc.id.substring(0, 8)}...</small></td>
+                        <td><small>${request.userEmail || 'N/A'}</small></td>
+                        <td>${formatCurrency(request.amount || 0)}</td>
+                        <td>${request.method || 'Unknown'}</td>
+                        <td>${request.approvedBy || 'N/A'}</td>
+                        <td>${formatDate(request.approvedAt)}</td>
+                    `;
+                });
+                
+                // Load rejected deposit requests
+                const rejectedSnapshot = await db.collection('deposit_requests')
+                    .where('status', '==', 'rejected')
+                    .orderBy('rejectedAt', 'desc')
+                    .limit(50)
+                    .get();
+                
+                const rejectedTable = document.getElementById('rejectedDepositsTable').querySelector('tbody');
+                rejectedTable.innerHTML = '';
+                
+                rejectedSnapshot.forEach(doc => {
+                    const request = doc.data();
+                    const row = rejectedTable.insertRow();
+                    row.innerHTML = `
+                        <td><small>${doc.id.substring(0, 8)}...</small></td>
+                        <td><small>${request.userEmail || 'N/A'}</small></td>
+                        <td>${formatCurrency(request.amount || 0)}</td>
+                        <td>${request.method || 'Unknown'}</td>
+                        <td>${request.rejectionReason || 'N/A'}</td>
+                        <td>${request.rejectedBy || 'N/A'}</td>
+                        <td>${formatDate(request.rejectedAt)}</td>
+                    `;
+                });
+                
+                showLoading(false);
+            } catch (error) {
+                console.error('Error loading deposit requests:', error);
+                showToast('error', 'Failed to load deposit requests');
+                showLoading(false);
+            }
+        }
+
+        function showDepositRequestTab(tab) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('.tab').forEach(tabElement => {
+                tabElement.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tab + 'DepositsTab').classList.add('active');
+            
+            // Add active class to clicked tab
+            event.target.classList.add('active');
+        }
+
+        async function viewDepositRequestDetails(requestId) {
+            try {
+                const requestDoc = await db.collection('deposit_requests').doc(requestId).get();
+                if (!requestDoc.exists) {
+                    showToast('error', 'Deposit request not found');
+                    return;
+                }
+
+                const request = requestDoc.data();
+                const content = document.getElementById('depositRequestContent');
+                
+                content.innerHTML = `
+                    <div class="form-group">
+                        <label>Request ID</label>
+                        <input type="text" class="form-control" value="${requestId}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>User Email</label>
+                        <input type="text" class="form-control" value="${request.userEmail || 'N/A'}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>User ID</label>
+                        <input type="text" class="form-control" value="${request.userId || 'N/A'}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount</label>
+                        <input type="text" class="form-control" value="${formatCurrency(request.amount || 0)}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Payment Method</label>
+                        <input type="text" class="form-control" value="${request.method || 'Unknown'}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Transaction ID/Reference</label>
+                        <input type="text" class="form-control" value="${request.transactionId || 'N/A'}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <input type="text" class="form-control" value="${request.status || 'pending'}" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Requested At</label>
+                        <input type="text" class="form-control" value="${formatFullDate(request.createdAt)}" readonly>
+                    </div>
+                    
+                    ${request.proofUrl ? `
+                    <div class="form-group">
+                        <label>Payment Proof</label>
+                        <div>
+                            <a href="${request.proofUrl}" target="_blank" class="btn btn-info">
+                                <i class="fas fa-external-link-alt"></i> View Proof
+                            </a>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    ${request.notes ? `
+                    <div class="form-group">
+                        <label>User Notes</label>
+                        <textarea class="form-control" rows="3" readonly>${request.notes}</textarea>
+                    </div>
+                    ` : ''}
+                    
+                    ${request.status === 'pending' ? `
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button class="btn btn-success" onclick="processDepositRequest('${requestId}', 'approve')" style="flex: 1;">
+                            <i class="fas fa-check"></i> Approve Deposit
+                        </button>
+                        <button class="btn btn-danger" onclick="showRejectDepositModal('${requestId}')" style="flex: 1;">
+                            <i class="fas fa-times"></i> Reject Deposit
+                        </button>
+                    </div>
+                    ` : ''}
+                `;
+
+                openModal('depositRequestModal');
+            } catch (error) {
+                console.error('Error loading deposit request:', error);
+                showToast('error', 'Failed to load deposit request details');
+            }
+        }
+
+        function processDepositRequest(requestId, action) {
+            pendingAction = action;
+            pendingActionData = { requestId };
+            
+            if (action === 'approve') {
+                showConfirmation(
+                    'Approve Deposit Request',
+                    'Are you sure you want to approve this deposit request? The user\'s balance will be updated.',
+                    () => {
+                        approveDepositRequest(requestId);
+                    }
+                );
+            } else {
+                const content = document.getElementById('withdrawalActionContent');
+                content.innerHTML = `
+                    <div class="form-group">
+                        <label>Reason for Rejection</label>
+                        <textarea id="rejectionReason" class="form-control" placeholder="Enter reason for rejection..." rows="3" required></textarea>
+                    </div>
+                    <button class="btn btn-danger" onclick="rejectDepositRequest('${requestId}')" style="width: 100%;">
+                        <i class="fas fa-times"></i> Reject Deposit Request
+                    </button>
+                `;
+                
+                document.getElementById('withdrawalActionTitle').textContent = 'Reject Deposit Request';
+                openModal('withdrawalActionModal');
+            }
+        }
+
+        function showRejectDepositModal(requestId) {
+            const content = document.getElementById('withdrawalActionContent');
+            content.innerHTML = `
+                <div class="form-group">
+                    <label>Reason for Rejection</label>
+                    <textarea id="rejectionReason" class="form-control" placeholder="Enter reason for rejection..." rows="3" required></textarea>
+                </div>
+                <button class="btn btn-danger" onclick="rejectDepositRequest('${requestId}')" style="width: 100%;">
+                    <i class="fas fa-times"></i> Reject Deposit Request
+                </button>
+            `;
+            
+            document.getElementById('withdrawalActionTitle').textContent = 'Reject Deposit Request';
+            openModal('withdrawalActionModal');
+        }
+
+        async function approveDepositRequest(requestId) {
+            try {
+                await db.runTransaction(async (transaction) => {
+                    const requestRef = db.collection('deposit_requests').doc(requestId);
+                    const requestDoc = await transaction.get(requestRef);
+                    
+                    if (!requestDoc.exists || requestDoc.data().status !== 'pending') {
+                        throw new Error('Deposit request not found or already processed');
+                    }
+                    
+                    const request = requestDoc.data();
+                    const userId = request.userId;
+                    
+                    // Get user's current balance
+                    const walletRef = db.collection('wallets').doc(userId);
+                    const walletDoc = await transaction.get(walletRef);
+                    
+                    if (!walletDoc.exists) {
+                        throw new Error('User wallet not found');
+                    }
+                    
+                    const walletData = walletDoc.data();
+                    const currentBalance = walletData.balance || 0;
+                    const newBalance = currentBalance + (request.amount || 0);
+                    
+                    // 1. Update deposit request status
+                    transaction.update(requestRef, {
+                        status: 'approved',
+                        approvedBy: currentAdmin.email,
+                        approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // 2. Update user's wallet balance
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // 3. Update users collection for compatibility
+                    const userRef = db.collection('users').doc(userId);
+                    const userDoc = await transaction.get(userRef);
+                    if (userDoc.exists) {
+                        transaction.update(userRef, {
+                            balance: newBalance,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    
+                    // 4. Create transaction record
+                    const txRef = db.collection('transactions').doc();
+                    transaction.set(txRef, {
+                        userId: userId,
+                        type: 'deposit',
+                        amount: request.amount || 0,
+                        description: `Deposit approved - ${request.method || 'Manual deposit'}`,
+                        status: 'completed',
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        userEmail: request.userEmail,
+                        username: walletData.username,
+                        previousBalance: currentBalance,
+                        newBalance: newBalance,
+                        depositRequestId: requestId,
+                        approvedBy: currentAdmin.email
+                    });
+                    
+                    // 5. Create admin log
+                    const logRef = db.collection('admin_logs').doc();
+                    transaction.set(logRef, {
+                        adminId: currentAdmin.uid,
+                        adminEmail: currentAdmin.email,
+                        action: 'deposit_approved',
+                        targetUserId: userId,
+                        targetRequestId: requestId,
+                        amount: request.amount,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+                
+                showToast('success', 'Deposit approved and user balance updated');
+                loadDepositRequests();
+                loadDashboardData();
+                closeModal('depositRequestModal');
+                closeModal('withdrawalActionModal');
+            } catch (error) {
+                console.error('Error approving deposit:', error);
+                showToast('error', 'Failed to approve deposit: ' + error.message);
+            }
+        }
+
+        async function rejectDepositRequest(requestId) {
+            const reason = document.getElementById('rejectionReason').value.trim();
+            
+            if (!reason) {
+                showToast('error', 'Please enter a reason for rejection');
+                return;
+            }
+            
+            try {
+                await db.runTransaction(async (transaction) => {
+                    const requestRef = db.collection('deposit_requests').doc(requestId);
+                    const requestDoc = await transaction.get(requestRef);
+                    
+                    if (!requestDoc.exists || requestDoc.data().status !== 'pending') {
+                        throw new Error('Deposit request not found or already processed');
+                    }
+                    
+                    const request = requestDoc.data();
+                    
+                    // Update deposit request status
+                    transaction.update(requestRef, {
+                        status: 'rejected',
+                        rejectionReason: reason,
+                        rejectedBy: currentAdmin.email,
+                        rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Create admin log
+                    const logRef = db.collection('admin_logs').doc();
+                    transaction.set(logRef, {
+                        adminId: currentAdmin.uid,
+                        adminEmail: currentAdmin.email,
+                        action: 'deposit_rejected',
+                        targetRequestId: requestId,
+                        userId: request.userId,
+                        amount: request.amount,
+                        reason: reason,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+                
+                showToast('success', 'Deposit request rejected');
+                closeModal('depositRequestModal');
+                closeModal('withdrawalActionModal');
+                loadDepositRequests();
+            } catch (error) {
+                console.error('Error rejecting deposit:', error);
+                showToast('error', 'Failed to reject deposit request');
+            }
+        }
+
+        // ====================
+        // WITHDRAWAL MANAGEMENT
+        // ====================
+        async function loadWithdrawals() {
+            try {
+                showLoading(true);
+                
+                // Load pending withdrawals
+                const pendingSnapshot = await db.collection('withdrawals')
+                    .where('status', '==', 'pending')
+                    .orderBy('createdAt', 'desc')
+                    .get();
+                
+                const pendingTable = document.getElementById('pendingWithdrawalsTable').querySelector('tbody');
+                pendingTable.innerHTML = '';
+                
+                if (pendingSnapshot.empty) {
+                    pendingTable.innerHTML = `
+                        <tr>
+                            <td colspan="7" class="empty-state">
+                                <i class="fas fa-clock"></i>
+                                <p>No pending withdrawals</p>
+                            </td>
+                        </tr>
+                    `;
+                } else {
+                    pendingSnapshot.forEach(doc => {
+                        const withdrawal = doc.data();
+                        const row = pendingTable.insertRow();
+                        row.innerHTML = `
+                            <td><small>${doc.id.substring(0, 8)}...</small></td>
+                            <td><small>${withdrawal.userEmail || 'N/A'}</small></td>
+                            <td><strong>${formatCurrency(withdrawal.amount || 0)}</strong></td>
+                            <td>${withdrawal.method || 'Crypto'}</td>
+                            <td><small>${withdrawal.wallet || 'N/A'}</small></td>
+                            <td>${formatDate(withdrawal.createdAt)}</td>
+                            <td class="action-buttons">
+                                <button class="btn btn-success btn-sm" onclick="processWithdrawal('${doc.id}', 'approve')" title="Approve">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                                <button class="btn btn-danger btn-sm" onclick="processWithdrawal('${doc.id}', 'reject')" title="Reject">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="viewWithdrawalDetails('${doc.id}')" title="View">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </td>
+                        `;
+                    });
+                }
+                
+                // Load approved withdrawals
+                const approvedSnapshot = await db.collection('withdrawals')
+                    .where('status', '==', 'approved')
+                    .orderBy('approvedAt', 'desc')
+                    .limit(50)
+                    .get();
+                
+                const approvedTable = document.getElementById('approvedWithdrawalsTable').querySelector('tbody');
+                approvedTable.innerHTML = '';
+                
+                approvedSnapshot.forEach(doc => {
+                    const withdrawal = doc.data();
+                    const row = approvedTable.insertRow();
+                    row.innerHTML = `
+                        <td><small>${doc.id.substring(0, 8)}...</small></td>
+                        <td><small>${withdrawal.userEmail || 'N/A'}</small></td>
+                        <td>${formatCurrency(withdrawal.amount || 0)}</td>
+                        <td>${withdrawal.method || 'Crypto'}</td>
+                        <td>${withdrawal.approvedBy || 'N/A'}</td>
+                        <td>${formatDate(withdrawal.approvedAt)}</td>
+                    `;
+                });
+                
+                // Load rejected withdrawals
+                const rejectedSnapshot = await db.collection('withdrawals')
+                    .where('status', '==', 'rejected')
+                    .orderBy('rejectedAt', 'desc')
+                    .limit(50)
+                    .get();
+                
+                const rejectedTable = document.getElementById('rejectedWithdrawalsTable').querySelector('tbody');
+                rejectedTable.innerHTML = '';
+                
+                rejectedSnapshot.forEach(doc => {
+                    const withdrawal = doc.data();
+                    const row = rejectedTable.insertRow();
+                    row.innerHTML = `
+                        <td><small>${doc.id.substring(0, 8)}...</small></td>
+                        <td><small>${withdrawal.userEmail || 'N/A'}</small></td>
+                        <td>${formatCurrency(withdrawal.amount || 0)}</td>
+                        <td>${withdrawal.method || 'Crypto'}</td>
+                        <td>${withdrawal.rejectionReason || 'N/A'}</td>
+                        <td>${withdrawal.rejectedBy || 'N/A'}</td>
+                        <td>${formatDate(withdrawal.rejectedAt)}</td>
+                    `;
+                });
+                
+                showLoading(false);
+            } catch (error) {
+                console.error('Error loading withdrawals:', error);
+                showToast('error', 'Failed to load withdrawals');
+                showLoading(false);
+            }
+        }
+
+        function showWithdrawalTab(tab) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('.tab').forEach(tabElement => {
+                tabElement.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tab + 'WithdrawalsTab').classList.add('active');
+            
+            // Add active class to clicked tab
+            event.target.classList.add('active');
+        }
+
+        function processWithdrawal(withdrawalId, action) {
+            pendingAction = action;
+            pendingActionData = { withdrawalId };
+            
+            if (action === 'approve') {
+                showConfirmation(
+                    'Approve Withdrawal',
+                    'Are you sure you want to approve this withdrawal?',
+                    () => {
+                        approveWithdrawal(withdrawalId);
+                    }
+                );
+            } else {
+                const content = document.getElementById('withdrawalActionContent');
+                content.innerHTML = `
+                    <div class="form-group">
+                        <label>Reason for Rejection</label>
+                        <textarea id="rejectionReason" class="form-control" placeholder="Enter reason for rejection..." rows="3" required></textarea>
+                    </div>
+                    <button class="btn btn-danger" onclick="rejectWithdrawal('${withdrawalId}')" style="width: 100%;">
+                        <i class="fas fa-times"></i> Reject Withdrawal
+                    </button>
+                `;
+                
+                document.getElementById('withdrawalActionTitle').textContent = 'Reject Withdrawal';
+                openModal('withdrawalActionModal');
+            }
+        }
+
+        async function approveWithdrawal(withdrawalId) {
+            try {
+                await db.runTransaction(async (transaction) => {
+                    const withdrawalRef = db.collection('withdrawals').doc(withdrawalId);
+                    const withdrawalDoc = await transaction.get(withdrawalRef);
+                    
+                    if (!withdrawalDoc.exists || withdrawalDoc.data().status !== 'pending') {
+                        throw new Error('Withdrawal not found or already processed');
+                    }
+                    
+                    const withdrawal = withdrawalDoc.data();
+                    const userId = withdrawal.userId;
+                    
+                    // Get user's current balance
+                    const walletRef = db.collection('wallets').doc(userId);
+                    const walletDoc = await transaction.get(walletRef);
+                    
+                    if (!walletDoc.exists) {
+                        throw new Error('User wallet not found');
+                    }
+                    
+                    const walletData = walletDoc.data();
+                    const currentBalance = walletData.balance || 0;
+                    
+                    // Check if user has sufficient balance
+                    if (currentBalance < (withdrawal.amount || 0)) {
+                        throw new Error('User has insufficient balance');
+                    }
+                    
+                    const newBalance = currentBalance - (withdrawal.amount || 0);
+                    
+                    // 1. Update withdrawal status
+                    transaction.update(withdrawalRef, {
+                        status: 'approved',
+                        approvedBy: currentAdmin.email,
+                        approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // 2. Update user's wallet balance
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // 3. Update users collection for compatibility
+                    const userRef = db.collection('users').doc(userId);
+                    const userDoc = await transaction.get(userRef);
+                    if (userDoc.exists) {
+                        transaction.update(userRef, {
+                            balance: newBalance,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    
+                    // 4. Create transaction record
+                    const txRef = db.collection('transactions').doc();
+                    transaction.set(txRef, {
+                        userId: userId,
+                        type: 'withdrawal',
+                        amount: withdrawal.amount || 0,
+                        description: `Withdrawal approved - ${withdrawal.method || 'Unknown method'}`,
+                        status: 'completed',
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        userEmail: withdrawal.userEmail,
+                        username: walletData.username,
+                        previousBalance: currentBalance,
+                        newBalance: newBalance,
+                        withdrawalId: withdrawalId,
+                        approvedBy: currentAdmin.email
+                    });
+                    
+                    // 5. Create admin log
+                    const logRef = db.collection('admin_logs').doc();
+                    transaction.set(logRef, {
+                        adminId: currentAdmin.uid,
+                        adminEmail: currentAdmin.email,
+                        action: 'withdrawal_approved',
+                        targetUserId: userId,
+                        targetWithdrawalId: withdrawalId,
+                        amount: withdrawal.amount,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+                
+                showToast('success', 'Withdrawal approved and user balance updated');
+                loadWithdrawals();
+                loadDashboardData();
+                closeModal('withdrawalActionModal');
+            } catch (error) {
+                console.error('Error approving withdrawal:', error);
+                showToast('error', 'Failed to approve withdrawal: ' + error.message);
+            }
+        }
+
+        async function rejectWithdrawal(withdrawalId) {
+            const reason = document.getElementById('rejectionReason').value.trim();
+            
+            if (!reason) {
+                showToast('error', 'Please enter a reason for rejection');
+                return;
+            }
+            
+            try {
+                await db.runTransaction(async (transaction) => {
+                    const withdrawalRef = db.collection('withdrawals').doc(withdrawalId);
+                    const withdrawalDoc = await transaction.get(withdrawalRef);
+                    
+                    if (!withdrawalDoc.exists || withdrawalDoc.data().status !== 'pending') {
+                        throw new Error('Withdrawal not found or already processed');
+                    }
+                    
+                    const withdrawal = withdrawalDoc.data();
+                    
+                    // Update withdrawal status
+                    transaction.update(withdrawalRef, {
+                        status: 'rejected',
+                        rejectionReason: reason,
+                        rejectedBy: currentAdmin.email,
+                        rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Create admin log
+                    const logRef = db.collection('admin_logs').doc();
+                    transaction.set(logRef, {
+                        adminId: currentAdmin.uid,
+                        adminEmail: currentAdmin.email,
+                        action: 'withdrawal_rejected',
+                        targetWithdrawalId: withdrawalId,
+                        amount: withdrawal.amount,
+                        userId: withdrawal.userId,
+                        reason: reason,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+                
+                showToast('success', 'Withdrawal rejected');
+                closeModal('withdrawalActionModal');
+                loadWithdrawals();
+            } catch (error) {
+                console.error('Error rejecting withdrawal:', error);
+                showToast('error', 'Failed to reject withdrawal');
+            }
         }
 
         // ====================
@@ -2190,7 +3005,7 @@
                     const row = tableBody.insertRow();
                     row.innerHTML = `
                         <td><small title="${tx.id}">${tx.id.substring(0, 8)}...</small></td>
-                        <td><small>${tx.userId ? tx.userId.substring(0, 8) + '...' : 'N/A'}</small></td>
+                        <td><small>${tx.userEmail ? tx.userEmail.substring(0, 10) + '...' : 'N/A'}</small></td>
                         <td>${getTransactionBadge(tx.type)}</td>
                         <td><strong>${formatCurrency(tx.amount || 0)}</strong></td>
                         <td>${formatCurrency(tx.previousBalance || 0)}</td>
@@ -2201,14 +3016,6 @@
                             <button class="btn btn-primary btn-sm" onclick="viewTransactionDetails('${tx.id}')" title="View Details">
                                 <i class="fas fa-eye"></i>
                             </button>
-                            ${tx.status === 'pending' && currentAdmin.role === 'owner' ? `
-                            <button class="btn btn-success btn-sm" onclick="updateTransactionStatus('${tx.id}', 'completed')" title="Approve">
-                                <i class="fas fa-check"></i>
-                            </button>
-                            <button class="btn btn-danger btn-sm" onclick="updateTransactionStatus('${tx.id}', 'failed')" title="Reject">
-                                <i class="fas fa-times"></i>
-                            </button>
-                            ` : ''}
                         </td>
                     `;
                 });
@@ -2216,308 +3023,6 @@
             
             const totalPages = Math.ceil(filteredTransactions.length / TRANSACTIONS_PER_PAGE);
             renderPagination('transactionsPagination', page, totalPages, renderTransactionsTable);
-        }
-
-        async function viewTransactionDetails(txId) {
-            try {
-                const txDoc = await db.collection('transactions').doc(txId).get();
-                if (!txDoc.exists) {
-                    showToast('error', 'Transaction not found');
-                    return;
-                }
-
-                const tx = txDoc.data();
-                const content = document.getElementById('transactionDetailsContent');
-                
-                content.innerHTML = `
-                    <div class="row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                        <div>
-                            <h4>Transaction Information</h4>
-                            <p><strong>ID:</strong> ${txId}</p>
-                            <p><strong>Type:</strong> ${tx.type}</p>
-                            <p><strong>Amount:</strong> ${formatCurrency(tx.amount || 0)}</p>
-                            <p><strong>Status:</strong> ${tx.status || 'completed'}</p>
-                        </div>
-                        <div>
-                            <h4>Account Details</h4>
-                            <p><strong>User ID:</strong> ${tx.userId || 'N/A'}</p>
-                            <p><strong>Previous Balance:</strong> ${formatCurrency(tx.previousBalance || 0)}</p>
-                            <p><strong>New Balance:</strong> ${formatCurrency(tx.newBalance || 0)}</p>
-                            <p><strong>Date:</strong> ${formatDate(tx.timestamp)}</p>
-                        </div>
-                    </div>
-                    
-                    <div class="row" style="margin-bottom: 20px;">
-                        <div>
-                            <h4>Additional Information</h4>
-                            <p><strong>Reason:</strong> ${tx.reason || 'N/A'}</p>
-                            <p><strong>Notes:</strong> ${tx.notes || 'N/A'}</p>
-                            <p><strong>Admin:</strong> ${tx.adminEmail || 'N/A'}</p>
-                        </div>
-                    </div>
-                    
-                    <h4>Related Information</h4>
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        ${tx.userId ? `
-                        <button class="btn btn-info" onclick="viewUserDetails('${tx.userId}')">
-                            <i class="fas fa-user"></i> View User
-                        </button>
-                        ` : ''}
-                        <button class="btn btn-secondary" onclick="closeModal('transactionDetailsModal')">
-                            Close
-                        </button>
-                    </div>
-                `;
-
-                openModal('transactionDetailsModal');
-            } catch (error) {
-                console.error('Error loading transaction:', error);
-                showToast('error', 'Failed to load transaction details');
-            }
-        }
-
-        // ====================
-        // WITHDRAWAL MANAGEMENT
-        // ====================
-        async function loadWithdrawals() {
-            try {
-                showLoading(true);
-                
-                // Load pending withdrawals
-                const pendingSnapshot = await db.collection('withdrawals')
-                    .where('status', '==', 'pending')
-                    .orderBy('createdAt', 'desc')
-                    .get();
-                
-                const pendingTable = document.getElementById('pendingWithdrawalsTable').querySelector('tbody');
-                pendingTable.innerHTML = '';
-                
-                if (pendingSnapshot.empty) {
-                    pendingTable.innerHTML = `
-                        <tr>
-                            <td colspan="7" class="empty-state">
-                                <i class="fas fa-clock"></i>
-                                <p>No pending withdrawals</p>
-                            </td>
-                        </tr>
-                    `;
-                } else {
-                    pendingSnapshot.forEach(doc => {
-                        const withdrawal = doc.data();
-                        const row = pendingTable.insertRow();
-                        row.innerHTML = `
-                            <td><small>${doc.id.substring(0, 8)}...</small></td>
-                            <td><small>${withdrawal.userId ? withdrawal.userId.substring(0, 8) + '...' : 'N/A'}</small></td>
-                            <td><strong>${formatCurrency(withdrawal.amount || 0)}</strong></td>
-                            <td>${withdrawal.method || 'Crypto'}</td>
-                            <td><small>${withdrawal.wallet || 'N/A'}</small></td>
-                            <td>${formatDate(withdrawal.createdAt)}</td>
-                            <td class="action-buttons">
-                                <button class="btn btn-success btn-sm" onclick="processWithdrawal('${doc.id}', 'approve')" title="Approve">
-                                    <i class="fas fa-check"></i>
-                                </button>
-                                <button class="btn btn-danger btn-sm" onclick="processWithdrawal('${doc.id}', 'reject')" title="Reject">
-                                    <i class="fas fa-times"></i>
-                                </button>
-                                <button class="btn btn-primary btn-sm" onclick="viewWithdrawalDetails('${doc.id}')" title="View">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                            </td>
-                        `;
-                    });
-                }
-                
-                // Load approved withdrawals
-                const approvedSnapshot = await db.collection('withdrawals')
-                    .where('status', '==', 'approved')
-                    .orderBy('approvedAt', 'desc')
-                    .limit(50)
-                    .get();
-                
-                const approvedTable = document.getElementById('approvedWithdrawalsTable').querySelector('tbody');
-                approvedTable.innerHTML = '';
-                
-                approvedSnapshot.forEach(doc => {
-                    const withdrawal = doc.data();
-                    const row = approvedTable.insertRow();
-                    row.innerHTML = `
-                        <td><small>${doc.id.substring(0, 8)}...</small></td>
-                        <td><small>${withdrawal.userId ? withdrawal.userId.substring(0, 8) + '...' : 'N/A'}</small></td>
-                        <td>${formatCurrency(withdrawal.amount || 0)}</td>
-                        <td>${withdrawal.method || 'Crypto'}</td>
-                        <td>${withdrawal.approvedBy || 'N/A'}</td>
-                        <td>${formatDate(withdrawal.approvedAt)}</td>
-                    `;
-                });
-                
-                // Load rejected withdrawals
-                const rejectedSnapshot = await db.collection('withdrawals')
-                    .where('status', '==', 'rejected')
-                    .orderBy('rejectedAt', 'desc')
-                    .limit(50)
-                    .get();
-                
-                const rejectedTable = document.getElementById('rejectedWithdrawalsTable').querySelector('tbody');
-                rejectedTable.innerHTML = '';
-                
-                rejectedSnapshot.forEach(doc => {
-                    const withdrawal = doc.data();
-                    const row = rejectedTable.insertRow();
-                    row.innerHTML = `
-                        <td><small>${doc.id.substring(0, 8)}...</small></td>
-                        <td><small>${withdrawal.userId ? withdrawal.userId.substring(0, 8) + '...' : 'N/A'}</small></td>
-                        <td>${formatCurrency(withdrawal.amount || 0)}</td>
-                        <td>${withdrawal.method || 'Crypto'}</td>
-                        <td>${withdrawal.rejectionReason || 'N/A'}</td>
-                        <td>${withdrawal.rejectedBy || 'N/A'}</td>
-                        <td>${formatDate(withdrawal.rejectedAt)}</td>
-                    `;
-                });
-                
-                showLoading(false);
-            } catch (error) {
-                console.error('Error loading withdrawals:', error);
-                showToast('error', 'Failed to load withdrawals');
-                showLoading(false);
-            }
-        }
-
-        function showWithdrawalTab(tab) {
-            // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            
-            // Remove active class from all tabs
-            document.querySelectorAll('.tab').forEach(tabElement => {
-                tabElement.classList.remove('active');
-            });
-            
-            // Show selected tab
-            document.getElementById(tab + 'WithdrawalsTab').classList.add('active');
-            
-            // Add active class to clicked tab
-            event.target.classList.add('active');
-        }
-
-        function processWithdrawal(withdrawalId, action) {
-            pendingAction = action;
-            pendingActionData = { withdrawalId };
-            
-            if (action === 'approve') {
-                showConfirmation(
-                    'Approve Withdrawal',
-                    'Are you sure you want to approve this withdrawal?',
-                    () => {
-                        approveWithdrawal(withdrawalId);
-                    }
-                );
-            } else {
-                const content = document.getElementById('withdrawalActionContent');
-                content.innerHTML = `
-                    <div class="form-group">
-                        <label>Reason for Rejection</label>
-                        <textarea id="rejectionReason" class="form-control" placeholder="Enter reason for rejection..." rows="3" required></textarea>
-                    </div>
-                    <button class="btn btn-danger" onclick="rejectWithdrawal('${withdrawalId}')" style="width: 100%;">
-                        <i class="fas fa-times"></i> Reject Withdrawal
-                    </button>
-                `;
-                
-                document.getElementById('withdrawalActionTitle').textContent = 'Reject Withdrawal';
-                openModal('withdrawalActionModal');
-            }
-        }
-
-        async function approveWithdrawal(withdrawalId) {
-            try {
-                await db.runTransaction(async (transaction) => {
-                    const withdrawalRef = db.collection('withdrawals').doc(withdrawalId);
-                    const withdrawalDoc = await transaction.get(withdrawalRef);
-                    
-                    if (!withdrawalDoc.exists || withdrawalDoc.data().status !== 'pending') {
-                        throw new Error('Withdrawal not found or already processed');
-                    }
-                    
-                    const withdrawal = withdrawalDoc.data();
-                    
-                    // Update withdrawal status
-                    transaction.update(withdrawalRef, {
-                        status: 'approved',
-                        approvedBy: currentAdmin.email,
-                        approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Create admin log
-                    const logRef = db.collection('admin_logs').doc();
-                    transaction.set(logRef, {
-                        adminId: currentAdmin.uid,
-                        adminEmail: currentAdmin.email,
-                        action: 'withdrawal_approved',
-                        targetWithdrawalId: withdrawalId,
-                        amount: withdrawal.amount,
-                        userId: withdrawal.userId,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                });
-                
-                showToast('success', 'Withdrawal approved successfully');
-                loadWithdrawals();
-                closeModal('withdrawalActionModal');
-            } catch (error) {
-                console.error('Error approving withdrawal:', error);
-                showToast('error', 'Failed to approve withdrawal');
-            }
-        }
-
-        async function rejectWithdrawal(withdrawalId) {
-            const reason = document.getElementById('rejectionReason').value.trim();
-            
-            if (!reason) {
-                showToast('error', 'Please enter a reason for rejection');
-                return;
-            }
-            
-            try {
-                await db.runTransaction(async (transaction) => {
-                    const withdrawalRef = db.collection('withdrawals').doc(withdrawalId);
-                    const withdrawalDoc = await transaction.get(withdrawalRef);
-                    
-                    if (!withdrawalDoc.exists || withdrawalDoc.data().status !== 'pending') {
-                        throw new Error('Withdrawal not found or already processed');
-                    }
-                    
-                    const withdrawal = withdrawalDoc.data();
-                    
-                    // Update withdrawal status
-                    transaction.update(withdrawalRef, {
-                        status: 'rejected',
-                        rejectionReason: reason,
-                        rejectedBy: currentAdmin.email,
-                        rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Create admin log
-                    const logRef = db.collection('admin_logs').doc();
-                    transaction.set(logRef, {
-                        adminId: currentAdmin.uid,
-                        adminEmail: currentAdmin.email,
-                        action: 'withdrawal_rejected',
-                        targetWithdrawalId: withdrawalId,
-                        amount: withdrawal.amount,
-                        userId: withdrawal.userId,
-                        reason: reason,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                });
-                
-                showToast('success', 'Withdrawal rejected');
-                closeModal('withdrawalActionModal');
-                loadWithdrawals();
-            } catch (error) {
-                console.error('Error rejecting withdrawal:', error);
-                showToast('error', 'Failed to reject withdrawal');
-            }
         }
 
         // ====================
@@ -2654,6 +3159,8 @@
                 'balance_adjustment': 'Balance Adjustment',
                 'withdrawal_approved': 'Withdrawal Approved',
                 'withdrawal_rejected': 'Withdrawal Rejected',
+                'deposit_approved': 'Deposit Approved',
+                'deposit_rejected': 'Deposit Rejected',
                 'user_status_change': 'User Status Changed'
             };
             return actions[action] || action.replace(/_/g, ' ');
@@ -2675,9 +3182,9 @@
 
         function exportTransactions() {
             const csvContent = "data:text/csv;charset=utf-8," 
-                + "Transaction ID,User ID,Type,Amount,Previous Balance,New Balance,Status,Date,Admin\n"
+                + "Transaction ID,User Email,Type,Amount,Previous Balance,New Balance,Status,Date,Admin\n"
                 + filteredTransactions.map(tx => 
-                    `"${tx.id}","${tx.userId || ''}","${tx.type}","${tx.amount || 0}","${tx.previousBalance || 0}","${tx.newBalance || 0}","${tx.status || 'completed'}","${formatDate(tx.timestamp)}","${tx.adminEmail || ''}"`
+                    `"${tx.id}","${tx.userEmail || ''}","${tx.type}","${tx.amount || 0}","${tx.previousBalance || 0}","${tx.newBalance || 0}","${tx.status || 'completed'}","${formatDate(tx.timestamp)}","${tx.adminEmail || ''}"`
                 ).join("\n");
 
             downloadCSV(csvContent, `transactions_export_${new Date().toISOString().split('T')[0]}.csv`);
@@ -2747,7 +3254,7 @@
             } else if (activeSection === 'transactionsSection') {
                 // Search in transactions
                 filteredTransactions = allTransactions.filter(tx => 
-                    (tx.userId && tx.userId.toLowerCase().includes(query)) ||
+                    (tx.userEmail && tx.userEmail.toLowerCase().includes(query)) ||
                     (tx.type && tx.type.toLowerCase().includes(query)) ||
                     (tx.id && tx.id.toLowerCase().includes(query)) ||
                     (tx.adminEmail && tx.adminEmail.toLowerCase().includes(query))
@@ -2792,6 +3299,7 @@
                 users: 'User Management',
                 transactions: 'Transactions',
                 withdrawals: 'Withdrawal Management',
+                depositRequests: 'Deposit Requests',
                 audit: 'Audit Logs',
                 settings: 'Settings'
             };
@@ -2806,6 +3314,8 @@
                 loadTransactions();
             } else if (sectionId === 'withdrawals') {
                 loadWithdrawals();
+            } else if (sectionId === 'depositRequests') {
+                loadDepositRequests();
             } else if (sectionId === 'audit') {
                 loadAuditLogs();
             }
