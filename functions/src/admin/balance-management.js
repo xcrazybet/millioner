@@ -1,264 +1,310 @@
-const functions = require('firebase-functions');
+// functions/src/admin/balance-management.js
 const admin = require('firebase-admin');
-
-// Initialize Firebase Admin if not already done
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
-
 const db = admin.firestore();
 
-exports.adminTransferToUser = functions.https.onCall(async (data, context) => {
-  // Verify admin authentication
+/**
+ * Admin transfer money to user
+ * @param {string} userId - Target user ID
+ * @param {number} amount - Amount to transfer
+ * @param {string} reason - Reason for transfer
+ * @param {string} notes - Additional notes
+ * @param {object} context - Firebase callable function context
+ * @returns {Promise<object>} Result
+ */
+exports.adminTransferToUser = async (data, context) => {
+  // Verify admin
   if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Not authenticated');
+    throw new admin.firestore.FirestoreError('unauthenticated', 'Not authenticated');
   }
-
-  const { targetUserId, amount, reason, notes, metadata = {} } = data;
-  const adminId = context.auth.uid;
-
-  // Input validation
-  if (!targetUserId || typeof targetUserId !== 'string') {
-    throw new functions.https.HttpsError('invalid-argument', 'Invalid target user ID');
+  
+  const adminDoc = await db.collection('admins').doc(context.auth.uid).get();
+  if (!adminDoc.exists || !adminDoc.data().active) {
+    throw new admin.firestore.FirestoreError('permission-denied', 'Admin access required');
   }
-
-  if (!amount || typeof amount !== 'number' || amount <= 0) {
-    throw new functions.https.HttpsError('invalid-argument', 'Invalid amount');
+  
+  const { userId, amount, reason = 'Admin transfer', notes = '' } = data;
+  
+  if (!userId || !amount || amount <= 0) {
+    throw new admin.firestore.FirestoreError('invalid-argument', 'Invalid userId or amount');
   }
-
-  // Round to 2 decimal places to prevent floating point issues
-  const sanitizedAmount = Math.round(amount * 100) / 100;
-  const amountInCents = Math.round(sanitizedAmount * 100);
-
-  // Verify admin permissions
+  
+  console.log(`[ADMIN TRANSFER] ${context.auth.uid} transferring $${amount} to ${userId}`);
+  
   try {
-    const adminDoc = await db.collection('admins').doc(adminId).get();
-    
-    if (!adminDoc.exists) {
-      throw new functions.https.HttpsError('permission-denied', 'Admin not found');
-    }
-
-    const adminData = adminDoc.data();
-    
-    if (!adminData?.permissions?.includes('balance_adjustment')) {
-      throw new functions.https.HttpsError('permission-denied', 'Insufficient permissions');
-    }
-
-    // Check admin status
-    if (adminData.status !== 'active') {
-      throw new functions.https.HttpsError('permission-denied', `Admin account is ${adminData.status}`);
-    }
-
-    // Get admin email for audit trail
-    const adminEmail = adminData.email || 'unknown@admin.com';
-
-    // Perform secure transaction using Firestore transaction
     const result = await db.runTransaction(async (transaction) => {
       // Get target user wallet
-      const targetWalletRef = db.collection('wallets').doc(targetUserId);
-      const targetWalletDoc = await transaction.get(targetWalletRef);
-
-      let currentBalance = 0;
-      let userData = {};
-
-      if (targetWalletDoc.exists) {
-        const walletData = targetWalletDoc.data();
-        currentBalance = walletData.balance || 0;
-        userData = walletData;
-
-        // Check if wallet is active
-        if (walletData.status !== 'active') {
-          throw new Error(`Target wallet is ${walletData.status}`);
-        }
-      } else {
-        // Get user info for new wallet
-        try {
-          const userRecord = await admin.auth().getUser(targetUserId);
-          userData = {
-            email: userRecord.email || 'unknown@user.com',
-            username: userRecord.displayName || (userRecord.email ? userRecord.email.split('@')[0] : 'Unknown'),
-            status: 'active'
-          };
-        } catch (error) {
-          throw new Error('Target user not found');
-        }
-
-        // Create wallet with initial balance
-        transaction.set(targetWalletRef, {
-          userId: targetUserId,
-          email: userData.email,
-          username: userData.username,
-          balance: sanitizedAmount,
-          balanceCents: amountInCents,
-          walletId: `WALLET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          currency: 'USD',
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          totalDeposits: sanitizedAmount,
-          totalWithdrawn: 0,
-          totalWon: 0,
-          totalLost: 0,
-          status: 'active',
-          kycStatus: 'pending',
-          settings: {
-            lowBalanceAlert: true,
-            transactionNotifications: true
-          },
-          version: 1
-        });
-
-        currentBalance = 0;
+      const walletRef = db.collection('wallets').doc(userId);
+      const walletDoc = await transaction.get(walletRef);
+      
+      if (!walletDoc.exists) {
+        throw new Error('User wallet not found');
       }
-
-      const newBalance = currentBalance + sanitizedAmount;
-      const newBalanceCents = Math.round(newBalance * 100);
-
-      // Update balance if wallet already exists
-      if (targetWalletDoc.exists) {
-        transaction.update(targetWalletRef, {
-          balance: newBalance,
-          balanceCents: newBalanceCents,
-          totalDeposits: admin.firestore.FieldValue.increment(sanitizedAmount),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-      }
-
-      // Create transaction record
-      const transactionId = `TX-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const transactionRef = db.collection('transactions').doc(transactionId);
-
-      transaction.set(transactionRef, {
-        id: transactionId,
-        userId: targetUserId,
+      
+      const walletData = walletDoc.data();
+      const currentBalance = walletData.balance || 0;
+      const newBalance = currentBalance + amount;
+      
+      // Update target wallet
+      transaction.update(walletRef, {
+        balance: newBalance,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        totalDeposited: admin.firestore.FieldValue.increment(amount)
+      });
+      
+      // Create transaction for target user
+      const txRef = db.collection('transactions').doc();
+      transaction.set(txRef, {
+        id: txRef.id,
+        userId: userId,
         type: 'admin_adjustment',
         subType: 'credit',
-        amount: sanitizedAmount,
-        amountCents: amountInCents,
+        amount: amount,
         description: reason,
         notes: notes,
         status: 'completed',
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        userEmail: userData.email,
-        username: userData.username,
-        adminId: adminId,
-        adminEmail: adminEmail,
+        userEmail: walletData.email,
+        username: walletData.username,
+        adminId: context.auth.uid,
+        adminEmail: adminDoc.data().email,
         previousBalance: currentBalance,
         newBalance: newBalance,
-        previousBalanceCents: Math.round(currentBalance * 100),
-        newBalanceCents: newBalanceCents,
         metadata: {
           action: 'credit',
           reason: reason,
           notes: notes,
-          ...metadata
-        },
-        ipAddress: metadata.ipAddress || (context.rawRequest && context.rawRequest.ip) || 'unknown',
-        userAgent: metadata.userAgent || (context.rawRequest && context.rawRequest.headers['user-agent']) || 'unknown'
+          initiatedBy: 'admin'
+        }
       });
-
+      
       // Create admin log
-      const adminLogId = `LOG-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const adminLogRef = db.collection('admin_logs').doc(adminLogId);
-
-      transaction.set(adminLogRef, {
-        id: adminLogId,
-        adminId: adminId,
-        adminEmail: adminEmail,
-        action: 'balance_adjustment',
-        targetUserId: targetUserId,
-        amount: sanitizedAmount,
-        amountCents: amountInCents,
+      const logRef = db.collection('admin_logs').doc();
+      transaction.set(logRef, {
+        adminId: context.auth.uid,
+        adminEmail: adminDoc.data().email,
+        action: 'balance_transfer',
+        targetUserId: userId,
+        amount: amount,
         reason: reason,
         notes: notes,
         previousBalance: currentBalance,
         newBalance: newBalance,
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        metadata: {
-          ...metadata,
-          transactionId: transactionId,
-          functionCallId: (context.rawRequest && context.rawRequest.headers['function-call-id']) || 'unknown'
-        }
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
       });
-
-      // Update admin stats
-      const adminStatsRef = db.collection('admin_stats').doc(adminId);
-      transaction.set(adminStatsRef, {
-        totalAdjustments: admin.firestore.FieldValue.increment(1),
-        totalAmountAdjusted: admin.firestore.FieldValue.increment(sanitizedAmount),
-        lastAdjustment: admin.firestore.FieldValue.serverTimestamp(),
-        lastAdjustmentTo: targetUserId,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-
-      // Update user notification if enabled
-      if (userData.settings && userData.settings.transactionNotifications !== false) {
-        const notificationRef = db.collection('notifications').doc();
-        transaction.set(notificationRef, {
-          userId: targetUserId,
-          type: 'balance_adjustment',
-          title: 'Balance Updated',
-          message: `Admin has adjusted your balance by $${sanitizedAmount.toFixed(2)}. Reason: ${reason}`,
-          data: {
-            amount: sanitizedAmount,
-            reason: reason,
-            transactionId: transactionId
-          },
-          read: false,
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
-        });
-      }
-
+      
       return {
         success: true,
-        transactionId,
+        transactionId: txRef.id,
+        userId: userId,
+        userEmail: walletData.email,
+        amount: amount,
         previousBalance: currentBalance,
-        newBalance,
-        userEmail: userData.email
+        newBalance: newBalance,
+        message: `Successfully transferred $${amount} to ${walletData.email}`
       };
     });
-
-    // Send realtime update via Firebase Database (optional)
-    if (result.success) {
-      await admin.database().ref(`/balance_updates/${targetUserId}`).set({
-        balance: result.newBalance,
-        transactionId: result.transactionId,
-        timestamp: Date.now()
-      });
-    }
-
-    return {
-      success: true,
-      message: `Successfully transferred $${sanitizedAmount.toFixed(2)} to user ${result.userEmail}`,
-      transactionId: result.transactionId,
-      previousBalance: result.previousBalance,
-      newBalance: result.newBalance
-    };
-
+    
+    console.log(`[SUCCESS] Admin transfer completed: ${result.message}`);
+    return result;
+    
   } catch (error) {
-    console.error('Admin transfer error:', error);
+    console.error('[ERROR] Admin transfer failed:', error);
+    throw new admin.firestore.FirestoreError('internal', error.message);
+  }
+};
 
-    // Log the error
-    await db.collection('admin_error_logs').add({
-      action: 'admin_transfer',
-      errorMessage: error.message,
-      adminId: adminId,
-      targetUserId: targetUserId,
-      amount: sanitizedAmount,
-      reason: reason,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      stack: error.stack
-    });
-
-    // Return appropriate error
-    if (error.message.includes('permission') || error.message.includes('unauthorized')) {
-      throw new functions.https.HttpsError('permission-denied', error.message);
-    } else if (error.message.includes('not found')) {
-      throw new functions.https.HttpsError('not-found', error.message);
-    } else if (error.message.includes('wallet is')) {
-      throw new functions.https.HttpsError('failed-precondition', error.message);
-    } else {
-      throw new functions.https.HttpsError('internal', 'Transfer failed. Please try again.');
+/**
+ * Get transaction history for user
+ * @param {string} userId - User ID
+ * @param {number} limit - Limit results
+ * @param {string} type - Filter by type
+ * @returns {Promise<object>} Transaction history
+ */
+exports.getTransactionHistory = async (data, context) => {
+  // Verify admin or user requesting their own data
+  if (!context.auth) {
+    throw new admin.firestore.FirestoreError('unauthenticated', 'Not authenticated');
+  }
+  
+  const { userId, limit = 50, type = null, page = 1 } = data;
+  
+  if (!userId) {
+    throw new admin.firestore.FirestoreError('invalid-argument', 'User ID required');
+  }
+  
+  // Check if user is requesting their own data or is admin
+  const isSameUser = context.auth.uid === userId;
+  
+  if (!isSameUser) {
+    // Check if admin
+    const adminDoc = await db.collection('admins').doc(context.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().active) {
+      throw new admin.firestore.FirestoreError('permission-denied', 'Access denied');
     }
   }
-});
+  
+  try {
+    let query = db.collection('transactions')
+      .where('userId', '==', userId)
+      .orderBy('timestamp', 'desc');
+    
+    // Apply type filter if provided
+    if (type) {
+      query = query.where('type', '==', type);
+    }
+    
+    // Calculate pagination
+    const offset = (page - 1) * limit;
+    
+    // Get total count
+    const countSnapshot = await query.count().get();
+    const total = countSnapshot.data().count;
+    
+    // Get paginated data
+    const snapshot = await query
+      .offset(offset)
+      .limit(limit)
+      .get();
+    
+    const transactions = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      transactions.push({
+        id: doc.id,
+        ...data,
+        // Convert timestamp for client
+        timestamp: data.timestamp ? data.timestamp.toDate().toISOString() : null
+      });
+    });
+    
+    // Get wallet info
+    const walletDoc = await db.collection('wallets').doc(userId).get();
+    const walletData = walletDoc.exists ? walletDoc.data() : null;
+    
+    return {
+      success: true,
+      transactions: transactions,
+      wallet: walletData ? {
+        balance: walletData.balance,
+        email: walletData.email,
+        username: walletData.username
+      } : null,
+      pagination: {
+        page: page,
+        limit: limit,
+        total: total,
+        pages: Math.ceil(total / limit)
+      }
+    };
+    
+  } catch (error) {
+    console.error('[ERROR] getTransactionHistory failed:', error);
+    throw new admin.firestore.FirestoreError('internal', error.message);
+  }
+};
+
+/**
+ * Get user wallet statistics
+ * @param {string} userId - User ID
+ * @returns {Promise<object>} Wallet statistics
+ */
+exports.getUserWalletStats = async (data, context) => {
+  if (!context.auth) {
+    throw new admin.firestore.FirestoreError('unauthenticated', 'Not authenticated');
+  }
+  
+  const { userId } = data;
+  
+  if (!userId) {
+    throw new admin.firestore.FirestoreError('invalid-argument', 'User ID required');
+  }
+  
+  // Check permissions
+  const isSameUser = context.auth.uid === userId;
+  if (!isSameUser) {
+    const adminDoc = await db.collection('admins').doc(context.auth.uid).get();
+    if (!adminDoc.exists || !adminDoc.data().active) {
+      throw new admin.firestore.FirestoreError('permission-denied', 'Access denied');
+    }
+  }
+  
+  try {
+    // Get wallet
+    const walletDoc = await db.collection('wallets').doc(userId).get();
+    if (!walletDoc.exists) {
+      throw new Error('Wallet not found');
+    }
+    
+    const walletData = walletDoc.data();
+    
+    // Get transaction statistics
+    const depositSnapshot = await db.collection('transactions')
+      .where('userId', '==', userId)
+      .where('type', '==', 'deposit')
+      .count()
+      .get();
+    
+    const withdrawalSnapshot = await db.collection('transactions')
+      .where('userId', '==', userId)
+      .where('type', '==', 'withdrawal')
+      .count()
+      .get();
+    
+    const winSnapshot = await db.collection('transactions')
+      .where('userId', '==', userId)
+      .where('type', '==', 'game_win')
+      .count()
+      .get();
+    
+    const lossSnapshot = await db.collection('transactions')
+      .where('userId', '==', userId)
+      .where('type', '==', 'game_bet')
+      .count()
+      .get();
+    
+    // Get recent transactions
+    const recentTxSnapshot = await db.collection('transactions')
+      .where('userId', '==', userId)
+      .orderBy('timestamp', 'desc')
+      .limit(10)
+      .get();
+    
+    const recentTransactions = [];
+    recentTxSnapshot.forEach(doc => {
+      const data = doc.data();
+      recentTransactions.push({
+        id: doc.id,
+        type: data.type,
+        amount: data.amount,
+        description: data.description,
+        timestamp: data.timestamp ? data.timestamp.toDate().toISOString() : null,
+        status: data.status
+      });
+    });
+    
+    return {
+      success: true,
+      wallet: {
+        balance: walletData.balance || 0,
+        totalDeposited: walletData.totalDeposited || 0,
+        totalWithdrawn: walletData.totalWithdrawn || 0,
+        totalWon: walletData.totalWon || 0,
+        totalLost: walletData.totalLost || 0,
+        status: walletData.status || 'active',
+        createdAt: walletData.createdAt ? walletData.createdAt.toDate().toISOString() : null
+      },
+      statistics: {
+        totalDeposits: depositSnapshot.data().count,
+        totalWithdrawals: withdrawalSnapshot.data().count,
+        totalWins: winSnapshot.data().count,
+        totalLosses: lossSnapshot.data().count,
+        netProfit: (walletData.totalWon || 0) - (walletData.totalLost || 0)
+      },
+      recentTransactions: recentTransactions
+    };
+    
+  } catch (error) {
+    console.error('[ERROR] getUserWalletStats failed:', error);
+    throw new admin.firestore.FirestoreError('internal', error.message);
+  }
+};
