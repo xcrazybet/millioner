@@ -1,100 +1,72 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // ================= HELPERS =================
-    function isSignedIn() {
-      return request.auth != null;
+    // PUBLIC ACCESS FOR INITIAL SETUP
+    match /setup/{document} {
+      allow read, write: if true;
     }
     
-    function isActiveAdmin() {
-      return isSignedIn() && 
+    // ADMIN CREATION - Allow anyone to create first admin
+    match /admins/{adminId} {
+      // Allow create if no admin exists yet OR if you're creating yourself
+      allow create: if 
+        // Case 1: Creating first admin (no admins exist)
+        (!exists(/databases/$(database)/documents/admins)) ||
+        // Case 2: Creating your own admin account
+        (request.auth != null && request.auth.uid == adminId) ||
+        // Case 3: You're already an active admin
+        (request.auth != null && 
+         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true);
+      
+      // Allow read if you're an active admin
+      allow read: if request.auth != null && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
+      
+      // Allow update if you're an active admin
+      allow update: if request.auth != null && 
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
     }
     
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    // Helper function
+    function isActiveAdmin() {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
     }
     
-    function getAdminRole() {
-      return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role;
-    }
-    
-    function isFinanceAdmin() {
-      return isActiveAdmin() && (getAdminRole() == 'super_admin' || getAdminRole() == 'finance');
-    }
-    
-    function isSuperAdmin() {
-      return isActiveAdmin() && getAdminRole() == 'super_admin';
-    }
-
-    // ================= WALLETS =================
-    match /wallets/{userId} {
-      allow read: if isOwner(userId) || isActiveAdmin();
-      allow write: if false; // Only via Cloud Functions
-    }
-    
-    // ================= TRANSACTIONS =================
-    match /transactions/{transactionId} {
-      allow read: if isActiveAdmin() || 
-        (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow write: if false; // Only via Cloud Functions
-    }
-    
-    // ================= DEPOSIT REQUESTS =================
-    match /deposit_requests/{requestId} {
-      allow read: if isActiveAdmin() ||
-        (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.status == 'pending';
-      allow update, delete: if false;
-    }
-    
-    // ================= WITHDRAWAL REQUESTS =================
-    match /withdrawals/{withdrawalId} {
-      allow read: if isActiveAdmin() ||
-        (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.status == 'pending';
-      allow update, delete: if false;
-    }
-    
-    // ================= ADMINS =================
-    match /admins/{adminId} {
-      allow read: if isActiveAdmin();
-      allow write: if false; // Only via Cloud Functions
-    }
-    
-    // ================= USER PROFILES =================
-    match /user_profiles/{userId} {
-      allow read: if isOwner(userId) || isActiveAdmin();
-      allow write: if isOwner(userId) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'avatar', 'updatedAt']);
-    }
-    
-    // ================= NOTIFICATIONS =================
-    match /notifications/{notificationId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if false; // Only via Cloud Functions
-      allow update: if isSignedIn() && 
-        request.auth.uid == resource.data.userId &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
-    }
-    
-    // ================= LOGS =================
-    match /admin_logs/{logId} {
+    // ALL OTHER COLLECTIONS - Require active admin
+    match /wallets/{document=**} {
       allow read, write: if isActiveAdmin();
     }
     
-    match /audit_logs/{logId} {
-      allow read: if isSuperAdmin();
-      allow write: if false;
+    match /users/{document=**} {
+      allow read, write: if isActiveAdmin();
     }
-
-    // ================= DEFAULT DENY =================
+    
+    match /deposit_requests/{document=**} {
+      allow read, write: if isActiveAdmin();
+    }
+    
+    match /deposits/{document=**} {
+      allow read, write: if isActiveAdmin();
+    }
+    
+    match /withdrawals/{document=**} {
+      allow read, write: if isActiveAdmin();
+    }
+    
+    match /transactions/{document=**} {
+      allow read, write: if isActiveAdmin();
+    }
+    
+    match /admin_logs/{document=**} {
+      allow read, write: if isActiveAdmin();
+    }
+    
+    // DENY ALL OTHER ACCESS
     match /{document=**} {
       allow read, write: if false;
     }
