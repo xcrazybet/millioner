@@ -1,297 +1,311 @@
-// balance-sync.js v2.0
+// balance-sync.js v3.0 - Production Grade
 class BalanceSync {
     constructor() {
-        this.balanceListeners = new Set();
-        this.transactionListeners = new Set();
-        this.lowBalanceListeners = new Set();
-        this.currentBalance = 0;
-        this.userId = null;
-        this.unsubscribeBalance = null;
-        this.unsubscribeTransactions = null;
-        this.lastBalanceUpdate = null;
-        this.balanceUpdateDebounce = null;
-        this.isInitialized = false;
-        this.LOW_BALANCE_THRESHOLD = 10.00; // $10 threshold
-        this.BALANCE_UPDATE_DEBOUNCE_MS = 500;
-        this.MAX_TRANSACTION_HISTORY = 100;
+        // Use Symbols for private properties (if supported)
+        this._balanceListeners = new Set();
+        this._transactionListeners = new Set();
+        this._lowBalanceListeners = new Set();
+        this._authListeners = new Set();
+        this._errorListeners = new Set();
         
-        // Configuration
-        this.config = {
+        // Core state
+        this._currentBalance = 0;
+        this._userId = null;
+        this._lastBalanceUpdate = 0;
+        this._wasLowBalance = false;
+        this._isInitialized = false;
+        this._pendingTransactions = new Map();
+        
+        // Firebase listeners
+        this._unsubscribeBalance = null;
+        this._unsubscribeTransactions = null;
+        
+        // Browser APIs
+        this._broadcastChannel = null;
+        this._storageListener = null;
+        this._db = null;
+        this._balanceUpdateDebounce = null;
+        
+        // Immutable configuration
+        this._config = Object.freeze({
             enableOfflineCache: true,
             syncAcrossTabs: true,
             enableBalanceAlerts: true,
             enableAutoRetry: true,
-            maxRetryAttempts: 3
-        };
+            maxRetryAttempts: 3,
+            balanceUpdateDebounceMs: 500,
+            maxTransactionHistory: 100,
+            lowBalanceThreshold: 1000, // Store as cents ($10.00)
+            currency: 'USD'
+        });
         
-        // Initialize with error handling
-        this.initialize();
+        // Initialize safely
+        this._initialize();
     }
     
-    async initialize() {
+    // Private methods
+    async _initialize() {
         try {
-            // Check Firebase availability
-            if (!firebaseApp || !firebaseApp.auth) {
-                throw new Error('Firebase not properly initialized');
+            // Validate dependencies
+            if (!window.firebaseApp || !firebaseApp.auth) {
+                throw new Error('FIREBASE_NOT_INITIALIZED');
             }
             
-            this.setupAuthListener();
+            // Setup auth listener
+            this._setupAuthListener();
             
-            if (this.config.syncAcrossTabs) {
-                this.setupCrossTabSync();
+            // Setup cross-tab sync if enabled
+            if (this._config.syncAcrossTabs) {
+                this._setupCrossTabSync();
             }
             
             // Setup offline cache if enabled
-            if (this.config.enableOfflineCache) {
-                await this.setupOfflineCache();
+            if (this._config.enableOfflineCache && 'indexedDB' in window) {
+                await this._setupIndexedDB();
             }
             
-            this.isInitialized = true;
-            console.log('BalanceSync initialized successfully');
+            this._isInitialized = true;
+            this._dispatchEvent('initialized', { success: true });
             
         } catch (error) {
             console.error('BalanceSync initialization failed:', error);
-            this.handleInitializationError(error);
+            this._handleError('INITIALIZATION_FAILED', error);
         }
     }
     
-    setupAuthListener() {
-        firebaseApp.auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                this.userId = user.uid;
-                
-                // Notify listeners of auth change
-                this.notifyAuthStateChange(true);
-                
-                // Setup listeners with retry logic
-                await this.setupListenersWithRetry();
-                
-                // Load cached data if available
-                if (this.config.enableOfflineCache) {
-                    await this.loadCachedData();
+    _setupAuthListener() {
+        firebaseApp.auth.onAuthStateChanged(
+            async (user) => {
+                try {
+                    if (user) {
+                        this._userId = user.uid;
+                        await this._onUserAuthenticated();
+                    } else {
+                        await this._onUserLoggedOut();
+                    }
+                } catch (error) {
+                    this._handleError('AUTH_STATE_ERROR', error);
                 }
-            } else {
-                await this.cleanup();
-                this.userId = null;
-                this.currentBalance = 0;
-                this.notifyAuthStateChange(false);
+            },
+            (error) => {
+                this._handleError('AUTH_LISTENER_ERROR', error);
             }
-        }, (error) => {
-            console.error('Auth state change error:', error);
-            this.handleAuthError(error);
-        });
+        );
     }
     
-    async setupListenersWithRetry(retryCount = 0) {
+    async _onUserAuthenticated() {
+        // Notify auth listeners
+        this._notifyAuthStateChange(true);
+        
+        // Setup Firebase listeners
+        await this._setupFirebaseListeners();
+        
+        // Load cached data
+        if (this._config.enableOfflineCache && this._db) {
+            await this._loadCachedData();
+        }
+        
+        // Check pending transactions
+        await this._processPendingTransactions();
+    }
+    
+    async _onUserLoggedOut() {
+        // Cleanup everything
+        await this._cleanup();
+        
+        // Reset state
+        this._userId = null;
+        this._currentBalance = 0;
+        this._lastBalanceUpdate = 0;
+        this._wasLowBalance = false;
+        
+        // Notify auth listeners
+        this._notifyAuthStateChange(false);
+        
+        // Clear all non-auth listeners
+        this._balanceListeners.clear();
+        this._transactionListeners.clear();
+        this._lowBalanceListeners.clear();
+    }
+    
+    async _setupFirebaseListeners(retryCount = 0) {
         try {
-            await Promise.all([
-                this.setupBalanceListener(),
-                this.setupTransactionsListener()
+            const [balanceInitialized, transactionsInitialized] = await Promise.all([
+                this._setupBalanceListener(),
+                this._setupTransactionsListener()
             ]);
             
-            // Reset retry count on success
-            retryCount = 0;
+            if (!balanceInitialized || !transactionsInitialized) {
+                throw new Error('LISTENER_SETUP_FAILED');
+            }
             
         } catch (error) {
-            if (retryCount < this.config.maxRetryAttempts && this.config.enableAutoRetry) {
-                console.log(`Retrying listener setup (attempt ${retryCount + 1}/${this.config.maxRetryAttempts})`);
-                await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-                await this.setupListenersWithRetry(retryCount + 1);
-            } else {
-                console.error('Failed to setup listeners after retries:', error);
-                this.notifyError('connection_error', 'Failed to connect to balance service');
+            if (retryCount < this._config.maxRetryAttempts && this._config.enableAutoRetry) {
+                const delay = 1000 * Math.pow(2, retryCount); // Exponential backoff
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this._setupFirebaseListeners(retryCount + 1);
             }
+            this._handleError('LISTENER_SETUP_FAILED', error);
         }
     }
     
-    setupCrossTabSync() {
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'balance_sync_update' && this.userId) {
-                try {
-                    const data = JSON.parse(e.newValue);
-                    if (data.userId === this.userId && data.timestamp > (this.lastBalanceUpdate || 0)) {
-                        this.currentBalance = data.balance;
-                        this.lastBalanceUpdate = data.timestamp;
-                        this.notifyBalanceListeners();
-                        
-                        // Check for low balance
-                        this.checkLowBalance();
-                    }
-                } catch (error) {
-                    console.error('Cross-tab sync error:', error);
-                }
-            }
-            
-            // Handle transaction updates
-            if (e.key === 'transaction_sync_update' && this.userId) {
-                try {
-                    const data = JSON.parse(e.newValue);
-                    if (data.userId === this.userId) {
-                        this.notifyTransactionListeners(data.transactions || []);
-                    }
-                } catch (error) {
-                    console.error('Transaction sync error:', error);
-                }
-            }
-        });
+    async _setupBalanceListener() {
+        if (!this._userId) return false;
         
-        // Also listen for broadcast channel messages for more reliable cross-tab communication
-        if (typeof BroadcastChannel !== 'undefined') {
-            this.broadcastChannel = new BroadcastChannel('balance_sync_channel');
-            this.broadcastChannel.onmessage = (event) => {
-                if (event.data.type === 'balance_update' && event.data.userId === this.userId) {
-                    this.currentBalance = event.data.balance;
-                    this.notifyBalanceListeners();
-                }
-            };
+        // Cleanup existing listener
+        if (this._unsubscribeBalance) {
+            this._unsubscribeBalance();
         }
-    }
-    
-    async setupOfflineCache() {
-        // Initialize IndexedDB for offline cache
-        if ('indexedDB' in window) {
-            this.db = await this.initIndexedDB();
-        }
-    }
-    
-    initIndexedDB() {
+        
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open('BalanceSyncDB', 1);
+            const walletRef = firebaseApp.db.collection('wallets').doc(this._userId);
+            let isFirstSnapshot = true;
             
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                
-                // Create balance store
-                if (!db.objectStoreNames.contains('balance')) {
-                    const balanceStore = db.createObjectStore('balance', { keyPath: 'userId' });
-                    balanceStore.createIndex('timestamp', 'timestamp', { unique: false });
-                }
-                
-                // Create transactions store
-                if (!db.objectStoreNames.contains('transactions')) {
-                    const transactionStore = db.createObjectStore('transactions', { keyPath: 'id' });
-                    transactionStore.createIndex('userId', 'userId', { unique: false });
-                    transactionStore.createIndex('timestamp', 'timestamp', { unique: false });
-                }
-            };
-            
-            request.onsuccess = (event) => resolve(event.target.result);
-            request.onerror = (event) => reject(event.target.error);
-        });
-    }
-    
-    async cacheBalanceData(userId, balance, timestamp) {
-        if (!this.db) return;
-        
-        const transaction = this.db.transaction(['balance'], 'readwrite');
-        const store = transaction.objectStore('balance');
-        
-        await store.put({
-            userId,
-            balance,
-            timestamp,
-            cachedAt: Date.now()
-        });
-    }
-    
-    async loadCachedData() {
-        if (!this.db) return;
-        
-        try {
-            // Load cached balance
-            const transaction = this.db.transaction(['balance'], 'readonly');
-            const store = transaction.objectStore('balance');
-            const request = store.get(this.userId);
-            
-            request.onsuccess = (event) => {
-                const data = event.target.result;
-                if (data) {
-                    this.currentBalance = data.balance;
-                    this.notifyBalanceListeners();
-                }
-            };
-        } catch (error) {
-            console.error('Failed to load cached data:', error);
-        }
-    }
-    
-    setupBalanceListener() {
-        return new Promise((resolve, reject) => {
-            if (!this.userId) {
-                reject(new Error('User ID not available'));
-                return;
-            }
-            
-            // Clean up existing listener
-            if (this.unsubscribeBalance) {
-                this.unsubscribeBalance();
-            }
-            
-            const walletRef = firebaseApp.db.collection('wallets').doc(this.userId);
-            
-            this.unsubscribeBalance = walletRef.onSnapshot(
+            this._unsubscribeBalance = walletRef.onSnapshot(
                 async (doc) => {
                     try {
                         if (!doc.exists) {
-                            await this.createUserWallet();
-                            this.currentBalance = 0;
+                            await this._createUserWallet();
+                            this._currentBalance = 0;
                         } else {
                             const data = doc.data();
-                            const previousBalance = this.currentBalance;
-                            this.currentBalance = data.balance || 0;
+                            const previousBalance = this._currentBalance;
                             
-                            // Check for significant balance changes
-                            if (Math.abs(previousBalance - this.currentBalance) > 0.01) {
-                                this.notifyBalanceChange(previousBalance, this.currentBalance);
+                            // Convert to cents for precision
+                            const newBalanceInCents = Math.round((data.balance || 0) * 100);
+                            const previousBalanceInCents = Math.round(previousBalance * 100);
+                            
+                            this._currentBalance = newBalanceInCents / 100;
+                            
+                            // Check for significant changes (at least 1 cent)
+                            if (Math.abs(newBalanceInCents - previousBalanceInCents) >= 1) {
+                                this._notifyBalanceChange(previousBalance, this._currentBalance);
                             }
                             
-                            // Cache balance
-                            if (this.config.enableOfflineCache) {
-                                await this.cacheBalanceData(this.userId, this.currentBalance, Date.now());
+                            // Update timestamp
+                            this._lastBalanceUpdate = Date.now();
+                            
+                            // Cache balance if offline storage is available
+                            if (this._config.enableOfflineCache && this._db) {
+                                await this._cacheBalance();
                             }
                         }
                         
-                        // Debounce balance updates
-                        clearTimeout(this.balanceUpdateDebounce);
-                        this.balanceUpdateDebounce = setTimeout(() => {
-                            this.notifyBalanceListeners();
-                            this.checkLowBalance();
-                            
-                            // Broadcast to other tabs
-                            this.broadcastBalanceUpdate();
-                        }, this.BALANCE_UPDATE_DEBOUNCE_MS);
+                        // Debounce notifications
+                        this._debounceBalanceUpdate();
                         
-                        resolve();
+                        // Resolve on first successful snapshot
+                        if (isFirstSnapshot) {
+                            isFirstSnapshot = false;
+                            resolve(true);
+                        }
                         
                     } catch (error) {
-                        console.error('Balance listener processing error:', error);
-                        reject(error);
+                        console.error('Balance snapshot error:', error);
+                        if (isFirstSnapshot) {
+                            reject(error);
+                        }
                     }
                 },
                 (error) => {
-                    console.error('Balance snapshot error:', error);
-                    
-                    // Try to use cached data
-                    if (this.config.enableOfflineCache) {
-                        this.loadCachedData();
+                    console.error('Balance listener error:', error);
+                    if (isFirstSnapshot) {
+                        reject(error);
                     }
                     
-                    reject(error);
+                    // Try to use cached data
+                    if (this._config.enableOfflineCache) {
+                        this._loadCachedData();
+                    }
                 }
             );
+            
+            // Timeout for initialization
+            setTimeout(() => {
+                if (isFirstSnapshot) {
+                    reject(new Error('BALANCE_LISTENER_TIMEOUT'));
+                }
+            }, 10000);
         });
     }
     
-    async createUserWallet() {
+    async _setupTransactionsListener() {
+        if (!this._userId) return false;
+        
+        if (this._unsubscribeTransactions) {
+            this._unsubscribeTransactions();
+        }
+        
+        return new Promise((resolve, reject) => {
+            let isFirstSnapshot = true;
+            
+            this._unsubscribeTransactions = firebaseApp.db.collection('transactions')
+                .where('userId', '==', this._userId)
+                .orderBy('timestamp', 'desc')
+                .limit(this._config.maxTransactionHistory)
+                .onSnapshot(
+                    async (snapshot) => {
+                        try {
+                            const transactions = [];
+                            snapshot.forEach(doc => {
+                                transactions.push({
+                                    id: doc.id,
+                                    ...doc.data()
+                                });
+                            });
+                            
+                            this._notifyTransactionListeners(transactions);
+                            
+                            // Cache transactions
+                            if (this._config.enableOfflineCache && this._db) {
+                                await this._cacheTransactions(transactions);
+                            }
+                            
+                            if (isFirstSnapshot) {
+                                isFirstSnapshot = false;
+                                resolve(true);
+                            }
+                            
+                        } catch (error) {
+                            console.error('Transaction snapshot error:', error);
+                            if (isFirstSnapshot) {
+                                reject(error);
+                            }
+                        }
+                    },
+                    (error) => {
+                        console.error('Transaction listener error:', error);
+                        if (isFirstSnapshot) {
+                            reject(error);
+                        }
+                        
+                        // Load cached transactions
+                        if (this._config.enableOfflineCache) {
+                            this._loadCachedTransactions();
+                        }
+                    }
+                );
+            
+            // Timeout for initialization
+            setTimeout(() => {
+                if (isFirstSnapshot) {
+                    reject(new Error('TRANSACTIONS_LISTENER_TIMEOUT'));
+                }
+            }, 10000);
+        });
+    }
+    
+    async _createUserWallet() {
         try {
             const user = firebaseApp.auth.currentUser;
             const walletData = {
-                userId: this.userId,
+                userId: this._userId,
                 email: user.email,
                 username: user.displayName || user.email.split('@')[0],
-                balance: 0,
+                balance: 0, // Store as float for Firestore, but we'll convert to cents in code
+                balanceCents: 0, // Added for precision
                 walletId: `WALLET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                currency: 'USD',
+                currency: this._config.currency,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
                 totalDeposits: 0,
@@ -303,114 +317,417 @@ class BalanceSync {
                 settings: {
                     lowBalanceAlert: true,
                     transactionNotifications: true
-                }
+                },
+                version: 1
             };
             
-            await firebaseApp.db.collection('wallets').doc(this.userId).set(walletData);
-            
+            await firebaseApp.db.collection('wallets').doc(this._userId).set(walletData);
             return walletData;
+            
         } catch (error) {
             console.error('Error creating wallet:', error);
             throw error;
         }
     }
     
-    setupTransactionsListener() {
-        return new Promise((resolve, reject) => {
-            if (!this.userId) {
-                reject(new Error('User ID not available'));
-                return;
-            }
-            
-            if (this.unsubscribeTransactions) {
-                this.unsubscribeTransactions();
-            }
-            
-            this.unsubscribeTransactions = firebaseApp.db.collection('transactions')
-                .where('userId', '==', this.userId)
-                .orderBy('timestamp', 'desc')
-                .limit(this.MAX_TRANSACTION_HISTORY)
-                .onSnapshot(
-                    (snapshot) => {
-                        const transactions = [];
-                        snapshot.forEach(doc => {
-                            transactions.push({
-                                id: doc.id,
-                                ...doc.data()
-                            });
-                        });
-                        
-                        this.notifyTransactionListeners(transactions);
-                        
-                        // Cache transactions
-                        if (this.config.enableOfflineCache && this.db) {
-                            this.cacheTransactions(transactions);
-                        }
-                        
-                        resolve();
-                    },
-                    (error) => {
-                        console.error("Transactions listener error:", error);
-                        
-                        // Load cached transactions
-                        if (this.config.enableOfflineCache) {
-                            this.loadCachedTransactions();
-                        }
-                        
-                        reject(error);
-                    }
-                );
-        });
-    }
-    
-    async cacheTransactions(transactions) {
-        if (!this.db) return;
+    _setupCrossTabSync() {
+        // Setup BroadcastChannel for modern browsers
+        if (typeof BroadcastChannel !== 'undefined') {
+            this._broadcastChannel = new BroadcastChannel('balance_sync_channel');
+            this._broadcastChannel.onmessage = (event) => {
+                this._handleBroadcastMessage(event.data);
+            };
+        }
         
-        const transaction = this.db.transaction(['transactions'], 'readwrite');
-        const store = transaction.objectStore('transactions');
-        
-        // Clear old transactions for this user
-        const index = store.index('userId');
-        const request = index.openCursor(IDBKeyRange.only(this.userId));
-        
-        request.onsuccess = (event) => {
-            const cursor = event.target.result;
-            if (cursor) {
-                cursor.delete();
-                cursor.continue();
+        // Setup localStorage for cross-tab communication (fallback)
+        this._storageListener = (e) => {
+            if (e.key === 'balance_sync_update' && this._userId) {
+                this._handleStorageMessage(e.newValue);
             }
         };
-        
-        // Add new transactions
-        transactions.forEach(tx => {
-            store.put({
-                ...tx,
-                cachedAt: Date.now()
-            });
-        });
+        window.addEventListener('storage', this._storageListener);
     }
     
-    async loadCachedTransactions() {
-        if (!this.db) return;
-        
-        try {
-            const transaction = this.db.transaction(['transactions'], 'readonly');
-            const store = transaction.objectStore('transactions');
-            const index = store.index('userId');
-            const request = index.getAll(IDBKeyRange.only(this.userId));
-            
-            request.onsuccess = (event) => {
-                const transactions = event.target.result.sort((a, b) => 
-                    new Date(b.timestamp) - new Date(a.timestamp)
-                );
-                this.notifyTransactionListeners(transactions);
-            };
-        } catch (error) {
-            console.error('Failed to load cached transactions:', error);
+    _handleBroadcastMessage(data) {
+        if (data.type === 'balance_update' && data.userId === this._userId) {
+            // Only accept updates that are newer than our current state
+            if (data.timestamp > this._lastBalanceUpdate) {
+                this._currentBalance = data.balance;
+                this._lastBalanceUpdate = data.timestamp;
+                this._notifyBalanceListeners();
+                this._checkLowBalance();
+            }
         }
     }
     
-    // Event subscription methods
+    _handleStorageMessage(newValue) {
+        try {
+            const data = JSON.parse(newValue);
+            if (data.userId === this._userId && data.timestamp > this._lastBalanceUpdate) {
+                this._currentBalance = data.balance;
+                this._lastBalanceUpdate = data.timestamp;
+                this._notifyBalanceListeners();
+                this._checkLowBalance();
+            }
+        } catch (error) {
+            console.error('Storage message error:', error);
+        }
+    }
+    
+    async _setupIndexedDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open('BalanceSyncDB', 2);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                
+                // Create or upgrade balance store
+                if (!db.objectStoreNames.contains('balance')) {
+                    const balanceStore = db.createObjectStore('balance', { keyPath: 'userId' });
+                    balanceStore.createIndex('timestamp', 'timestamp', { unique: false });
+                }
+                
+                // Create or upgrade transactions store
+                if (!db.objectStoreNames.contains('transactions')) {
+                    const transactionStore = db.createObjectStore('transactions', { keyPath: 'id' });
+                    transactionStore.createIndex('userId', 'userId', { unique: false });
+                    transactionStore.createIndex('timestamp', 'timestamp', { unique: false });
+                }
+                
+                // Add version field for migrations
+                if (!db.objectStoreNames.contains('metadata')) {
+                    db.createObjectStore('metadata', { keyPath: 'key' });
+                }
+            };
+            
+            request.onsuccess = (event) => {
+                this._db = event.target.result;
+                
+                // Set up error handling for IDB
+                this._db.onerror = (event) => {
+                    console.error('IndexedDB error:', event.target.error);
+                    this._handleError('INDEXED_DB_ERROR', event.target.error);
+                };
+                
+                // Store schema version
+                this._storeMetadata('schema_version', 2);
+                resolve();
+            };
+            
+            request.onerror = (event) => {
+                reject(event.target.error);
+            };
+        });
+    }
+    
+    async _storeMetadata(key, value) {
+        if (!this._db) return;
+        
+        return new Promise((resolve, reject) => {
+            const transaction = this._db.transaction(['metadata'], 'readwrite');
+            const store = transaction.objectStore('metadata');
+            const request = store.put({ key, value, updatedAt: Date.now() });
+            
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+    
+    async _cacheBalance() {
+        if (!this._db || !this._userId) return;
+        
+        return new Promise((resolve, reject) => {
+            const transaction = this._db.transaction(['balance'], 'readwrite');
+            const store = transaction.objectStore('balance');
+            
+            const data = {
+                userId: this._userId,
+                balance: this._currentBalance,
+                balanceCents: Math.round(this._currentBalance * 100),
+                timestamp: this._lastBalanceUpdate,
+                cachedAt: Date.now()
+            };
+            
+            const request = store.put(data);
+            
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+    
+    async _loadCachedData() {
+        await Promise.all([
+            this._loadCachedBalance(),
+            this._loadCachedTransactions()
+        ]);
+    }
+    
+    async _loadCachedBalance() {
+        if (!this._db || !this._userId) return;
+        
+        return new Promise((resolve) => {
+            const transaction = this._db.transaction(['balance'], 'readonly');
+            const store = transaction.objectStore('balance');
+            const request = store.get(this._userId);
+            
+            request.onsuccess = (event) => {
+                const data = event.target.result;
+                if (data) {
+                    // Only use cache if less than 5 minutes old
+                    const cacheAge = Date.now() - data.cachedAt;
+                    if (cacheAge < 5 * 60 * 1000) {
+                        this._currentBalance = data.balance;
+                        this._lastBalanceUpdate = data.timestamp;
+                        this._notifyBalanceListeners();
+                    }
+                }
+                resolve();
+            };
+            
+            request.onerror = () => resolve();
+        });
+    }
+    
+    async _cacheTransactions(transactions) {
+        if (!this._db || !this._userId) return;
+        
+        return new Promise((resolve, reject) => {
+            const transaction = this._db.transaction(['transactions'], 'readwrite');
+            const store = transaction.objectStore('transactions');
+            
+            // Clear old transactions for this user
+            const index = store.index('userId');
+            const clearRequest = index.openCursor(IDBKeyRange.only(this._userId));
+            
+            clearRequest.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    cursor.delete();
+                    cursor.continue();
+                } else {
+                    // All old transactions cleared, now add new ones
+                    const operations = transactions.map(tx => {
+                        return new Promise((innerResolve, innerReject) => {
+                            const txWithCache = {
+                                ...tx,
+                                cachedAt: Date.now()
+                            };
+                            const request = store.put(txWithCache);
+                            request.onsuccess = () => innerResolve();
+                            request.onerror = () => innerReject(request.error);
+                        });
+                    });
+                    
+                    Promise.all(operations).then(resolve).catch(reject);
+                }
+            };
+            
+            clearRequest.onerror = () => reject(clearRequest.error);
+        });
+    }
+    
+    async _loadCachedTransactions() {
+        if (!this._db || !this._userId) return;
+        
+        return new Promise((resolve) => {
+            const transaction = this._db.transaction(['transactions'], 'readonly');
+            const store = transaction.objectStore('transactions');
+            const index = store.index('userId');
+            const request = index.getAll(IDBKeyRange.only(this._userId));
+            
+            request.onsuccess = (event) => {
+                const transactions = event.target.result
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                    .slice(0, this._config.maxTransactionHistory);
+                
+                this._notifyTransactionListeners(transactions);
+                resolve();
+            };
+            
+            request.onerror = () => resolve();
+        });
+    }
+    
+    _debounceBalanceUpdate() {
+        clearTimeout(this._balanceUpdateDebounce);
+        this._balanceUpdateDebounce = setTimeout(() => {
+            this._notifyBalanceListeners();
+            this._checkLowBalance();
+            this._broadcastBalanceUpdate();
+        }, this._config.balanceUpdateDebounceMs);
+    }
+    
+    _broadcastBalanceUpdate() {
+        const updateData = {
+            type: 'balance_update',
+            userId: this._userId,
+            balance: this._currentBalance,
+            timestamp: this._lastBalanceUpdate
+        };
+        
+        // BroadcastChannel for modern browsers
+        if (this._broadcastChannel) {
+            this._broadcastChannel.postMessage(updateData);
+        }
+        
+        // localStorage for cross-tab (fallback)
+        localStorage.setItem('balance_sync_update', JSON.stringify(updateData));
+    }
+    
+    _notifyBalanceListeners() {
+        const balance = this._currentBalance;
+        for (const callback of this._balanceListeners) {
+            try {
+                callback(balance);
+            } catch (error) {
+                console.error('Balance listener error:', error);
+            }
+        }
+    }
+    
+    _notifyTransactionListeners(transactions) {
+        for (const callback of this._transactionListeners) {
+            try {
+                callback(transactions);
+            } catch (error) {
+                console.error('Transaction listener error:', error);
+            }
+        }
+    }
+    
+    _notifyLowBalanceListeners(balance) {
+        for (const listener of this._lowBalanceListeners) {
+            try {
+                listener.callback(balance);
+            } catch (error) {
+                console.error('Low balance listener error:', error);
+            }
+        }
+    }
+    
+    _notifyAuthStateChange(isAuthenticated) {
+        for (const callback of this._authListeners) {
+            try {
+                callback(isAuthenticated, this._userId);
+            } catch (error) {
+                console.error('Auth state listener error:', error);
+            }
+        }
+    }
+    
+    _notifyBalanceChange(previousBalance, newBalance) {
+        // Dispatch custom event for external consumers
+        const event = new CustomEvent('balance_changed', {
+            detail: {
+                previousBalance,
+                newBalance,
+                userId: this._userId,
+                timestamp: Date.now()
+            }
+        });
+        window.dispatchEvent(event);
+    }
+    
+    _checkLowBalance() {
+        const balanceInCents = Math.round(this._currentBalance * 100);
+        const thresholdInCents = this._config.lowBalanceThreshold;
+        const isLowNow = balanceInCents < thresholdInCents;
+        
+        // Only notify when state changes from not-low to low
+        if (isLowNow && !this._wasLowBalance) {
+            this._notifyLowBalanceListeners(this._currentBalance);
+        }
+        
+        this._wasLowBalance = isLowNow;
+    }
+    
+    _handleError(errorCode, error) {
+        console.error(`BalanceSync Error [${errorCode}]:`, error);
+        
+        // Dispatch error event
+        this._dispatchEvent('error', {
+            code: errorCode,
+            message: error.message,
+            userId: this._userId,
+            timestamp: Date.now()
+        });
+        
+        // Notify error listeners
+        for (const callback of this._errorListeners) {
+            try {
+                callback(errorCode, error);
+            } catch (listenerError) {
+                console.error('Error listener error:', listenerError);
+            }
+        }
+    }
+    
+    _dispatchEvent(eventName, detail) {
+        const event = new CustomEvent(`balance_sync:${eventName}`, { detail });
+        window.dispatchEvent(event);
+    }
+    
+    async _processPendingTransactions() {
+        if (!this._userId) return;
+        
+        // Process any pending transactions from offline mode
+        const pendingKey = `pending_transactions_${this._userId}`;
+        try {
+            const pending = localStorage.getItem(pendingKey);
+            if (pending) {
+                const transactions = JSON.parse(pending);
+                for (const tx of transactions) {
+                    await this._syncPendingTransaction(tx);
+                }
+                localStorage.removeItem(pendingKey);
+            }
+        } catch (error) {
+            console.error('Error processing pending transactions:', error);
+        }
+    }
+    
+    async _syncPendingTransaction(transaction) {
+        // This would call a Cloud Function to sync offline transactions
+        // For now, just log them
+        console.log('Processing pending transaction:', transaction);
+    }
+    
+    async _cleanup() {
+        // Clear timers
+        clearTimeout(this._balanceUpdateDebounce);
+        this._balanceUpdateDebounce = null;
+        
+        // Unsubscribe from Firebase
+        if (this._unsubscribeBalance) {
+            this._unsubscribeBalance();
+            this._unsubscribeBalance = null;
+        }
+        
+        if (this._unsubscribeTransactions) {
+            this._unsubscribeTransactions();
+            this._unsubscribeTransactions = null;
+        }
+        
+        // Close BroadcastChannel
+        if (this._broadcastChannel) {
+            this._broadcastChannel.close();
+            this._broadcastChannel = null;
+        }
+        
+        // Remove storage event listener
+        if (this._storageListener) {
+            window.removeEventListener('storage', this._storageListener);
+            this._storageListener = null;
+        }
+        
+        // Clear IndexedDB references
+        this._db = null;
+        
+        // Clear pending transactions
+        this._pendingTransactions.clear();
+    }
+    
+    // Public API
     onBalanceUpdate(callback, options = { immediate: true }) {
         const wrappedCallback = (balance) => {
             try {
@@ -420,15 +737,13 @@ class BalanceSync {
             }
         };
         
-        this.balanceListeners.add(wrappedCallback);
+        this._balanceListeners.add(wrappedCallback);
         
-        if (options.immediate && this.currentBalance !== null) {
-            wrappedCallback(this.currentBalance);
+        if (options.immediate && this._currentBalance !== null) {
+            wrappedCallback(this._currentBalance);
         }
         
-        return () => {
-            this.balanceListeners.delete(wrappedCallback);
-        };
+        return () => this._balanceListeners.delete(wrappedCallback);
     }
     
     onTransactionsUpdate(callback) {
@@ -440,14 +755,15 @@ class BalanceSync {
             }
         };
         
-        this.transactionListeners.add(wrappedCallback);
-        
-        return () => {
-            this.transactionListeners.delete(wrappedCallback);
-        };
+        this._transactionListeners.add(wrappedCallback);
+        return () => this._transactionListeners.delete(wrappedCallback);
     }
     
-    onLowBalance(callback, threshold = this.LOW_BALANCE_THRESHOLD) {
+    onLowBalance(callback, thresholdInDollars) {
+        const threshold = thresholdInDollars ? 
+            Math.round(thresholdInDollars * 100) : 
+            this._config.lowBalanceThreshold;
+        
         const wrappedCallback = (balance) => {
             try {
                 callback(balance);
@@ -456,189 +772,102 @@ class BalanceSync {
             }
         };
         
-        this.lowBalanceListeners.add({ callback: wrappedCallback, threshold });
+        const listener = { callback: wrappedCallback, threshold };
+        this._lowBalanceListeners.add(listener);
         
         // Immediate check
-        if (this.currentBalance < threshold) {
-            wrappedCallback(this.currentBalance);
+        if (Math.round(this._currentBalance * 100) < threshold) {
+            wrappedCallback(this._currentBalance);
         }
         
-        return () => {
-            for (const listener of this.lowBalanceListeners) {
-                if (listener.callback === wrappedCallback) {
-                    this.lowBalanceListeners.delete(listener);
-                    break;
-                }
-            }
-        };
+        return () => this._lowBalanceListeners.delete(listener);
     }
     
     onAuthStateChange(callback) {
-        // Store auth listeners separately
-        if (!this.authListeners) {
-            this.authListeners = new Set();
-        }
-        
-        this.authListeners.add(callback);
-        
-        return () => {
-            this.authListeners.delete(callback);
-        };
-    }
-    
-    // Notification methods
-    notifyBalanceListeners() {
-        for (const callback of this.balanceListeners) {
+        const wrappedCallback = (isAuthenticated, userId) => {
             try {
-                callback(this.currentBalance);
+                callback(isAuthenticated, userId);
             } catch (error) {
-                console.error('Balance listener error:', error);
+                console.error('Auth state callback error:', error);
             }
-        }
-    }
-    
-    notifyTransactionListeners(transactions) {
-        for (const callback of this.transactionListeners) {
-            try {
-                callback(transactions);
-            } catch (error) {
-                console.error('Transaction listener error:', error);
-            }
-        }
-    }
-    
-    notifyLowBalanceListeners(balance) {
-        for (const listener of this.lowBalanceListeners) {
-            if (balance < listener.threshold) {
-                try {
-                    listener.callback(balance);
-                } catch (error) {
-                    console.error('Low balance listener error:', error);
-                }
-            }
-        }
-    }
-    
-    notifyAuthStateChange(isAuthenticated) {
-        if (!this.authListeners) return;
-        
-        for (const callback of this.authListeners) {
-            try {
-                callback(isAuthenticated, this.userId);
-            } catch (error) {
-                console.error('Auth state listener error:', error);
-            }
-        }
-    }
-    
-    notifyBalanceChange(previousBalance, newBalance) {
-        // You can add custom logic for balance change notifications
-        const change = newBalance - previousBalance;
-        const changeType = change > 0 ? 'credit' : 'debit';
-        
-        // Example: Send to analytics
-        if (typeof gtag !== 'undefined') {
-            gtag('event', 'balance_change', {
-                'user_id': this.userId,
-                'previous_balance': previousBalance,
-                'new_balance': newBalance,
-                'change_amount': Math.abs(change),
-                'change_type': changeType
-            });
-        }
-    }
-    
-    notifyError(errorType, message) {
-        // Dispatch custom event for error handling
-        const event = new CustomEvent('balance_sync_error', {
-            detail: { type: errorType, message, userId: this.userId }
-        });
-        window.dispatchEvent(event);
-    }
-    
-    // Utility methods
-    checkLowBalance() {
-        if (this.currentBalance < this.LOW_BALANCE_THRESHOLD) {
-            this.notifyLowBalanceListeners(this.currentBalance);
-        }
-    }
-    
-    broadcastBalanceUpdate() {
-        const updateData = {
-            userId: this.userId,
-            balance: this.currentBalance,
-            timestamp: Date.now()
         };
         
-        // LocalStorage for cross-tab
-        localStorage.setItem('balance_sync_update', JSON.stringify(updateData));
+        this._authListeners.add(wrappedCallback);
+        return () => this._authListeners.delete(wrappedCallback);
+    }
+    
+    onError(callback) {
+        const wrappedCallback = (errorCode, error) => {
+            try {
+                callback(errorCode, error);
+            } catch (listenerError) {
+                console.error('Error callback error:', listenerError);
+            }
+        };
         
-        // BroadcastChannel for more reliable communication
-        if (this.broadcastChannel) {
-            this.broadcastChannel.postMessage({
-                type: 'balance_update',
-                ...updateData
-            });
-        }
+        this._errorListeners.add(wrappedCallback);
+        return () => this._errorListeners.delete(wrappedCallback);
+    }
+    
+    getCurrentBalance() {
+        return this._currentBalance;
+    }
+    
+    getBalanceInfo() {
+        const balanceInCents = Math.round(this._currentBalance * 100);
+        const thresholdInCents = this._config.lowBalanceThreshold;
+        
+        return {
+            balance: this._currentBalance,
+            balanceCents: balanceInCents,
+            formatted: this.formatBalance(this._currentBalance),
+            formattedShort: this.formatBalanceShort(this._currentBalance),
+            isLow: balanceInCents < thresholdInCents,
+            threshold: thresholdInCents / 100,
+            thresholdCents: thresholdInCents,
+            userId: this._userId,
+            currency: this._config.currency,
+            lastUpdated: this._lastBalanceUpdate,
+            isInitialized: this._isInitialized
+        };
     }
     
     formatBalance(balance, options = {}) {
         const config = {
             style: 'currency',
-            currency: options.currency || 'USD',
+            currency: options.currency || this._config.currency,
             minimumFractionDigits: options.minimumFractionDigits ?? 2,
             maximumFractionDigits: options.maximumFractionDigits ?? 2,
             ...options
         };
         
-        return new Intl.NumberFormat('en-US', config).format(balance || 0);
+        // Ensure we're working with a number
+        const numericBalance = typeof balance === 'number' ? balance : parseFloat(balance) || 0;
+        return new Intl.NumberFormat('en-US', config).format(numericBalance);
     }
     
     formatBalanceShort(balance) {
-        if (balance >= 1000000) {
-            return `$${(balance / 1000000).toFixed(1)}M`;
-        } else if (balance >= 1000) {
-            return `$${(balance / 1000).toFixed(1)}K`;
-        } else {
-            return this.formatBalance(balance);
-        }
-    }
-    
-    getCurrentBalance() {
-        return this.currentBalance;
-    }
-    
-    getBalanceInfo() {
-        return {
-            balance: this.currentBalance,
-            formatted: this.formatBalance(this.currentBalance),
-            formattedShort: this.formatBalanceShort(this.currentBalance),
-            isLow: this.currentBalance < this.LOW_BALANCE_THRESHOLD,
-            threshold: this.LOW_BALANCE_THRESHOLD,
-            userId: this.userId,
-            lastUpdated: this.lastBalanceUpdate
-        };
-    }
-    
-    async updateConfig(newConfig) {
-        this.config = { ...this.config, ...newConfig };
+        const numericBalance = typeof balance === 'number' ? balance : parseFloat(balance) || 0;
         
-        // Reinitialize if needed
-        if (newConfig.enableOfflineCache && !this.db) {
-            await this.setupOfflineCache();
+        if (numericBalance >= 1000000) {
+            return `$${(numericBalance / 1000000).toFixed(1)}M`;
+        } else if (numericBalance >= 1000) {
+            return `$${(numericBalance / 1000).toFixed(1)}K`;
+        } else {
+            return this.formatBalance(numericBalance);
         }
     }
     
     async refresh() {
-        if (!this.userId) return false;
+        if (!this._userId) return false;
         
         try {
-            // Force refresh balance
-            const walletDoc = await firebaseApp.db.collection('wallets').doc(this.userId).get();
+            const walletDoc = await firebaseApp.db.collection('wallets').doc(this._userId).get();
             if (walletDoc.exists) {
                 const data = walletDoc.data();
-                this.currentBalance = data.balance || 0;
-                this.notifyBalanceListeners();
+                this._currentBalance = data.balance || 0;
+                this._lastBalanceUpdate = Date.now();
+                this._notifyBalanceListeners();
                 return true;
             }
             return false;
@@ -648,280 +877,149 @@ class BalanceSync {
         }
     }
     
-    async cleanup() {
-        // Clear debounce timer
-        clearTimeout(this.balanceUpdateDebounce);
+    async executeTransaction(type, amount, metadata = {}) {
+        // This is a CLIENT-SIDE ONLY method for user-initiated transactions
+        // All admin functionality must be moved to Cloud Functions
         
-        // Unsubscribe from Firebase listeners
-        if (this.unsubscribeBalance) {
-            this.unsubscribeBalance();
-            this.unsubscribeBalance = null;
+        if (!this._userId) {
+            throw new Error('USER_NOT_AUTHENTICATED');
         }
         
-        if (this.unsubscribeTransactions) {
-            this.unsubscribeTransactions();
-            this.unsubscribeTransactions = null;
+        // Convert amount to cents for precision
+        const amountInCents = Math.round(amount * 100);
+        if (amountInCents <= 0) {
+            throw new Error('INVALID_AMOUNT');
         }
         
-        // Close broadcast channel
-        if (this.broadcastChannel) {
-            this.broadcastChannel.close();
-            this.broadcastChannel = null;
+        // For withdrawals, check balance
+        if (type === 'withdrawal') {
+            const currentBalanceInCents = Math.round(this._currentBalance * 100);
+            if (currentBalanceInCents < amountInCents) {
+                throw new Error('INSUFFICIENT_FUNDS');
+            }
         }
         
-        // Clear listeners
-        this.balanceListeners.clear();
-        this.transactionListeners.clear();
-        this.lowBalanceListeners.clear();
-        
-        if (this.authListeners) {
-            this.authListeners.clear();
-        }
-        
-        this.currentBalance = 0;
-        this.lastBalanceUpdate = null;
-        this.isInitialized = false;
-    }
-    
-    // Error handling methods
-    handleInitializationError(error) {
-        // Implement fallback strategies
-        console.error('Initialization error:', error);
-        this.notifyError('initialization_failed', 'Failed to initialize balance sync');
-    }
-    
-    handleAuthError(error) {
-        console.error('Auth error:', error);
-        this.notifyError('auth_error', 'Authentication error occurred');
-    }
-    
-    // Admin functions with enhanced security
-    async adminTransferToUser(targetUserId, amount, reason = 'admin_transfer', notes = '', metadata = {}) {
+        // Call Cloud Function for the actual transaction
         try {
-            // Validation
-            if (!this.userId) {
-                throw new Error('Admin not authenticated');
-            }
-            
-            if (!targetUserId || !amount || amount <= 0) {
-                throw new Error('Invalid parameters');
-            }
-            
-            // Get admin data with additional validation
-            const adminDoc = await firebaseApp.db.collection('admins').doc(this.userId).get();
-            if (!adminDoc.exists) {
-                throw new Error('Admin not found or unauthorized');
-            }
-            
-            const adminData = adminDoc.data();
-            
-            // Check admin permissions
-            if (!adminData.permissions?.includes('balance_adjustment')) {
-                throw new Error('Insufficient permissions');
-            }
-            
-            // Use transaction for atomic operation
-            const result = await firebaseApp.db.runTransaction(async (transaction) => {
-                // Get target user wallet
-                const targetWalletRef = firebaseApp.db.collection('wallets').doc(targetUserId);
-                const targetWalletDoc = await transaction.get(targetWalletRef);
-                
-                let currentBalance = 0;
-                let userData = {};
-                
-                if (targetWalletDoc.exists) {
-                    const data = targetWalletDoc.data();
-                    currentBalance = data.balance || 0;
-                    userData = data;
-                    
-                    // Check if wallet is active
-                    if (data.status !== 'active') {
-                        throw new Error(`Target wallet is ${data.status}`);
-                    }
-                } else {
-                    // Get user info for new wallet
-                    const user = await firebaseApp.auth.getUser(targetUserId).catch(() => null);
-                    
-                    if (!user) {
-                        throw new Error('Target user not found');
-                    }
-                    
-                    userData = {
-                        email: user.email || 'unknown@user.com',
-                        username: user.displayName || user.email?.split('@')[0] || 'Unknown',
-                        status: 'active'
-                    };
-                    
-                    // Create wallet
-                    transaction.set(targetWalletRef, {
-                        userId: targetUserId,
-                        email: userData.email,
-                        username: userData.username,
-                        balance: amount,
-                        walletId: `WALLET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                        currency: 'USD',
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        totalDeposits: 0,
-                        totalWithdrawn: 0,
-                        totalWon: 0,
-                        totalLost: 0,
-                        status: 'active',
-                        kycStatus: 'pending',
-                        settings: {
-                            lowBalanceAlert: true,
-                            transactionNotifications: true
-                        }
-                    });
-                    
-                    currentBalance = 0;
-                }
-                
-                const newBalance = currentBalance + amount;
-                
-                // Update balance
-                transaction.update(targetWalletRef, {
-                    balance: newBalance,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    totalDeposits: firebase.firestore.FieldValue.increment(amount)
-                });
-                
-                // Create transaction record
-                const transactionId = `TX-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const transactionRef = firebaseApp.db.collection('transactions').doc(transactionId);
-                
-                transaction.set(transactionRef, {
-                    id: transactionId,
-                    userId: targetUserId,
-                    type: 'admin_adjustment',
-                    subType: 'credit',
-                    amount: amount,
-                    description: reason,
-                    notes: notes,
-                    status: 'completed',
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    userEmail: userData.email,
-                    username: userData.username,
-                    adminId: this.userId,
-                    adminEmail: adminData.email,
-                    previousBalance: currentBalance,
-                    newBalance: newBalance,
-                    metadata: {
-                        action: 'credit',
-                        reason: reason,
-                        notes: notes,
-                        ...metadata
-                    },
-                    ipAddress: metadata.ipAddress || 'admin_console',
-                    userAgent: metadata.userAgent || 'admin_system'
-                });
-                
-                // Create admin log
-                const adminLogId = `LOG-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const adminLogRef = firebaseApp.db.collection('admin_logs').doc(adminLogId);
-                
-                transaction.set(adminLogRef, {
-                    id: adminLogId,
-                    adminId: this.userId,
-                    adminEmail: adminData.email,
-                    action: 'balance_adjustment',
-                    targetUserId: targetUserId,
-                    amount: amount,
-                    reason: reason,
-                    notes: notes,
-                    previousBalance: currentBalance,
-                    newBalance: newBalance,
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    metadata: {
-                        ...metadata,
-                        transactionId: transactionId
-                    }
-                });
-                
-                // Update admin stats
-                const adminStatsRef = firebaseApp.db.collection('admin_stats').doc(this.userId);
-                transaction.set(adminStatsRef, {
-                    totalAdjustments: firebase.firestore.FieldValue.increment(1),
-                    totalAmountAdjusted: firebase.firestore.FieldValue.increment(amount),
-                    lastAdjustment: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-                
-                return {
-                    success: true,
-                    transactionId,
-                    previousBalance: currentBalance,
-                    newBalance
-                };
+            const transactionFunction = firebaseApp.functions.httpsCallable('executeTransaction');
+            const result = await transactionFunction({
+                type,
+                amount: amountInCents / 100, // Send as dollars for API
+                amountCents: amountInCents,
+                metadata,
+                timestamp: Date.now()
             });
             
-            return {
-                success: true,
-                message: `Successfully transferred ${this.formatBalance(amount)} to user`,
-                transactionId: result.transactionId,
-                previousBalance: result.previousBalance,
-                newBalance: result.newBalance
-            };
+            return result.data;
             
         } catch (error) {
-            console.error('Admin transfer error:', error);
+            console.error('Transaction failed:', error);
             
-            // Log the error
-            await this.logAdminError('admin_transfer', error.message, {
+            // Store pending transaction for offline retry
+            if (error.code === 'unavailable' || navigator.onLine === false) {
+                this._storePendingTransaction(type, amountInCents, metadata);
+            }
+            
+            throw error;
+        }
+    }
+    
+    _storePendingTransaction(type, amountInCents, metadata) {
+        if (!this._userId) return;
+        
+        const pendingKey = `pending_transactions_${this._userId}`;
+        const transaction = {
+            id: `pending_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            type,
+            amountCents: amountInCents,
+            metadata,
+            timestamp: Date.now(),
+            status: 'pending'
+        };
+        
+        try {
+            let pending = [];
+            const existing = localStorage.getItem(pendingKey);
+            if (existing) {
+                pending = JSON.parse(existing);
+            }
+            
+            pending.push(transaction);
+            localStorage.setItem(pendingKey, JSON.stringify(pending));
+            
+        } catch (error) {
+            console.error('Failed to store pending transaction:', error);
+        }
+    }
+    
+    // Admin functionality - CLIENT WRAPPER ONLY
+    async adminTransferToUser(targetUserId, amount, reason = 'admin_transfer', notes = '') {
+        // This is just a wrapper that calls a Cloud Function
+        // ALL business logic must be in the Cloud Function
+        
+        if (!this._userId) {
+            throw new Error('ADMIN_NOT_AUTHENTICATED');
+        }
+        
+        try {
+            const adminFunction = firebaseApp.functions.httpsCallable('adminTransferToUser');
+            const result = await adminFunction({
                 targetUserId,
-                amount,
+                amount: Math.round(amount * 100) / 100, // Ensure 2 decimal places
                 reason,
-                adminId: this.userId
+                notes,
+                adminId: this._userId,
+                timestamp: Date.now()
             });
             
-            return {
-                success: false,
-                message: error.message || 'Transfer failed',
-                errorCode: this.getErrorCode(error)
+            return result.data;
+            
+        } catch (error) {
+            console.error('Admin transfer failed:', error);
+            throw error;
+        }
+    }
+    
+    async cleanup() {
+        await this._cleanup();
+    }
+    
+    // Static methods
+    static getInstance() {
+        if (!window.__balanceSyncInstance) {
+            window.__balanceSyncInstance = new BalanceSync();
+        }
+        return window.__balanceSyncInstance;
+    }
+    
+    static destroyInstance() {
+        if (window.__balanceSyncInstance) {
+            window.__balanceSyncInstance.cleanup();
+            window.__balanceSyncInstance = null;
+        }
+    }
+}
+
+// Initialize singleton with proper error handling
+if (!window.balanceSync) {
+    try {
+        window.balanceSync = BalanceSync.getInstance();
+        
+        // Export for module systems
+        if (typeof module !== 'undefined' && module.exports) {
+            module.exports = {
+                BalanceSync,
+                getInstance: () => window.balanceSync
             };
         }
+    } catch (error) {
+        console.error('Failed to initialize BalanceSync:', error);
+        // Create a dummy instance that throws errors on use
+        window.balanceSync = {
+            onBalanceUpdate: () => { throw new Error('BalanceSync not initialized'); },
+            onError: (callback) => callback('INIT_FAILED', error),
+            getCurrentBalance: () => 0,
+            formatBalance: (balance) => `$${balance?.toFixed(2) || '0.00'}`
+        };
     }
-    
-    async logAdminError(action, errorMessage, context = {}) {
-        try {
-            await firebaseApp.db.collection('admin_error_logs').add({
-                action,
-                errorMessage,
-                context,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                adminId: this.userId
-            });
-        } catch (logError) {
-            console.error('Failed to log admin error:', logError);
-        }
-    }
-    
-    getErrorCode(error) {
-        if (error.message.includes('permission') || error.message.includes('unauthorized')) {
-            return 'PERMISSION_DENIED';
-        } else if (error.message.includes('not found')) {
-            return 'USER_NOT_FOUND';
-        } else if (error.message.includes('transaction')) {
-            return 'TRANSACTION_FAILED';
-        } else {
-            return 'UNKNOWN_ERROR';
-        }
-    }
-    
-    // Utility for external use
-    static getInstance() {
-        if (!window.balanceSync) {
-            window.balanceSync = new BalanceSync();
-        }
-        return window.balanceSync;
-    }
-}
-
-// Initialize singleton instance
-if (!window.balanceSync) {
-    window.balanceSync = BalanceSync.getInstance();
-}
-
-// Export for module systems
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = BalanceSync;
 }
