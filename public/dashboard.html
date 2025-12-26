@@ -5,10 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Millioner</title>
     
-    <!-- Firebase SDK -->
+    <!-- Firebase SDK (LOAD FIRST) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <!-- Shared Configuration (LOAD SECOND) -->
+    <script src="firebase-config.js"></script>
+    <script src="balance-sync.js"></script>
+    <script src="wallet-system.js"></script>
     
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -256,7 +261,7 @@
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
-            padding-bottom: 80px; /* Space for mobile nav */
+            padding-bottom: 80px;
         }
         
         .welcome-section {
@@ -905,26 +910,6 @@
             vertical-align: middle;
         }
         
-        /* ===== CONNECTION STATUS ===== */
-        .connection-status {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: var(--warning);
-            color: white;
-            padding: 10px;
-            text-align: center;
-            font-size: 14px;
-            z-index: 1002;
-            display: none;
-        }
-        
-        .connection-status.show {
-            display: block;
-            animation: slideDown 0.3s ease;
-        }
-        
         /* ===== SCROLLBAR STYLING ===== */
         ::-webkit-scrollbar {
             width: 6px;
@@ -953,9 +938,6 @@
         <p>Loading dashboard...</p>
     </div>
     
-    <!-- Connection Status -->
-    <div id="connectionStatus" class="connection-status"></div>
-    
     <!-- Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
     
@@ -973,8 +955,7 @@
         <div class="user-info">
             <div class="balance-display">
                 <i class="fas fa-wallet"></i>
-                <span>$</span>
-                <span id="currentBalance">0.00</span>
+                <span id="currentBalance">$0.00</span>
             </div>
             
             <div class="user-menu">
@@ -1283,378 +1264,188 @@
     </div>
     
     <script>
-        // ===== FIREBASE CONFIGURATION =====
-        const firebaseConfig = {
-            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
-            authDomain: "x-bet-prod-jd.firebaseapp.com",
-            projectId: "x-bet-prod-jd",
-            storageBucket: "x-bet-prod-jd.firebasestorage.app",
-            messagingSenderId: "499334334535",
-            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
-            measurementId: "G-PTV4XMYQ6P"
-        };
-        
         // ===== GLOBAL VARIABLES =====
-        let auth, db;
         let currentUser = null;
-        let userData = null;
-        let balanceListener = null;
-        let transactionsListener = null;
+        let walletData = null;
+        let balanceUnsubscribe = null;
+        let transactionsUnsubscribe = null;
         
         // ===== INITIALIZATION =====
         document.addEventListener('DOMContentLoaded', async () => {
             try {
-                // Initialize Firebase
-                firebase.initializeApp(firebaseConfig);
-                auth = firebase.auth();
-                db = firebase.firestore();
+                console.log("🚀 Dashboard initialization started...");
                 
-                console.log("Firebase initialized");
+                // Wait for shared Firebase config to load
+                await waitForFirebase();
                 
-                // Enable offline persistence
-                await db.enablePersistence().catch(err => {
-                    console.warn("Offline persistence failed:", err.code);
-                });
-                
-                // Setup event listeners
-                setupEventListeners();
-                
-                // Check authentication state
-                auth.onAuthStateChanged(handleAuthStateChange);
+                // Check authentication
+                firebaseApp.auth.onAuthStateChanged(handleAuthStateChange);
                 
             } catch (error) {
-                console.error("Initialization error:", error);
-                showToast('error', 'Initialization Failed', 'Failed to initialize application. Please refresh.');
-                setTimeout(() => window.location.href = 'login.html', 3000);
+                console.error("❌ Dashboard initialization error:", error);
+                showToast('error', 'Initialization Failed', 'Please refresh the page.');
+                document.getElementById('loadingOverlay').classList.add('hidden');
             }
         });
+        
+        async function waitForFirebase() {
+            return new Promise((resolve) => {
+                let checkCount = 0;
+                const checkInterval = setInterval(() => {
+                    if (window.firebaseApp && window.firebaseApp.auth) {
+                        clearInterval(checkInterval);
+                        console.log("✅ Firebase loaded successfully");
+                        resolve();
+                    }
+                    checkCount++;
+                    if (checkCount > 50) { // 50 * 100ms = 5 seconds timeout
+                        clearInterval(checkInterval);
+                        console.error("❌ Firebase timeout");
+                        resolve();
+                    }
+                }, 100);
+            });
+        }
         
         // ===== AUTHENTICATION HANDLER =====
         function handleAuthStateChange(user) {
             if (!user) {
-                // No user logged in, redirect to login
+                // Not logged in, redirect to login
+                console.log("⚠️ No user, redirecting to login...");
                 window.location.href = 'login.html';
                 return;
             }
             
             currentUser = user;
-            console.log("User authenticated:", user.email);
+            console.log("✅ User authenticated:", user.email);
             
-            // Load user data
-            loadUserData();
+            // Update user info
+            updateUserInfo();
             
-            // Setup real-time listeners
-            setupRealtimeListeners();
+            // Setup balance synchronization
+            setupBalanceSync();
             
-            // Hide loading overlay
+            // Setup wallet system
+            setupWalletSystem();
+            
+            // Setup event listeners
+            setupEventListeners();
+            
+            // Hide loading
             setTimeout(() => {
                 document.getElementById('loadingOverlay').classList.add('hidden');
             }, 500);
         }
         
-        // ===== USER DATA MANAGEMENT =====
-        async function loadUserData() {
-            try {
-                // Get user data from wallets collection
-                const userDoc = await db.collection('wallets').doc(currentUser.uid).get();
-                
-                if (userDoc.exists) {
-                    userData = userDoc.data();
-                    
-                    // Update UI with user data
-                    updateUserUI();
-                    
-                    // Load transactions
-                    loadTransactions();
-                    
-                    // Load statistics
-                    loadStatistics();
-                    
-                    console.log("User data loaded:", userData);
-                } else {
-                    // Create wallet if doesn't exist (safety fallback)
-                    await createUserWallet();
-                }
-                
-            } catch (error) {
-                console.error("Error loading user data:", error);
-                showToast('error', 'Load Error', 'Failed to load user data');
-            }
-        }
-        
-        async function createUserWallet() {
-            try {
-                const walletData = {
-                    userId: currentUser.uid,
-                    email: currentUser.email,
-                    username: currentUser.email.split('@')[0],
-                    balance: 1000.00,
-                    walletId: generateWalletId(),
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    totalDeposits: 0,
-                    totalWithdrawn: 0,
-                    transactionCount: 0
-                };
-                
-                await db.collection('wallets').doc(currentUser.uid).set(walletData);
-                userData = walletData;
-                updateUserUI();
-                
-                // Create initial transaction
-                await createTransaction({
-                    type: 'initial',
-                    amount: 1000.00,
-                    description: 'Welcome bonus - Initial account funding',
-                    status: 'completed'
-                });
-                
-            } catch (error) {
-                console.error("Error creating wallet:", error);
-                showToast('error', 'Wallet Creation Failed', 'Failed to create user wallet');
-            }
-        }
-        
-        function generateWalletId() {
-            const timestamp = Date.now().toString(36);
-            const random = Math.random().toString(36).substring(2, 8);
-            return `WALLET-${timestamp}-${random}`.toUpperCase();
-        }
-        
-        // ===== REAL-TIME LISTENERS =====
-        function setupRealtimeListeners() {
-            // Balance listener
-            balanceListener = db.collection('wallets').doc(currentUser.uid)
-                .onSnapshot(doc => {
-                    if (doc.exists) {
-                        const newData = doc.data();
-                        if (userData && newData.balance !== userData.balance) {
-                            const oldBalance = userData.balance || 0;
-                            const newBalance = newData.balance || 0;
-                            userData = newData;
-                            updateBalanceUI(newBalance, oldBalance);
-                        }
-                        userData = newData;
-                        updateUserUI();
-                    }
-                }, error => {
-                    console.error("Balance listener error:", error);
-                    handleConnectionError();
-                });
-            
-            // Transactions listener
-            setupTransactionsListener();
-        }
-        
-        function setupTransactionsListener() {
-            if (transactionsListener) {
-                transactionsListener(); // Unsubscribe previous listener
+        // ===== BALANCE SYNCHRONIZATION =====
+        function setupBalanceSync() {
+            if (!window.balanceSync) {
+                console.error("❌ balanceSync not available");
+                return;
             }
             
-            transactionsListener = db.collection('transactions')
-                .where('userId', '==', currentUser.uid)
-                .orderBy('timestamp', 'desc')
-                .limit(20)
-                .onSnapshot(snapshot => {
-                    const transactions = [];
-                    snapshot.forEach(doc => {
-                        transactions.push({
-                            id: doc.id,
-                            ...doc.data()
-                        });
-                    });
-                    renderTransactions(transactions);
-                }, error => {
-                    console.error("Transactions listener error:", error);
-                });
+            // Subscribe to balance updates from shared system
+            balanceUnsubscribe = window.balanceSync.onBalanceUpdate((balance) => {
+                console.log("🔄 Balance update received:", balance);
+                updateBalanceDisplay(balance);
+            });
+            
+            console.log("✅ Balance sync setup complete");
         }
         
-        // ===== TRANSACTION SYSTEM =====
-        async function createTransaction(transactionData) {
-            try {
-                const transactionRef = db.collection('transactions').doc();
-                const timestamp = firebase.firestore.FieldValue.serverTimestamp();
-                
-                const transaction = {
-                    id: transactionRef.id,
-                    userId: currentUser.uid,
-                    ...transactionData,
-                    timestamp: timestamp,
-                    userEmail: currentUser.email,
-                    username: userData.username
-                };
-                
-                await transactionRef.set(transaction);
-                console.log("Transaction created:", transaction);
-                
-                // Update user statistics
-                await updateUserStats(transactionData);
-                
-                return transaction;
-                
-            } catch (error) {
-                console.error("Error creating transaction:", error);
-                throw error;
+        // ===== WALLET SYSTEM =====
+        function setupWalletSystem() {
+            if (!window.walletSystem) {
+                console.error("❌ walletSystem not available");
+                return;
             }
-        }
-        
-        async function updateUserStats(transactionData) {
-            try {
-                const updates = {
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-                
-                if (transactionData.type === 'deposit') {
-                    updates.totalDeposits = firebase.firestore.FieldValue.increment(transactionData.amount);
-                } else if (transactionData.type === 'withdraw') {
-                    updates.totalWithdrawn = firebase.firestore.FieldValue.increment(transactionData.amount);
+            
+            // Set callback for wallet updates
+            window.walletSystem.onBalanceUpdate = (balance, walletData) => {
+                console.log("💰 Wallet balance update:", balance);
+                updateBalanceDisplay(balance);
+                if (walletData) {
+                    updateWalletStatistics(walletData);
                 }
-                
-                updates.transactionCount = firebase.firestore.FieldValue.increment(1);
-                
-                await db.collection('wallets').doc(currentUser.uid).update(updates);
-                
-            } catch (error) {
-                console.error("Error updating user stats:", error);
+            };
+            
+            window.walletSystem.onTransactionUpdate = (transactions) => {
+                console.log("📊 Transactions update:", transactions.length);
+                renderTransactions(transactions);
+                updateTransactionStatistics(transactions);
+            };
+            
+            // Load initial wallet data
+            if (window.walletSystem.walletData) {
+                walletData = window.walletSystem.walletData;
+                updateBalanceDisplay(window.walletSystem.balance);
+                updateWalletStatistics(walletData);
             }
-        }
-        
-        // ===== BALANCE MANAGEMENT (ATOMIC OPERATIONS) =====
-        async function updateBalance(amount, type, description) {
-            try {
-                const userRef = db.collection('wallets').doc(currentUser.uid);
-                
-                // Use Firestore transaction for atomic update
-                await db.runTransaction(async (transaction) => {
-                    const doc = await transaction.get(userRef);
-                    if (!doc.exists) {
-                        throw new Error("User wallet not found");
-                    }
-                    
-                    const currentBalance = doc.data().balance || 0;
-                    let newBalance;
-                    
-                    if (type === 'deposit' || type === 'receive') {
-                        newBalance = currentBalance + amount;
-                    } else if (type === 'withdraw' || type === 'send') {
-                        newBalance = currentBalance - amount;
-                        if (newBalance < 0) {
-                            throw new Error("Insufficient funds");
-                        }
-                    } else {
-                        throw new Error("Invalid transaction type");
-                    }
-                    
-                    // Update balance
-                    transaction.update(userRef, {
-                        balance: newBalance,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Create transaction record
-                    const transactionRef = db.collection('transactions').doc();
-                    transaction.set(transactionRef, {
-                        userId: currentUser.uid,
-                        type: type,
-                        amount: amount,
-                        description: description,
-                        status: 'completed',
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                        userEmail: currentUser.email,
-                        username: userData.username,
-                        previousBalance: currentBalance,
-                        newBalance: newBalance
-                    });
-                    
-                    console.log(`Balance updated: ${type} $${amount}, New balance: $${newBalance}`);
-                });
-                
-                return true;
-                
-            } catch (error) {
-                console.error("Balance update error:", error);
-                throw error;
-            }
+            
+            console.log("✅ Wallet system setup complete");
         }
         
         // ===== UI UPDATES =====
-        function updateUserUI() {
-            if (!userData) return;
+        function updateUserInfo() {
+            if (!currentUser) return;
             
-            // Update username
             const userNameElements = document.querySelectorAll('#userName, #welcomeName');
             userNameElements.forEach(el => {
-                el.textContent = userData.username || currentUser.email.split('@')[0];
+                el.textContent = currentUser.email.split('@')[0];
             });
             
-            // Update email
-            const emailElement = document.getElementById('userEmail');
-            if (emailElement) {
-                emailElement.textContent = currentUser.email;
-            }
-            
-            // Update profile modal
-            updateProfileModal();
-        }
-        
-        function updateBalanceUI(newBalance, oldBalance) {
-            // Update all balance displays
-            const balanceElements = document.querySelectorAll('#currentBalance, #availableBalance');
-            balanceElements.forEach(el => {
-                el.textContent = newBalance.toFixed(2);
-            });
-            
-            // Update available for send/withdraw
-            document.getElementById('availableForSend').textContent = newBalance.toFixed(2);
-            document.getElementById('availableForWithdraw').textContent = newBalance.toFixed(2);
-            
-            // Show balance change notification
-            if (oldBalance !== undefined) {
-                const change = newBalance - oldBalance;
-                if (change !== 0) {
-                    const message = change > 0 
-                        ? `Balance increased by $${change.toFixed(2)}`
-                        : `Balance decreased by $${Math.abs(change).toFixed(2)}`;
-                    showToast('info', 'Balance Updated', message);
-                }
-            }
-        }
-        
-        function updateProfileModal() {
-            if (!userData) return;
-            
-            document.getElementById('profileUsername').value = userData.username || '';
+            document.getElementById('userEmail').textContent = currentUser.email;
             document.getElementById('profileEmail').value = currentUser.email;
-            document.getElementById('profileWalletId').value = userData.walletId || 'N/A';
+        }
+        
+        function updateBalanceDisplay(balance) {
+            const formattedBalance = formatCurrency(balance);
             
-            if (userData.createdAt) {
-                const date = userData.createdAt.toDate 
-                    ? userData.createdAt.toDate().toLocaleDateString()
+            // Update all balance displays
+            const balanceElements = [
+                'currentBalance',
+                'availableBalance',
+                'availableForSend',
+                'availableForWithdraw'
+            ];
+            
+            balanceElements.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = formattedBalance;
+                }
+            });
+            
+            console.log("📈 Balance updated:", formattedBalance);
+        }
+        
+        function updateWalletStatistics(walletData) {
+            if (!walletData) return;
+            
+            // Update deposit total
+            const totalDeposits = walletData.totalDeposited || 0;
+            document.getElementById('totalDeposits').textContent = formatCurrency(totalDeposits);
+            
+            // Update withdrawal total
+            const totalWithdrawn = walletData.totalWithdrawn || 0;
+            document.getElementById('totalWithdrawn').textContent = formatCurrency(totalWithdrawn);
+            
+            // Update profile info
+            if (walletData.walletId) {
+                document.getElementById('profileWalletId').value = walletData.walletId;
+            }
+            if (walletData.createdAt) {
+                const date = walletData.createdAt.toDate 
+                    ? walletData.createdAt.toDate().toLocaleDateString()
                     : new Date().toLocaleDateString();
                 document.getElementById('profileJoinDate').value = date;
             }
-        }
-        
-        async function loadTransactions() {
-            try {
-                const snapshot = await db.collection('transactions')
-                    .where('userId', '==', currentUser.uid)
-                    .orderBy('timestamp', 'desc')
-                    .limit(10)
-                    .get();
-                
-                const transactions = [];
-                snapshot.forEach(doc => {
-                    transactions.push({
-                        id: doc.id,
-                        ...doc.data()
-                    });
+            if (walletData.username) {
+                document.getElementById('profileUsername').value = walletData.username;
+                const userNameElements = document.querySelectorAll('#userName, #welcomeName');
+                userNameElements.forEach(el => {
+                    el.textContent = walletData.username;
                 });
-                
-                renderTransactions(transactions);
-                
-            } catch (error) {
-                console.error("Error loading transactions:", error);
             }
         }
         
@@ -1694,9 +1485,11 @@
                 
                 switch(type) {
                     case 'deposit':
+                    case 'bonus':
                         iconClass = 'fas fa-arrow-down';
                         iconColorClass += ' deposit';
                         break;
+                    case 'withdrawal':
                     case 'withdraw':
                         iconClass = 'fas fa-arrow-up';
                         iconColorClass += ' withdraw';
@@ -1709,18 +1502,21 @@
                         iconClass = 'fas fa-download';
                         iconColorClass += ' receive';
                         break;
-                    case 'game':
+                    case 'game_bet':
+                    case 'game_win':
                         iconClass = 'fas fa-gamepad';
                         iconColorClass += ' game';
+                        break;
+                    case 'admin_adjustment':
+                        iconClass = 'fas fa-user-shield';
+                        iconColorClass += ' send';
                         break;
                 }
                 
                 // Determine amount color
-                const amountClass = type === 'deposit' || type === 'receive' 
-                    ? 'transaction-amount positive' 
-                    : 'transaction-amount negative';
-                
-                const amountSign = type === 'deposit' || type === 'receive' ? '+' : '-';
+                const isPositive = type === 'deposit' || type === 'receive' || type === 'bonus' || type === 'game_win' || type === 'admin_adjustment';
+                const amountClass = isPositive ? 'transaction-amount positive' : 'transaction-amount negative';
+                const amountSign = isPositive ? '+' : '-';
                 
                 html += `
                     <div class="transaction-item" data-type="${type}">
@@ -1739,43 +1535,13 @@
             
             container.innerHTML = html;
             
-            // Add filter functionality
+            // Setup filter functionality
             setupTransactionFilters();
         }
         
-        async function loadStatistics() {
-            try {
-                // Load deposit total
-                const depositsSnapshot = await db.collection('transactions')
-                    .where('userId', '==', currentUser.uid)
-                    .where('type', '==', 'deposit')
-                    .where('status', '==', 'completed')
-                    .get();
-                
-                let totalDeposits = 0;
-                depositsSnapshot.forEach(doc => {
-                    totalDeposits += doc.data().amount || 0;
-                });
-                
-                // Load withdrawal total
-                const withdrawalsSnapshot = await db.collection('transactions')
-                    .where('userId', '==', currentUser.uid)
-                    .where('type', '==', 'withdraw')
-                    .where('status', '==', 'completed')
-                    .get();
-                
-                let totalWithdrawn = 0;
-                withdrawalsSnapshot.forEach(doc => {
-                    totalWithdrawn += doc.data().amount || 0;
-                });
-                
-                // Update UI
-                document.getElementById('totalDeposits').textContent = `$${totalDeposits.toFixed(2)}`;
-                document.getElementById('totalWithdrawn').textContent = `$${totalWithdrawn.toFixed(2)}`;
-                
-            } catch (error) {
-                console.error("Error loading statistics:", error);
-            }
+        function updateTransactionStatistics(transactions) {
+            // You can add statistics calculations here if needed
+            console.log("📈 Transaction statistics updated");
         }
         
         // ===== EVENT HANDLERS =====
@@ -1805,7 +1571,7 @@
             document.getElementById('profileBtn').addEventListener('click', () => showModal('profileModal'));
             
             // Refresh transactions
-            document.getElementById('refreshTransactions').addEventListener('click', loadTransactions);
+            document.getElementById('refreshTransactions').addEventListener('click', refreshTransactions);
             
             // Modal close buttons
             document.querySelectorAll('.modal-close, [data-modal]').forEach(btn => {
@@ -1847,9 +1613,12 @@
             // Profile form
             document.getElementById('saveProfile').addEventListener('click', handleProfileSave);
             
-            // Connection monitoring
-            window.addEventListener('online', handleConnectionChange);
-            window.addEventListener('offline', handleConnectionChange);
+            // Close dropdowns when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.user-menu')) {
+                    document.getElementById('dropdownMenu').classList.remove('show');
+                }
+            });
         }
         
         function setupTransactionFilters() {
@@ -1873,11 +1642,12 @@
                     transaction.style.display = 'flex';
                 } else {
                     const type = transaction.dataset.type;
-                    if (type === filterType) {
-                        transaction.style.display = 'flex';
-                    } else {
-                        transaction.style.display = 'none';
-                    }
+                    const show = (filterType === 'deposit' && (type === 'deposit' || type === 'bonus')) ||
+                                 (filterType === 'withdraw' && type === 'withdrawal') ||
+                                 (filterType === 'send' && type === 'send') ||
+                                 (filterType === 'receive' && type === 'receive');
+                    
+                    transaction.style.display = show ? 'flex' : 'none';
                 }
             });
         }
@@ -1939,7 +1709,7 @@
                     break;
                     
                 case 'profileModal':
-                    updateProfileModal();
+                    // Profile modal is updated when opened
                     break;
             }
         }
@@ -1951,17 +1721,17 @@
             
             let fee = 0;
             if (method === 'credit_card') {
-                fee = amount * 0.029 + 0.30; // 2.9% + $0.30
+                fee = amount * 0.029 + 0.30;
             } else if (method === 'bank_transfer') {
-                fee = amount * 0.01; // 1%
+                fee = amount * 0.01;
             } else if (method === 'crypto') {
-                fee = amount * 0.005; // 0.5%
+                fee = amount * 0.005;
             }
             
             const total = amount + fee;
             
-            document.getElementById('depositFee').textContent = `$${fee.toFixed(2)}`;
-            document.getElementById('depositTotal').textContent = `$${total.toFixed(2)}`;
+            document.getElementById('depositFee').textContent = formatCurrency(fee);
+            document.getElementById('depositTotal').textContent = formatCurrency(total);
         }
         
         function updateWithdrawCalculations() {
@@ -1970,26 +1740,26 @@
             
             let fee = 0;
             if (method === 'bank_account') {
-                fee = amount * 0.015; // 1.5%
+                fee = amount * 0.015;
             } else if (method === 'paypal') {
-                fee = amount * 0.02 + 0.30; // 2% + $0.30
+                fee = amount * 0.02 + 0.30;
             } else if (method === 'crypto_wallet') {
-                fee = amount * 0.005; // 0.5%
+                fee = amount * 0.005;
             }
             
             const total = amount - fee;
             
-            document.getElementById('withdrawFee').textContent = `$${fee.toFixed(2)}`;
-            document.getElementById('withdrawTotal').textContent = `$${total.toFixed(2)}`;
+            document.getElementById('withdrawFee').textContent = formatCurrency(fee);
+            document.getElementById('withdrawTotal').textContent = formatCurrency(total);
         }
         
         function updateSendCalculations() {
             const amount = parseFloat(document.getElementById('sendAmount').value) || 0;
-            const fee = amount * 0.02; // 2%
+            const fee = amount * 0.02;
             const total = amount + fee;
             
-            document.getElementById('sendFee').textContent = `$${fee.toFixed(2)}`;
-            document.getElementById('sendTotal').textContent = `$${total.toFixed(2)}`;
+            document.getElementById('sendFee').textContent = formatCurrency(fee);
+            document.getElementById('sendTotal').textContent = formatCurrency(total);
         }
         
         // ===== TRANSACTION HANDLERS =====
@@ -2010,16 +1780,19 @@
                 button.disabled = true;
                 button.innerHTML = '<span class="loading"></span> Processing...';
                 
-                // Process deposit
-                await updateBalance(
-                    amount,
-                    'deposit',
-                    note || `Deposit via ${method}`
-                );
-                
-                // Success
-                hideModal('depositModal');
-                showToast('success', 'Deposit Successful', `$${amount.toFixed(2)} has been added to your account`);
+                // Use wallet system to deposit
+                if (window.walletSystem) {
+                    const result = await window.walletSystem.deposit(amount, method, note);
+                    
+                    if (result.success) {
+                        hideModal('depositModal');
+                        showToast('success', 'Deposit Successful', `$${amount.toFixed(2)} has been added to your account`);
+                    } else {
+                        throw new Error(result.error);
+                    }
+                } else {
+                    throw new Error('Wallet system not available');
+                }
                 
                 // Reset button
                 button.disabled = false;
@@ -2053,7 +1826,8 @@
                 }
                 
                 // Check balance
-                if (amount > (userData?.balance || 0)) {
+                const currentBalance = window.balanceSync ? window.balanceSync.getCurrentBalance() : 0;
+                if (amount > currentBalance) {
                     showToast('error', 'Insufficient Funds', 'You do not have enough balance');
                     return;
                 }
@@ -2064,16 +1838,19 @@
                 button.disabled = true;
                 button.innerHTML = '<span class="loading"></span> Processing...';
                 
-                // Process withdrawal
-                await updateBalance(
-                    amount,
-                    'withdraw',
-                    `Withdrawal to ${method}: ${details}`
-                );
-                
-                // Success
-                hideModal('withdrawModal');
-                showToast('success', 'Withdrawal Requested', `$${amount.toFixed(2)} withdrawal has been submitted`);
+                // Use wallet system to withdraw
+                if (window.walletSystem) {
+                    const result = await window.walletSystem.withdraw(amount, method, details, 'Withdrawal request');
+                    
+                    if (result.success) {
+                        hideModal('withdrawModal');
+                        showToast('success', 'Withdrawal Requested', `$${amount.toFixed(2)} withdrawal has been submitted`);
+                    } else {
+                        throw new Error(result.error);
+                    }
+                } else {
+                    throw new Error('Wallet system not available');
+                }
                 
                 // Reset button
                 button.disabled = false;
@@ -2117,24 +1894,11 @@
                 const total = amount + fee;
                 
                 // Check balance
-                if (total > (userData?.balance || 0)) {
+                const currentBalance = window.balanceSync ? window.balanceSync.getCurrentBalance() : 0;
+                if (total > currentBalance) {
                     showToast('error', 'Insufficient Funds', 'You do not have enough balance (including fee)');
                     return;
                 }
-                
-                // Find recipient
-                const recipientSnapshot = await db.collection('wallets')
-                    .where('email', '==', recipientEmail.toLowerCase())
-                    .limit(1)
-                    .get();
-                
-                if (recipientSnapshot.empty) {
-                    showToast('error', 'Recipient Not Found', 'No user found with that email address');
-                    return;
-                }
-                
-                const recipientDoc = recipientSnapshot.docs[0];
-                const recipientData = recipientDoc.data();
                 
                 // Disable button and show loading
                 const button = document.getElementById('confirmSend');
@@ -2142,46 +1906,19 @@
                 button.disabled = true;
                 button.innerHTML = '<span class="loading"></span> Processing...';
                 
-                // Process send (sender)
-                await updateBalance(
-                    total,
-                    'send',
-                    note || `Sent to ${recipientEmail}`
-                );
-                
-                // Process receive (recipient) - Use transaction for atomic operation
-                await db.runTransaction(async (transaction) => {
-                    // Update recipient balance
-                    const recipientRef = db.collection('wallets').doc(recipientDoc.id);
-                    const recipientDocSnap = await transaction.get(recipientRef);
-                    const recipientBalance = recipientDocSnap.data().balance || 0;
+                // Use wallet system to send money
+                if (window.walletSystem) {
+                    const result = await window.walletSystem.sendMoney(recipientEmail, total, note);
                     
-                    transaction.update(recipientRef, {
-                        balance: recipientBalance + amount,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    // Create transaction for recipient
-                    const receiveRef = db.collection('transactions').doc();
-                    transaction.set(receiveRef, {
-                        userId: recipientDoc.id,
-                        type: 'receive',
-                        amount: amount,
-                        description: note || `Received from ${currentUser.email}`,
-                        status: 'completed',
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                        userEmail: recipientData.email,
-                        username: recipientData.username,
-                        senderEmail: currentUser.email,
-                        senderName: userData.username,
-                        previousBalance: recipientBalance,
-                        newBalance: recipientBalance + amount
-                    });
-                });
-                
-                // Success
-                hideModal('sendModal');
-                showToast('success', 'Money Sent', `$${amount.toFixed(2)} sent to ${recipientEmail}`);
+                    if (result.success) {
+                        hideModal('sendModal');
+                        showToast('success', 'Money Sent', `$${amount.toFixed(2)} sent to ${recipientEmail}`);
+                    } else {
+                        throw new Error(result.error);
+                    }
+                } else {
+                    throw new Error('Wallet system not available');
+                }
                 
                 // Reset button
                 button.disabled = false;
@@ -2207,18 +1944,25 @@
                     return;
                 }
                 
-                // Update username in wallet
-                await db.collection('wallets').doc(currentUser.uid).update({
-                    username: username,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-                // Update local data
-                userData.username = username;
-                updateUserUI();
-                
-                hideModal('profileModal');
-                showToast('success', 'Profile Updated', 'Your profile has been updated');
+                // Use wallet system to update profile
+                if (window.walletSystem && window.walletSystem.userId) {
+                    await firebaseApp.db.collection('wallets').doc(window.walletSystem.userId).update({
+                        username: username,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Update local wallet data
+                    if (window.walletSystem.walletData) {
+                        window.walletSystem.walletData.username = username;
+                    }
+                    
+                    updateUserInfo();
+                    
+                    hideModal('profileModal');
+                    showToast('success', 'Profile Updated', 'Your profile has been updated');
+                } else {
+                    throw new Error('Wallet system not available');
+                }
                 
             } catch (error) {
                 console.error("Profile save error:", error);
@@ -2245,16 +1989,21 @@
                 // Show loading
                 document.getElementById('loadingOverlay').classList.remove('hidden');
                 
+                // Clean up listeners
+                if (balanceUnsubscribe) {
+                    balanceUnsubscribe();
+                }
+                
+                if (window.walletSystem) {
+                    window.walletSystem.cleanup();
+                }
+                
                 // Sign out from Firebase
-                await auth.signOut();
+                await firebaseApp.auth.signOut();
                 
                 // Clear local data
                 currentUser = null;
-                userData = null;
-                
-                // Remove listeners
-                if (balanceListener) balanceListener();
-                if (transactionsListener) transactionsListener();
+                walletData = null;
                 
                 // Redirect to login
                 window.location.href = 'login.html';
@@ -2266,32 +2015,24 @@
             }
         }
         
+        function refreshTransactions() {
+            if (window.walletSystem) {
+                // The wallet system automatically updates transactions via listener
+                showToast('info', 'Refreshing', 'Transactions are updated in real-time');
+            }
+        }
+        
         function showGamesComingSoon() {
             showToast('info', 'Coming Soon', 'Games feature will be available soon!');
         }
         
-        function handleConnectionChange() {
-            const isOnline = navigator.onLine;
-            const statusElement = document.getElementById('connectionStatus');
-            
-            if (!isOnline) {
-                statusElement.textContent = 'You are offline. Some features may be limited.';
-                statusElement.classList.add('show');
-                statusElement.style.background = 'var(--warning)';
-            } else {
-                statusElement.textContent = 'You are back online!';
-                statusElement.style.background = 'var(--success)';
-                setTimeout(() => {
-                    statusElement.classList.remove('show');
-                }, 3000);
-            }
-        }
-        
-        function handleConnectionError() {
-            const statusElement = document.getElementById('connectionStatus');
-            statusElement.textContent = 'Connection error. Trying to reconnect...';
-            statusElement.classList.add('show');
-            statusElement.style.background = 'var(--danger)';
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }).format(amount || 0);
         }
         
         function isValidEmail(email) {
@@ -2337,10 +2078,14 @@
             }, duration);
         }
         
-        // Close dropdowns when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('.user-menu')) {
-                document.getElementById('dropdownMenu').classList.remove('show');
+        // ===== CLEANUP =====
+        window.addEventListener('beforeunload', () => {
+            if (balanceUnsubscribe) {
+                balanceUnsubscribe();
+            }
+            
+            if (window.walletSystem) {
+                window.walletSystem.cleanup();
             }
         });
     </script>
