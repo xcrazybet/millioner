@@ -1,4 +1,6 @@
 // firebase-config.js
+// This should be loaded FIRST in all HTML files
+
 const firebaseConfig = {
     apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
     authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -10,13 +12,34 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-firebase.initializeApp(firebaseConfig);
+try {
+    // Check if Firebase is already initialized
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    
+    // Export Firebase services
+    window.firebaseApp = {
+        auth: firebase.auth(),
+        db: firebase.firestore(),
+        storage: firebase.storage(),
+        app: firebase.app()
+    };
+    
+    console.log("✅ Firebase initialized successfully");
+    
+} catch (error) {
+    console.error("❌ Firebase initialization error:", error);
+    throw error;
+}
 
-// Export Firebase services
-window.firebaseApp = {
-    auth: firebase.auth(),
-    db: firebase.firestore(),
-    app: firebase.app()
-};
-
-console.log("Firebase initialized successfully");
+// Enable offline persistence for better gaming experience
+firebase.firestore().enablePersistence()
+    .then(() => console.log("📱 Offline persistence enabled"))
+    .catch(err => {
+        if (err.code === 'failed-precondition') {
+            console.warn("⚠️ Multiple tabs open, persistence can only be enabled in one tab");
+        } else if (err.code === 'unimplemented') {
+            console.warn("⚠️ Browser doesn't support persistence");
+        }
+    });
