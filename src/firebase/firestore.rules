@@ -1,346 +1,83 @@
+// firestore.rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // ================= CONFIGURATION =================
-    function getConfig() {
-      return {
-        maxDeposit: 10000,
-        maxWithdrawal: 5000,
-        minDeposit: 10,
-        minWithdrawal: 20,
-        dailyDepositLimit: 20000,
-        dailyWithdrawalLimit: 10000
-      };
+    // ===== PUBLIC DATA (READ-ONLY FOR ALL) =====
+    match /public/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
-
-    // ================= HELPER FUNCTIONS =================
-    function isSignedIn() {
+    
+    match /games/{gameId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    match /winners/{winnerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // ===== USER SPECIFIC DATA =====
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update, delete: if isOwner(userId);
+    }
+    
+    match /wallets/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId);
+    }
+    
+    match /wallets/{userId}/transactions/{transactionId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId);
+    }
+    
+    // ===== GLOBAL TRANSACTIONS =====
+    match /transactions/{transactionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+      allow update: if isAdmin();
+    }
+    
+    // ===== ADMIN DATA =====
+    match /admins/{adminId} {
+      allow read: if isAdmin();
+      allow write: if isSuperAdmin();
+    }
+    
+    match /admin/{document} {
+      allow read, write: if isAdmin();
+    }
+    
+    match /system/{document} {
+      allow read, write: if isAdmin();
+    }
+    
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow write: if isSuperAdmin();
+    }
+    
+    // ===== HELPER FUNCTIONS =====
+    function isAuthenticated() {
       return request.auth != null;
     }
-
-    function isSuperAdmin() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'super_admin';
-    }
-
-    function isAdmin() {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
-    }
-
-    function getAdminRole() {
-      return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role;
-    }
-
-    function isActiveAdmin() {
-      return isAdmin() &&
-        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
-    }
-
-    function isFinanceAdmin() {
-      return isActiveAdmin() && (getAdminRole() == 'super_admin' || getAdminRole() == 'finance');
-    }
-
-    function isSupportAdmin() {
-      return isActiveAdmin() && (getAdminRole() == 'super_admin' || getAdminRole() == 'finance' || getAdminRole() == 'support');
-    }
-
+    
     function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function getUserWallet() {
-      return get(/databases/$(database)/documents/wallets/$(request.auth.uid));
-    }
-
-    // ================= VALIDATION FUNCTIONS =================
-    function isValidEmail(email) {
-      return email.matches('^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$');
-    }
-
-    function isPositiveAmount(amount) {
-      return amount is number && amount > 0;
-    }
-
-    function hasEnoughBalance(amount) {
-      return exists(/databases/$(database)/documents/wallets/$(request.auth.uid)) &&
-             getUserWallet().data.balance >= amount;
-    }
-
-    function isValidStatusTransition(oldStatus, newStatus) {
-      let validTransitions = {
-        'pending': ['approved', 'rejected', 'cancelled'],
-        'approved': ['completed', 'cancelled'],
-        'rejected': [],
-        'completed': [],
-        'cancelled': []
-      };
-      return (oldStatus in validTransitions) && (newStatus in validTransitions[oldStatus]);
-    }
-
-    // ================= ADMINS =================
-    match /admins/{adminId} {
-      // Only super admins can read all admin docs
-      allow read: if isActiveAdmin() && (request.auth.uid == adminId || isSuperAdmin());
-      
-      // Super admins can create new admins
-      allow create: if isSuperAdmin() &&
-        request.resource.data.email is string &&
-        isValidEmail(request.resource.data.email) &&
-        request.resource.data.role in ['super_admin', 'finance', 'support', 'moderator'] &&
-        request.resource.data.active is bool;
-      
-      // Only super admins can update other admins
-      allow update: if isSuperAdmin() && 
-        // Can't demote yourself from super_admin
-        !(request.auth.uid == adminId && 
-          request.resource.data.role != 'super_admin' &&
-          resource.data.role == 'super_admin') &&
-        // Validate data
-        request.resource.data.email is string &&
-        isValidEmail(request.resource.data.email);
-      
-      // Only super admins can delete (deactivate) admin records
-      allow delete: if isSuperAdmin() && request.auth.uid != adminId;
-    }
-
-    // ================= WALLETS =================
-    match /wallets/{userId} {
-      // Users can read their own wallet, admins can read all
-      allow read: if isOwner(userId) || isActiveAdmin();
-      
-      // Users can update limited fields in their own wallet
-      allow update: if isOwner(userId) &&
-        // Only allow specific fields to be updated
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLogin', 'updatedAt']) &&
-        // Validate data types
-        request.resource.data.lastLogin is timestamp &&
-        request.resource.data.updatedAt is timestamp;
-      
-      // Finance admins can update balance
-      allow update: if isFinanceAdmin() &&
-        // Only balance and updatedAt can be changed
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance', 'updatedAt']) &&
-        // Balance must be a positive number
-        request.resource.data.balance is number &&
-        request.resource.data.balance >= 0 &&
-        // UpdatedAt must be timestamp
-        request.resource.data.updatedAt is timestamp;
-      
-      // Create only via Cloud Function
-      allow create: if false;
-      
-      // No deletions
-      allow delete: if false;
-    }
-
-    // ================= TRANSACTIONS =================
-    match /transactions/{transactionId} {
-      // Users can read their own transactions, admins can read all
-      allow read: if isActiveAdmin() || 
-        (isSignedIn() && resource.data.userId == request.auth.uid);
-      
-      // Create transactions (only via Cloud Functions or specific cases)
-      allow create: if isSignedIn() && (
-        // Admin adjustments
-        (isFinanceAdmin() && request.resource.data.type == 'admin_adjustment') ||
-        // System transactions
-        request.resource.data.type in ['system', 'fee', 'bonus'] ||
-        // User deposits (linked to deposit request)
-        (request.resource.data.type == 'deposit' && 
-         exists(/databases/$(database)/documents/deposit_requests/$(request.resource.data.requestId))) ||
-        // User withdrawals (linked to withdrawal request)
-        (request.resource.data.type == 'withdrawal' && 
-         exists(/databases/$(database)/documents/withdrawals/$(request.resource.data.requestId)))
-      ) &&
-      // Validate required fields
-      request.resource.data.userId is string &&
-      request.resource.data.amount is number &&
-      request.resource.data.amount > 0 &&
-      request.resource.data.currency is string &&
-      request.resource.data.status in ['pending', 'completed', 'failed', 'cancelled'] &&
-      request.resource.data.timestamp is timestamp;
-      
-      // Update only by admins for certain status changes
-      allow update: if isFinanceAdmin() &&
-        // Only status and updatedAt can be changed
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
-        // Valid status transition
-        isValidStatusTransition(resource.data.status, request.resource.data.status) &&
-        // UpdatedAt must be timestamp
-        request.resource.data.updatedAt is timestamp;
-      
-      // No deletions
-      allow delete: if false;
-    }
-
-    // ================= DEPOSIT REQUESTS =================
-    match /deposit_requests/{requestId} {
-      // Users can read their own, admins can read all
-      allow read: if isActiveAdmin() ||
-        (isSignedIn() && resource.data.userId == request.auth.uid);
-      
-      // Users can create their own deposit requests
-      allow create: if isSignedIn() &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.amount is number &&
-        request.resource.data.amount >= getConfig().minDeposit &&
-        request.resource.data.amount <= getConfig().maxDeposit &&
-        request.resource.data.currency is string &&
-        request.resource.data.currency in ['USD', 'EUR', 'GBP'] &&
-        request.resource.data.status == 'pending' &&
-        request.resource.data.timestamp is timestamp;
-      
-      // Admins can update status
-      allow update: if isFinanceAdmin() &&
-        // Only specific fields can be updated
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'processedBy', 'processedAt', 'notes']) &&
-        // Valid status transition
-        isValidStatusTransition(resource.data.status, request.resource.data.status) &&
-        // If completed, must have processor info
-        (request.resource.data.status != 'completed' || 
-          (request.resource.data.processedBy is string &&
-           request.resource.data.processedAt is timestamp)) &&
-        // Notes must be string if present
-        (request.resource.data.notes == null || request.resource.data.notes is string);
-      
-      // Users can cancel their own pending requests
-      allow update: if isSignedIn() &&
-        request.auth.uid == resource.data.userId &&
-        resource.data.status == 'pending' &&
-        request.resource.data.status == 'cancelled' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
-      
-      // No deletions
-      allow delete: if false;
-    }
-
-    // ================= WITHDRAWAL REQUESTS =================
-    match /withdrawals/{withdrawalId} {
-      // Users can read their own, admins can read all
-      allow read: if isActiveAdmin() ||
-        (isSignedIn() && resource.data.userId == request.auth.uid);
-      
-      // Users can create withdrawal requests
-      allow create: if isSignedIn() &&
-        request.resource.data.userId == request.auth.uid &&
-        request.resource.data.amount is number &&
-        request.resource.data.amount >= getConfig().minWithdrawal &&
-        request.resource.data.amount <= getConfig().maxWithdrawal &&
-        hasEnoughBalance(request.resource.data.amount) &&
-        request.resource.data.currency is string &&
-        request.resource.data.currency in ['USD', 'EUR', 'GBP'] &&
-        request.resource.data.status == 'pending' &&
-        request.resource.data.timestamp is timestamp &&
-        request.resource.data.walletAddress is string &&
-        request.resource.data.walletAddress.size() >= 26 &&
-        request.resource.data.walletAddress.size() <= 64;
-      
-      // Admins can update status
-      allow update: if isFinanceAdmin() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'processedBy', 'processedAt', 'txHash', 'notes']) &&
-        isValidStatusTransition(resource.data.status, request.resource.data.status) &&
-        // If completed, must have txHash
-        (request.resource.data.status != 'completed' || request.resource.data.txHash is string) &&
-        (request.resource.data.notes == null || request.resource.data.notes is string);
-      
-      // Users can cancel their own pending withdrawals
-      allow update: if isSignedIn() &&
-        request.auth.uid == resource.data.userId &&
-        resource.data.status == 'pending' &&
-        request.resource.data.status == 'cancelled' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
-      
-      // No deletions
-      allow delete: if false;
-    }
-
-    // ================= LOGS =================
-    match /admin_logs/{logId} {
-      // Only active admins can read logs
-      allow read: if isActiveAdmin();
-      
-      // Only write via Cloud Functions
-      allow write: if false;
-    }
-
-    match /security_logs/{logId} {
-      // Anyone can create security logs (for monitoring)
-      allow create: if true;
-      
-      // Only admins can read
-      allow read: if isActiveAdmin();
-      
-      // No updates or deletions
-      allow update, delete: if false;
-    }
-
-    match /audit_logs/{logId} {
-      // Only Cloud Functions can write audit logs
-      allow create: if request.auth == null;
-      
-      // Only super admins can read audit logs
-      allow read: if isSuperAdmin();
-      
-      // No updates or deletions
-      allow update, delete: if false;
-    }
-
-    // ================= USER PROFILES =================
-    match /user_profiles/{userId} {
-      allow read: if isOwner(userId) || isSupportAdmin();
-      
-      allow update: if isOwner(userId) &&
-        // Only allow specific fields
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'displayName', 'avatarUrl', 'preferences', 'updatedAt'
-        ]) &&
-        // Validate data
-        (request.resource.data.displayName == null || 
-         request.resource.data.displayName is string &&
-         request.resource.data.displayName.size() >= 2 &&
-         request.resource.data.displayName.size() <= 50) &&
-        (request.resource.data.avatarUrl == null || 
-         request.resource.data.avatarUrl is string &&
-         request.resource.data.avatarUrl.matches('^https?://')) &&
-        request.resource.data.updatedAt is timestamp;
-      
-      allow create, delete: if false;
-    }
-
-    // ================= NOTIFICATIONS =================
-    match /notifications/{notificationId} {
-      // Users can read their own notifications
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      
-      // System can create notifications
-      allow create: if request.auth == null || isSupportAdmin();
-      
-      // Users can mark as read
-      allow update: if isSignedIn() && 
-        request.auth.uid == resource.data.userId &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']);
-      
-      allow delete: if false;
-    }
-
-    // ================= COUNTERS (for rate limiting) =================
-    match /counters/{counterId} {
-      // Only server-side code can modify counters
-      allow read: if isActiveAdmin();
-      allow write: if request.auth == null;
-    }
-
-    // ================= PUBLIC ACCESS FOR INITIAL SETUP =================
-    match /setup/{document} {
-      allow read, write: if true;
+      return isAuthenticated() && request.auth.uid == userId;
     }
     
-    // ================= DEFAULT DENY =================
-    match /{document=**} {
-      allow read, write: if false;
+    function isAdmin() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    function isSuperAdmin() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == "super";
     }
   }
 }
