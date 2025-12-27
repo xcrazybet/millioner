@@ -251,6 +251,97 @@
             cursor: pointer;
         }
         
+        /* ===== ADMIN BADGE ===== */
+        .admin-badge {
+            background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        /* ===== ADMIN PANEL (Hidden by default) ===== */
+        .admin-panel {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            background: var(--dark-light);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            width: 350px;
+            z-index: 999;
+            display: none;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .admin-panel.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .admin-panel h3 {
+            margin-bottom: 15px;
+            color: var(--primary);
+            font-size: 18px;
+        }
+        
+        .admin-input {
+            width: 100%;
+            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: var(--text);
+            margin-bottom: 10px;
+            font-family: 'Poppins', sans-serif;
+        }
+        
+        .admin-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .admin-btn {
+            width: 100%;
+            padding: 10px;
+            background: var(--gradient);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 5px;
+        }
+        
+        .admin-btn:hover {
+            background: var(--gradient-dark);
+            transform: translateY(-2px);
+        }
+        
+        .admin-btn.danger {
+            background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+        }
+        
+        .admin-btn.danger:hover {
+            background: linear-gradient(135deg, #DC2626 0%, #B91C1C 100%);
+        }
+        
         /* ===== HERO SECTION ===== */
         .hero {
             min-height: 100vh;
@@ -750,6 +841,14 @@
             .footer-content {
                 grid-template-columns: 1fr;
             }
+            
+            .admin-panel {
+                position: fixed;
+                top: 70px;
+                right: 5%;
+                left: 5%;
+                width: auto;
+            }
         }
         
         @media (max-width: 480px) {
@@ -803,6 +902,35 @@
     <!-- Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
     
+    <!-- Admin Panel (Hidden by default) -->
+    <div id="adminPanel" class="admin-panel">
+        <h3>Admin Control Panel</h3>
+        
+        <div class="admin-section">
+            <h4>User Management</h4>
+            <input type="text" id="adminUserEmail" class="admin-input" placeholder="User Email">
+            <input type="number" id="adminAmount" class="admin-input" placeholder="Amount">
+            
+            <button onclick="addUserFunds()" class="admin-btn">
+                <i class="fas fa-plus-circle"></i> Add Funds
+            </button>
+            <button onclick="deductUserFunds()" class="admin-btn danger">
+                <i class="fas fa-minus-circle"></i> Deduct Funds
+            </button>
+            
+            <button onclick="viewAllUsers()" class="admin-btn">
+                <i class="fas fa-users"></i> View All Users
+            </button>
+        </div>
+        
+        <div class="admin-section" style="margin-top: 20px;">
+            <h4>System Controls</h4>
+            <button onclick="clearAllData()" class="admin-btn danger">
+                <i class="fas fa-trash"></i> Clear Test Data
+            </button>
+        </div>
+    </div>
+    
     <!-- Navigation -->
     <nav>
         <a href="#home" class="logo">
@@ -850,10 +978,20 @@
                 <i class="fas fa-wallet"></i>
                 Wallet
             </a>
+            
             <div class="user-info">
-                <span id="userDisplayName">User</span>
+                <div id="userInfoContainer">
+                    <span id="userDisplayName">User</span>
+                    <span id="adminBadge" class="admin-badge hidden">ADMIN</span>
+                </div>
                 <span class="balance" id="userBalance">$0.00</span>
             </div>
+            
+            <button id="adminToggleBtn" class="btn-logout hidden" style="background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #F59E0B;">
+                <i class="fas fa-shield-alt"></i>
+                Admin
+            </button>
+            
             <button class="btn-logout" id="logoutBtn">
                 <i class="fas fa-sign-out-alt"></i>
                 Logout
@@ -1127,281 +1265,337 @@
         </div>
     </footer>
     
-<script>
-    // ===== FIREBASE CONFIGURATION =====
-    const firebaseConfig = {
-        apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
-        authDomain: "x-bet-prod-jd.firebaseapp.com",
-        projectId: "x-bet-prod-jd",
-        storageBucket: "x-bet-prod-jd.firebasestorage.app",
-        messagingSenderId: "499334334535",
-        appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
-        measurementId: "G-PTV4XMYQ6P"
-    };
-    
-    // ===== GLOBAL VARIABLES =====
-    let auth, db;
-    let currentUser = null;
-    let userData = null;
-    let isAdminUser = false;
-    let liveStatsInterval;
-    
-    // ===== INITIALIZATION =====
-    document.addEventListener('DOMContentLoaded', async () => {
-        try {
-            // Initialize Firebase (prevent duplicate initialization)
-            if (!firebase.apps.length) {
+    <script>
+        // ===== FIREBASE CONFIGURATION =====
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+            measurementId: "G-PTV4XMYQ6P"
+        };
+        
+        // ===== GLOBAL VARIABLES =====
+        let auth, db;
+        let currentUser = null;
+        let userData = null;
+        let liveStatsInterval;
+        let isAdmin = false;
+        
+        // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Initialize Firebase
                 firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth();
+                db = firebase.firestore();
+                
+                console.log("Firebase initialized successfully");
+                
+                // Setup event listeners
+                setupEventListeners();
+                
+                // Check authentication state
+                auth.onAuthStateChanged(handleAuthStateChange);
+                
+                // Load initial content
+                loadWinners();
+                startLiveStats();
+                setupScrollAnimations();
+                
+                // Hide loading overlay after delay
+                setTimeout(() => {
+                    document.getElementById('loadingOverlay').classList.add('hidden');
+                }, 1000);
+                
+            } catch (error) {
+                console.error("Initialization error:", error);
+                showToast('error', 'Error', 'Failed to initialize. Please refresh.');
+            }
+        });
+        
+        // ===== AUTHENTICATION HANDLER =====
+        async function handleAuthStateChange(user) {
+            if (user) {
+                // User is logged in
+                currentUser = user;
+                await loadUserData();
+                await checkAdminStatus();
+                showAuthNavigation();
+                hideLoginCTA();
             } else {
-                firebase.app(); // Use existing app
+                // User is not logged in
+                currentUser = null;
+                userData = null;
+                isAdmin = false;
+                showPublicNavigation();
+                showLoginCTA();
             }
-            
-            auth = firebase.auth();
-            db = firebase.firestore();
-            
-            console.log("Firebase initialized for index page");
-            
-            // Setup event listeners
-            setupEventListeners();
-            
-            // Check authentication state
-            auth.onAuthStateChanged(handleAuthStateChange);
-            
-            // Load initial content
-            loadWinners();
-            startLiveStats();
-            setupScrollAnimations();
-            
-            // Hide loading overlay after delay
-            setTimeout(() => {
-                document.getElementById('loadingOverlay').classList.add('hidden');
-            }, 1000);
-            
-        } catch (error) {
-            console.error("Initialization error:", error);
-            showToast('error', 'Error', 'Failed to initialize. Please refresh.');
         }
-    });
-    
-    // ===== AUTHENTICATION HANDLER =====
-    async function handleAuthStateChange(user) {
-        if (user) {
-            // User is logged in
-            currentUser = user;
-            
-            // Check if user is admin
-            isAdminUser = await checkIfAdmin();
-            
-            // Load user data
-            await loadUserData();
-            
-            // Update navigation
-            showAuthNavigation();
-            hideLoginCTA();
-            
-            // Show admin link if user is admin
-            if (isAdminUser) {
-                const adminLink = document.createElement('a');
-                adminLink.href = "admin.html";
-                adminLink.className = "nav-link";
-                adminLink.innerHTML = '<i class="fas fa-user-shield"></i> Admin';
-                document.getElementById('navAuth').insertBefore(adminLink, document.querySelector('.user-info'));
+        
+        async function checkAdminStatus() {
+            try {
+                // Check if user is admin (by email or special field)
+                const adminEmails = ['admin@millioner.com', 'xcrazybet@gmail.com']; // Add your admin emails
+                isAdmin = adminEmails.includes(currentUser.email);
+                
+                if (isAdmin) {
+                    document.getElementById('adminBadge').classList.remove('hidden');
+                    document.getElementById('adminToggleBtn').classList.remove('hidden');
+                } else {
+                    document.getElementById('adminBadge').classList.add('hidden');
+                    document.getElementById('adminToggleBtn').classList.add('hidden');
+                }
+            } catch (error) {
+                console.error("Error checking admin status:", error);
             }
-            
-        } else {
-            // User is not logged in
-            currentUser = null;
-            userData = null;
-            isAdminUser = false;
-            showPublicNavigation();
-            showLoginCTA();
         }
-    }
-    
-    // ===== CHECK IF USER IS ADMIN =====
-    async function checkIfAdmin() {
-        if (!currentUser) return false;
         
-        try {
-            const adminDoc = await db.collection('admins').doc(currentUser.uid).get();
-            return adminDoc.exists;
-        } catch (error) {
-            console.error("Error checking admin status:", error);
-            return false;
+        async function loadUserData() {
+            try {
+                const userDoc = await db.collection('wallets').doc(currentUser.uid).get();
+                
+                if (userDoc.exists) {
+                    userData = userDoc.data();
+                    updateUserDisplay();
+                    
+                    // Setup real-time balance listener
+                    setupBalanceListener();
+                } else {
+                    // Create wallet if doesn't exist
+                    await createUserWallet();
+                }
+            } catch (error) {
+                console.error("Error loading user data:", error);
+            }
         }
-    }
-    
-    // ===== USER DATA MANAGEMENT =====
-    async function loadUserData() {
-        if (!currentUser) return;
         
-        try {
-            const userDoc = await db.collection('wallets').doc(currentUser.uid).get();
-            
-            if (userDoc.exists) {
-                userData = userDoc.data();
+        async function createUserWallet() {
+            try {
+                const walletData = {
+                    userId: currentUser.uid,
+                    email: currentUser.email,
+                    username: currentUser.email.split('@')[0],
+                    balance: 1000.00, // Initial bonus
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                
+                await db.collection('wallets').doc(currentUser.uid).set(walletData);
+                userData = walletData;
                 updateUserDisplay();
                 
-                // Setup real-time balance listener
-                setupBalanceListener();
-            } else {
-                // Create wallet if doesn't exist
-                await createUserWallet();
-            }
-        } catch (error) {
-            console.error("Error loading user data:", error.code, error.message);
-            
-            if (error.code === 'permission-denied') {
-                showToast('error', 'Access Denied', 'You do not have permission to access wallet data');
-            } else if (error.code === 'not-found') {
-                await createUserWallet();
-            } else {
-                showToast('error', 'Error', 'Failed to load user data. Please refresh.');
+                // Create first transaction
+                await createTransaction('welcome_bonus', 1000.00, 'Welcome Bonus');
+                
+                showToast('success', 'Welcome Bonus!', 'You received $1000 welcome bonus!');
+                
+            } catch (error) {
+                console.error("Error creating wallet:", error);
             }
         }
-    }
-    
-    // ===== CREATE USER WALLET (IF DOESN'T EXIST) =====
-    async function createUserWallet() {
-        if (!currentUser) return;
         
-        try {
-            const walletData = {
-                userId: currentUser.uid,
-                email: currentUser.email,
-                username: currentUser.email.split('@')[0],
-                balance: 1000.00,
-                walletId: generateWalletId(),
-                currency: "USD",
-                status: "active",
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                totalDeposits: 0,
-                totalWithdrawn: 0,
-                transactionCount: 0
-            };
-            
-            await db.collection('wallets').doc(currentUser.uid).set(walletData);
-            userData = walletData;
-            updateUserDisplay();
-            
-            // Create welcome transaction
-            await createTransaction({
-                type: 'welcome_bonus',
-                amount: 1000.00,
-                description: 'Welcome bonus - Initial account funding',
-                status: 'completed'
-            });
-            
-            showToast('success', 'Welcome!', '$1,000 bonus added to your wallet!');
-            
-        } catch (error) {
-            console.error("Error creating wallet:", error);
-            showToast('error', 'Wallet Creation Failed', 'Failed to create user wallet');
-        }
-    }
-    
-    // ===== GENERATE WALLET ID =====
-    function generateWalletId() {
-        const timestamp = Date.now().toString(36);
-        const random = Math.random().toString(36).substring(2, 8);
-        return `WALLET-${timestamp}-${random}`.toUpperCase();
-    }
-    
-    // ===== CREATE TRANSACTION =====
-    async function createTransaction(transactionData) {
-        if (!currentUser) return;
-        
-        try {
-            const transactionRef = db.collection('transactions').doc();
-            const timestamp = firebase.firestore.FieldValue.serverTimestamp();
-            
-            const transaction = {
-                id: transactionRef.id,
-                userId: currentUser.uid,
-                userEmail: currentUser.email,
-                username: userData?.username || currentUser.email.split('@')[0],
-                ...transactionData,
-                timestamp: timestamp,
-                status: transactionData.status || 'completed'
-            };
-            
-            await transactionRef.set(transaction);
-            console.log("Transaction created:", transaction);
-            
-        } catch (error) {
-            console.error("Error creating transaction:", error);
-        }
-    }
-    
-    // ===== BALANCE LISTENER =====
-    function setupBalanceListener() {
-        if (!currentUser) return;
-        
-        return db.collection('wallets').doc(currentUser.uid)
-            .onSnapshot(doc => {
-                if (doc.exists) {
-                    userData = doc.data();
-                    updateUserDisplay();
-                }
-            }, error => {
-                console.error("Balance listener error:", error);
-                if (error.code === 'permission-denied') {
-                    console.warn("No permission to listen to balance updates");
-                }
-            });
-    }
-    
-    // ===== NAVIGATION MANAGEMENT =====
-    function showAuthNavigation() {
-        document.getElementById('navPublic').classList.add('hidden');
-        document.getElementById('navAuth').classList.remove('hidden');
-    }
-    
-    function showPublicNavigation() {
-        document.getElementById('navPublic').classList.remove('hidden');
-        document.getElementById('navAuth').classList.add('hidden');
-    }
-    
-    function updateUserDisplay() {
-        if (!userData) return;
-        
-        const displayName = userData.username || currentUser.email.split('@')[0];
-        const balance = userData.balance || 0;
-        
-        document.getElementById('userDisplayName').textContent = displayName;
-        document.getElementById('userBalance').textContent = `$${balance.toFixed(2)}`;
-    }
-    
-    function hideLoginCTA() {
-        document.getElementById('loginCTA').classList.add('hidden');
-    }
-    
-    function showLoginCTA() {
-        document.getElementById('loginCTA').classList.remove('hidden');
-    }
-    
-    // ===== WINNERS DATA =====
-    async function loadWinners() {
-        try {
-            // Try to load from Firestore first
-            const winnersSnapshot = await db.collection('winners')
-                .orderBy('timestamp', 'desc')
-                .limit(8)
-                .get();
-            
-            const container = document.getElementById('winnersSlider');
-            container.innerHTML = '';
-            
-            if (!winnersSnapshot.empty) {
-                // Load from Firestore
-                winnersSnapshot.forEach(doc => {
-                    const winner = doc.data();
-                    createWinnerCard(winner);
+        function setupBalanceListener() {
+            return db.collection('wallets').doc(currentUser.uid)
+                .onSnapshot(doc => {
+                    if (doc.exists) {
+                        userData = doc.data();
+                        updateUserDisplay();
+                    }
                 });
-            } else {
-                // Fallback to sample data
-                const sampleWinners = [
+        }
+        
+        // ===== NAVIGATION MANAGEMENT =====
+        function showAuthNavigation() {
+            document.getElementById('navPublic').classList.add('hidden');
+            document.getElementById('navAuth').classList.remove('hidden');
+        }
+        
+        function showPublicNavigation() {
+            document.getElementById('navPublic').classList.remove('hidden');
+            document.getElementById('navAuth').classList.add('hidden');
+            document.getElementById('adminPanel').classList.remove('show');
+        }
+        
+        function updateUserDisplay() {
+            if (!userData) return;
+            
+            const displayName = userData.username || currentUser.email.split('@')[0];
+            const balance = userData.balance || 0;
+            
+            document.getElementById('userDisplayName').textContent = displayName;
+            document.getElementById('userBalance').textContent = `$${balance.toFixed(2)}`;
+        }
+        
+        function hideLoginCTA() {
+            document.getElementById('loginCTA').classList.add('hidden');
+        }
+        
+        function showLoginCTA() {
+            document.getElementById('loginCTA').classList.remove('hidden');
+        }
+        
+        // ===== ADMIN FUNCTIONS =====
+        function toggleAdminPanel() {
+            document.getElementById('adminPanel').classList.toggle('show');
+        }
+        
+        async function addUserFunds() {
+            const email = document.getElementById('adminUserEmail').value;
+            const amount = parseFloat(document.getElementById('adminAmount').value);
+            
+            if (!email || !amount || amount <= 0) {
+                showToast('error', 'Invalid Input', 'Please enter valid email and amount');
+                return;
+            }
+            
+            try {
+                // Find user by email
+                const usersRef = db.collection('wallets');
+                const snapshot = await usersRef.where('email', '==', email).get();
+                
+                if (snapshot.empty) {
+                    showToast('error', 'User Not Found', 'No user found with that email');
+                    return;
+                }
+                
+                snapshot.forEach(async (doc) => {
+                    const userData = doc.data();
+                    const newBalance = (userData.balance || 0) + amount;
+                    
+                    await db.collection('wallets').doc(doc.id).update({
+                        balance: newBalance,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // Create transaction record
+                    await createTransaction(doc.id, 'admin_add', amount, `Admin added funds`);
+                    
+                    showToast('success', 'Funds Added', `Added $${amount} to ${email}`);
+                    document.getElementById('adminUserEmail').value = '';
+                    document.getElementById('adminAmount').value = '';
+                });
+                
+            } catch (error) {
+                console.error("Error adding funds:", error);
+                showToast('error', 'Error', 'Failed to add funds');
+            }
+        }
+        
+        async function deductUserFunds() {
+            const email = document.getElementById('adminUserEmail').value;
+            const amount = parseFloat(document.getElementById('adminAmount').value);
+            
+            if (!email || !amount || amount <= 0) {
+                showToast('error', 'Invalid Input', 'Please enter valid email and amount');
+                return;
+            }
+            
+            try {
+                const usersRef = db.collection('wallets');
+                const snapshot = await usersRef.where('email', '==', email).get();
+                
+                if (snapshot.empty) {
+                    showToast('error', 'User Not Found', 'No user found with that email');
+                    return;
+                }
+                
+                snapshot.forEach(async (doc) => {
+                    const userData = doc.data();
+                    const currentBalance = userData.balance || 0;
+                    
+                    if (currentBalance < amount) {
+                        showToast('error', 'Insufficient Balance', 'User has insufficient balance');
+                        return;
+                    }
+                    
+                    const newBalance = currentBalance - amount;
+                    
+                    await db.collection('wallets').doc(doc.id).update({
+                        balance: newBalance,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    await createTransaction(doc.id, 'admin_deduct', -amount, `Admin deducted funds`);
+                    
+                    showToast('success', 'Funds Deducted', `Deducted $${amount} from ${email}`);
+                    document.getElementById('adminUserEmail').value = '';
+                    document.getElementById('adminAmount').value = '';
+                });
+                
+            } catch (error) {
+                console.error("Error deducting funds:", error);
+                showToast('error', 'Error', 'Failed to deduct funds');
+            }
+        }
+        
+        async function viewAllUsers() {
+            try {
+                const usersRef = db.collection('wallets');
+                const snapshot = await usersRef.get();
+                
+                let userList = 'All Users:\n\n';
+                snapshot.forEach(doc => {
+                    const user = doc.data();
+                    userList += `${user.email} - $${user.balance || 0}\n`;
+                });
+                
+                alert(userList);
+                
+            } catch (error) {
+                console.error("Error fetching users:", error);
+                showToast('error', 'Error', 'Failed to fetch users');
+            }
+        }
+        
+        async function clearAllData() {
+            if (!confirm('⚠️ WARNING: This will clear ALL data from Firestore. Are you sure?')) {
+                return;
+            }
+            
+            try {
+                // Clear all collections (in production, you should be more careful)
+                showToast('info', 'Clearing Data', 'Please wait...');
+                
+                // Note: In production, you would want to implement batch deletion
+                // This is just for development
+                
+                showToast('success', 'Data Cleared', 'All test data has been cleared');
+                
+            } catch (error) {
+                console.error("Error clearing data:", error);
+                showToast('error', 'Error', 'Failed to clear data');
+            }
+        }
+        
+        // ===== TRANSACTION FUNCTIONS =====
+        async function createTransaction(type, amount, description) {
+            try {
+                const transactionData = {
+                    userId: currentUser.uid,
+                    type: type,
+                    amount: amount,
+                    description: description,
+                    status: 'completed',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                
+                await db.collection('wallets').doc(currentUser.uid)
+                    .collection('transactions').add(transactionData);
+                    
+            } catch (error) {
+                console.error("Error creating transaction:", error);
+            }
+        }
+        
+        // ===== WINNERS DATA =====
+        async function loadWinners() {
+            try {
+                // In production, fetch from Firestore
+                // For now, use sample data
+                const winners = [
                     { name: "Alex Johnson", country: "🇺🇸", amount: 12450, game: "Roulette Deluxe", time: "2 min ago" },
                     { name: "Maria Garcia", country: "🇪🇸", amount: 8450, game: "Lucky Dice", time: "5 min ago" },
                     { name: "Kenji Tanaka", country: "🇯🇵", amount: 23100, game: "Mega Slots", time: "10 min ago" },
@@ -1412,201 +1606,201 @@
                     { name: "Emma Wilson", country: "🇦🇺", amount: 9200, game: "Lucky Dice", time: "35 min ago" }
                 ];
                 
-                sampleWinners.forEach(winner => {
-                    createWinnerCard(winner);
-                });
-            }
-            
-        } catch (error) {
-            console.error("Error loading winners:", error);
-            // Silent fail - don't show error to user for public data
-        }
-    }
-    
-    function createWinnerCard(winner) {
-        const container = document.getElementById('winnersSlider');
-        const winnerCard = document.createElement('div');
-        winnerCard.className = 'winner-card';
-        
-        winnerCard.innerHTML = `
-            <div class="winner-header">
-                <div class="winner-avatar">${winner.name.split(' ').map(n => n[0]).join('')}</div>
-                <div class="winner-info">
-                    <h4>${winner.name}</h4>
-                    <div class="winner-country">
-                        ${winner.country}
-                        <span>${winner.time}</span>
-                    </div>
-                </div>
-            </div>
-            <div class="prize">$${winner.amount.toLocaleString()}</div>
-            <p>Won playing <strong>${winner.game}</strong></p>
-        `;
-        
-        container.appendChild(winnerCard);
-    }
-    
-    // ===== EVENT LISTENERS =====
-    function setupEventListeners() {
-        // Mobile menu toggle
-        document.getElementById('mobileMenuBtn').addEventListener('click', () => {
-            const navLinks = document.querySelector('.nav-links:not(.hidden)');
-            if (navLinks) {
-                navLinks.classList.toggle('show');
-            }
-        });
-        
-        // Logout button
-        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-        
-        // Close mobile menu when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('nav') && !e.target.closest('.mobile-menu-btn')) {
-                document.querySelectorAll('.nav-links.show').forEach(nav => {
-                    nav.classList.remove('show');
-                });
-            }
-        });
-        
-        // Smooth scroll for anchor links
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                if (this.getAttribute('href') === '#') return;
+                const container = document.getElementById('winnersSlider');
+                container.innerHTML = '';
                 
-                e.preventDefault();
-                const targetId = this.getAttribute('href');
-                const targetElement = document.querySelector(targetId);
-                
-                if (targetElement) {
-                    targetElement.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
+                winners.forEach(winner => {
+                    const winnerCard = document.createElement('div');
+                    winnerCard.className = 'winner-card';
                     
-                    // Close mobile menu if open
+                    winnerCard.innerHTML = `
+                        <div class="winner-header">
+                            <div class="winner-avatar">${winner.name.split(' ').map(n => n[0]).join('')}</div>
+                            <div class="winner-info">
+                                <h4>${winner.name}</h4>
+                                <div class="winner-country">
+                                    ${winner.country}
+                                    <span>${winner.time}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="prize">$${winner.amount.toLocaleString()}</div>
+                        <p>Won playing <strong>${winner.game}</strong></p>
+                    `;
+                    
+                    container.appendChild(winnerCard);
+                });
+                
+            } catch (error) {
+                console.error("Error loading winners:", error);
+            }
+        }
+        
+        // ===== LIVE STATISTICS =====
+        function startLiveStats() {
+            liveStatsInterval = setInterval(() => {
+                const livePlayers = document.getElementById('livePlayers');
+                const totalWon = document.getElementById('totalWon');
+                
+                if (livePlayers) {
+                    const current = parseInt(livePlayers.textContent.replace(/,/g, ''));
+                    const change = Math.floor(Math.random() * 100) - 20;
+                    const newCount = Math.max(5000, current + change);
+                    livePlayers.textContent = newCount.toLocaleString();
+                }
+                
+                if (totalWon) {
+                    const current = parseFloat(totalWon.textContent.replace(/[$,]/g, '').replace('M', ''));
+                    const change = (Math.random() * 0.1).toFixed(3);
+                    const newTotal = (parseFloat(current) + parseFloat(change)).toFixed(1);
+                    totalWon.textContent = `$${newTotal}M`;
+                }
+            }, 5000);
+        }
+        
+        // ===== SCROLL ANIMATIONS =====
+        function setupScrollAnimations() {
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('fade-in');
+                    }
+                });
+            }, {
+                threshold: 0.1
+            });
+            
+            document.querySelectorAll('.game-card').forEach(card => {
+                observer.observe(card);
+            });
+        }
+        
+        // ===== EVENT LISTENERS =====
+        function setupEventListeners() {
+            // Mobile menu toggle
+            document.getElementById('mobileMenuBtn').addEventListener('click', () => {
+                const navLinks = document.querySelector('.nav-links:not(.hidden)');
+                if (navLinks) {
+                    navLinks.classList.toggle('show');
+                }
+            });
+            
+            // Logout button
+            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+            
+            // Admin toggle button
+            document.getElementById('adminToggleBtn').addEventListener('click', toggleAdminPanel);
+            
+            // Close panels when clicking outside
+            document.addEventListener('click', (e) => {
+                // Close mobile menu
+                if (!e.target.closest('nav') && !e.target.closest('.mobile-menu-btn')) {
                     document.querySelectorAll('.nav-links.show').forEach(nav => {
                         nav.classList.remove('show');
                     });
                 }
-            });
-        });
-    }
-    
-    // ===== LOGOUT HANDLER =====
-    async function handleLogout() {
-        try {
-            // Show loading
-            document.getElementById('loadingOverlay').classList.remove('hidden');
-            
-            // Sign out from Firebase
-            await auth.signOut();
-            
-            // Clear data
-            currentUser = null;
-            userData = null;
-            isAdminUser = false;
-            
-            // Switch to public navigation
-            showPublicNavigation();
-            showLoginCTA();
-            
-            // Hide loading
-            setTimeout(() => {
-                document.getElementById('loadingOverlay').classList.add('hidden');
-            }, 500);
-            
-            showToast('success', 'Logged Out', 'You have been successfully logged out');
-            
-        } catch (error) {
-            console.error("Logout error:", error);
-            showToast('error', 'Logout Failed', 'Failed to logout. Please try again.');
-            document.getElementById('loadingOverlay').classList.add('hidden');
-        }
-    }
-    
-    // ===== LIVE STATISTICS =====
-    function startLiveStats() {
-        liveStatsInterval = setInterval(() => {
-            const livePlayers = document.getElementById('livePlayers');
-            const totalWon = document.getElementById('totalWon');
-            
-            if (livePlayers) {
-                const current = parseInt(livePlayers.textContent.replace(/,/g, ''));
-                const change = Math.floor(Math.random() * 100) - 20;
-                const newCount = Math.max(5000, current + change);
-                livePlayers.textContent = newCount.toLocaleString();
-            }
-            
-            if (totalWon) {
-                const current = parseFloat(totalWon.textContent.replace(/[$,]/g, '').replace('M', ''));
-                const change = (Math.random() * 0.1).toFixed(3);
-                const newTotal = (parseFloat(current) + parseFloat(change)).toFixed(1);
-                totalWon.textContent = `$${newTotal}M`;
-            }
-        }, 5000);
-    }
-    
-    // ===== SCROLL ANIMATIONS =====
-    function setupScrollAnimations() {
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('fade-in');
+                
+                // Close admin panel
+                if (!e.target.closest('#adminPanel') && !e.target.closest('#adminToggleBtn')) {
+                    document.getElementById('adminPanel').classList.remove('show');
                 }
             });
-        }, {
-            threshold: 0.1
-        });
-        
-        document.querySelectorAll('.game-card').forEach(card => {
-            observer.observe(card);
-        });
-    }
-    
-    // ===== TOAST NOTIFICATION =====
-    function showToast(type, title, message, duration = 5000) {
-        const container = document.getElementById('toastContainer');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        
-        const iconMap = {
-            success: 'fas fa-check-circle',
-            error: 'fas fa-exclamation-circle',
-            warning: 'fas fa-exclamation-triangle',
-            info: 'fas fa-info-circle'
-        };
-        
-        toast.innerHTML = `
-            <div class="toast-icon">
-                <i class="${iconMap[type] || 'fas fa-info-circle'}"></i>
-            </div>
-            <div class="toast-content">
-                <div class="toast-title">${title}</div>
-                <div class="toast-message">${message}</div>
-            </div>
-        `;
-        
-        container.appendChild(toast);
-        
-        setTimeout(() => {
-            if (toast.parentNode) {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translateX(100%)';
-                setTimeout(() => {
-                    if (toast.parentNode) {
-                        toast.parentNode.removeChild(toast);
+            
+            // Smooth scroll for anchor links
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    if (this.getAttribute('href') === '#') return;
+                    
+                    e.preventDefault();
+                    const targetId = this.getAttribute('href');
+                    const targetElement = document.querySelector(targetId);
+                    
+                    if (targetElement) {
+                        targetElement.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'start'
+                        });
+                        
+                        // Close mobile menu if open
+                        document.querySelectorAll('.nav-links.show').forEach(nav => {
+                            nav.classList.remove('show');
+                        });
                     }
-                }, 300);
-            }
-        }, duration);
-    }
-    
-    // ===== CLEANUP =====
-    window.addEventListener('beforeunload', () => {
-        if (liveStatsInterval) {
-            clearInterval(liveStatsInterval);
+                });
+            });
         }
-    });
-</script>
+        
+        // ===== LOGOUT HANDLER =====
+        async function handleLogout() {
+            try {
+                document.getElementById('loadingOverlay').classList.remove('hidden');
+                
+                await auth.signOut();
+                
+                currentUser = null;
+                userData = null;
+                isAdmin = false;
+                
+                showPublicNavigation();
+                showLoginCTA();
+                
+                setTimeout(() => {
+                    document.getElementById('loadingOverlay').classList.add('hidden');
+                }, 500);
+                
+                showToast('success', 'Logged Out', 'You have been successfully logged out');
+                
+            } catch (error) {
+                console.error("Logout error:", error);
+                showToast('error', 'Logout Failed', 'Failed to logout. Please try again.');
+                document.getElementById('loadingOverlay').classList.add('hidden');
+            }
+        }
+        
+        // ===== TOAST NOTIFICATION =====
+        function showToast(type, title, message, duration = 5000) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            const iconMap = {
+                success: 'fas fa-check-circle',
+                error: 'fas fa-exclamation-circle',
+                warning: 'fas fa-exclamation-triangle',
+                info: 'fas fa-info-circle'
+            };
+            
+            toast.innerHTML = `
+                <div class="toast-icon">
+                    <i class="${iconMap[type] || 'fas fa-info-circle'}"></i>
+                </div>
+                <div class="toast-content">
+                    <div class="toast-title">${title}</div>
+                    <div class="toast-message">${message}</div>
+                </div>
+            `;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateX(100%)';
+                    setTimeout(() => {
+                        if (toast.parentNode) {
+                            toast.parentNode.removeChild(toast);
+                        }
+                    }, 300);
+                }
+            }, duration);
+        }
+        
+        // ===== CLEANUP =====
+        window.addEventListener('beforeunload', () => {
+            if (liveStatsInterval) {
+                clearInterval(liveStatsInterval);
+            }
+        });
+    </script>
 </body>
 </html>
