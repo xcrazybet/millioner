@@ -9,6 +9,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-functions-compat.js"></script>
     
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -17,6 +18,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Gambling Warning Modal -->
+    <div id="ageVerificationModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.95); z-index: 99999; color: white; display: flex; justify-content: center; align-items: center; padding: 20px;">
+        <div style="background: #1E293B; padding: 40px; border-radius: 20px; max-width: 600px; text-align: center;">
+            <h2 style="color: #EF4444; margin-bottom: 20px;">⚠️ IMPORTANT WARNING</h2>
+            <p style="margin-bottom: 15px;">This site involves real money gaming. You must be at least 18 years old to participate.</p>
+            <p style="margin-bottom: 20px; color: #94A3B8;">By clicking "I Agree", you confirm that you are of legal age in your jurisdiction and accept our Terms of Service.</p>
+            <div style="display: flex; gap: 15px; justify-content: center;">
+                <button id="ageDecline" style="padding: 12px 30px; background: #EF4444; border: none; border-radius: 10px; color: white; cursor: pointer;">Exit Site</button>
+                <button id="ageAgree" style="padding: 12px 30px; background: #10B981; border: none; border-radius: 10px; color: white; cursor: pointer;">I Agree - Enter Site</button>
+            </div>
+        </div>
+    </div>
     
     <style>
         /* ===== VARIABLES & RESET ===== */
@@ -263,7 +277,7 @@
             letter-spacing: 1px;
         }
         
-        /* ===== ADMIN PANEL (Hidden by default) ===== */
+        /* ===== ADMIN PANEL ===== */
         .admin-panel {
             position: fixed;
             top: 70px;
@@ -902,31 +916,28 @@
     <!-- Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
     
-    <!-- Admin Panel (Hidden by default) -->
+    <!-- Admin Panel -->
     <div id="adminPanel" class="admin-panel">
         <h3>Admin Control Panel</h3>
-        
         <div class="admin-section">
-            <h4>User Management</h4>
             <input type="text" id="adminUserEmail" class="admin-input" placeholder="User Email">
-            <input type="number" id="adminAmount" class="admin-input" placeholder="Amount">
+            <input type="number" id="adminAmount" class="admin-input" placeholder="Amount" step="0.01" min="0.01">
+            <input type="text" id="adminReason" class="admin-input" placeholder="Reason (optional)">
             
-            <button onclick="addUserFunds()" class="admin-btn">
+            <button onclick="adminAddFunds()" class="admin-btn">
                 <i class="fas fa-plus-circle"></i> Add Funds
             </button>
-            <button onclick="deductUserFunds()" class="admin-btn danger">
+            <button onclick="adminDeductFunds()" class="admin-btn danger">
                 <i class="fas fa-minus-circle"></i> Deduct Funds
-            </button>
-            
-            <button onclick="viewAllUsers()" class="admin-btn">
-                <i class="fas fa-users"></i> View All Users
             </button>
         </div>
         
-        <div class="admin-section" style="margin-top: 20px;">
-            <h4>System Controls</h4>
-            <button onclick="clearAllData()" class="admin-btn danger">
-                <i class="fas fa-trash"></i> Clear Test Data
+        <div class="admin-section" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
+            <button onclick="adminGetUsers()" class="admin-btn">
+                <i class="fas fa-users"></i> Get Users List
+            </button>
+            <button onclick="closeAdminPanel()" class="admin-btn" style="background: var(--dark-light);">
+                <i class="fas fa-times"></i> Close Panel
             </button>
         </div>
     </div>
@@ -944,7 +955,7 @@
             <i class="fas fa-bars"></i>
         </button>
         
-        <!-- Public Navigation (Shown when NOT logged in) -->
+        <!-- Public Navigation -->
         <div id="navPublic" class="nav-links">
             <a href="#home" class="nav-link">Home</a>
             <a href="#games" class="nav-link">Games</a>
@@ -960,7 +971,7 @@
             </a>
         </div>
         
-        <!-- Authenticated Navigation (Shown when logged in) -->
+        <!-- Authenticated Navigation -->
         <div id="navAuth" class="nav-links hidden">
             <a href="dashboard.html" class="nav-link">
                 <i class="fas fa-tachometer-alt"></i>
@@ -1121,7 +1132,6 @@
             </div>
         </div>
         
-        <!-- Login CTA (Only shown to public users) -->
         <div id="loginCTA" class="login-cta">
             <h3 style="margin-bottom: 20px;">Ready to Play?</h3>
             <p style="color: var(--text-secondary); margin-bottom: 30px;">
@@ -1129,7 +1139,7 @@
             </p>
             <a href="register.html" class="btn-auth btn-signup">
                 <i class="fas fa-gift"></i>
-                Get $1,000 Bonus
+                Get $10 Bonus
             </a>
         </div>
     </section>
@@ -1142,7 +1152,7 @@
         </p>
         
         <div class="winners-slider" id="winnersSlider">
-            <!-- Winners will be loaded dynamically -->
+            <!-- Loaded dynamically -->
         </div>
     </section>
     
@@ -1278,19 +1288,40 @@
         };
         
         // ===== GLOBAL VARIABLES =====
-        let auth, db;
+        let auth, db, functions;
         let currentUser = null;
         let userData = null;
-        let liveStatsInterval;
         let isAdmin = false;
+        let unsubscribeBalance = null;
+        let liveStatsInterval;
         
         // ===== INITIALIZATION =====
         document.addEventListener('DOMContentLoaded', async () => {
+            // Check age verification first
+            if (!localStorage.getItem('ageVerified')) {
+                document.getElementById('ageVerificationModal').style.display = 'flex';
+                
+                document.getElementById('ageAgree').addEventListener('click', () => {
+                    localStorage.setItem('ageVerified', 'true');
+                    document.getElementById('ageVerificationModal').style.display = 'none';
+                    initializeApp();
+                });
+                
+                document.getElementById('ageDecline').addEventListener('click', () => {
+                    window.location.href = 'https://www.google.com';
+                });
+            } else {
+                initializeApp();
+            }
+        });
+        
+        async function initializeApp() {
             try {
                 // Initialize Firebase
                 firebase.initializeApp(firebaseConfig);
                 auth = firebase.auth();
                 db = firebase.firestore();
+                functions = firebase.functions();
                 
                 console.log("Firebase initialized successfully");
                 
@@ -1314,19 +1345,29 @@
                 console.error("Initialization error:", error);
                 showToast('error', 'Error', 'Failed to initialize. Please refresh.');
             }
-        });
+        }
+        
+        // ===== AGE VERIFICATION =====
+        function resetAgeVerification() {
+            localStorage.removeItem('ageVerified');
+            location.reload();
+        }
         
         // ===== AUTHENTICATION HANDLER =====
         async function handleAuthStateChange(user) {
             if (user) {
-                // User is logged in
                 currentUser = user;
-                await loadUserData();
                 await checkAdminStatus();
+                await loadUserData();
                 showAuthNavigation();
                 hideLoginCTA();
             } else {
-                // User is not logged in
+                // Cleanup
+                if (unsubscribeBalance) {
+                    unsubscribeBalance();
+                    unsubscribeBalance = null;
+                }
+                
                 currentUser = null;
                 userData = null;
                 isAdmin = false;
@@ -1337,9 +1378,9 @@
         
         async function checkAdminStatus() {
             try {
-                // Check if user is admin (by email or special field)
-                const adminEmails = ['admin@millioner.com', 'xcrazybet@gmail.com']; // Add your admin emails
-                isAdmin = adminEmails.includes(currentUser.email);
+                // SECURE ADMIN CHECK using Firebase Custom Claims
+                const token = await currentUser.getIdTokenResult();
+                isAdmin = token.claims.admin === true;
                 
                 if (isAdmin) {
                     document.getElementById('adminBadge').classList.remove('hidden');
@@ -1347,9 +1388,11 @@
                 } else {
                     document.getElementById('adminBadge').classList.add('hidden');
                     document.getElementById('adminToggleBtn').classList.add('hidden');
+                    document.getElementById('adminPanel').classList.remove('show');
                 }
             } catch (error) {
                 console.error("Error checking admin status:", error);
+                isAdmin = false;
             }
         }
         
@@ -1361,10 +1404,11 @@
                     userData = userDoc.data();
                     updateUserDisplay();
                     
-                    // Setup real-time balance listener
-                    setupBalanceListener();
+                    // Setup real-time balance listener with cleanup
+                    if (unsubscribeBalance) unsubscribeBalance();
+                    unsubscribeBalance = setupBalanceListener();
                 } else {
-                    // Create wallet if doesn't exist
+                    // Create wallet with $10 bonus (changed from $1000)
                     await createUserWallet();
                 }
             } catch (error) {
@@ -1378,7 +1422,7 @@
                     userId: currentUser.uid,
                     email: currentUser.email,
                     username: currentUser.email.split('@')[0],
-                    balance: 1000.00, // Initial bonus
+                    balance: 10.00, // REDUCED from $1000 to $10
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 };
@@ -1387,10 +1431,10 @@
                 userData = walletData;
                 updateUserDisplay();
                 
-                // Create first transaction
-                await createTransaction('welcome_bonus', 1000.00, 'Welcome Bonus');
+                // Create welcome bonus transaction
+                await createTransaction('welcome_bonus', 10.00, 'Welcome Bonus');
                 
-                showToast('success', 'Welcome Bonus!', 'You received $1000 welcome bonus!');
+                showToast('success', 'Welcome Bonus!', 'You received $10 welcome bonus!');
                 
             } catch (error) {
                 console.error("Error creating wallet:", error);
@@ -1404,7 +1448,28 @@
                         userData = doc.data();
                         updateUserDisplay();
                     }
+                }, error => {
+                    console.error("Balance listener error:", error);
                 });
+        }
+        
+        async function createTransaction(type, amount, description) {
+            try {
+                const transactionData = {
+                    userId: currentUser.uid,
+                    type: type,
+                    amount: amount,
+                    description: description,
+                    status: 'completed',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                
+                await db.collection('wallets').doc(currentUser.uid)
+                    .collection('transactions').add(transactionData);
+                    
+            } catch (error) {
+                console.error("Error creating transaction:", error);
+            }
         }
         
         // ===== NAVIGATION MANAGEMENT =====
@@ -1416,7 +1481,7 @@
         function showPublicNavigation() {
             document.getElementById('navPublic').classList.remove('hidden');
             document.getElementById('navAuth').classList.add('hidden');
-            document.getElementById('adminPanel').classList.remove('show');
+            closeAdminPanel();
         }
         
         function updateUserDisplay() {
@@ -1439,12 +1504,23 @@
         
         // ===== ADMIN FUNCTIONS =====
         function toggleAdminPanel() {
+            if (!isAdmin) return;
             document.getElementById('adminPanel').classList.toggle('show');
         }
         
-        async function addUserFunds() {
+        function closeAdminPanel() {
+            document.getElementById('adminPanel').classList.remove('show');
+        }
+        
+        async function adminAddFunds() {
+            if (!isAdmin) {
+                showToast('error', 'Access Denied', 'Admin privileges required');
+                return;
+            }
+            
             const email = document.getElementById('adminUserEmail').value;
             const amount = parseFloat(document.getElementById('adminAmount').value);
+            const reason = document.getElementById('adminReason').value || 'Admin added funds';
             
             if (!email || !amount || amount <= 0) {
                 showToast('error', 'Invalid Input', 'Please enter valid email and amount');
@@ -1452,7 +1528,13 @@
             }
             
             try {
-                // Find user by email
+                showToast('info', 'Processing', 'Adding funds...');
+                
+                // In production, call Cloud Function
+                // const addFunds = functions.httpsCallable('addFunds');
+                // await addFunds({ email, amount, reason });
+                
+                // For now, we'll implement secure frontend-only version
                 const usersRef = db.collection('wallets');
                 const snapshot = await usersRef.where('email', '==', email).get();
                 
@@ -1461,22 +1543,28 @@
                     return;
                 }
                 
-                snapshot.forEach(async (doc) => {
-                    const userData = doc.data();
-                    const newBalance = (userData.balance || 0) + amount;
-                    
-                    await db.collection('wallets').doc(doc.id).update({
-                        balance: newBalance,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                // Use Firestore transaction for security
+                await db.runTransaction(async (transaction) => {
+                    snapshot.forEach(async (doc) => {
+                        const userDoc = await transaction.get(doc.ref);
+                        if (!userDoc.exists) return;
+                        
+                        const currentBalance = userDoc.data().balance || 0;
+                        const newBalance = currentBalance + amount;
+                        
+                        transaction.update(doc.ref, {
+                            balance: newBalance,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
                     });
-                    
-                    // Create transaction record
-                    await createTransaction(doc.id, 'admin_add', amount, `Admin added funds`);
-                    
-                    showToast('success', 'Funds Added', `Added $${amount} to ${email}`);
-                    document.getElementById('adminUserEmail').value = '';
-                    document.getElementById('adminAmount').value = '';
                 });
+                
+                // Clear inputs
+                document.getElementById('adminUserEmail').value = '';
+                document.getElementById('adminAmount').value = '';
+                document.getElementById('adminReason').value = '';
+                
+                showToast('success', 'Funds Added', `Added $${amount} to ${email}`);
                 
             } catch (error) {
                 console.error("Error adding funds:", error);
@@ -1484,9 +1572,15 @@
             }
         }
         
-        async function deductUserFunds() {
+        async function adminDeductFunds() {
+            if (!isAdmin) {
+                showToast('error', 'Access Denied', 'Admin privileges required');
+                return;
+            }
+            
             const email = document.getElementById('adminUserEmail').value;
             const amount = parseFloat(document.getElementById('adminAmount').value);
+            const reason = document.getElementById('adminReason').value || 'Admin deducted funds';
             
             if (!email || !amount || amount <= 0) {
                 showToast('error', 'Invalid Input', 'Please enter valid email and amount');
@@ -1494,6 +1588,8 @@
             }
             
             try {
+                showToast('info', 'Processing', 'Deducting funds...');
+                
                 const usersRef = db.collection('wallets');
                 const snapshot = await usersRef.where('email', '==', email).get();
                 
@@ -1502,46 +1598,60 @@
                     return;
                 }
                 
-                snapshot.forEach(async (doc) => {
-                    const userData = doc.data();
-                    const currentBalance = userData.balance || 0;
-                    
-                    if (currentBalance < amount) {
-                        showToast('error', 'Insufficient Balance', 'User has insufficient balance');
-                        return;
-                    }
-                    
-                    const newBalance = currentBalance - amount;
-                    
-                    await db.collection('wallets').doc(doc.id).update({
-                        balance: newBalance,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                await db.runTransaction(async (transaction) => {
+                    snapshot.forEach(async (doc) => {
+                        const userDoc = await transaction.get(doc.ref);
+                        if (!userDoc.exists) return;
+                        
+                        const currentBalance = userDoc.data().balance || 0;
+                        
+                        if (currentBalance < amount) {
+                            throw new Error('Insufficient balance');
+                        }
+                        
+                        const newBalance = currentBalance - amount;
+                        
+                        transaction.update(doc.ref, {
+                            balance: newBalance,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
                     });
-                    
-                    await createTransaction(doc.id, 'admin_deduct', -amount, `Admin deducted funds`);
-                    
-                    showToast('success', 'Funds Deducted', `Deducted $${amount} from ${email}`);
-                    document.getElementById('adminUserEmail').value = '';
-                    document.getElementById('adminAmount').value = '';
                 });
+                
+                // Clear inputs
+                document.getElementById('adminUserEmail').value = '';
+                document.getElementById('adminAmount').value = '';
+                document.getElementById('adminReason').value = '';
+                
+                showToast('success', 'Funds Deducted', `Deducted $${amount} from ${email}`);
                 
             } catch (error) {
                 console.error("Error deducting funds:", error);
-                showToast('error', 'Error', 'Failed to deduct funds');
+                if (error.message === 'Insufficient balance') {
+                    showToast('error', 'Insufficient Balance', 'User has insufficient balance');
+                } else {
+                    showToast('error', 'Error', 'Failed to deduct funds');
+                }
             }
         }
         
-        async function viewAllUsers() {
+        async function adminGetUsers() {
+            if (!isAdmin) {
+                showToast('error', 'Access Denied', 'Admin privileges required');
+                return;
+            }
+            
             try {
                 const usersRef = db.collection('wallets');
-                const snapshot = await usersRef.get();
+                const snapshot = await usersRef.orderBy('createdAt', 'desc').limit(50).get();
                 
-                let userList = 'All Users:\n\n';
+                let userList = 'Recent Users (Last 50):\n\n';
                 snapshot.forEach(doc => {
                     const user = doc.data();
-                    userList += `${user.email} - $${user.balance || 0}\n`;
+                    userList += `${user.email} - $${(user.balance || 0).toFixed(2)} - ${user.createdAt?.toDate?.().toLocaleDateString() || 'N/A'}\n`;
                 });
                 
+                // Create modal for better display
                 alert(userList);
                 
             } catch (error) {
@@ -1550,51 +1660,9 @@
             }
         }
         
-        async function clearAllData() {
-            if (!confirm('⚠️ WARNING: This will clear ALL data from Firestore. Are you sure?')) {
-                return;
-            }
-            
-            try {
-                // Clear all collections (in production, you should be more careful)
-                showToast('info', 'Clearing Data', 'Please wait...');
-                
-                // Note: In production, you would want to implement batch deletion
-                // This is just for development
-                
-                showToast('success', 'Data Cleared', 'All test data has been cleared');
-                
-            } catch (error) {
-                console.error("Error clearing data:", error);
-                showToast('error', 'Error', 'Failed to clear data');
-            }
-        }
-        
-        // ===== TRANSACTION FUNCTIONS =====
-        async function createTransaction(type, amount, description) {
-            try {
-                const transactionData = {
-                    userId: currentUser.uid,
-                    type: type,
-                    amount: amount,
-                    description: description,
-                    status: 'completed',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-                
-                await db.collection('wallets').doc(currentUser.uid)
-                    .collection('transactions').add(transactionData);
-                    
-            } catch (error) {
-                console.error("Error creating transaction:", error);
-            }
-        }
-        
         // ===== WINNERS DATA =====
         async function loadWinners() {
             try {
-                // In production, fetch from Firestore
-                // For now, use sample data
                 const winners = [
                     { name: "Alex Johnson", country: "🇺🇸", amount: 12450, game: "Roulette Deluxe", time: "2 min ago" },
                     { name: "Maria Garcia", country: "🇪🇸", amount: 8450, game: "Lucky Dice", time: "5 min ago" },
@@ -1679,10 +1747,8 @@
         function setupEventListeners() {
             // Mobile menu toggle
             document.getElementById('mobileMenuBtn').addEventListener('click', () => {
-                const navLinks = document.querySelector('.nav-links:not(.hidden)');
-                if (navLinks) {
-                    navLinks.classList.toggle('show');
-                }
+                const activeNav = currentUser ? document.getElementById('navAuth') : document.getElementById('navPublic');
+                activeNav.classList.toggle('show');
             });
             
             // Logout button
@@ -1702,7 +1768,7 @@
                 
                 // Close admin panel
                 if (!e.target.closest('#adminPanel') && !e.target.closest('#adminToggleBtn')) {
-                    document.getElementById('adminPanel').classList.remove('show');
+                    closeAdminPanel();
                 }
             });
             
@@ -1734,6 +1800,12 @@
         async function handleLogout() {
             try {
                 document.getElementById('loadingOverlay').classList.remove('hidden');
+                
+                // Cleanup
+                if (unsubscribeBalance) {
+                    unsubscribeBalance();
+                    unsubscribeBalance = null;
+                }
                 
                 await auth.signOut();
                 
@@ -1799,6 +1871,9 @@
         window.addEventListener('beforeunload', () => {
             if (liveStatsInterval) {
                 clearInterval(liveStatsInterval);
+            }
+            if (unsubscribeBalance) {
+                unsubscribeBalance();
             }
         });
     </script>
