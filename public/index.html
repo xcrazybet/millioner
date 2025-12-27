@@ -1127,151 +1127,281 @@
         </div>
     </footer>
     
-    <script>
-        // ===== FIREBASE CONFIGURATION =====
-        const firebaseConfig = {
-            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
-            authDomain: "x-bet-prod-jd.firebaseapp.com",
-            projectId: "x-bet-prod-jd",
-            storageBucket: "x-bet-prod-jd.firebasestorage.app",
-            messagingSenderId: "499334334535",
-            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
-            measurementId: "G-PTV4XMYQ6P"
-        };
-        
-        // ===== GLOBAL VARIABLES =====
-        let auth, db;
-        let currentUser = null;
-        let userData = null;
-        let liveStatsInterval;
-        
-        // ===== INITIALIZATION =====
-        document.addEventListener('DOMContentLoaded', async () => {
-            try {
-                // Initialize Firebase
+<script>
+    // ===== FIREBASE CONFIGURATION =====
+    const firebaseConfig = {
+        apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+        authDomain: "x-bet-prod-jd.firebaseapp.com",
+        projectId: "x-bet-prod-jd",
+        storageBucket: "x-bet-prod-jd.firebasestorage.app",
+        messagingSenderId: "499334334535",
+        appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+        measurementId: "G-PTV4XMYQ6P"
+    };
+    
+    // ===== GLOBAL VARIABLES =====
+    let auth, db;
+    let currentUser = null;
+    let userData = null;
+    let isAdminUser = false;
+    let liveStatsInterval;
+    
+    // ===== INITIALIZATION =====
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            // Initialize Firebase (prevent duplicate initialization)
+            if (!firebase.apps.length) {
                 firebase.initializeApp(firebaseConfig);
-                auth = firebase.auth();
-                db = firebase.firestore();
-                
-                console.log("Firebase initialized for index page");
-                
-                // Setup event listeners
-                setupEventListeners();
-                
-                // Check authentication state
-                auth.onAuthStateChanged(handleAuthStateChange);
-                
-                // Load initial content
-                loadWinners();
-                startLiveStats();
-                setupScrollAnimations();
-                
-                // Hide loading overlay after delay
-                setTimeout(() => {
-                    document.getElementById('loadingOverlay').classList.add('hidden');
-                }, 1000);
-                
-            } catch (error) {
-                console.error("Initialization error:", error);
-                showToast('error', 'Error', 'Failed to initialize. Please refresh.');
-            }
-        });
-        
-        // ===== AUTHENTICATION HANDLER =====
-        function handleAuthStateChange(user) {
-            if (user) {
-                // User is logged in
-                currentUser = user;
-                loadUserData();
-                showAuthNavigation();
-                hideLoginCTA();
             } else {
-                // User is not logged in
-                currentUser = null;
-                userData = null;
-                showPublicNavigation();
-                showLoginCTA();
+                firebase.app(); // Use existing app
             }
+            
+            auth = firebase.auth();
+            db = firebase.firestore();
+            
+            console.log("Firebase initialized for index page");
+            
+            // Setup event listeners
+            setupEventListeners();
+            
+            // Check authentication state
+            auth.onAuthStateChanged(handleAuthStateChange);
+            
+            // Load initial content
+            loadWinners();
+            startLiveStats();
+            setupScrollAnimations();
+            
+            // Hide loading overlay after delay
+            setTimeout(() => {
+                document.getElementById('loadingOverlay').classList.add('hidden');
+            }, 1000);
+            
+        } catch (error) {
+            console.error("Initialization error:", error);
+            showToast('error', 'Error', 'Failed to initialize. Please refresh.');
         }
+    });
+    
+    // ===== AUTHENTICATION HANDLER =====
+    async function handleAuthStateChange(user) {
+        if (user) {
+            // User is logged in
+            currentUser = user;
+            
+            // Check if user is admin
+            isAdminUser = await checkIfAdmin();
+            
+            // Load user data
+            await loadUserData();
+            
+            // Update navigation
+            showAuthNavigation();
+            hideLoginCTA();
+            
+            // Show admin link if user is admin
+            if (isAdminUser) {
+                const adminLink = document.createElement('a');
+                adminLink.href = "admin.html";
+                adminLink.className = "nav-link";
+                adminLink.innerHTML = '<i class="fas fa-user-shield"></i> Admin';
+                document.getElementById('navAuth').insertBefore(adminLink, document.querySelector('.user-info'));
+            }
+            
+        } else {
+            // User is not logged in
+            currentUser = null;
+            userData = null;
+            isAdminUser = false;
+            showPublicNavigation();
+            showLoginCTA();
+        }
+    }
+    
+    // ===== CHECK IF USER IS ADMIN =====
+    async function checkIfAdmin() {
+        if (!currentUser) return false;
         
-        async function loadUserData() {
-            try {
-                const userDoc = await db.collection('wallets').doc(currentUser.uid).get();
+        try {
+            const adminDoc = await db.collection('admins').doc(currentUser.uid).get();
+            return adminDoc.exists;
+        } catch (error) {
+            console.error("Error checking admin status:", error);
+            return false;
+        }
+    }
+    
+    // ===== USER DATA MANAGEMENT =====
+    async function loadUserData() {
+        if (!currentUser) return;
+        
+        try {
+            const userDoc = await db.collection('wallets').doc(currentUser.uid).get();
+            
+            if (userDoc.exists) {
+                userData = userDoc.data();
+                updateUserDisplay();
                 
-                if (userDoc.exists) {
-                    userData = userDoc.data();
+                // Setup real-time balance listener
+                setupBalanceListener();
+            } else {
+                // Create wallet if doesn't exist
+                await createUserWallet();
+            }
+        } catch (error) {
+            console.error("Error loading user data:", error.code, error.message);
+            
+            if (error.code === 'permission-denied') {
+                showToast('error', 'Access Denied', 'You do not have permission to access wallet data');
+            } else if (error.code === 'not-found') {
+                await createUserWallet();
+            } else {
+                showToast('error', 'Error', 'Failed to load user data. Please refresh.');
+            }
+        }
+    }
+    
+    // ===== CREATE USER WALLET (IF DOESN'T EXIST) =====
+    async function createUserWallet() {
+        if (!currentUser) return;
+        
+        try {
+            const walletData = {
+                userId: currentUser.uid,
+                email: currentUser.email,
+                username: currentUser.email.split('@')[0],
+                balance: 1000.00,
+                walletId: generateWalletId(),
+                currency: "USD",
+                status: "active",
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                totalDeposits: 0,
+                totalWithdrawn: 0,
+                transactionCount: 0
+            };
+            
+            await db.collection('wallets').doc(currentUser.uid).set(walletData);
+            userData = walletData;
+            updateUserDisplay();
+            
+            // Create welcome transaction
+            await createTransaction({
+                type: 'welcome_bonus',
+                amount: 1000.00,
+                description: 'Welcome bonus - Initial account funding',
+                status: 'completed'
+            });
+            
+            showToast('success', 'Welcome!', '$1,000 bonus added to your wallet!');
+            
+        } catch (error) {
+            console.error("Error creating wallet:", error);
+            showToast('error', 'Wallet Creation Failed', 'Failed to create user wallet');
+        }
+    }
+    
+    // ===== GENERATE WALLET ID =====
+    function generateWalletId() {
+        const timestamp = Date.now().toString(36);
+        const random = Math.random().toString(36).substring(2, 8);
+        return `WALLET-${timestamp}-${random}`.toUpperCase();
+    }
+    
+    // ===== CREATE TRANSACTION =====
+    async function createTransaction(transactionData) {
+        if (!currentUser) return;
+        
+        try {
+            const transactionRef = db.collection('transactions').doc();
+            const timestamp = firebase.firestore.FieldValue.serverTimestamp();
+            
+            const transaction = {
+                id: transactionRef.id,
+                userId: currentUser.uid,
+                userEmail: currentUser.email,
+                username: userData?.username || currentUser.email.split('@')[0],
+                ...transactionData,
+                timestamp: timestamp,
+                status: transactionData.status || 'completed'
+            };
+            
+            await transactionRef.set(transaction);
+            console.log("Transaction created:", transaction);
+            
+        } catch (error) {
+            console.error("Error creating transaction:", error);
+        }
+    }
+    
+    // ===== BALANCE LISTENER =====
+    function setupBalanceListener() {
+        if (!currentUser) return;
+        
+        return db.collection('wallets').doc(currentUser.uid)
+            .onSnapshot(doc => {
+                if (doc.exists) {
+                    userData = doc.data();
                     updateUserDisplay();
-                    
-                    // Setup real-time balance listener
-                    setupBalanceListener();
                 }
-            } catch (error) {
-                console.error("Error loading user data:", error);
-            }
-        }
+            }, error => {
+                console.error("Balance listener error:", error);
+                if (error.code === 'permission-denied') {
+                    console.warn("No permission to listen to balance updates");
+                }
+            });
+    }
+    
+    // ===== NAVIGATION MANAGEMENT =====
+    function showAuthNavigation() {
+        document.getElementById('navPublic').classList.add('hidden');
+        document.getElementById('navAuth').classList.remove('hidden');
+    }
+    
+    function showPublicNavigation() {
+        document.getElementById('navPublic').classList.remove('hidden');
+        document.getElementById('navAuth').classList.add('hidden');
+    }
+    
+    function updateUserDisplay() {
+        if (!userData) return;
         
-        function setupBalanceListener() {
-            return db.collection('wallets').doc(currentUser.uid)
-                .onSnapshot(doc => {
-                    if (doc.exists) {
-                        userData = doc.data();
-                        updateUserDisplay();
-                    }
+        const displayName = userData.username || currentUser.email.split('@')[0];
+        const balance = userData.balance || 0;
+        
+        document.getElementById('userDisplayName').textContent = displayName;
+        document.getElementById('userBalance').textContent = `$${balance.toFixed(2)}`;
+    }
+    
+    function hideLoginCTA() {
+        document.getElementById('loginCTA').classList.add('hidden');
+    }
+    
+    function showLoginCTA() {
+        document.getElementById('loginCTA').classList.remove('hidden');
+    }
+    
+    // ===== WINNERS DATA =====
+    async function loadWinners() {
+        try {
+            // Try to load from Firestore first
+            const winnersSnapshot = await db.collection('winners')
+                .orderBy('timestamp', 'desc')
+                .limit(8)
+                .get();
+            
+            const container = document.getElementById('winnersSlider');
+            container.innerHTML = '';
+            
+            if (!winnersSnapshot.empty) {
+                // Load from Firestore
+                winnersSnapshot.forEach(doc => {
+                    const winner = doc.data();
+                    createWinnerCard(winner);
                 });
-        }
-        
-        // ===== NAVIGATION MANAGEMENT =====
-        function showAuthNavigation() {
-            document.getElementById('navPublic').classList.add('hidden');
-            document.getElementById('navAuth').classList.remove('hidden');
-        }
-        
-        function showPublicNavigation() {
-            document.getElementById('navPublic').classList.remove('hidden');
-            document.getElementById('navAuth').classList.add('hidden');
-        }
-        
-        function updateUserDisplay() {
-            if (!userData) return;
-            
-            const displayName = userData.username || currentUser.email.split('@')[0];
-            const balance = userData.balance || 0;
-            
-            document.getElementById('userDisplayName').textContent = displayName;
-            document.getElementById('userBalance').textContent = `$${balance.toFixed(2)}`;
-        }
-        
-        function hideLoginCTA() {
-            document.getElementById('loginCTA').classList.add('hidden');
-        }
-        
-        function showLoginCTA() {
-            document.getElementById('loginCTA').classList.remove('hidden');
-        }
-        
-        // ===== GAME NAVIGATION BEHAVIOR =====
-        function setupGameLinks() {
-            // For public users: Games link scrolls to games section
-            // For auth users: Games link redirects to games.html
-            
-            const publicGamesLink = document.querySelector('#navPublic .nav-link[href="#games"]');
-            const authGamesLink = document.querySelector('#navAuth .nav-link[href="games.html"]');
-            
-            if (publicGamesLink) {
-                publicGamesLink.addEventListener('click', (e) => {
-                    if (!currentUser) {
-                        e.preventDefault();
-                        document.getElementById('games').scrollIntoView({ behavior: 'smooth' });
-                    }
-                });
-            }
-        }
-        
-        // ===== WINNERS DATA =====
-        async function loadWinners() {
-            try {
-                // Sample winners data (in production, fetch from Firestore)
-                const winners = [
+            } else {
+                // Fallback to sample data
+                const sampleWinners = [
                     { name: "Alex Johnson", country: "🇺🇸", amount: 12450, game: "Roulette Deluxe", time: "2 min ago" },
                     { name: "Maria Garcia", country: "🇪🇸", amount: 8450, game: "Lucky Dice", time: "5 min ago" },
                     { name: "Kenji Tanaka", country: "🇯🇵", amount: 23100, game: "Mega Slots", time: "10 min ago" },
@@ -1282,202 +1412,201 @@
                     { name: "Emma Wilson", country: "🇦🇺", amount: 9200, game: "Lucky Dice", time: "35 min ago" }
                 ];
                 
-                const container = document.getElementById('winnersSlider');
-                container.innerHTML = '';
-                
-                winners.forEach(winner => {
-                    const winnerCard = document.createElement('div');
-                    winnerCard.className = 'winner-card';
-                    
-                    winnerCard.innerHTML = `
-                        <div class="winner-header">
-                            <div class="winner-avatar">${winner.name.split(' ').map(n => n[0]).join('')}</div>
-                            <div class="winner-info">
-                                <h4>${winner.name}</h4>
-                                <div class="winner-country">
-                                    ${winner.country}
-                                    <span>${winner.time}</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="prize">$${winner.amount.toLocaleString()}</div>
-                        <p>Won playing <strong>${winner.game}</strong></p>
-                    `;
-                    
-                    container.appendChild(winnerCard);
+                sampleWinners.forEach(winner => {
+                    createWinnerCard(winner);
                 });
-                
-            } catch (error) {
-                console.error("Error loading winners:", error);
             }
+            
+        } catch (error) {
+            console.error("Error loading winners:", error);
+            // Silent fail - don't show error to user for public data
         }
+    }
+    
+    function createWinnerCard(winner) {
+        const container = document.getElementById('winnersSlider');
+        const winnerCard = document.createElement('div');
+        winnerCard.className = 'winner-card';
         
-        // ===== LIVE STATISTICS =====
-        function startLiveStats() {
-            // Update live player count randomly (simulating live updates)
-            liveStatsInterval = setInterval(() => {
-                const livePlayers = document.getElementById('livePlayers');
-                const totalWon = document.getElementById('totalWon');
-                
-                if (livePlayers) {
-                    const current = parseInt(livePlayers.textContent.replace(/,/g, ''));
-                    const change = Math.floor(Math.random() * 100) - 20;
-                    const newCount = Math.max(5000, current + change);
-                    livePlayers.textContent = newCount.toLocaleString();
-                }
-                
-                if (totalWon) {
-                    const current = parseFloat(totalWon.textContent.replace(/[$,]/g, '').replace('M', ''));
-                    const change = (Math.random() * 0.1).toFixed(3);
-                    const newTotal = (parseFloat(current) + parseFloat(change)).toFixed(1);
-                    totalWon.textContent = `$${newTotal}M`;
-                }
-            }, 5000);
-        }
+        winnerCard.innerHTML = `
+            <div class="winner-header">
+                <div class="winner-avatar">${winner.name.split(' ').map(n => n[0]).join('')}</div>
+                <div class="winner-info">
+                    <h4>${winner.name}</h4>
+                    <div class="winner-country">
+                        ${winner.country}
+                        <span>${winner.time}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="prize">$${winner.amount.toLocaleString()}</div>
+            <p>Won playing <strong>${winner.game}</strong></p>
+        `;
         
-        // ===== SCROLL ANIMATIONS =====
-        function setupScrollAnimations() {
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('fade-in');
-                    }
+        container.appendChild(winnerCard);
+    }
+    
+    // ===== EVENT LISTENERS =====
+    function setupEventListeners() {
+        // Mobile menu toggle
+        document.getElementById('mobileMenuBtn').addEventListener('click', () => {
+            const navLinks = document.querySelector('.nav-links:not(.hidden)');
+            if (navLinks) {
+                navLinks.classList.toggle('show');
+            }
+        });
+        
+        // Logout button
+        document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+        
+        // Close mobile menu when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('nav') && !e.target.closest('.mobile-menu-btn')) {
+                document.querySelectorAll('.nav-links.show').forEach(nav => {
+                    nav.classList.remove('show');
                 });
-            }, {
-                threshold: 0.1
-            });
-            
-            // Observe all game cards
-            document.querySelectorAll('.game-card').forEach(card => {
-                observer.observe(card);
-            });
-        }
+            }
+        });
         
-        // ===== EVENT LISTENERS =====
-        function setupEventListeners() {
-            // Mobile menu toggle
-            document.getElementById('mobileMenuBtn').addEventListener('click', () => {
-                const navLinks = document.querySelector('.nav-links:not(.hidden)');
-                if (navLinks) {
-                    navLinks.classList.toggle('show');
-                }
-            });
-            
-            // Logout button
-            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
-            
-            // Close mobile menu when clicking outside
-            document.addEventListener('click', (e) => {
-                if (!e.target.closest('nav') && !e.target.closest('.mobile-menu-btn')) {
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                if (this.getAttribute('href') === '#') return;
+                
+                e.preventDefault();
+                const targetId = this.getAttribute('href');
+                const targetElement = document.querySelector(targetId);
+                
+                if (targetElement) {
+                    targetElement.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                    
+                    // Close mobile menu if open
                     document.querySelectorAll('.nav-links.show').forEach(nav => {
                         nav.classList.remove('show');
                     });
                 }
             });
-            
-            // Setup game links behavior
-            setupGameLinks();
-            
-            // Smooth scroll for anchor links
-            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-                anchor.addEventListener('click', function (e) {
-                    if (this.getAttribute('href') === '#') return;
-                    
-                    e.preventDefault();
-                    const targetId = this.getAttribute('href');
-                    const targetElement = document.querySelector(targetId);
-                    
-                    if (targetElement) {
-                        targetElement.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'start'
-                        });
-                        
-                        // Close mobile menu if open
-                        document.querySelectorAll('.nav-links.show').forEach(nav => {
-                            nav.classList.remove('show');
-                        });
-                    }
-                });
-            });
-        }
-        
-        // ===== LOGOUT HANDLER =====
-        async function handleLogout() {
-            try {
-                // Show loading
-                document.getElementById('loadingOverlay').classList.remove('hidden');
-                
-                // Sign out from Firebase
-                await auth.signOut();
-                
-                // Clear data
-                currentUser = null;
-                userData = null;
-                
-                // Switch to public navigation
-                showPublicNavigation();
-                showLoginCTA();
-                
-                // Hide loading
-                setTimeout(() => {
-                    document.getElementById('loadingOverlay').classList.add('hidden');
-                }, 500);
-                
-                showToast('success', 'Logged Out', 'You have been successfully logged out');
-                
-            } catch (error) {
-                console.error("Logout error:", error);
-                showToast('error', 'Logout Failed', 'Failed to logout. Please try again.');
-                document.getElementById('loadingOverlay').classList.add('hidden');
-            }
-        }
-        
-        // ===== TOAST NOTIFICATION =====
-        function showToast(type, title, message, duration = 5000) {
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            
-            const iconMap = {
-                success: 'fas fa-check-circle',
-                error: 'fas fa-exclamation-circle',
-                warning: 'fas fa-exclamation-triangle',
-                info: 'fas fa-info-circle'
-            };
-            
-            toast.innerHTML = `
-                <div class="toast-icon">
-                    <i class="${iconMap[type] || 'fas fa-info-circle'}"></i>
-                </div>
-                <div class="toast-content">
-                    <div class="toast-title">${title}</div>
-                    <div class="toast-message">${message}</div>
-                </div>
-            `;
-            
-            container.appendChild(toast);
-            
-            // Auto remove after duration
-            setTimeout(() => {
-                if (toast.parentNode) {
-                    toast.style.opacity = '0';
-                    toast.style.transform = 'translateX(100%)';
-                    setTimeout(() => {
-                        if (toast.parentNode) {
-                            toast.parentNode.removeChild(toast);
-                        }
-                    }, 300);
-                }
-            }, duration);
-        }
-        
-        // ===== CLEANUP =====
-        window.addEventListener('beforeunload', () => {
-            if (liveStatsInterval) {
-                clearInterval(liveStatsInterval);
-            }
         });
-    </script>
+    }
+    
+    // ===== LOGOUT HANDLER =====
+    async function handleLogout() {
+        try {
+            // Show loading
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+            
+            // Sign out from Firebase
+            await auth.signOut();
+            
+            // Clear data
+            currentUser = null;
+            userData = null;
+            isAdminUser = false;
+            
+            // Switch to public navigation
+            showPublicNavigation();
+            showLoginCTA();
+            
+            // Hide loading
+            setTimeout(() => {
+                document.getElementById('loadingOverlay').classList.add('hidden');
+            }, 500);
+            
+            showToast('success', 'Logged Out', 'You have been successfully logged out');
+            
+        } catch (error) {
+            console.error("Logout error:", error);
+            showToast('error', 'Logout Failed', 'Failed to logout. Please try again.');
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }
+    }
+    
+    // ===== LIVE STATISTICS =====
+    function startLiveStats() {
+        liveStatsInterval = setInterval(() => {
+            const livePlayers = document.getElementById('livePlayers');
+            const totalWon = document.getElementById('totalWon');
+            
+            if (livePlayers) {
+                const current = parseInt(livePlayers.textContent.replace(/,/g, ''));
+                const change = Math.floor(Math.random() * 100) - 20;
+                const newCount = Math.max(5000, current + change);
+                livePlayers.textContent = newCount.toLocaleString();
+            }
+            
+            if (totalWon) {
+                const current = parseFloat(totalWon.textContent.replace(/[$,]/g, '').replace('M', ''));
+                const change = (Math.random() * 0.1).toFixed(3);
+                const newTotal = (parseFloat(current) + parseFloat(change)).toFixed(1);
+                totalWon.textContent = `$${newTotal}M`;
+            }
+        }, 5000);
+    }
+    
+    // ===== SCROLL ANIMATIONS =====
+    function setupScrollAnimations() {
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('fade-in');
+                }
+            });
+        }, {
+            threshold: 0.1
+        });
+        
+        document.querySelectorAll('.game-card').forEach(card => {
+            observer.observe(card);
+        });
+    }
+    
+    // ===== TOAST NOTIFICATION =====
+    function showToast(type, title, message, duration = 5000) {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const iconMap = {
+            success: 'fas fa-check-circle',
+            error: 'fas fa-exclamation-circle',
+            warning: 'fas fa-exclamation-triangle',
+            info: 'fas fa-info-circle'
+        };
+        
+        toast.innerHTML = `
+            <div class="toast-icon">
+                <i class="${iconMap[type] || 'fas fa-info-circle'}"></i>
+            </div>
+            <div class="toast-content">
+                <div class="toast-title">${title}</div>
+                <div class="toast-message">${message}</div>
+            </div>
+        `;
+        
+        container.appendChild(toast);
+        
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }
+        }, duration);
+    }
+    
+    // ===== CLEANUP =====
+    window.addEventListener('beforeunload', () => {
+        if (liveStatsInterval) {
+            clearInterval(liveStatsInterval);
+        }
+    });
+</script>
 </body>
 </html>
