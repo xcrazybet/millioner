@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>♠️ Poker Game - XCrazyBet</title>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+<style>
+body{
+    background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);
+    font-family:Segoe UI,sans-serif;
+    color:#fff;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+.game-box{
+    background:rgba(0,0,0,.7);
+    border-radius:20px;
+    padding:40px;
+    width:100%;
+    max-width:420px;
+    text-align:center;
+    border:3px solid #ff4081;
+}
+h1{color:#ff4081;margin-bottom:10px}
+.balance{
+    background:#4caf50;
+    padding:10px;
+    border-radius:20px;
+    font-size:20px;
+    margin:15px 0;
+}
+input{
+    width:100%;
+    padding:12px;
+    border-radius:10px;
+    border:none;
+    margin:15px 0;
+    font-size:16px;
+}
+button{
+    background:linear-gradient(45deg,#ff4081,#ff9800);
+    border:none;
+    padding:14px;
+    border-radius:30px;
+    width:100%;
+    font-size:18px;
+    font-weight:bold;
+    color:#fff;
+    cursor:pointer;
+}
+button:disabled{opacity:.6;cursor:not-allowed}
+.result{
+    margin-top:20px;
+    font-size:22px;
+    min-height:30px;
+}
+.toast{
+    position:fixed;
+    top:20px;
+    right:20px;
+    background:#1a1a2e;
+    padding:15px 20px;
+    border-left:4px solid #4caf50;
+    border-radius:8px;
+}
+.toast.error{border-color:#ff5252}
+</style>
+</head>
+
+<body>
+
+<div class="game-box">
+    <h1>♠️ Poker</h1>
+    <p>Win chance: <b>10%</b> • Lose chance: <b>90%</b></p>
+
+    <div id="balance" class="balance">$0.00</div>
+
+    <input type="number" id="betAmount" placeholder="Enter bet amount" min="1">
+
+    <button id="playBtn">PLAY</button>
+
+    <div id="result" class="result"></div>
+
+    <p style="margin-top:20px;font-size:14px;opacity:.7">
+        Demo poker game • Balance updates instantly
+    </p>
+</div>
+
+<script>
+/* ===== FIREBASE CONFIG ===== */
+const firebaseConfig = {
+    apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+    authDomain: "x-bet-prod-jd.firebaseapp.com",
+    projectId: "x-bet-prod-jd",
+    storageBucket: "x-bet-prod-jd.firebasestorage.app",
+    messagingSenderId: "499334334535",
+    appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let currentUser = null;
+let currentBalance = 0;
+
+/* ===== AUTH CHECK ===== */
+auth.onAuthStateChanged(user=>{
+    if(!user){
+        location.href = "login.html";
+        return;
+    }
+    currentUser = user;
+    loadBalance();
+});
+
+/* ===== LOAD BALANCE ===== */
+async function loadBalance(){
+    const doc = await db.collection("wallets").doc(currentUser.uid).get();
+    if(doc.exists){
+        currentBalance = doc.data().balance || 0;
+        document.getElementById("balance").textContent =
+            "$" + currentBalance.toFixed(2);
+    }
+}
+
+/* ===== PLAY GAME ===== */
+document.getElementById("playBtn").onclick = async ()=>{
+    const bet = Number(document.getElementById("betAmount").value);
+    if(!bet || bet <= 0){
+        showToast("Enter valid bet","error");
+        return;
+    }
+    if(bet > currentBalance){
+        showToast("Insufficient balance","error");
+        return;
+    }
+
+    document.getElementById("playBtn").disabled = true;
+    document.getElementById("result").textContent = "Playing...";
+
+    const walletRef = db.collection("wallets").doc(currentUser.uid);
+
+    try{
+        await db.runTransaction(async tx=>{
+            const snap = await tx.get(walletRef);
+            if(!snap.exists) throw "NO_WALLET";
+
+            const balance = snap.data().balance || 0;
+            if(balance < bet) throw "NO_FUNDS";
+
+            const win = Math.random() < 0.10; // 🔴 10% WIN
+
+            let newBalance = balance - bet;
+            let resultText = "❌ You Lost";
+
+            if(win){
+                const winAmount = bet * 2;
+                newBalance = balance + winAmount;
+                resultText = "🎉 YOU WON $" + winAmount;
+            }
+
+            tx.update(walletRef,{
+                balance:newBalance,
+                updatedAt:new Date()
+            });
+
+            tx.set(walletRef.collection("transactions").doc(),{
+                type:"poker",
+                bet:bet,
+                result:win ? "win":"lose",
+                amount:win ? bet*2 : -bet,
+                createdAt:new Date()
+            });
+
+            currentBalance = newBalance;
+            document.getElementById("result").textContent = resultText;
+        });
+
+        loadBalance();
+
+    }catch(e){
+        showToast("Game error","error");
+        document.getElementById("result").textContent = "";
+    }
+
+    document.getElementById("playBtn").disabled = false;
+};
+
+/* ===== TOAST ===== */
+function showToast(msg,type="info"){
+    const t=document.createElement("div");
+    t.className="toast "+type;
+    t.textContent=msg;
+    document.body.appendChild(t);
+    setTimeout(()=>t.remove(),3000);
+}
+</script>
+
+</body>
+</html>
