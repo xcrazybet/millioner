@@ -110,6 +110,27 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
+        /* Home Button */
+        .home-btn {
+            background: var(--primary);
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            font-size: 20px;
+            transition: all 0.3s;
+            margin-right: 10px;
+        }
+
+        .home-btn:hover {
+            background: var(--primary-dark);
+            transform: scale(1.1);
+        }
+
         /* Main Layout */
         .container {
             display: flex;
@@ -625,15 +646,17 @@
 <body>
     <!-- Header -->
     <header class="header">
-        <div class="logo">
-            <i class="fas fa-dice"></i>
-            XCrazyBet Poker
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <a href="https://xcrazybet.github.io/millioner" class="home-btn" title="Return to Home">
+                <i class="fas fa-home"></i>
+            </a>
+            <div class="logo">
+                <i class="fas fa-dice"></i>
+                XCrazyBet Poker
+            </div>
         </div>
         
         <div class="nav-links">
-            <a href="https://xcrazybet.github.io/millioner" class="nav-btn">
-                <i class="fas fa-home"></i> Home
-            </a>
             <a href="https://xcrazybet.github.io/millioner/games.html" class="nav-btn">
                 <i class="fas fa-gamepad"></i> Games
             </a>
@@ -646,7 +669,7 @@
         </div>
         
         <div class="balance-display" id="balanceDisplay">
-            <i class="fas fa-wallet"></i> $0.00
+            <i class="fas fa-wallet"></i> Loading...
         </div>
     </header>
 
@@ -872,7 +895,10 @@
                 totalHands: 0,
                 totalWon: 0,
                 totalLost: 0
-            }
+            },
+            // Balance synchronization
+            mainBalance: 0,
+            gameBalance: 0
         };
 
         // ===== 100 RANDOM PLAYER NAMES =====
@@ -930,17 +956,92 @@
             try {
                 const doc = await db.collection("wallets").doc(gameState.currentUser.uid).get();
                 if (doc.exists) {
-                    gameState.balance = doc.data().balance || 0;
+                    gameState.mainBalance = doc.data().balance || 0;
+                    gameState.balance = gameState.mainBalance;
                     updateBalanceDisplay();
+                    updatePlayerName();
+                } else {
+                    showToast('Wallet not found. Creating new wallet...', 'warning');
+                    await db.collection("wallets").doc(gameState.currentUser.uid).set({
+                        balance: 100,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    });
+                    gameState.mainBalance = 100;
+                    gameState.balance = 100;
+                    updateBalanceDisplay();
+                    updatePlayerName();
                 }
             } catch (error) {
                 console.error('Error loading balance:', error);
+                showToast('Error loading balance', 'error');
             }
         }
 
         function updateBalanceDisplay() {
-            document.getElementById('balanceDisplay').innerHTML = 
-                `<i class="fas fa-wallet"></i> $${gameState.balance.toFixed(2)}`;
+            const balanceElement = document.getElementById('balanceDisplay');
+            if (balanceElement) {
+                balanceElement.innerHTML = `<i class="fas fa-wallet"></i> $${gameState.mainBalance.toFixed(2)}`;
+            }
+        }
+
+        function updatePlayerName() {
+            if (gameState.currentUser && gameState.currentUser.displayName) {
+                document.getElementById('playerName').value = gameState.currentUser.displayName;
+            } else if (gameState.currentUser && gameState.currentUser.email) {
+                document.getElementById('playerName').value = gameState.currentUser.email.split('@')[0];
+            }
+        }
+
+        // ===== SYNC BALANCE WITH DASHBOARD =====
+        async function syncBalanceWithDashboard(transactionData) {
+            try {
+                const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+                
+                await db.runTransaction(async (transaction) => {
+                    const walletDoc = await transaction.get(walletRef);
+                    
+                    if (!walletDoc.exists) {
+                        throw new Error("Wallet not found");
+                    }
+                    
+                    const currentBalance = walletDoc.data().balance || 0;
+                    const newBalance = currentBalance + transactionData.amount;
+                    
+                    if (newBalance < 0) {
+                        throw new Error("Insufficient funds");
+                    }
+                    
+                    // Update main balance
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        updatedAt: new Date()
+                    });
+                    
+                    // Record transaction
+                    const transactionRef = walletRef.collection("transactions").doc();
+                    transaction.set(transactionRef, {
+                        type: transactionData.type || "game_transaction",
+                        amount: transactionData.amount,
+                        description: transactionData.description || "Poker game transaction",
+                        createdAt: new Date(),
+                        gameId: gameState.gameId || 'poker_game',
+                        beforeBalance: currentBalance,
+                        afterBalance: newBalance
+                    });
+                    
+                    // Update local balance
+                    gameState.mainBalance = newBalance;
+                    gameState.balance = newBalance;
+                });
+                
+                updateBalanceDisplay();
+                return true;
+            } catch (error) {
+                console.error('Transaction failed:', error);
+                showToast('Transaction failed: ' + error.message, 'error');
+                return false;
+            }
         }
 
         // ===== PLAYER FORM =====
@@ -966,6 +1067,36 @@
                     animateChip(chip);
                 });
             });
+
+            // Real-time balance updates
+            setupBalanceListener();
+        }
+
+        // ===== REAL-TIME BALANCE LISTENER =====
+        function setupBalanceListener() {
+            const walletRef = db.collection("wallets").doc(gameState.currentUser?.uid);
+            
+            walletRef.onSnapshot((doc) => {
+                if (doc.exists) {
+                    const newBalance = doc.data().balance || 0;
+                    if (newBalance !== gameState.mainBalance) {
+                        gameState.mainBalance = newBalance;
+                        gameState.balance = newBalance;
+                        updateBalanceDisplay();
+                        
+                        // If game is active, update player's stack
+                        if (gameState.isPlaying && gameState.playerId) {
+                            const player = gameState.players.find(p => p.id === gameState.playerId);
+                            if (player) {
+                                // Update player's stack if needed
+                                showToast('Balance updated from dashboard', 'info');
+                            }
+                        }
+                    }
+                }
+            }, (error) => {
+                console.error('Balance listener error:', error);
+            });
         }
 
         // ===== JOIN GAME =====
@@ -980,7 +1111,7 @@
                 return;
             }
 
-            if (buyIn > gameState.balance) {
+            if (buyIn > gameState.mainBalance) {
                 showToast('Insufficient balance', 'error');
                 return;
             }
@@ -999,47 +1130,23 @@
                 joinedAt: new Date()
             };
 
-            // Deduct buy-in from balance (with delay)
+            // Deduct buy-in from main balance
             showToast('Joining table...', 'info');
             
-            setTimeout(async () => {
-                try {
-                    await db.runTransaction(async (transaction) => {
-                        const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
-                        const walletDoc = await transaction.get(walletRef);
-                        
-                        if (!walletDoc.exists) throw new Error("Wallet not found");
-                        
-                        const currentBalance = walletDoc.data().balance || 0;
-                        if (currentBalance < buyIn) throw new Error("Insufficient funds");
-                        
-                        transaction.update(walletRef, {
-                            balance: currentBalance - buyIn,
-                            updatedAt: new Date()
-                        });
-                        
-                        // Record transaction
-                        transaction.set(walletRef.collection("transactions").doc(), {
-                            type: "poker_buyin",
-                            amount: -buyIn,
-                            description: `Poker buy-in at ${playerName} table`,
-                            createdAt: new Date(),
-                            gameId: gameState.gameId || 'pending'
-                        });
-                    });
-                    
-                    gameState.balance -= buyIn;
-                    updateBalanceDisplay();
-                    
-                    // Initialize game
-                    await initializeGame();
-                    showToast('Welcome to the table!', 'success');
-                    
-                } catch (error) {
-                    console.error('Transaction failed:', error);
-                    showToast('Failed to join table', 'error');
-                }
-            }, 2000);
+            const transactionSuccess = await syncBalanceWithDashboard({
+                amount: -buyIn,
+                type: "poker_buyin",
+                description: `Poker buy-in at ${playerName} table`
+            });
+            
+            if (!transactionSuccess) {
+                showToast('Failed to join table - transaction error', 'error');
+                return;
+            }
+            
+            // Initialize game with buy-in as starting stack
+            await initializeGame();
+            showToast('Welcome to the table!', 'success');
         }
 
         // ===== INITIALIZE GAME =====
@@ -1047,6 +1154,7 @@
             // Generate game ID
             gameState.gameId = 'poker_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
             gameState.playerId = gameState.currentUser.uid;
+            gameState.isPlaying = true;
             
             // Initialize 4 AI players with random names
             const usedNames = new Set([gameState.playerProfile.name]);
@@ -1622,6 +1730,13 @@
                     setTimeout(() => {
                         document.getElementById('potDisplay').classList.remove('win-animation');
                     }, 2000);
+                    
+                    // Sync winnings to main balance
+                    syncBalanceWithDashboard({
+                        amount: winAmount,
+                        type: "poker_win",
+                        description: `Won poker hand of $${winAmount}`
+                    });
                 }
             });
             
@@ -1715,7 +1830,8 @@
                     player: playerName,
                     amount: amount,
                     timestamp: new Date(),
-                    gameId: gameState.gameId
+                    gameId: gameState.gameId,
+                    userId: gameState.currentUser.uid
                 });
             } catch (error) {
                 console.error('Error saving win:', error);
@@ -1777,6 +1893,46 @@
             const totalRake = gameState.pot * 0.05;
             return Math.min(totalRake, 10); // Max $10 rake per hand
         }
+
+        // ===== LEAVE GAME =====
+        async function leaveGame() {
+            if (gameState.isPlaying) {
+                // Cash out player's stack
+                const player = gameState.players.find(p => p.id === gameState.playerId);
+                if (player && player.stack > 0) {
+                    const cashOutAmount = player.stack;
+                    
+                    await syncBalanceWithDashboard({
+                        amount: cashOutAmount,
+                        type: "poker_cashout",
+                        description: `Cashed out poker balance of $${cashOutAmount}`
+                    });
+                    
+                    showToast(`Cashed out $${cashOutAmount}`, 'success');
+                }
+                
+                gameState.isPlaying = false;
+            }
+            
+            // Redirect to home
+            window.location.href = "https://xcrazybet.github.io/millioner";
+        }
+
+        // Add leave game on page unload
+        window.addEventListener('beforeunload', (e) => {
+            if (gameState.isPlaying) {
+                // Optional: Auto-cash out on leave
+                // leaveGame();
+            }
+        });
+
+        // Add keyboard shortcut for leaving (Ctrl+H for home)
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'h') {
+                e.preventDefault();
+                leaveGame();
+            }
+        });
     </script>
 </body>
 </html>
