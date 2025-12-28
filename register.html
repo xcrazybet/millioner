@@ -339,7 +339,7 @@
     </div>
 
     <script>
-        // ⚠️ REPLACE WITH YOUR FIREBASE CONFIG ⚠️
+        // ⚠️ FIREBASE CONFIG ⚠️
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
             authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -356,7 +356,7 @@
             
             try {
                 // Initialize Firebase
-                const app = firebase.initializeApp(firebaseConfig);
+                firebase.initializeApp(firebaseConfig);
                 const auth = firebase.auth();
                 const db = firebase.firestore();
                 
@@ -391,59 +391,118 @@
             function generateWalletId() {
                 const timestamp = Date.now().toString(36);
                 const randomStr = Math.random().toString(36).substring(2, 10);
-                const randomNum = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-                return `WALLET-${timestamp}-${randomStr}-${randomNum}`.toUpperCase();
+                return `WALLET-${timestamp}-${randomStr}`.toUpperCase();
             }
 
-            // Create user wallet in Firestore
+            // Create user wallet in Firestore - UPDATED FOR COMPATIBILITY
             async function createUserWallet(uid, email, username) {
                 const walletId = generateWalletId();
-                const startingBalance = 10.00;
+                const startingBalance = 0.00; // Start with 0 for security
                 
+                // Create wallet document data that matches dashboard.html structure
                 const walletData = {
-                    walletId: walletId,
                     userId: uid,
-                    email: email,
+                    email: email.toLowerCase(),
                     username: username,
                     balance: startingBalance,
-                    currency: "USD",
-                    status: "active",
+                    walletId: walletId,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+                    totalDeposits: 0,
+                    totalWithdrawn: 0,
+                    transactionCount: 0,
+                    status: 'active',
+                    isAdmin: false,
+                    // Additional fields for admin panel
+                    lastLogin: null,
+                    country: 'Unknown',
+                    ipAddress: '0.0.0.0',
+                    deviceInfo: navigator.userAgent.substring(0, 100),
+                    verified: false
                 };
 
                 try {
                     console.log("🔄 Creating wallet document for UID:", uid);
                     
-                    // Save wallet to Firestore
-                    await db.collection("wallets").doc(uid).set(walletData, { merge: true });
+                    // Save wallet to Firestore - matches dashboard.html structure
+                    await db.collection("wallets").doc(uid).set(walletData);
                     
                     console.log("✅ Wallet document created");
                     
-                    // Create initial transaction
+                    // Create initial transaction in transactions collection (matches dashboard.html)
+                    const transactionId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                     const transactionData = {
-                        type: "initial_deposit",
-                        amount: startingBalance,
-                        description: "Welcome bonus - Initial account funding",
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        transactionId: transactionId,
+                        type: "registration",
+                        amount: 0.00,
+                        description: "Account registration - Welcome to the platform",
                         status: "completed",
-                        newBalance: startingBalance,
-                        transactionId: `TX-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        userId: uid,
+                        userEmail: email.toLowerCase(),
+                        username: username,
+                        previousBalance: 0,
+                        newBalance: 0,
+                        // For admin panel tracking
+                        category: "system"
                     };
                     
-                    await db.collection("wallets").doc(uid).collection("transactions").add(transactionData);
-                    console.log("✅ Initial transaction recorded");
+                    await db.collection("transactions").doc(transactionId).set(transactionData);
+                    console.log("✅ Initial transaction recorded in transactions collection");
+                    
+                    // Also create a transaction in wallet subcollection for rules compatibility
+                    const walletTransactionData = {
+                        type: "registration",
+                        amount: 0,
+                        description: "Account created",
+                        status: "completed",
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        transactionId: transactionId
+                    };
+                    
+                    await db.collection("wallets").doc(uid).collection("transactions").doc(transactionId).set(walletTransactionData);
+                    console.log("✅ Wallet subcollection transaction created for rules");
+                    
+                    // Create user activity log for admin panel
+                    const activityId = `activity_${Date.now()}`;
+                    const activityData = {
+                        userId: uid,
+                        email: email.toLowerCase(),
+                        username: username,
+                        action: "account_created",
+                        description: "New user registration",
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        ipAddress: await getUserIP(),
+                        userAgent: navigator.userAgent,
+                        status: "success"
+                    };
+                    
+                    // Store in user_activities collection for admin panel
+                    await db.collection("user_activities").doc(activityId).set(activityData);
+                    console.log("✅ User activity logged for admin panel");
                     
                     return {
                         success: true,
                         walletId: walletId,
-                        balance: startingBalance
+                        balance: startingBalance,
+                        userId: uid
                     };
                     
                 } catch (error) {
                     console.error("❌ Wallet creation error:", error);
                     throw error;
+                }
+            }
+
+            // Get user IP for admin tracking
+            async function getUserIP() {
+                try {
+                    const response = await fetch('https://api.ipify.org?format=json');
+                    const data = await response.json();
+                    return data.ip || '0.0.0.0';
+                } catch (error) {
+                    console.log("Could not fetch IP:", error);
+                    return '0.0.0.0';
                 }
             }
 
@@ -519,21 +578,21 @@
                     });
                     console.log("✅ Profile updated with username");
                     
-                    // 3. Create wallet
-                    console.log("🔄 Creating wallet...");
+                    // 3. Create wallet and all related records
+                    console.log("🔄 Creating wallet and records...");
                     const walletResult = await createUserWallet(user.uid, email, username);
                     
                     if (!walletResult.success) {
                         throw new Error(`Wallet creation failed: ${walletResult.error}`);
                     }
-                    console.log("✅ Wallet created:", walletResult.walletId);
+                    console.log("✅ All records created successfully");
                     
                     // 4. Send email verification
                     await user.sendEmailVerification();
                     console.log("✅ Verification email sent");
                     
                     // 5. Show success message
-                    showStatus(`Account created successfully! Welcome ${username}. Verification email sent to ${email}.`, 'success');
+                    showStatus(`Account created successfully! Welcome ${username}. Check your email for verification.`, 'success');
                     
                     // 6. Display wallet information
                     walletIdDisplay.textContent = walletResult.walletId;
@@ -582,7 +641,7 @@
                             errorMessage = "Password is too weak. Use at least 8 characters with mixed types.";
                             break;
                         case 'permission-denied':
-                            errorMessage = "Database permission denied. Check Firestore rules.";
+                            errorMessage = "Database permission denied. Check Firestore rules or contact support.";
                             break;
                         case 'auth/network-request-failed':
                             errorMessage = "Network error. Check your internet connection.";
@@ -597,7 +656,7 @@
                     if (auth.currentUser && error.code !== 'auth/email-already-in-use') {
                         try {
                             await auth.currentUser.delete();
-                            console.log("🗑️ Rolled back user creation due to wallet error");
+                            console.log("🗑️ Rolled back user creation due to error");
                         } catch (deleteError) {
                             console.error("Could not rollback user:", deleteError);
                         }
