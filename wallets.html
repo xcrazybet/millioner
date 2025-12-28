@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wallet Management - Admin Panel</title>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #1d4ed8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --dark-bg: #0f172a;
+            --card-bg: #1e293b;
+            --text: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border: #475569;
+        }
+        
+        body {
+            background-color: var(--dark-bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        
+        /* Admin Header */
+        .admin-header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px solid var(--success);
+        }
+        
+        .admin-header h1 {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .admin-nav {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .nav-btn {
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+        
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        .nav-btn.active {
+            background: white;
+            color: var(--primary);
+        }
+        
+        /* Main Container */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            height: fit-content;
+        }
+        
+        .admin-info {
+            text-align: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+        
+        .admin-avatar {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--primary), var(--success));
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+        }
+        
+        .admin-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--success);
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .quick-actions {
+            margin-top: 20px;
+        }
+        
+        .action-btn {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 10px;
+            background: var(--primary);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .action-btn:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+        
+        .action-btn.danger {
+            background: var(--danger);
+        }
+        
+        .action-btn.success {
+            background: var(--success);
+        }
+        
+        /* Main Content */
+        .main-content {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+        }
+        
+        .content-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .search-box {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .search-input {
+            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            width: 300px;
+        }
+        
+        .search-btn {
+            padding: 10px 20px;
+            background: var(--primary);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+        }
+        
+        /* Users Table */
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .users-table th {
+            text-align: left;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-bottom: 2px solid var(--border);
+            font-weight: 600;
+        }
+        
+        .users-table td {
+            padding: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .user-row:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        
+        .status-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status-active {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+        
+        .status-inactive {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .table-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+        
+        .table-btn.edit {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--primary);
+        }
+        
+        .table-btn.deposit {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+        
+        .table-btn.withdraw {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+        
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal-overlay.show {
+            display: flex;
+        }
+        
+        .modal {
+            background: var(--card-bg);
+            border-radius: 12px;
+            width: 500px;
+            max-width: 90%;
+            border: 1px solid var(--border);
+            animation: modalSlide 0.3s ease;
+        }
+        
+        @keyframes modalSlide {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-body {
+            padding: 20px;
+        }
+        
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 16px;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+        
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Toast */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 15px;
+            min-width: 300px;
+            display: none;
+            z-index: 1001;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .toast.show {
+            display: block;
+        }
+        
+        .toast.success {
+            border-left: 4px solid var(--success);
+        }
+        
+        .toast.error {
+            border-left: 4px solid var(--danger);
+        }
+        
+        .toast-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+        
+        .toast-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                order: 2;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .search-box {
+                flex-direction: column;
+            }
+            
+            .search-input {
+                width: 100%;
+            }
+            
+            .admin-nav {
+                flex-wrap: wrap;
+            }
+            
+            .users-table {
+                display: block;
+                overflow-x: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Admin Header -->
+    <header class="admin-header">
+        <h1><i class="fas fa-wallet"></i> Wallet Management System</h1>
+        <nav class="admin-nav">
+            <a href="admin.html" class="nav-btn"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+            <a href="wallets.html" class="nav-btn active"><i class="fas fa-wallet"></i> Wallets</a>
+            <a href="transactions.html" class="nav-btn"><i class="fas fa-exchange-alt"></i> Transactions</a>
+            <a href="users.html" class="nav-btn"><i class="fas fa-users"></i> Users</a>
+            <button id="logoutBtn" class="nav-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
+        </nav>
+    </header>
+    
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="admin-info">
+                <div class="admin-avatar">
+                    <i class="fas fa-user-shield"></i>
+                </div>
+                <h3 id="adminName">Loading...</h3>
+                <p id="adminEmail" style="color: var(--text-secondary); font-size: 14px;">Loading...</p>
+                <div class="status-badge status-active" style="margin-top: 10px;">Administrator</div>
+            </div>
+            
+            <div class="admin-stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalUsers">0</div>
+                    <div class="stat-label">Total Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalBalance">$0</div>
+                    <div class="stat-label">Total Balance</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="todayDeposits">$0</div>
+                    <div class="stat-label">Today Deposits</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="todayWithdrawals">$0</div>
+                    <div class="stat-label">Today Withdrawals</div>
+                </div>
+            </div>
+            
+            <div class="quick-actions">
+                <button class="action-btn" id="addFundsBtn">
+                    <i class="fas fa-plus-circle"></i> Add Funds to User
+                </button>
+                <button class="action-btn" id="withdrawFundsBtn">
+                    <i class="fas fa-minus-circle"></i> Withdraw Funds
+                </button>
+                <button class="action-btn success" id="createUserBtn">
+                    <i class="fas fa-user-plus"></i> Create User
+                </button>
+                <button class="action-btn" id="exportDataBtn">
+                    <i class="fas fa-download"></i> Export Data
+                </button>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="content-header">
+                <h2><i class="fas fa-users"></i> User Wallets</h2>
+                <div class="search-box">
+                    <input type="text" id="searchInput" class="search-input" placeholder="Search by email, username, or wallet ID">
+                    <button id="searchBtn" class="search-btn">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                </div>
+            </div>
+            
+            <table class="users-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Wallet ID</th>
+                        <th>Balance</th>
+                        <th>Status</th>
+                        <th>Last Activity</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                    <!-- Users will be loaded here -->
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 40px;">
+                            <div class="loading" style="width: 30px; height: 30px; margin: 0 auto 15px;"></div>
+                            <p>Loading wallets...</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+                <div style="color: var(--text-secondary); font-size: 14px;">
+                    Showing <span id="showingCount">0</span> of <span id="totalCount">0</span> users
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button id="prevBtn" class="btn btn-secondary" disabled>
+                        <i class="fas fa-chevron-left"></i> Previous
+                    </button>
+                    <button id="nextBtn" class="btn btn-secondary" disabled>
+                        Next <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modals -->
+    <div class="modal-overlay" id="modalOverlay">
+        <!-- Add Funds Modal -->
+        <div class="modal" id="addFundsModal">
+            <div class="modal-header">
+                <h3><i class="fas fa-plus-circle"></i> Add Funds to User</h3>
+                <button class="btn btn-secondary" onclick="hideModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Select User</label>
+                    <select id="fundUserSelect" class="form-input">
+                        <option value="">Loading users...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount (USD)</label>
+                    <input type="number" id="fundAmount" class="form-input" min="1" step="0.01" placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Transaction Type</label>
+                    <select id="fundType" class="form-input">
+                        <option value="deposit">Deposit</option>
+                        <option value="bonus">Bonus</option>
+                        <option value="refund">Refund</option>
+                        <option value="adjustment">Balance Adjustment</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description (Optional)</label>
+                    <textarea id="fundDescription" class="form-input" rows="3" placeholder="Enter description for this transaction"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Current Balance: <span id="currentUserBalance">$0.00</span></label>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">New Balance: <span id="newUserBalance" style="color: var(--success); font-weight: bold;">$0.00</span></label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                <button class="btn btn-success" id="confirmAddFunds">
+                    <i class="fas fa-check"></i> Add Funds
+                </button>
+            </div>
+        </div>
+        
+        <!-- Withdraw Funds Modal -->
+        <div class="modal" id="withdrawFundsModal">
+            <div class="modal-header">
+                <h3><i class="fas fa-minus-circle"></i> Withdraw Funds from User</h3>
+                <button class="btn btn-secondary" onclick="hideModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Select User</label>
+                    <select id="withdrawUserSelect" class="form-input">
+                        <option value="">Loading users...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount (USD)</label>
+                    <input type="number" id="withdrawAmount" class="form-input" min="1" step="0.01" placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Withdrawal Reason</label>
+                    <select id="withdrawReason" class="form-input">
+                        <option value="withdrawal">User Withdrawal</option>
+                        <option value="fee">Service Fee</option>
+                        <option value="penalty">Penalty</option>
+                        <option value="adjustment">Balance Adjustment</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description (Optional)</label>
+                    <textarea id="withdrawDescription" class="form-input" rows="3" placeholder="Enter description for this transaction"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Current Balance: <span id="withdrawCurrentBalance">$0.00</span></label>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">New Balance: <span id="withdrawNewBalance" style="color: var(--danger); font-weight: bold;">$0.00</span></label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                <button class="btn btn-danger" id="confirmWithdrawFunds">
+                    <i class="fas fa-check"></i> Withdraw Funds
+                </button>
+            </div>
+        </div>
+        
+        <!-- Create User Modal -->
+        <div class="modal" id="createUserModal">
+            <div class="modal-header">
+                <h3><i class="fas fa-user-plus"></i> Create New User</h3>
+                <button class="btn btn-secondary" onclick="hideModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Email Address</label>
+                    <input type="email" id="newUserEmail" class="form-input" placeholder="user@example.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" id="newUserName" class="form-input" placeholder="Username">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Initial Balance (USD)</label>
+                    <input type="number" id="newUserBalance" class="form-input" value="10.00" min="0" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" id="newUserPassword" class="form-input" placeholder="Leave empty for auto-generate">
+                    <small style="color: var(--text-secondary); font-size: 12px;">If empty, a random password will be generated and emailed</small>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="sendWelcomeEmail"> Send welcome email with credentials
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                <button class="btn btn-success" id="confirmCreateUser">
+                    <i class="fas fa-user-plus"></i> Create User
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">
+        <div class="toast-header">
+            <div class="toast-icon" id="toastIcon">
+                <i class="fas fa-info-circle"></i>
+            </div>
+            <strong id="toastTitle">Notification</strong>
+        </div>
+        <div id="toastMessage">Message here</div>
+    </div>
+
+    <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+            measurementId: "G-PTV4XMYQ6P"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        
+        // Global Variables
+        let currentAdmin = null;
+        let allUsers = [];
+        let filteredUsers = [];
+        let currentPage = 1;
+        const usersPerPage = 10;
+        
+        // DOM Elements
+        const logoutBtn = document.getElementById('logoutBtn');
+        const adminNameEl = document.getElementById('adminName');
+        const adminEmailEl = document.getElementById('adminEmail');
+        const usersTableBody = document.getElementById('usersTableBody');
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const modalOverlay = document.getElementById('modalOverlay');
+        const addFundsBtn = document.getElementById('addFundsBtn');
+        const withdrawFundsBtn = document.getElementById('withdrawFundsBtn');
+        const createUserBtn = document.getElementById('createUserBtn');
+        const toast = document.getElementById('toast');
+        
+        // Initialize App
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("Initializing Wallet Management System...");
+            
+            // Check authentication
+            auth.onAuthStateChanged(async (user) => {
+                if (!user) {
+                    window.location.href = 'login.html';
+                    return;
+                }
+                
+                // Check if admin
+                const walletDoc = await db.collection('wallets').doc(user.uid).get();
+                if (!walletDoc.exists || !walletDoc.data().isAdmin) {
+                    showToast('error', 'Access Denied', 'Admin privileges required');
+                    setTimeout(() => window.location.href = 'dashboard.html', 2000);
+                    return;
+                }
+                
+                currentAdmin = user;
+                updateAdminInfo();
+                loadUsers();
+                setupEventListeners();
+                loadStats();
+                
+                console.log("Admin authenticated:", user.email);
+            });
+        });
+        
+        function updateAdminInfo() {
+            adminNameEl.textContent = currentAdmin.displayName || currentAdmin.email.split('@')[0];
+            adminEmailEl.textContent = currentAdmin.email;
+        }
+        
+        async function loadUsers() {
+            try {
+                showLoading();
+                
+                const walletsSnapshot = await db.collection('wallets').get();
+                allUsers = [];
+                
+                walletsSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    allUsers.push({
+                        id: doc.id,
+                        ...data,
+                        lastActivity: data.lastActivity?.toDate?.() || new Date()
+                    });
+                });
+                
+                // Sort by last activity (newest first)
+                allUsers.sort((a, b) => b.lastActivity - a.lastActivity);
+                
+                filterUsers();
+                updatePagination();
+                
+            } catch (error) {
+                console.error("Error loading users:", error);
+                showToast('error', 'Load Failed', 'Failed to load users');
+            }
+        }
+        
+        function filterUsers() {
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            
+            if (!searchTerm) {
+                filteredUsers = [...allUsers];
+            } else {
+                filteredUsers = allUsers.filter(user => 
+                    user.email.toLowerCase().includes(searchTerm) ||
+                    user.username.toLowerCase().includes(searchTerm) ||
+                    (user.walletId && user.walletId.toLowerCase().includes(searchTerm))
+                );
+            }
+            
+            renderUsers();
+        }
+        
+        function renderUsers() {
+            usersTableBody.innerHTML = '';
+            
+            if (filteredUsers.length === 0) {
+                usersTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 40px;">
+                            <i class="fas fa-users" style="font-size: 40px; opacity: 0.3; margin-bottom: 15px;"></i>
+                            <p>No users found</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            const startIndex = (currentPage - 1) * usersPerPage;
+            const endIndex = startIndex + usersPerPage;
+            const usersToShow = filteredUsers.slice(startIndex, endIndex);
+            
+            usersToShow.forEach(user => {
+                const row = document.createElement('tr');
+                row.className = 'user-row';
+                
+                const lastActivity = user.lastActivity ? 
+                    user.lastActivity.toLocaleDateString() + ' ' + user.lastActivity.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) :
+                    'Never';
+                
+                row.innerHTML = `
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div class="user-avatar">
+                                ${user.username?.charAt(0).toUpperCase() || 'U'}
+                            </div>
+                            <div>
+                                <div style="font-weight: 500;">${user.username || 'No username'}</div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">${user.email}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="font-family: monospace; font-size: 12px;">${user.walletId || 'N/A'}</div>
+                    </td>
+                    <td>
+                        <div style="font-weight: bold; color: ${user.balance >= 0 ? 'var(--success)' : 'var(--danger)'}">
+                            $${user.balance?.toFixed(2) || '0.00'}
+                        </div>
+                    </td>
+                    <td>
+                        <div class="status-badge ${user.status === 'active' ? 'status-active' : 'status-inactive'}">
+                            ${user.status || 'inactive'}
+                        </div>
+                    </td>
+                    <td>
+                        <div style="font-size: 13px;">${lastActivity}</div>
+                    </td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="table-btn edit" onclick="editUser('${user.id}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="table-btn deposit" onclick="showAddFundsModal('${user.id}')">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                            <button class="table-btn withdraw" onclick="showWithdrawModal('${user.id}')">
+                                <i class="fas fa-minus"></i>
+                            </button>
+                        </div>
+                    </td>
+                `;
+                
+                usersTableBody.appendChild(row);
+            });
+        }
+        
+        function showLoading() {
+            usersTableBody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="text-align: center; padding: 40px;">
+                        <div class="loading" style="width: 30px; height: 30px; margin: 0 auto 15px;"></div>
+                        <p>Loading wallets...</p>
+                    </td>
+                </tr>
+            `;
+        }
+        
+        function updatePagination() {
+            const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+            const showingCount = Math.min(filteredUsers.length, currentPage * usersPerPage);
+            
+            document.getElementById('showingCount').textContent = showingCount;
+            document.getElementById('totalCount').textContent = filteredUsers.length;
+            document.getElementById('prevBtn').disabled = currentPage === 1;
+            document.getElementById('nextBtn').disabled = currentPage === totalPages || totalPages === 0;
+        }
+        
+        function setupEventListeners() {
+            // Logout
+            logoutBtn.addEventListener('click', async () => {
+                try {
+                    await auth.signOut();
+                    window.location.href = 'login.html';
+                } catch (error) {
+                    console.error("Logout error:", error);
+                }
+            });
+            
+            // Search
+            searchBtn.addEventListener('click', () => {
+                currentPage = 1;
+                filterUsers();
+                updatePagination();
+            });
+            
+            searchInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    currentPage = 1;
+                    filterUsers();
+                    updatePagination();
+                }
+            });
+            
+            // Pagination
+            document.getElementById('prevBtn').addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderUsers();
+                    updatePagination();
+                }
+            });
+            
+            document.getElementById('nextBtn').addEventListener('click', () => {
+                const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderUsers();
+                    updatePagination();
+                }
+            });
+            
+            // Modal Buttons
+            addFundsBtn.addEventListener('click', showAddFundsModal);
+            withdrawFundsBtn.addEventListener('click', showWithdrawModal);
+            createUserBtn.addEventListener('click', showCreateUserModal);
+            
+            // Fund amount calculation
+            document.getElementById('fundAmount')?.addEventListener('input', updateNewBalance);
+            document.getElementById('withdrawAmount')?.addEventListener('input', updateWithdrawBalance);
+            
+            // User selection
+            document.getElementById('fundUserSelect')?.addEventListener('change', updateCurrentBalance);
+            document.getElementById('withdrawUserSelect')?.addEventListener('change', updateWithdrawCurrentBalance);
+            
+            // Confirm buttons
+            document.getElementById('confirmAddFunds')?.addEventListener('click', addFundsToUser);
+            document.getElementById('confirmWithdrawFunds')?.addEventListener('click', withdrawFundsFromUser);
+            document.getElementById('confirmCreateUser')?.addEventListener('click', createNewUser);
+            
+            // Close modal on overlay click
+            modalOverlay.addEventListener('click', (e) => {
+                if (e.target === modalOverlay) {
+                    hideModal();
+                }
+            });
+        }
+        
+        async function loadStats() {
+            try {
+                // Total users
+                document.getElementById('totalUsers').textContent = allUsers.length;
+                
+                // Total balance
+                const totalBalance = allUsers.reduce((sum, user) => sum + (user.balance || 0), 0);
+                document.getElementById('totalBalance').textContent = `$${totalBalance.toFixed(2)}`;
+                
+                // Today's date
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                // Load today's transactions
+                const todayTransactions = await db.collection('transactions')
+                    .where('createdAt', '>=', today)
+                    .get();
+                
+                let todayDeposits = 0;
+                let todayWithdrawals = 0;
+                
+                todayTransactions.forEach(doc => {
+                    const transaction = doc.data();
+                    if (transaction.type === 'deposit' || transaction.type === 'bonus') {
+                        todayDeposits += transaction.amount || 0;
+                    } else if (transaction.type === 'withdraw') {
+                        todayWithdrawals += transaction.amount || 0;
+                    }
+                });
+                
+                document.getElementById('todayDeposits').textContent = `$${todayDeposits.toFixed(2)}`;
+                document.getElementById('todayWithdrawals').textContent = `$${todayWithdrawals.toFixed(2)}`;
+                
+            } catch (error) {
+                console.error("Error loading stats:", error);
+            }
+        }
+        
+        // Modal Functions
+        function showModal(modalId) {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.style.display = 'none';
+            });
+            
+            document.getElementById(modalId).style.display = 'block';
+            modalOverlay.classList.add('show');
+            
+            // Load users into select dropdowns
+            if (modalId === 'addFundsModal' || modalId === 'withdrawFundsModal') {
+                loadUsersIntoSelect();
+            }
+        }
+        
+        function hideModal() {
+            modalOverlay.classList.remove('show');
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.style.display = 'none';
+            });
+        }
+        
+        async function loadUsersIntoSelect() {
+            const fundSelect = document.getElementById('fundUserSelect');
+            const withdrawSelect = document.getElementById('withdrawUserSelect');
+            
+            if (!fundSelect || !withdrawSelect) return;
+            
+            fundSelect.innerHTML = '<option value="">Select a user...</option>';
+            withdrawSelect.innerHTML = '<option value="">Select a user...</option>';
+            
+            allUsers.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user.id;
+                option.textContent = `${user.username} (${user.email}) - $${user.balance?.toFixed(2)}`;
+                
+                fundSelect.appendChild(option.cloneNode(true));
+                withdrawSelect.appendChild(option);
+            });
+        }
+        
+        function updateCurrentBalance() {
+            const userId = document.getElementById('fundUserSelect').value;
+            const user = allUsers.find(u => u.id === userId);
+            
+            if (user) {
+                document.getElementById('currentUserBalance').textContent = `$${user.balance?.toFixed(2) || '0.00'}`;
+                updateNewBalance();
+            }
+        }
+        
+        function updateNewBalance() {
+            const userId = document.getElementById('fundUserSelect').value;
+            const amount = parseFloat(document.getElementById('fundAmount').value) || 0;
+            const user = allUsers.find(u => u.id === userId);
+            
+            if (user) {
+                const currentBalance = user.balance || 0;
+                const newBalance = currentBalance + amount;
+                document.getElementById('newUserBalance').textContent = `$${newBalance.toFixed(2)}`;
+            }
+        }
+        
+        function updateWithdrawCurrentBalance() {
+            const userId = document.getElementById('withdrawUserSelect').value;
+            const user = allUsers.find(u => u.id === userId);
+            
+            if (user) {
+                document.getElementById('withdrawCurrentBalance').textContent = `$${user.balance?.toFixed(2) || '0.00'}`;
+                updateWithdrawBalance();
+            }
+        }
+        
+        function updateWithdrawBalance() {
+            const userId = document.getElementById('withdrawUserSelect').value;
+            const amount = parseFloat(document.getElementById('withdrawAmount').value) || 0;
+            const user = allUsers.find(u => u.id === userId);
+            
+            if (user) {
+                const currentBalance = user.balance || 0;
+                const newBalance = currentBalance - amount;
+                document.getElementById('withdrawNewBalance').textContent = `$${newBalance.toFixed(2)}`;
+            }
+        }
+        
+        // Action Functions
+        function showAddFundsModal(userId = '') {
+            showModal('addFundsModal');
+            
+            if (userId) {
+                const select = document.getElementById('fundUserSelect');
+                select.value = userId;
+                updateCurrentBalance();
+            }
+            
+            // Reset form
+            document.getElementById('fundAmount').value = '';
+            document.getElementById('fundDescription').value = '';
+        }
+        
+        function showWithdrawModal(userId = '') {
+            showModal('withdrawFundsModal');
+            
+            if (userId) {
+                const select = document.getElementById('withdrawUserSelect');
+                select.value = userId;
+                updateWithdrawCurrentBalance();
+            }
+            
+            // Reset form
+            document.getElementById('withdrawAmount').value = '';
+            document.getElementById('withdrawDescription').value = '';
+        }
+        
+        function showCreateUserModal() {
+            showModal('createUserModal');
+        }
+        
+        function editUser(userId) {
+            showToast('info', 'Coming Soon', 'Edit user feature will be available soon');
+        }
+        
+        // CRITICAL MONEY TRANSFER FUNCTIONS
+        async function addFundsToUser() {
+            const userId = document.getElementById('fundUserSelect').value;
+            const amount = parseFloat(document.getElementById('fundAmount').value);
+            const type = document.getElementById('fundType').value;
+            const description = document.getElementById('fundDescription').value;
+            
+            if (!userId) {
+                showToast('error', 'Error', 'Please select a user');
+                return;
+            }
+            
+            if (!amount || amount <= 0) {
+                showToast('error', 'Error', 'Please enter a valid amount');
+                return;
+            }
+            
+            try {
+                const button = document.getElementById('confirmAddFunds');
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<span class="loading"></span> Processing...';
+                
+                // Get user's current balance
+                const userRef = db.collection('wallets').doc(userId);
+                const userDoc = await userRef.get();
+                
+                if (!userDoc.exists) {
+                    throw new Error('User wallet not found');
+                }
+                
+                const currentBalance = userDoc.data().balance || 0;
+                const newBalance = currentBalance + amount;
+                
+                // Update user's balance
+                await userRef.update({
+                    balance: newBalance,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // Create transaction record
+                const transactionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                await db.collection('transactions').doc(transactionId).set({
+                    transactionId: transactionId,
+                    type: type,
+                    amount: amount,
+                    description: description || `Admin added funds (${type})`,
+                    status: 'completed',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    userId: userId,
+                    userEmail: userDoc.data().email,
+                    username: userDoc.data().username,
+                    adminId: currentAdmin.uid,
+                    adminEmail: currentAdmin.email,
+                    previousBalance: currentBalance,
+                    newBalance: newBalance,
+                    category: 'admin_operation'
+                });
+                
+                // Log admin activity
+                await db.collection('user_activities').doc(`admin_${Date.now()}`).set({
+                    adminId: currentAdmin.uid,
+                    adminEmail: currentAdmin.email,
+                    action: 'add_funds',
+                    targetUserId: userId,
+                    targetEmail: userDoc.data().email,
+                    amount: amount,
+                    description: description || `Added funds via admin panel`,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // Update local data
+                const userIndex = allUsers.findIndex(u => u.id === userId);
+                if (userIndex !== -1) {
+                    allUsers[userIndex].balance = newBalance;
+                    allUsers[userIndex].lastActivity = new Date();
+                }
+                
+                showToast('success', 'Success', `Added $${amount.toFixed(2)} to user's account`);
+                hideModal();
+                renderUsers();
+                loadStats();
+                
+                button.disabled = false;
+                button.innerHTML = originalText;
+                
+            } catch (error) {
+                console.error('Error adding funds:', error);
+                showToast('error', 'Error', `Failed to add funds: ${error.message}`);
+                
+                const button = document.getElementById('confirmAddFunds');
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-check"></i> Add Funds';
+            }
+        }
+        
+        async function withdrawFundsFromUser() {
+            const userId = document.getElementById('withdrawUserSelect').value;
+            const amount = parseFloat(document.getElementById('withdrawAmount').value);
+            const reason = document.getElementById('withdrawReason').value;
+            const description = document.getElementById('withdrawDescription').value;
+            
+            if (!userId) {
+                showToast('error', 'Error', 'Please select a user');
+                return;
+            }
+            
+            if (!amount || amount <= 0) {
+                showToast('error', 'Error', 'Please enter a valid amount');
+                return;
+            }
+            
+            try {
+                const button = document.getElementById('confirmWithdrawFunds');
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<span class="loading"></span> Processing...';
+                
+                // Get user's current balance
+                const userRef = db.collection('wallets').doc(userId);
+                const userDoc = await userRef.get();
+                
+                if (!userDoc.exists) {
+                    throw new Error('User wallet not found');
+                }
+                
+                const currentBalance = userDoc.data().balance || 0;
+                
+                if (currentBalance < amount) {
+                    throw new Error(`Insufficient balance. User has $${currentBalance.toFixed(2)}`);
+                }
+                
+                const newBalance = currentBalance - amount;
+                
+                // Update user's balance
+                await userRef.update({
+                    balance: newBalance,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // Create transaction record
+                const transactionId = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                await db.collection('transactions').doc(transactionId).set({
+                    transactionId: transactionId,
+                    type: 'withdraw',
+                    amount: amount,
+                    description: description || `Admin withdrawal (${reason})`,
+                    status: 'completed',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    userId: userId,
+                    userEmail: userDoc.data().email,
+                    username: userDoc.data().username,
+                    adminId: currentAdmin.uid,
+                    adminEmail: currentAdmin.email,
+                    previousBalance: currentBalance,
+                    newBalance: newBalance,
+                    category: 'admin_operation',
+                    reason: reason
+                });
+                
+                // Log admin activity
+                await db.collection('user_activities').doc(`admin_${Date.now()}`).set({
+                    adminId: currentAdmin.uid,
+                    adminEmail: currentAdmin.email,
+                    action: 'withdraw_funds',
+                    targetUserId: userId,
+                    targetEmail: userDoc.data().email,
+                    amount: amount,
+                    description: description || `Withdrew funds via admin panel`,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                // Update local data
+                const userIndex = allUsers.findIndex(u => u.id === userId);
+                if (userIndex !== -1) {
+                    allUsers[userIndex].balance = newBalance;
+                    allUsers[userIndex].lastActivity = new Date();
+                }
+                
+                showToast('success', 'Success', `Withdrew $${amount.toFixed(2)} from user's account`);
+                hideModal();
+                renderUsers();
+                loadStats();
+                
+                button.disabled = false;
+                button.innerHTML = originalText;
+                
+            } catch (error) {
+                console.error('Error withdrawing funds:', error);
+                showToast('error', 'Error', `Failed to withdraw funds: ${error.message}`);
+                
+                const button = document.getElementById('confirmWithdrawFunds');
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-check"></i> Withdraw Funds';
+            }
+        }
+        
+        async function createNewUser() {
+            const email = document.getElementById('newUserEmail').value.trim();
+            const username = document.getElementById('newUserName').value.trim();
+            const balance = parseFloat(document.getElementById('newUserBalance').value);
+            const password = document.getElementById('newUserPassword').value;
+            const sendEmail = document.getElementById('sendWelcomeEmail').checked;
+            
+            if (!email || !isValidEmail(email)) {
+                showToast('error', 'Error', 'Please enter a valid email');
+                return;
+            }
+            
+            if (!username || username.length < 3) {
+                showToast('error', 'Error', 'Username must be at least 3 characters');
+                return;
+            }
+            
+            try {
+                const button = document.getElementById('confirmCreateUser');
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<span class="loading"></span> Creating...';
+                
+                // Check if user already exists
+                const existingUser = await auth.fetchSignInMethodsForEmail(email);
+                if (existingUser.length > 0) {
+                    throw new Error('User with this email already exists');
+                }
+                
+                // Create user in Firebase Auth
+                const userCredential = await auth.createUserWithEmailAndPassword(
+                    email, 
+                    password || generateRandomPassword()
+                );
+                
+                const newUser = userCredential.user;
+                
+                // Update profile
+                await newUser.updateProfile({
+                    displayName: username
+                });
+                
+                // Send verification email if requested
+                if (sendEmail) {
+                    await newUser.sendEmailVerification();
+                }
+                
+                // Create wallet
+                const walletId = `WALLET-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 8)}`.toUpperCase();
+                await db.collection('wallets').doc(newUser.uid).set({
+                    userId: newUser.uid,
+                    email: email.toLowerCase(),
+                    username: username,
+                    balance: balance,
+                    walletId: walletId,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastActivity: firebase.firestore.FieldValue.serverTimestamp(),
+                    totalDeposits: 0,
+                    totalWithdrawn: 0,
+                    transactionCount: 0,
+                    status: 'active',
+                    isAdmin: false,
+                    currency: 'USD',
+                    country: 'Unknown',
+                    verified: false
+                });
+                
+                // Create welcome transaction
+                const transactionId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                await db.collection('transactions').doc(transactionId).set({
+                    transactionId: transactionId,
+                    type: 'admin_creation',
+                    amount: balance,
+                    description: 'Account created by admin with initial balance',
+                    status: 'completed',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    userId: newUser.uid,
+                    userEmail: email,
+                    username: username,
+                    adminId: currentAdmin.uid,
+                    adminEmail: currentAdmin.email,
+                    previousBalance: 0,
+                    newBalance: balance,
+                    category: 'admin_operation'
+                });
+                
+                // Log activity
+                await db.collection('user_activities').doc(`create_${Date.now()}`).set({
+                    adminId: currentAdmin.uid,
+                    adminEmail: currentAdmin.email,
+                    action: 'create_user',
+                    targetUserId: newUser.uid,
+                    targetEmail: email,
+                    username: username,
+                    initialBalance: balance,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                showToast('success', 'Success', `User ${username} created successfully with $${balance.toFixed(2)} balance`);
+                hideModal();
+                
+                // Refresh user list
+                await loadUsers();
+                
+                button.disabled = false;
+                button.innerHTML = originalText;
+                
+            } catch (error) {
+                console.error('Error creating user:', error);
+                showToast('error', 'Error', `Failed to create user: ${error.message}`);
+                
+                const button = document.getElementById('confirmCreateUser');
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-user-plus"></i> Create User';
+            }
+        }
+        
+        // Utility Functions
+        function generateRandomPassword() {
+            return Math.random().toString(36).slice(-10) + Math.random().toString(36).toUpperCase().slice(-2);
+        }
+        
+        function isValidEmail(email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return emailRegex.test(email);
+        }
+        
+        function showToast(type, title, message) {
+            const toastIcon = document.getElementById('toastIcon');
+            const toastTitle = document.getElementById('toastTitle');
+            const toastMessage = document.getElementById('toastMessage');
+            
+            // Set icon based on type
+            if (type === 'success') {
+                toastIcon.innerHTML = '<i class="fas fa-check-circle" style="color: var(--success);"></i>';
+                toast.className = 'toast success';
+            } else if (type === 'error') {
+                toastIcon.innerHTML = '<i class="fas fa-exclamation-circle" style="color: var(--danger);"></i>';
+                toast.className = 'toast error';
+            } else {
+                toastIcon.innerHTML = '<i class="fas fa-info-circle" style="color: var(--primary);"></i>';
+                toast.className = 'toast';
+            }
+            
+            toastTitle.textContent = title;
+            toastMessage.textContent = message;
+            toast.classList.add('show');
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 5000);
+        }
+        
+        // Make functions globally available for onclick handlers
+        window.showAddFundsModal = showAddFundsModal;
+        window.showWithdrawModal = showWithdrawModal;
+        window.hideModal = hideModal;
+        window.editUser = editUser;
+    </script>
+</body>
+</html>
