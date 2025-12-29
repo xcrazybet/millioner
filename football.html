@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MILLIONER Sports Betting</title>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
+    <style>
+        /* [Include all previous styles from sports page] */
+        .odds-badge {
+            background: linear-gradient(45deg, #4361ee, #7209b7);
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        .bookmaker-badge {
+            background: rgba(255,255,255,0.1);
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <div class="sports-betting-container">
+        <!-- Live Odds will be loaded here -->
+        <div id="liveOddsContainer"></div>
+    </div>
+
+<script>
+// ====================
+// CONFIGURATION
+// ====================
+const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+    authDomain: "x-bet-prod-jd.firebaseapp.com",
+    projectId: "x-bet-prod-jd",
+    storageBucket: "x-bet-prod-jd.appspot.com",
+    messagingSenderId: "499334334535",
+    appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+    measurementId: "G-PTV4XMYQ6P"
+};
+
+const ODDS_API_CONFIG = {
+    // Your API endpoint
+    BASE_URL: 'YOUR_API_ENDPOINT_HERE', // Replace with your API URL
+    API_KEY: 'YOUR_API_KEY_HERE', // Replace with your API key
+    REFRESH_INTERVAL: 30000 // Refresh every 30 seconds
+};
+
+// ====================
+// FIREBASE INITIALIZATION
+// ====================
+let app, auth, db;
+try {
+    app = firebase.initializeApp(FIREBASE_CONFIG);
+    auth = firebase.auth();
+    db = firebase.firestore();
+    console.log("Firebase initialized");
+} catch (error) {
+    console.error("Firebase error:", error);
+}
+
+// ====================
+// ODDS API SERVICE
+// ====================
+class OddsAPIService {
+    constructor() {
+        this.oddsCache = new Map();
+        this.lastFetch = 0;
+    }
+
+    // Fetch odds from your API
+    async fetchOdds(sport = 'upcoming') {
+        try {
+            const cacheKey = `odds_${sport}_${Date.now()}`;
+            
+            // Check cache (prevent too many requests)
+            if (this.oddsCache.has(cacheKey) && Date.now() - this.lastFetch < 10000) {
+                return this.oddsCache.get(cacheKey);
+            }
+
+            // Call your API
+            const response = await fetch(ODDS_API_CONFIG.BASE_URL, {
+                headers: {
+                    'Authorization': `Bearer ${ODDS_API_CONFIG.API_KEY}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) throw new Error('API request failed');
+            
+            const data = await response.json();
+            this.oddsCache.set(cacheKey, data);
+            this.lastFetch = Date.now();
+            
+            return data;
+        } catch (error) {
+            console.error("Error fetching odds:", error);
+            
+            // Fallback to static data (your provided JSON)
+            return this.getStaticOdds();
+        }
+    }
+
+    // Convert American odds to Decimal (for international users)
+    americanToDecimal(americanOdds) {
+        if (americanOdds > 0) {
+            return (americanOdds / 100) + 1;
+        } else {
+            return (100 / Math.abs(americanOdds)) + 1;
+        }
+    }
+
+    // Get best odds from all bookmakers
+    getBestOdds(match) {
+        let bestHomeOdds = { price: -Infinity, bookmaker: '' };
+        let bestAwayOdds = { price: -Infinity, bookmaker: '' };
+        let bestDrawOdds = { price: -Infinity, bookmaker: '' };
+
+        match.bookmakers.forEach(bookmaker => {
+            bookmaker.markets.forEach(market => {
+                if (market.key === 'h2h') {
+                    market.outcomes.forEach(outcome => {
+                        const odds = this.americanToDecimal(outcome.price);
+                        if (outcome.name === match.home_team && odds > bestHomeOdds.price) {
+                            bestHomeOdds = { price: odds, bookmaker: bookmaker.title };
+                        }
+                        if (outcome.name === match.away_team && odds > bestAwayOdds.price) {
+                            bestAwayOdds = { price: odds, bookmaker: bookmaker.title };
+                        }
+                        if (outcome.name === 'Draw' && odds > bestDrawOdds.price) {
+                            bestDrawOdds = { price: odds, bookmaker: bookmaker.title };
+                        }
+                    });
+                }
+            });
+        });
+
+        return {
+            home: { ...bestHomeOdds, price: bestHomeOdds.price.toFixed(2) },
+            away: { ...bestAwayOdds, price: bestAwayOdds.price.toFixed(2) },
+            draw: match.bookmakers.some(b => b.markets.some(m => m.outcomes.some(o => o.name === 'Draw'))) 
+                ? { ...bestDrawOdds, price: bestDrawOdds.price.toFixed(2) }
+                : null
+        };
+    }
+
+    // Fallback static data (your JSON)
+    getStaticOdds() {
+        return [
+            // Your provided JSON data here
+            // Paste the entire JSON array you provided
+        ];
+    }
+}
+
+// ====================
+// BETTING SERVICE
+// ====================
+class BettingService {
+    constructor(firestore) {
+        this.db = firestore;
+        this.oddsAPI = new OddsAPIService();
+    }
+
+    // Place a bet
+    async placeBet(userId, betData) {
+        try {
+            // 1. Get current odds from API
+            const odds = await this.oddsAPI.fetchOdds();
+            const match = odds.find(m => m.id === betData.matchId);
+            
+            if (!match) throw new Error('Match not found');
+            
+            // 2. Verify user has sufficient balance
+            const userDoc = await this.db.collection('wallets').doc(userId).get();
+            const userData = userDoc.data();
+            
+            if (userData.balance < betData.amount) {
+                throw new Error('Insufficient balance');
+            }
+
+            // 3. Get current odds for the selected outcome
+            let selectedOdds = 1.0;
+            match.bookmakers.forEach(bookmaker => {
+                bookmaker.markets.forEach(market => {
+                    if (market.key === 'h2h') {
+                        const outcome = market.outcomes.find(o => 
+                            o.name === betData.selection || 
+                            (betData.selection === 'home' && o.name === match.home_team) ||
+                            (betData.selection === 'away' && o.name === match.away_team) ||
+                            (betData.selection === 'draw' && o.name === 'Draw')
+                        );
+                        if (outcome) {
+                            const decimalOdds = this.oddsAPI.americanToDecimal(outcome.price);
+                            if (decimalOdds > selectedOdds) {
+                                selectedOdds = decimalOdds;
+                            }
+                        }
+                    }
+                });
+            });
+
+            // 4. Calculate potential win
+            const potentialWin = betData.amount * selectedOdds;
+
+            // 5. Create bet record
+            const betRef = await this.db.collection('bets').add({
+                userId,
+                matchId: betData.matchId,
+                matchTitle: `${match.home_team} vs ${match.away_team}`,
+                sport: match.sport_title,
+                amount: betData.amount,
+                odds: selectedOdds.toFixed(2),
+                selection: betData.selection,
+                potentialWin: potentialWin.toFixed(2),
+                status: 'pending',
+                placedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                result: null,
+                settled: false
+            });
+
+            // 6. Deduct amount from user balance
+            await this.db.collection('wallets').doc(userId).update({
+                balance: firebase.firestore.FieldValue.increment(-betData.amount),
+                lastBet: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            // 7. Create transaction record
+            await this.db.collection('transactions').add({
+                userId,
+                type: 'bet_placed',
+                amount: -betData.amount,
+                description: `Bet on ${match.sport_title}: ${match.home_team} vs ${match.away_team}`,
+                details: {
+                    matchId: betData.matchId,
+                    selection: betData.selection,
+                    odds: selectedOdds.toFixed(2)
+                },
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            // 8. Schedule result check
+            this.scheduleResultCheck(betRef.id, match);
+
+            return {
+                success: true,
+                betId: betRef.id,
+                odds: selectedOdds.toFixed(2),
+                potentialWin: potentialWin.toFixed(2)
+            };
+
+        } catch (error) {
+            console.error('Error placing bet:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    // Schedule automatic result checking
+    scheduleResultCheck(betId, match) {
+        const matchTime = new Date(match.commence_time);
+        const checkTime = new Date(matchTime.getTime() + (3 * 60 * 60 * 1000)); // Check 3 hours after match
+        
+        if (checkTime > new Date()) {
+            setTimeout(() => {
+                this.checkAndSettleBet(betId, match);
+            }, checkTime - new Date());
+        } else {
+            // Match already started/ended, check immediately
+            this.checkAndSettleBet(betId, match);
+        }
+    }
+
+    // Check and settle bet (simulated - in real system you'd get results from API)
+    async checkAndSettleBet(betId, match) {
+        try {
+            const betDoc = await this.db.collection('bets').doc(betId).get();
+            if (!betDoc.exists || betDoc.data().settled) return;
+
+            const bet = betDoc.data();
+            
+            // Simulate result (in real system, get from results API)
+            // For now, random result with 45% win chance for home, 45% for away, 10% draw
+            const random = Math.random();
+            let result = '';
+            let isWinner = false;
+            
+            if (random < 0.45) {
+                result = 'home';
+                isWinner = bet.selection === 'home';
+            } else if (random < 0.90) {
+                result = 'away';
+                isWinner = bet.selection === 'away';
+            } else {
+                result = 'draw';
+                isWinner = bet.selection === 'draw';
+            }
+
+            // Update bet with result
+            await this.db.collection('bets').doc(betId).update({
+                result,
+                settled: true,
+                won: isWinner,
+                settledAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            // If user won, add winnings
+            if (isWinner) {
+                const winnings = bet.amount * bet.odds;
+                
+                await this.db.collection('wallets').doc(bet.userId).update({
+                    balance: firebase.firestore.FieldValue.increment(winnings)
+                });
+
+                await this.db.collection('transactions').add({
+                    userId: bet.userId,
+                    type: 'bet_won',
+                    amount: winnings,
+                    description: `Bet won on ${match.sport_title}`,
+                    details: {
+                        matchId: bet.matchId,
+                        betId: betId,
+                        winnings: winnings.toFixed(2)
+                    },
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                // Send notification
+                this.sendWinNotification(bet.userId, winnings);
+            }
+
+        } catch (error) {
+            console.error('Error settling bet:', error);
+        }
+    }
+
+    sendWinNotification(userId, amount) {
+        // You can implement push notifications here
+        console.log(`User ${userId} won $${amount}`);
+    }
+
+    // Get user's active bets
+    async getUserBets(userId) {
+        const betsSnapshot = await this.db.collection('bets')
+            .where('userId', '==', userId)
+            .orderBy('placedAt', 'desc')
+            .limit(20)
+            .get();
+        
+        return betsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
+
+    // Get user betting history
+    async getUserBetHistory(userId, limit = 50) {
+        const historySnapshot = await this.db.collection('transactions')
+            .where('userId', '==', userId)
+            .where('type', 'in', ['bet_placed', 'bet_won', 'bet_lost'])
+            .orderBy('timestamp', 'desc')
+            .limit(limit)
+            .get();
+        
+        return historySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
+}
+
+// ====================
+// UI RENDERING
+// ====================
+class SportsBettingUI {
+    constructor() {
+        this.bettingService = new BettingService(db);
+        this.oddsAPI = new OddsAPIService();
+        this.currentUserId = null;
+    }
+
+    // Initialize UI
+    async init() {
+        // Check authentication
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                this.currentUserId = user.uid;
+                await this.loadOdds();
+                this.setupAutoRefresh();
+            } else {
+                // Redirect to login or show login prompt
+                window.location.href = 'index.html';
+            }
+        });
+    }
+
+    // Load and display odds
+    async loadOdds() {
+        try {
+            const oddsData = await this.oddsAPI.fetchOdds();
+            this.renderOdds(oddsData);
+        } catch (error) {
+            console.error('Error loading odds:', error);
+            document.getElementById('liveOddsContainer').innerHTML = `
+                <div class="error-message">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Failed to load odds. Please refresh.
+                </div>
+            `;
+        }
+    }
+
+    // Render odds to UI
+    renderOdds(matches) {
+        const container = document.getElementById('liveOddsContainer');
+        container.innerHTML = '';
+
+        // Group by sport
+        const sports = {};
+        matches.forEach(match => {
+            if (!sports[match.sport_title]) {
+                sports[match.sport_title] = [];
+            }
+            sports[match.sport_title].push(match);
+        });
+
+        // Create sport sections
+        Object.entries(sports).forEach(([sport, sportMatches]) => {
+            const sportSection = document.createElement('div');
+            sportSection.className = 'sport-section';
+            
+            const sportHeader = document.createElement('div');
+            sportHeader.className = 'sport-header';
+            sportHeader.innerHTML = `
+                <h3><i class="fas fa-${this.getSportIcon(sport)}"></i> ${sport}</h3>
+                <span class="match-count">${sportMatches.length} matches</span>
+            `;
+            
+            const matchesGrid = document.createElement('div');
+            matchesGrid.className = 'matches-grid';
+            
+            sportMatches.forEach(match => {
+                const bestOdds = this.oddsAPI.getBestOdds(match);
+                const matchElement = this.createMatchElement(match, bestOdds);
+                matchesGrid.appendChild(matchElement);
+            });
+            
+            sportSection.appendChild(sportHeader);
+            sportSection.appendChild(matchesGrid);
+            container.appendChild(sportSection);
+        });
+    }
+
+    // Create match element
+    createMatchElement(match, bestOdds) {
+        const matchElement = document.createElement('div');
+        matchElement.className = 'match-card';
+        matchElement.dataset.matchId = match.id;
+        
+        const matchTime = new Date(match.commence_time);
+        const timeString = matchTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        matchElement.innerHTML = `
+            <div class="match-header">
+                <span class="match-time">${timeString}</span>
+                <span class="match-sport">${match.sport_title}</span>
+            </div>
+            
+            <div class="match-teams">
+                <div class="team home-team">
+                    <div class="team-name">${match.home_team}</div>
+                    <div class="team-odds">
+                        <span class="odds-value">${bestOdds.home.price}</span>
+                        <small class="bookmaker">${bestOdds.home.bookmaker}</small>
+                    </div>
+                    <button class="bet-btn" onclick="bettingUI.placeBetPrompt('${match.id}', 'home', ${bestOdds.home.price})">
+                        Bet
+                    </button>
+                </div>
+                
+                <div class="vs">VS</div>
+                
+                <div class="team away-team">
+                    <div class="team-name">${match.away_team}</div>
+                    <div class="team-odds">
+                        <span class="odds-value">${bestOdds.away.price}</span>
+                        <small class="bookmaker">${bestOdds.away.bookmaker}</small>
+                    </div>
+                    <button class="bet-btn" onclick="bettingUI.placeBetPrompt('${match.id}', 'away', ${bestOdds.away.price})">
+                        Bet
+                    </button>
+                </div>
+                
+                ${bestOdds.draw ? `
+                <div class="draw-option">
+                    <div class="draw-label">Draw</div>
+                    <div class="team-odds">
+                        <span class="odds-value">${bestOdds.draw.price}</span>
+                        <small class="bookmaker">${bestOdds.draw.bookmaker}</small>
+                    </div>
+                    <button class="bet-btn" onclick="bettingUI.placeBetPrompt('${match.id}', 'draw', ${bestOdds.draw.price})">
+                        Bet
+                    </button>
+                </div>
+                ` : ''}
+            </div>
+            
+            <div class="match-actions">
+                <button class="view-details-btn" onclick="bettingUI.showMatchDetails('${match.id}')">
+                    <i class="fas fa-chart-line"></i> View Details
+                </button>
+                <button class="live-stats-btn" onclick="bettingUI.showLiveStats('${match.id}')">
+                    <i class="fas fa-broadcast-tower"></i> Live Stats
+                </button>
+            </div>
+        `;
+        
+        return matchElement;
+    }
+
+    // Get sport icon
+    getSportIcon(sport) {
+        const icons = {
+            'NHL': 'hockey-puck',
+            'NBA': 'basketball-ball',
+            'NFL': 'football-ball',
+            'NCAAB': 'university',
+            'International Twenty20': 'cricket',
+            'A-League': 'futbol',
+            'Big Bash': 'baseball-ball',
+            'NBL': 'basketball-ball',
+            'Africa Cup of Nations': 'trophy',
+            'HockeyAllsvenskan': 'hockey-puck'
+        };
+        return icons[sport] || 'trophy';
+    }
+
+    // Bet placement prompt
+    async placeBetPrompt(matchId, selection, odds) {
+        if (!this.currentUserId) {
+            alert('Please login to place bets');
+            window.location.href = 'index.html';
+            return;
+        }
+
+        // Get match details
+        const oddsData = await this.oddsAPI.fetchOdds();
+        const match = oddsData.find(m => m.id === matchId);
+        
+        if (!match) {
+            alert('Match not found');
+            return;
+        }
+
+        // Show bet amount input
+        const betAmount = prompt(
+            `Enter bet amount for ${selection === 'home' ? match.home_team : selection === 'away' ? match.away_team : 'Draw'}\n` +
+            `Odds: ${odds}\n` +
+            `Potential Win: $${(100 * odds).toFixed(2)}`,
+            '10'
+        );
+
+        if (!betAmount || isNaN(betAmount) || parseFloat(betAmount) <= 0) {
+            alert('Please enter a valid bet amount');
+            return;
+        }
+
+        // Place bet
+        const result = await this.bettingService.placeBet(this.currentUserId, {
+            matchId,
+            amount: parseFloat(betAmount),
+            selection,
+            type: 'h2h'
+        });
+
+        if (result.success) {
+            alert(`Bet placed successfully!\nBet ID: ${result.betId}\nPotential Win: $${result.potentialWin}`);
+            this.loadOdds(); // Refresh odds
+        } else {
+            alert(`Failed to place bet: ${result.error}`);
+        }
+    }
+
+    // Show match details
+    showMatchDetails(matchId) {
+        // You can implement detailed match view
+        console.log('Show details for match:', matchId);
+    }
+
+    // Show live stats
+    showLiveStats(matchId) {
+        // Implement live statistics
+        console.log('Show live stats for match:', matchId);
+    }
+
+    // Auto-refresh odds
+    setupAutoRefresh() {
+        setInterval(() => {
+            this.loadOdds();
+        }, ODDS_API_CONFIG.REFRESH_INTERVAL);
+    }
+}
+
+// ====================
+// INITIALIZATION
+// ====================
+let bettingUI;
+
+document.addEventListener('DOMContentLoaded', function() {
+    bettingUI = new SportsBettingUI();
+    bettingUI.init();
+    
+    // Add global functions
+    window.bettingUI = bettingUI;
+});
+
+// ====================
+// ADMIN FUNCTIONS (For Dashboard)
+// ====================
+async function getBettingStats() {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        // Get today's bets
+        const todayBetsSnapshot = await db.collection('bets')
+            .where('placedAt', '>=', today)
+            .get();
+        
+        // Get all transactions
+        const transactionsSnapshot = await db.collection('transactions')
+            .where('type', 'in', ['bet_placed', 'bet_won', 'bet_lost'])
+            .limit(1000)
+            .get();
+        
+        const stats = {
+            totalBets: todayBetsSnapshot.size,
+            totalWagered: 0,
+            totalPayouts: 0,
+            activeUsers: new Set(),
+            popularSports: {}
+        };
+        
+        // Calculate totals
+        transactionsSnapshot.forEach(doc => {
+            const tx = doc.data();
+            
+            if (tx.type === 'bet_placed') {
+                stats.totalWagered += Math.abs(tx.amount);
+                stats.activeUsers.add(tx.userId);
+                
+                // Track sport popularity
+                if (tx.details && tx.details.matchId) {
+                    // You would need to map matchId to sport
+                }
+            } else if (tx.type === 'bet_won') {
+                stats.totalPayouts += tx.amount;
+            }
+        });
+        
+        stats.activeUsers = stats.activeUsers.size;
+        stats.profit = stats.totalWagered - stats.totalPayouts;
+        stats.margin = stats.totalWagered > 0 ? (stats.profit / stats.totalWagered * 100).toFixed(2) : 0;
+        
+        return stats;
+        
+    } catch (error) {
+        console.error('Error getting betting stats:', error);
+        return null;
+    }
+}
+</script>
+</body>
+</html>
