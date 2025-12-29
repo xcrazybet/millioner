@@ -1078,14 +1078,22 @@
             appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
         };
 
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
+        // Initialize Firebase
+        let auth, db;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+            db = firebase.firestore();
+            console.log("Firebase initialized successfully");
+        } catch (error) {
+            console.error("Firebase initialization error:", error);
+            showToast("Error connecting to server", "error");
+        }
 
         // ===== GAME STATE =====
         const gameState = {
             currentUser: null,
-            balance: 0,
+            mainBalance: 0,
             gameActive: false,
             currentBet: 10,
             currentRisk: 'medium',
@@ -1111,12 +1119,12 @@
             },
             
             // Real-time balance sync
-            mainBalance: 0,
             balanceListener: null
         };
 
         // ===== INITIALIZATION =====
         document.addEventListener('DOMContentLoaded', () => {
+            console.log("DOM loaded, starting Plinko...");
             checkAuth();
             setupEventListeners();
             initializeBoard();
@@ -1125,42 +1133,69 @@
 
         // ===== AUTHENTICATION =====
         function checkAuth() {
+            if (!auth) {
+                showToast("Authentication service not available", "error");
+                return;
+            }
+            
             auth.onAuthStateChanged(user => {
                 if (!user) {
+                    console.log("No user logged in, redirecting to login...");
                     showToast('Please login to play Plinko', 'error');
                     setTimeout(() => {
                         window.location.href = 'login.html';
                     }, 2000);
                     return;
                 }
+                console.log("User authenticated:", user.uid, user.email);
                 gameState.currentUser = user;
                 loadBalance();
                 setupBalanceListener();
+            }, (error) => {
+                console.error("Auth state change error:", error);
+                showToast('Authentication error: ' + error.message, 'error');
             });
         }
 
         // ===== BALANCE MANAGEMENT =====
         async function loadBalance() {
+            if (!gameState.currentUser || !db) {
+                console.error("Cannot load balance: No user or DB connection");
+                updateBalanceDisplay();
+                return;
+            }
+            
             try {
+                console.log("Loading balance for user:", gameState.currentUser.uid);
                 const doc = await db.collection("wallets").doc(gameState.currentUser.uid).get();
+                
                 if (doc.exists) {
-                    gameState.mainBalance = doc.data().balance || 0;
-                    gameState.balance = gameState.mainBalance;
+                    const data = doc.data();
+                    console.log("Wallet data found:", data);
+                    gameState.mainBalance = data.balance || 0;
                     updateBalanceDisplay();
+                    showToast('Balance loaded: $' + gameState.mainBalance.toFixed(2), 'success');
                 } else {
-                    showToast('Wallet not found. Creating new wallet...', 'warning');
+                    console.log("Wallet not found, creating new wallet...");
+                    showToast('Creating new wallet...', 'info');
+                    
                     await db.collection("wallets").doc(gameState.currentUser.uid).set({
                         balance: 100,
                         createdAt: new Date(),
-                        updatedAt: new Date()
+                        updatedAt: new Date(),
+                        userId: gameState.currentUser.uid,
+                        email: gameState.currentUser.email || gameState.currentUser.displayName || "Anonymous"
                     });
+                    
                     gameState.mainBalance = 100;
-                    gameState.balance = 100;
                     updateBalanceDisplay();
+                    showToast('New wallet created with $100', 'success');
                 }
             } catch (error) {
                 console.error('Error loading balance:', error);
-                showToast('Error loading balance', 'error');
+                showToast('Error loading balance. Using temporary balance.', 'error');
+                gameState.mainBalance = 100;
+                updateBalanceDisplay();
             }
         }
 
@@ -1173,36 +1208,50 @@
 
         // ===== REAL-TIME BALANCE LISTENER =====
         function setupBalanceListener() {
+            if (!gameState.currentUser || !db) return;
+            
+            // Remove existing listener
             if (gameState.balanceListener) {
-                gameState.balanceListener(); // Unsubscribe previous listener
+                gameState.balanceListener();
             }
             
-            const walletRef = db.collection("wallets").doc(gameState.currentUser?.uid);
+            const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
             
             gameState.balanceListener = walletRef.onSnapshot((doc) => {
                 if (doc.exists) {
                     const newBalance = doc.data().balance || 0;
                     if (newBalance !== gameState.mainBalance) {
+                        const difference = newBalance - gameState.mainBalance;
                         gameState.mainBalance = newBalance;
-                        gameState.balance = newBalance;
                         updateBalanceDisplay();
-                        showToast('Balance updated from dashboard', 'info');
+                        
+                        if (difference > 0) {
+                            showToast('Deposit received: +$' + difference.toFixed(2), 'success');
+                        } else if (difference < 0 && !gameState.gameActive) {
+                            showToast('Balance updated: $' + difference.toFixed(2), 'info');
+                        }
                     }
                 }
             }, (error) => {
                 console.error('Balance listener error:', error);
+                showToast('Balance sync error', 'warning');
             });
         }
 
         // ===== SYNC BALANCE WITH DASHBOARD =====
         async function syncBalanceWithDashboard(transactionData) {
+            if (!gameState.currentUser || !db) {
+                showToast("Cannot process transaction: No connection", "error");
+                return { success: false, error: "No connection" };
+            }
+            
             try {
                 const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
                 
                 const result = await db.runTransaction(async (transaction) => {
                     const walletDoc = await transaction.get(walletRef);
                     
-                    if (!walboxDoc.exists) {
+                    if (!walletDoc.exists) {
                         throw new Error("Wallet not found");
                     }
                     
@@ -1226,7 +1275,7 @@
                         amount: transactionData.amount,
                         description: transactionData.description || "Plinko game transaction",
                         createdAt: new Date(),
-                        gameId: 'plinko_game',
+                        gameId: 'plinko',
                         beforeBalance: currentBalance,
                         afterBalance: newBalance,
                         betAmount: transactionData.betAmount,
@@ -1240,9 +1289,9 @@
                 
                 // Update local balance
                 gameState.mainBalance = result.newBalance;
-                gameState.balance = result.newBalance;
                 updateBalanceDisplay();
                 
+                console.log("Transaction successful:", transactionData.type, transactionData.amount);
                 return { success: true, newBalance: result.newBalance };
             } catch (error) {
                 console.error('Transaction failed:', error);
@@ -1254,18 +1303,21 @@
         // ===== SETUP EVENT LISTENERS =====
         function setupEventListeners() {
             // Bet amount input
-            document.getElementById('betAmount').addEventListener('change', (e) => {
-                const value = parseFloat(e.target.value);
-                if (value < 1) {
-                    e.target.value = 1;
-                    gameState.currentBet = 1;
-                } else if (value > gameState.mainBalance) {
-                    e.target.value = gameState.mainBalance;
-                    gameState.currentBet = gameState.mainBalance;
-                } else {
-                    gameState.currentBet = value;
-                }
-            });
+            const betAmountInput = document.getElementById('betAmount');
+            if (betAmountInput) {
+                betAmountInput.addEventListener('change', (e) => {
+                    const value = parseFloat(e.target.value);
+                    if (value < 1) {
+                        e.target.value = 1;
+                        gameState.currentBet = 1;
+                    } else if (value > gameState.mainBalance) {
+                        e.target.value = gameState.mainBalance;
+                        gameState.currentBet = gameState.mainBalance;
+                    } else {
+                        gameState.currentBet = value;
+                    }
+                });
+            }
 
             // Chip buttons
             document.querySelectorAll('.chip').forEach(chip => {
@@ -1298,13 +1350,19 @@
             });
 
             // Rows select
-            document.getElementById('rowsSelect').addEventListener('change', (e) => {
-                gameState.currentRows = parseInt(e.target.value);
-                generatePegs();
-            });
+            const rowsSelect = document.getElementById('rowsSelect');
+            if (rowsSelect) {
+                rowsSelect.addEventListener('change', (e) => {
+                    gameState.currentRows = parseInt(e.target.value);
+                    generatePegs();
+                });
+            }
 
             // Drop button
-            document.getElementById('dropButton').addEventListener('click', dropBall);
+            const dropButton = document.getElementById('dropButton');
+            if (dropButton) {
+                dropButton.addEventListener('click', dropBall);
+            }
 
             // Auto-bet on Enter key
             document.addEventListener('keydown', (e) => {
@@ -1322,6 +1380,8 @@
 
         function generatePegs() {
             const container = document.getElementById('pegsContainer');
+            if (!container) return;
+            
             container.innerHTML = '';
             
             // Generate triangular peg arrangement
@@ -1353,19 +1413,12 @@
 
         function updateSlotsDisplay() {
             const container = document.getElementById('slotsContainer');
+            if (!container) return;
+            
             const multipliers = gameState.multipliers[gameState.currentRisk];
             container.innerHTML = '';
             
-            // Adjust multiplier count based on risk
-            let displayMultipliers;
-            if (gameState.currentRisk === 'high') {
-                displayMultipliers = multipliers;
-            } else {
-                // For low and medium, use standard 10 slots
-                displayMultipliers = multipliers;
-            }
-            
-            displayMultipliers.forEach((multiplier, index) => {
+            multipliers.forEach((multiplier, index) => {
                 const slot = document.createElement('div');
                 slot.className = 'slot';
                 slot.dataset.index = index;
@@ -1448,6 +1501,8 @@
             const pegsContainer = document.getElementById('pegsContainer');
             const slotsContainer = document.getElementById('slotsContainer');
             
+            if (!ball || !pegsContainer || !slotsContainer) return;
+            
             ball.style.display = 'block';
             ball.style.top = '0px';
             ball.style.left = '50%';
@@ -1456,7 +1511,6 @@
             const containerRect = pegsContainer.getBoundingClientRect();
             const slotElements = Array.from(slotsContainer.children);
             const targetSlot = slotElements[position];
-            const slotRect = targetSlot.getBoundingClientRect();
             
             // Ball drop animation
             const totalRows = gameState.currentRows;
@@ -1521,7 +1575,7 @@
             const multipliers = gameState.multipliers[gameState.currentRisk];
             const multiplier = multipliers[finalPosition];
             const winAmount = gameState.currentBet * multiplier;
-            const isWin = winAmount > 0;
+            const isWin = winAmount > gameState.currentBet;
             
             // Highlight winning slot
             const slots = document.getElementById('slotsContainer').children;
@@ -1532,7 +1586,7 @@
             document.getElementById('ball').style.display = 'none';
             
             // Update game statistics
-            if (isWin && winAmount >= gameState.currentBet) {
+            if (isWin) {
                 gameState.stats.winCount++;
                 gameState.stats.totalWon += winAmount;
             } else {
@@ -1553,7 +1607,7 @@
             showResult(multiplier, winAmount, isWin);
             
             // If win, add winnings to balance
-            if (isWin && winAmount > 0) {
+            if (winAmount > 0) {
                 const transaction = await syncBalanceWithDashboard({
                     amount: winAmount,
                     type: "plinko_win",
@@ -1584,6 +1638,8 @@
             const multiplierEl = document.getElementById('resultMultiplier');
             const amountEl = document.getElementById('resultAmount');
             
+            if (!results || !text || !multiplierEl || !amountEl) return;
+            
             text.textContent = isWin ? 'WIN!' : 'LOSS';
             text.className = `result-text ${isWin ? 'result-win' : 'result-lose'}`;
             multiplierEl.textContent = `${multiplier}x`;
@@ -1604,15 +1660,24 @@
             const winRate = gameState.stats.totalDrops > 0 ?
                 Math.round((gameState.stats.winCount / gameState.stats.totalDrops) * 100) : 0;
             
-            document.getElementById('totalDrops').textContent = gameState.stats.totalDrops;
-            document.getElementById('winRate').textContent = `${winRate}%`;
-            document.getElementById('totalWon').textContent = `$${gameState.stats.totalWon.toFixed(2)}`;
-            document.getElementById('totalLost').textContent = `$${gameState.stats.totalLost.toFixed(2)}`;
+            const totalDropsEl = document.getElementById('totalDrops');
+            const winRateEl = document.getElementById('winRate');
+            const totalWonEl = document.getElementById('totalWon');
+            const totalLostEl = document.getElementById('totalLost');
+            
+            if (totalDropsEl) totalDropsEl.textContent = gameState.stats.totalDrops;
+            if (winRateEl) winRateEl.textContent = `${winRate}%`;
+            if (totalWonEl) totalWonEl.textContent = `$${gameState.stats.totalWon.toFixed(2)}`;
+            if (totalLostEl) totalLostEl.textContent = `$${gameState.stats.totalLost.toFixed(2)}`;
         }
 
         function saveGameStats() {
-            localStorage.setItem('plinkoStats', JSON.stringify(gameState.stats));
-            localStorage.setItem('plinkoHistory', JSON.stringify(gameState.history.slice(-50))); // Keep last 50
+            try {
+                localStorage.setItem('plinkoStats', JSON.stringify(gameState.stats));
+                localStorage.setItem('plinkoHistory', JSON.stringify(gameState.history.slice(-50)));
+            } catch (e) {
+                console.error('Error saving stats:', e);
+            }
         }
 
         function loadGameStats() {
@@ -1659,6 +1724,8 @@
 
         function updateHistoryDisplay() {
             const container = document.getElementById('historyList');
+            if (!container) return;
+            
             container.innerHTML = '';
             
             gameState.history.slice(0, 20).forEach(item => {
@@ -1684,6 +1751,8 @@
         // ===== TOAST NOTIFICATIONS =====
         function showToast(message, type = 'info') {
             const container = document.getElementById('toastContainer');
+            if (!container) return;
+            
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
             toast.textContent = message;
@@ -1728,9 +1797,17 @@
             // Number keys for quick betting
             if (e.key >= '1' && e.key <= '9' && !e.ctrlKey && !e.altKey) {
                 const betInput = document.getElementById('betAmount');
-                betInput.value = e.key;
-                betInput.dispatchEvent(new Event('change'));
+                if (betInput) {
+                    betInput.value = e.key;
+                    betInput.dispatchEvent(new Event('change'));
+                }
             }
+        });
+
+        // ===== ERROR HANDLING =====
+        window.addEventListener('error', function(e) {
+            console.error('Global error:', e.error);
+            showToast('Game error occurred. Please refresh.', 'error');
         });
     </script>
 </body>
