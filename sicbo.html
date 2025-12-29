@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>🎲 Sic Bo - XCrazyBet</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <style>
+        :root {
+            --primary: #ff6b6b;
+            --secondary: #2ecc71;
+            --gold: #ffd32a;
+            --dark: #1a1a2e;
+            --darker: #0f0f23;
+            --light: #ffffff;
+            --dice-bg: #2d3436;
+            --bet-bg: #1e2642;
+            --win-color: #00ffcc;
+            --lose-color: #ff6b6b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            min-height: 100vh;
+            font-size: 14px;
+            line-height: 1.3;
+        }
+
+        /* Compact Header */
+        .header {
+            background: rgba(26, 26, 46, 0.95);
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--primary);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .game-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .game-title i {
+            color: var(--gold);
+            font-size: 14px;
+        }
+
+        .balance-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .balance-badge {
+            background: linear-gradient(45deg, var(--secondary), #27ae60);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .user-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, var(--primary), #ff9ff3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        /* Quick Navigation */
+        .quick-nav {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 8px;
+            padding: 5px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+        }
+
+        .nav-btn {
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            text-decoration: none;
+        }
+
+        .nav-btn.active {
+            background: rgba(255, 107, 107, 0.15);
+            color: var(--primary);
+        }
+
+        .nav-btn i {
+            font-size: 10px;
+        }
+
+        /* Main Game Container */
+        .game-container {
+            padding: 12px;
+            padding-bottom: 70px;
+        }
+
+        /* Bet Controls */
+        .bet-controls {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        .bet-amount-label {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 6px;
+        }
+
+        .bet-input-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .bet-input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: var(--light);
+            padding: 8px 12px;
+            font-size: 13px;
+            outline: none;
+            text-align: center;
+        }
+
+        .chip-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+        }
+
+        .chip-btn {
+            background: var(--bet-bg);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            color: var(--light);
+            padding: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .chip-btn:hover {
+            transform: scale(1.05);
+        }
+
+        /* Dice Area */
+        .dice-container {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 12px 0;
+            text-align: center;
+        }
+
+        .dice-title {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 10px;
+        }
+
+        .dice-row {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .dice {
+            width: 50px;
+            height: 50px;
+            background: var(--dice-bg);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: 700;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .dice.shaking {
+            animation: shake 0.5s infinite;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        .total-display {
+            font-size: 13px;
+            color: var(--gold);
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        /* Bet Types Grid */
+        .bet-types {
+            margin: 15px 0;
+        }
+
+        .bet-type-title {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .bet-type-title i {
+            font-size: 10px;
+            color: var(--primary);
+        }
+
+        .bet-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .bet-item {
+            background: var(--bet-bg);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .bet-item.active {
+            border-color: var(--gold);
+            background: rgba(255, 215, 42, 0.1);
+        }
+
+        .bet-item:hover {
+            transform: translateY(-2px);
+        }
+
+        .bet-name {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--light);
+            margin-bottom: 4px;
+        }
+
+        .bet-payout {
+            font-size: 10px;
+            color: var(--secondary);
+            font-weight: 600;
+        }
+
+        .bet-probability {
+            font-size: 9px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 3px;
+        }
+
+        /* Control Buttons */
+        .control-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 15px 0;
+        }
+
+        .control-btn {
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn-roll {
+            background: linear-gradient(45deg, var(--primary), #ff9ff3);
+            color: white;
+        }
+
+        .btn-clear {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--light);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-roll:active, .btn-clear:active {
+            transform: scale(0.97);
+        }
+
+        /* Result Display */
+        .result-display {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 12px;
+            margin: 12px 0;
+            text-align: center;
+        }
+
+        .result-message {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .win {
+            color: var(--win-color);
+        }
+
+        .lose {
+            color: var(--lose-color);
+        }
+
+        .win-amount {
+            font-size: 12px;
+            color: var(--gold);
+            font-weight: 600;
+        }
+
+        /* History */
+        .history-container {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 12px;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .history-title {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .history-title i {
+            font-size: 10px;
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .history-item {
+            font-size: 10px;
+            padding: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .history-dice {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .history-die {
+            width: 16px;
+            height: 16px;
+            background: var(--dice-bg);
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            font-weight: 600;
+        }
+
+        .history-result {
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 10px;
+        }
+
+        .history-win {
+            background: rgba(0, 255, 204, 0.2);
+            color: var(--win-color);
+        }
+
+        .history-lose {
+            background: rgba(255, 107, 107, 0.2);
+            color: var(--lose-color);
+        }
+
+        /* Bottom Navigation */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 100;
+        }
+
+        .bottom-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            text-decoration: none;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 9px;
+            padding: 5px;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .bottom-btn i {
+            font-size: 12px;
+        }
+
+        .bottom-btn.active {
+            color: var(--primary);
+            background: rgba(255, 107, 107, 0.1);
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            top: 20%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            z-index: 1000;
+            animation: slideDown 0.3s ease-out;
+            display: none;
+            text-align: center;
+            max-width: 90%;
+        }
+
+        @keyframes slideDown {
+            from { top: -50px; opacity: 0; }
+            to { top: 20%; opacity: 1; }
+        }
+
+        /* Loading */
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 15, 35, 0.9);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 2px solid var(--primary);
+            border-top-color: var(--gold);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Utility */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading -->
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div style="font-size: 12px;">Loading Sic Bo...</div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-top">
+            <div class="game-title">
+                <i class="fas fa-dice"></i>
+                <span>Sic Bo</span>
+            </div>
+            <div class="balance-info">
+                <div class="balance-badge">
+                    <i class="fas fa-wallet"></i>
+                    <span id="balanceAmount">$0</span>
+                </div>
+                <div class="user-avatar" id="userAvatar">U</div>
+            </div>
+        </div>
+
+        <!-- Quick Navigation -->
+        <div class="quick-nav">
+            <button class="nav-btn active" onclick="showBetType('standard')">
+                <i class="fas fa-dice"></i>
+                <span>Standard</span>
+            </button>
+            <button class="nav-btn" onclick="showBetType('totals')">
+                <i class="fas fa-calculator"></i>
+                <span>Totals</span>
+            </button>
+            <button class="nav-btn" onclick="showBetType('combinations')">
+                <i class="fas fa-layer-group"></i>
+                <span>Combos</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Game -->
+    <div class="game-container">
+        <!-- Bet Controls -->
+        <div class="bet-controls">
+            <div class="bet-amount-label">Bet Amount</div>
+            <div class="bet-input-row">
+                <input type="number" id="betAmount" class="bet-input" value="10" min="1">
+                <button class="control-btn" onclick="setMaxBet()" style="padding: 6px 10px; font-size: 10px;">
+                    MAX
+                </button>
+            </div>
+            <div class="chip-buttons">
+                <button class="chip-btn" onclick="setBetAmount(1)">$1</button>
+                <button class="chip-btn" onclick="setBetAmount(5)">$5</button>
+                <button class="chip-btn" onclick="setBetAmount(10)">$10</button>
+                <button class="chip-btn" onclick="setBetAmount(25)">$25</button>
+                <button class="chip-btn" onclick="setBetAmount(50)">$50</button>
+                <button class="chip-btn" onclick="setBetAmount(100)">$100</button>
+            </div>
+        </div>
+
+        <!-- Dice Area -->
+        <div class="dice-container">
+            <div class="dice-title">Dice Roll</div>
+            <div class="dice-row">
+                <div class="dice" id="dice1">?</div>
+                <div class="dice" id="dice2">?</div>
+                <div class="dice" id="dice3">?</div>
+            </div>
+            <div class="total-display" id="totalDisplay">Total: -</div>
+        </div>
+
+        <!-- Standard Bets -->
+        <div id="standardBets" class="bet-types">
+            <div class="bet-type-title">
+                <i class="fas fa-star"></i>
+                <span>Standard Bets</span>
+            </div>
+            <div class="bet-grid">
+                <div class="bet-item" onclick="placeBet('big')">
+                    <div class="bet-name">BIG (11-17)</div>
+                    <div class="bet-payout">1:1</div>
+                    <div class="bet-probability">48.6% win</div>
+                </div>
+                <div class="bet-item" onclick="placeBet('small')">
+                    <div class="bet-name">SMALL (4-10)</div>
+                    <div class="bet-payout">1:1</div>
+                    <div class="bet-probability">48.6% win</div>
+                </div>
+                <div class="bet-item" onclick="placeBet('odd')">
+                    <div class="bet-name">ODD Total</div>
+                    <div class="bet-payout">1:1</div>
+                    <div class="bet-probability">48.1% win</div>
+                </div>
+                <div class="bet-item" onclick="placeBet('even')">
+                    <div class="bet-name">EVEN Total</div>
+                    <div class="bet-payout">1:1</div>
+                    <div class="bet-probability">48.1% win</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Totals Bets -->
+        <div id="totalsBets" class="bet-types hidden">
+            <div class="bet-type-title">
+                <i class="fas fa-calculator"></i>
+                <span>Total Bets</span>
+            </div>
+            <div class="bet-grid">
+                <div class="bet-item" onclick="placeBet('total4')">
+                    <div class="bet-name">Total 4</div>
+                    <div class="bet-payout">60:1</div>
+                    <div class="bet-probability">0.5% win</div>
+                </div>
+                <div class="bet-item" onclick="placeBet('total10')">
+                    <div class="bet-name">Total 10</div>
+                    <div class="bet-payout">6:1</div>
+                    <div class="bet-probability">12.5% win</div>
+                </div>
+                <div class="bet-item" onclick="placeBet('total11')">
+                    <div class="bet-name">Total 11</div>
+                    <div class="bet-payout">6:1</div>
+                    <div class="bet-probability">12.5% win</div>
+                </div>
+                <div class="bet-item" onclick="placeBet('total17')">
+                    <div class="bet-name">Total 17</div>
+                    <div class="bet-payout">60:1</div>
+                    <div class="bet-probability">0.5% win</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Combination Bets -->
+        <div id="combinationsBets" class="bet-types hidden">
+            <div class="bet-type-title">
+                <i class="fas fa-layer-group"></i>
+                <span>Combination Bets</span>
+            </div>
+            <div class="bet-grid">
+                <div class="bet-item" onclick="placeBet('anytriple')">
+                    <div class="bet-name">Any Triple</div>
+                    <div class="bet-payout">30:1</div>
+                    <div class="bet-probability">2.8% win</div>
+                </div>
+                <div class="bet-item" onclick="placeBet('triple1')">
+                    <div class="bet-name">Triple 1</div>
+                    <div class="bet-payout">180:1</div>
+                    <div class="bet-probability">0.5% win</div>
+                </div>
+                <div class="bet-item" onclick="placeBet('single1')">
+                    <div class="bet-name">Single 1</div>
+                    <div class="bet-payout">1:1</div>
+                    <div class="bet-probability">34.7% win</div>
+                </div>
+                <div class="bet-item" onclick="placeBet('double1')">
+                    <div class="bet-name">Double 1</div>
+                    <div class="bet-payout">10:1</div>
+                    <div class="bet-probability">7.0% win</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="control-buttons">
+            <button class="control-btn btn-roll" onclick="rollDice()">
+                <i class="fas fa-dice"></i>
+                <span>ROLL DICE</span>
+            </button>
+            <button class="control-btn btn-clear" onclick="clearBets()">
+                <i class="fas fa-trash"></i>
+                <span>CLEAR BETS</span>
+            </button>
+        </div>
+
+        <!-- Result Display -->
+        <div class="result-display" id="resultDisplay">
+            <div class="result-message" id="resultMessage">Place your bets and roll!</div>
+            <div class="win-amount" id="winAmount"></div>
+        </div>
+
+        <!-- History -->
+        <div class="history-container">
+            <div class="history-title">
+                <i class="fas fa-history"></i>
+                <span>Recent Rolls</span>
+            </div>
+            <div class="history-list" id="historyList">
+                <!-- History items will be added here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+        <a href="https://xcrazybet.github.io/millioner" class="bottom-btn">
+            <i class="fas fa-home"></i>
+            <span>Home</span>
+        </a>
+        <a href="https://xcrazybet.github.io/millioner/games.html" class="bottom-btn active">
+            <i class="fas fa-gamepad"></i>
+            <span>Games</span>
+        </a>
+        <a href="https://xcrazybet.github.io/millioner/bets.html" class="bottom-btn">
+            <i class="fas fa-coins"></i>
+            <span>Bets</span>
+        </a>
+        <a href="https://xcrazybet.github.io/millioner/dashboard.html" class="bottom-btn">
+            <i class="fas fa-wallet"></i>
+            <span>Wallet</span>
+        </a>
+    </nav>
+
+    <script>
+        // ===== FIREBASE CONFIG =====
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // ===== GAME STATE =====
+        let currentUser = null;
+        let userData = {};
+        let currentBetAmount = 10;
+        let currentBetType = null;
+        let gameActive = false;
+        let betHistory = [];
+
+        // ===== BET TYPES WITH PAYOUTS & PROBABILITIES =====
+        const betTypes = {
+            // Standard Bets (House Edge: 2.78%)
+            big: { name: "Big (11-17)", payout: 1, probability: 0.4861, winCondition: (d1, d2, d3) => {
+                const total = d1 + d2 + d3;
+                return total >= 11 && total <= 17 && !isTriple(d1, d2, d3);
+            }},
+            small: { name: "Small (4-10)", payout: 1, probability: 0.4861, winCondition: (d1, d2, d3) => {
+                const total = d1 + d2 + d3;
+                return total >= 4 && total <= 10 && !isTriple(d1, d2, d3);
+            }},
+            odd: { name: "Odd Total", payout: 1, probability: 0.4815, winCondition: (d1, d2, d3) => {
+                const total = d1 + d2 + d3;
+                return total % 2 === 1 && !isTriple(d1, d2, d3);
+            }},
+            even: { name: "Even Total", payout: 1, probability: 0.4815, winCondition: (d1, d2, d3) => {
+                const total = d1 + d2 + d3;
+                return total % 2 === 0 && !isTriple(d1, d2, d3);
+            }},
+
+            // Total Bets
+            total4: { name: "Total 4", payout: 60, probability: 0.0046, winCondition: (d1, d2, d3) => {
+                return d1 + d2 + d3 === 4;
+            }},
+            total10: { name: "Total 10", payout: 6, probability: 0.1250, winCondition: (d1, d2, d3) => {
+                return d1 + d2 + d3 === 10;
+            }},
+            total11: { name: "Total 11", payout: 6, probability: 0.1250, winCondition: (d1, d2, d3) => {
+                return d1 + d2 + d3 === 11;
+            }},
+            total17: { name: "Total 17", payout: 60, probability: 0.0046, winCondition: (d1, d2, d3) => {
+                return d1 + d2 + d3 === 17;
+            }},
+
+            // Combination Bets
+            anytriple: { name: "Any Triple", payout: 30, probability: 0.0278, winCondition: (d1, d2, d3) => {
+                return isTriple(d1, d2, d3);
+            }},
+            triple1: { name: "Triple 1", payout: 180, probability: 0.0046, winCondition: (d1, d2, d3) => {
+                return d1 === 1 && d2 === 1 && d3 === 1;
+            }},
+            single1: { name: "Single 1", payout: 1, probability: 0.3472, winCondition: (d1, d2, d3) => {
+                return [d1, d2, d3].includes(1) && !isTriple(d1, d2, d3);
+            }},
+            double1: { name: "Double 1", payout: 10, probability: 0.0694, winCondition: (d1, d2, d3) => {
+                const counts = countDice([d1, d2, d3]);
+                return counts[1] >= 2;
+            }}
+        };
+
+        // ===== UTILITY FUNCTIONS =====
+        function isTriple(d1, d2, d3) {
+            return d1 === d2 && d2 === d3;
+        }
+
+        function countDice(dice) {
+            const counts = {};
+            dice.forEach(die => {
+                counts[die] = (counts[die] || 0) + 1;
+            });
+            return counts;
+        }
+
+        // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', () => {
+            showLoading(true);
+            checkAuth();
+            
+            // Set up bet amount input
+            document.getElementById('betAmount').addEventListener('input', function() {
+                currentBetAmount = Math.max(1, parseInt(this.value) || 1);
+            });
+        });
+
+        // ===== AUTHENTICATION =====
+        function checkAuth() {
+            auth.onAuthStateChanged(user => {
+                if (!user) {
+                    window.location.href = 'https://xcrazybet.github.io/millioner';
+                    return;
+                }
+                currentUser = user;
+                loadUserData();
+            });
+        }
+
+        async function loadUserData() {
+            try {
+                const walletDoc = await db.collection('wallets').doc(currentUser.uid).get();
+                if (walletDoc.exists) {
+                    userData = walletDoc.data();
+                    updateUserDisplay();
+                    setupBalanceListener();
+                } else {
+                    await createUserWallet();
+                }
+                
+                loadHistory();
+                showLoading(false);
+                
+            } catch (error) {
+                console.error('Error loading user data:', error);
+                showLoading(false);
+                showToast('Error loading data');
+            }
+        }
+
+        async function createUserWallet() {
+            try {
+                await db.collection('wallets').doc(currentUser.uid).set({
+                    balance: 100,
+                    username: currentUser.email?.split('@')[0] || 'Player',
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                });
+                
+                userData.balance = 100;
+                userData.username = currentUser.email?.split('@')[0] || 'Player';
+                updateUserDisplay();
+            } catch (error) {
+                console.error('Error creating wallet:', error);
+            }
+        }
+
+        function setupBalanceListener() {
+            const walletRef = db.collection('wallets').doc(currentUser.uid);
+            
+            walletRef.onSnapshot((doc) => {
+                if (doc.exists) {
+                    const newBalance = doc.data().balance || 0;
+                    if (newBalance !== userData.balance) {
+                        userData.balance = newBalance;
+                        updateBalanceDisplay();
+                    }
+                }
+            });
+        }
+
+        // ===== DISPLAY FUNCTIONS =====
+        function updateUserDisplay() {
+            const userName = userData.username || currentUser.email?.split('@')[0] || 'P';
+            document.getElementById('userAvatar').textContent = userName.charAt(0).toUpperCase();
+            updateBalanceDisplay();
+        }
+
+        function updateBalanceDisplay() {
+            const balanceElement = document.getElementById('balanceAmount');
+            if (balanceElement && userData.balance !== undefined) {
+                balanceElement.textContent = `$${userData.balance.toFixed(0)}`;
+            }
+        }
+
+        // ===== BET MANAGEMENT =====
+        function setBetAmount(amount) {
+            currentBetAmount = amount;
+            document.getElementById('betAmount').value = amount;
+        }
+
+        function setMaxBet() {
+            const maxBet = Math.min(500, userData.balance);
+            if (maxBet >= 1) {
+                setBetAmount(maxBet);
+                showToast(`Max bet set: $${maxBet}`);
+            } else {
+                showToast('Insufficient balance');
+            }
+        }
+
+        function placeBet(betType) {
+            if (gameActive) {
+                showToast('Game in progress');
+                return;
+            }
+
+            currentBetType = betType;
+            
+            // Update UI
+            document.querySelectorAll('.bet-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.bet-item').classList.add('active');
+            
+            const betInfo = betTypes[betType];
+            showToast(`Bet placed: ${betInfo.name} (Payout: ${betInfo.payout}:1)`);
+        }
+
+        function clearBets() {
+            currentBetType = null;
+            document.querySelectorAll('.bet-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            showToast('Bets cleared');
+        }
+
+        function showBetType(type) {
+            // Hide all bet sections
+            document.getElementById('standardBets').classList.add('hidden');
+            document.getElementById('totalsBets').classList.add('hidden');
+            document.getElementById('combinationsBets').classList.add('hidden');
+            
+            // Show selected section
+            document.getElementById(type + 'Bets').classList.remove('hidden');
+            
+            // Update nav buttons
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+        }
+
+        // ===== GAME LOGIC =====
+        async function rollDice() {
+            if (gameActive) return;
+            
+            if (!currentBetType) {
+                showToast('Please select a bet type');
+                return;
+            }
+
+            if (currentBetAmount > userData.balance) {
+                showToast('Insufficient balance');
+                return;
+            }
+
+            if (currentBetAmount < 1) {
+                showToast('Minimum bet: $1');
+                return;
+            }
+
+            // Start game
+            gameActive = true;
+            
+            // Animate dice
+            const diceElements = [
+                document.getElementById('dice1'),
+                document.getElementById('dice2'),
+                document.getElementById('dice3')
+            ];
+            
+            diceElements.forEach(die => {
+                die.classList.add('shaking');
+                die.textContent = '?';
+            });
+
+            // Simulate dice roll animation
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Generate dice results with 10% win probability
+            const dice = generateDiceResult();
+            
+            // Stop animation and show results
+            diceElements.forEach((die, index) => {
+                die.classList.remove('shaking');
+                die.textContent = dice[index];
+            });
+
+            const total = dice[0] + dice[1] + dice[2];
+            document.getElementById('totalDisplay').textContent = `Total: ${total}`;
+
+            // Evaluate bet
+            const betInfo = betTypes[currentBetType];
+            const winCondition = betInfo.winCondition;
+            let win = false;
+            
+            // Apply 10% global win rate
+            const globalWin = Math.random() < 0.10;
+            
+            if (globalWin) {
+                // Force a win for 10% of games
+                win = true;
+            } else {
+                // Evaluate based on actual dice
+                win = winCondition(dice[0], dice[1], dice[2]);
+            }
+
+            // Process result
+            await processGameResult(win, dice, total);
+            
+            gameActive = false;
+        }
+
+        function generateDiceResult() {
+            return [
+                Math.floor(Math.random() * 6) + 1,
+                Math.floor(Math.random() * 6) + 1,
+                Math.floor(Math.random() * 6) + 1
+            ];
+        }
+
+        async function processGameResult(win, dice, total) {
+            const betInfo = betTypes[currentBetType];
+            let winAmount = 0;
+            let resultMessage = '';
+            let resultClass = '';
+
+            if (win) {
+                winAmount = currentBetAmount * betInfo.payout;
+                resultMessage = `🎉 WIN! ${betInfo.name}`;
+                resultClass = 'win';
+                
+                // Add winnings to balance
+                await updateBalance(winAmount, 'sicbo_win', `Sic Bo win: ${betInfo.name}`);
+                
+                // Show win amount
+                document.getElementById('winAmount').textContent = `+$${winAmount}`;
+            } else {
+                // Deduct bet amount
+                winAmount = -currentBetAmount;
+                resultMessage = `❌ LOSE! ${betInfo.name}`;
+                resultClass = 'lose';
+                
+                await updateBalance(-currentBetAmount, 'sicbo_bet', `Sic Bo bet: ${betInfo.name}`);
+                
+                document.getElementById('winAmount').textContent = `-$${currentBetAmount}`;
+            }
+
+            // Update result display
+            document.getElementById('resultMessage').textContent = resultMessage;
+            document.getElementById('resultMessage').className = `result-message ${resultClass}`;
+            
+            // Add to history
+            addToHistory(dice, total, win, winAmount);
+            
+            // Show result toast
+            showToast(resultMessage);
+        }
+
+        async function updateBalance(amount, type, description) {
+            try {
+                const walletRef = db.collection('wallets').doc(currentUser.uid);
+                
+                await db.runTransaction(async (transaction) => {
+                    const walletDoc = await transaction.get(walletRef);
+                    
+                    if (!walletDoc.exists) {
+                        throw new Error("Wallet not found");
+                    }
+                    
+                    const currentBalance = walletDoc.data().balance || 0;
+                    const newBalance = currentBalance + amount;
+                    
+                    if (newBalance < 0) {
+                        throw new Error("Insufficient funds");
+                    }
+                    
+                    // Update wallet
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        updatedAt: new Date()
+                    });
+                    
+                    // Record transaction
+                    const transactionRef = walletRef.collection('transactions').doc();
+                    transaction.set(transactionRef, {
+                        type: type,
+                        amount: amount,
+                        description: description,
+                        createdAt: new Date(),
+                        game: 'sicbo',
+                        diceResult: 'N/A',
+                        betType: currentBetType
+                    });
+                    
+                    // Update local balance
+                    userData.balance = newBalance;
+                });
+                
+                updateBalanceDisplay();
+                return true;
+            } catch (error) {
+                console.error('Transaction failed:', error);
+                showToast('Transaction failed');
+                return false;
+            }
+        }
+
+        // ===== HISTORY =====
+        function loadHistory() {
+            // Load from localStorage
+            const savedHistory = JSON.parse(localStorage.getItem('sicbo_history') || '[]');
+            betHistory = savedHistory.slice(-20); // Keep last 20 entries
+            
+            // Display history
+            updateHistoryDisplay();
+        }
+
+        function addToHistory(dice, total, win, amount) {
+            const historyEntry = {
+                id: Date.now(),
+                dice: dice,
+                total: total,
+                win: win,
+                amount: Math.abs(amount),
+                timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+            };
+            
+            betHistory.unshift(historyEntry);
+            
+            // Keep only last 20 entries
+            if (betHistory.length > 20) {
+                betHistory.pop();
+            }
+            
+            // Save to localStorage
+            localStorage.setItem('sicbo_history', JSON.stringify(betHistory));
+            
+            // Update display
+            updateHistoryDisplay();
+        }
+
+        function updateHistoryDisplay() {
+            const container = document.getElementById('historyList');
+            container.innerHTML = '';
+            
+            betHistory.forEach(entry => {
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                
+                item.innerHTML = `
+                    <div class="history-dice">
+                        <div class="history-die">${entry.dice[0]}</div>
+                        <div class="history-die">${entry.dice[1]}</div>
+                        <div class="history-die">${entry.dice[2]}</div>
+                        <span style="margin-left: 6px; font-size: 9px;">${entry.total}</span>
+                    </div>
+                    <div class="history-result ${entry.win ? 'history-win' : 'history-lose'}">
+                        ${entry.win ? `+$${entry.amount}` : `-$${entry.amount}`}
+                    </div>
+                `;
+                
+                container.appendChild(item);
+            });
+        }
+
+        // ===== UI FUNCTIONS =====
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.display = 'block';
+            
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 2000);
+        }
+
+        // Prevent context menu on long press
+        document.addEventListener('contextmenu', (e) => e.preventDefault());
+    </script>
+    
+    <!-- Font Awesome -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+</body>
+</html>
