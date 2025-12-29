@@ -143,43 +143,6 @@
             font-size: 16px;
         }
 
-        /* Tabs */
-        .tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-            background: rgba(30, 41, 59, 0.8);
-            padding: 10px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .tab {
-            flex: 1;
-            padding: 15px;
-            text-align: center;
-            background: transparent;
-            border: none;
-            color: #94a3b8;
-            cursor: pointer;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .tab:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        .tab.active {
-            background: linear-gradient(135deg, #4361ee 0%, #3a56d4 100%);
-            color: white;
-        }
-
         /* Matches Grid */
         .matches-grid {
             display: grid;
@@ -539,34 +502,12 @@
             <p>Place your bets on upcoming football matches</p>
         </div>
 
-        <!-- Tabs -->
-        <div class="tabs">
-            <button class="tab active" onclick="showMatches('upcoming')">
-                <i class="fas fa-clock"></i> Upcoming Matches
-            </button>
-            <button class="tab" onclick="showMatches('live')">
-                <i class="fas fa-play-circle"></i> Live Matches
-            </button>
-            <button class="tab" onclick="showMatches('completed')">
-                <i class="fas fa-check-circle"></i> Completed
-            </button>
-            <button class="tab" onclick="showBets()">
-                <i class="fas fa-history"></i> My Bets
-            </button>
-        </div>
-
         <!-- Matches Container -->
         <div id="matchesContainer" class="matches-grid">
-            <!-- Matches will be loaded here -->
             <div class="loading">
                 <div class="loading-spinner"></div>
                 <p>Loading matches...</p>
             </div>
-        </div>
-
-        <!-- My Bets Container (Hidden by default) -->
-        <div id="betsContainer" class="matches-grid" style="display: none;">
-            <!-- User's bets will be loaded here -->
         </div>
     </div>
 
@@ -598,8 +539,7 @@
         let currentUser = null;
         let userBalance = 0;
         let currentMatches = [];
-        let userBets = [];
-        let selectedMatches = {}; // Track selected bets per match
+        let selectedMatches = {};
 
         // ====================
         // UTILITY FUNCTIONS
@@ -638,19 +578,16 @@
             const now = new Date();
             const matchDate = new Date(timestamp);
             
-            // If today, show time
             if (matchDate.toDateString() === now.toDateString()) {
                 return `Today, ${matchDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
             }
             
-            // If tomorrow
             const tomorrow = new Date(now);
             tomorrow.setDate(tomorrow.getDate() + 1);
             if (matchDate.toDateString() === tomorrow.toDateString()) {
                 return `Tomorrow, ${matchDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
             }
             
-            // Otherwise show date and time
             return matchDate.toLocaleString([], {
                 month: 'short',
                 day: 'numeric',
@@ -664,13 +601,12 @@
         // ====================
         auth.onAuthStateChanged(async (user) => {
             if (!user) {
-                window.location.href = 'index.html'; // Change to your login page
+                window.location.href = 'index.html';
             } else {
                 currentUser = user;
                 document.getElementById('userEmail').textContent = user.email;
                 await loadUserBalance();
-                await loadFootballMatches('upcoming');
-                await loadUserBets();
+                await loadFootballMatches();
             }
         });
 
@@ -691,23 +627,31 @@
         // ====================
         // MATCHES MANAGEMENT
         // ====================
-        async function loadFootballMatches(status = 'upcoming') {
+        async function loadFootballMatches() {
             try {
                 const container = document.getElementById('matchesContainer');
-                container.innerHTML = `
-                    <div class="loading">
-                        <div class="loading-spinner"></div>
-                        <p>Loading ${status} matches...</p>
-                    </div>
-                `;
-
-                let query = db.collection('football_matches');
                 
-                if (status !== 'all') {
-                    query = query.where('status', '==', status);
+                // Try to load from "games" collection first (public access)
+                let snapshot;
+                try {
+                    snapshot = await db.collection('games')
+                        .where('sport', '==', 'football')
+                        .where('status', '==', 'upcoming')
+                        .orderBy('matchTime', 'asc')
+                        .get();
+                    
+                    if (snapshot.empty) {
+                        throw new Error('No games found in games collection');
+                    }
+                } catch (error) {
+                    console.log('Could not access games collection:', error);
+                    
+                    // Fallback to authenticated collection
+                    snapshot = await db.collection('football_matches')
+                        .where('status', '==', 'upcoming')
+                        .orderBy('matchTime', 'asc')
+                        .get();
                 }
-                
-                const snapshot = await query.orderBy('matchTime', 'asc').get();
                 
                 currentMatches = [];
                 snapshot.forEach(doc => {
@@ -726,6 +670,9 @@
                     <div class="empty-state">
                         <i class="fas fa-exclamation-triangle"></i>
                         <p>Failed to load matches. Please try again.</p>
+                        <button onclick="createSampleMatches()" style="margin-top: 20px; padding: 10px 20px; background: #4361ee; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                            Create Sample Matches
+                        </button>
                     </div>
                 `;
             }
@@ -756,47 +703,47 @@
                     <div class="match-header">
                         <div class="match-title">
                             <i class="fas fa-trophy"></i>
-                            ${match.league || 'PREMIER LEAGUE'}
+                            ${match.league || match.tournament || 'PREMIER LEAGUE'}
                         </div>
                         <div class="match-time">
                             <i class="fas fa-calendar-alt"></i>
-                            ${formatDate(match.matchTime)}
+                            ${formatDate(match.matchTime || match.time)}
                         </div>
                     </div>
                     
                     <div class="match-teams">
                         <div class="team">
                             <div class="team-flag">${match.team1Flag || '🏴󠁧󠁢󠁥󠁮󠁧󠁿'}</div>
-                            <div class="team-name">${match.team1}</div>
+                            <div class="team-name">${match.team1 || match.homeTeam}</div>
                         </div>
                         
                         <div class="vs">VS</div>
                         
                         <div class="team">
                             <div class="team-flag">${match.team2Flag || '🏴󠁧󠁢󠁥󠁮󠁧󠁿'}</div>
-                            <div class="team-name">${match.team2}</div>
+                            <div class="team-name">${match.team2 || match.awayTeam}</div>
                         </div>
                     </div>
                     
                     <div class="bet-options">
-                        <div class="bet-option ${selectedBet === 'team1' ? 'selected' : ''}" 
-                             onclick="selectBet('${match.id}', 'team1', ${match.odds1})">
-                            <div class="bet-team">${match.team1}</div>
-                            <div class="bet-odds">${match.odds1.toFixed(2)}</div>
+                        <div class="bet-option ${selectedBet && selectedBet.betOn === 'team1' ? 'selected' : ''}" 
+                             onclick="selectBet('${match.id}', 'team1', ${match.odds1 || match.homeOdds || 2.00})">
+                            <div class="bet-team">${match.team1 || match.homeTeam}</div>
+                            <div class="bet-odds">${(match.odds1 || match.homeOdds || 2.00).toFixed(2)}</div>
                             <div class="bet-label">HOME WIN</div>
                         </div>
                         
-                        <div class="bet-option ${selectedBet === 'draw' ? 'selected' : ''}" 
-                             onclick="selectBet('${match.id}', 'draw', ${match.oddsDraw})">
+                        <div class="bet-option ${selectedBet && selectedBet.betOn === 'draw' ? 'selected' : ''}" 
+                             onclick="selectBet('${match.id}', 'draw', ${match.oddsDraw || match.drawOdds || 3.25})">
                             <div class="bet-team">DRAW</div>
-                            <div class="bet-odds">${match.oddsDraw.toFixed(2)}</div>
+                            <div class="bet-odds">${(match.oddsDraw || match.drawOdds || 3.25).toFixed(2)}</div>
                             <div class="bet-label">DRAW</div>
                         </div>
                         
-                        <div class="bet-option ${selectedBet === 'team2' ? 'selected' : ''}" 
-                             onclick="selectBet('${match.id}', 'team2', ${match.odds2})">
-                            <div class="bet-team">${match.team2}</div>
-                            <div class="bet-odds">${match.odds2.toFixed(2)}</div>
+                        <div class="bet-option ${selectedBet && selectedBet.betOn === 'team2' ? 'selected' : ''}" 
+                             onclick="selectBet('${match.id}', 'team2', ${match.odds2 || match.awayOdds || 3.00})">
+                            <div class="bet-team">${match.team2 || match.awayTeam}</div>
+                            <div class="bet-odds">${(match.odds2 || match.awayOdds || 3.00).toFixed(2)}</div>
                             <div class="bet-label">AWAY WIN</div>
                         </div>
                     </div>
@@ -826,7 +773,7 @@
                         </div>
                     </div>
                     
-                    ${selectedBet ? `
+                    ${selectedBet && selectedBet.amount ? `
                     <div class="potential-win">
                         <div class="potential-win-label">POTENTIAL WIN</div>
                         <div class="potential-win-amount" id="potentialWin_${match.id}">
@@ -840,7 +787,7 @@
                             ${!selectedBet || !selectedBet.amount ? 'disabled' : ''}
                             id="betButton_${match.id}">
                         <i class="fas fa-coins"></i>
-                        ${selectedBet ? `BET ${formatCurrency(selectedBet.amount)}` : 'SELECT BET TO CONTINUE'}
+                        ${selectedBet && selectedBet.amount ? `BET ${formatCurrency(selectedBet.amount)}` : 'SELECT BET TO CONTINUE'}
                     </button>
                 `;
                 
@@ -855,17 +802,16 @@
             const match = currentMatches.find(m => m.id === matchId);
             if (!match) return;
 
-            // Update selection
             selectedMatches[matchId] = {
                 betOn: betOn,
                 odds: odds,
-                team: betOn === 'team1' ? match.team1 : betOn === 'team2' ? match.team2 : 'Draw'
+                team: betOn === 'team1' ? (match.team1 || match.homeTeam) : 
+                      betOn === 'team2' ? (match.team2 || match.awayTeam) : 'Draw',
+                matchTitle: `${match.team1 || match.homeTeam} vs ${match.team2 || match.awayTeam}`
             };
 
-            // Re-render matches
             renderMatches(currentMatches);
             
-            // Update bet amount input focus
             setTimeout(() => {
                 const input = document.getElementById(`betAmount_${matchId}`);
                 if (input) input.focus();
@@ -886,7 +832,6 @@
             selectedMatches[matchId].amount = amount;
             updatePotentialWin(matchId);
             
-            // Update UI
             document.getElementById(`betAmount_${matchId}`).value = amount;
             document.getElementById(`betButton_${matchId}`).disabled = false;
             document.getElementById(`betButton_${matchId}`).innerHTML = `
@@ -908,7 +853,6 @@
             selectedMatches[matchId].amount = userBalance;
             updatePotentialWin(matchId);
             
-            // Update UI
             document.getElementById(`betAmount_${matchId}`).value = userBalance;
             document.getElementById(`betButton_${matchId}`).disabled = false;
             document.getElementById(`betButton_${matchId}`).innerHTML = `
@@ -924,7 +868,6 @@
             const selectedBet = selectedMatches[matchId];
 
             if (!selectedBet || !amount || amount <= 0) {
-                // Hide potential win if no valid amount
                 const potentialWinDiv = document.querySelector(`#potentialWin_${matchId}`);
                 if (potentialWinDiv) {
                     potentialWinDiv.closest('.potential-win').style.display = 'none';
@@ -942,16 +885,12 @@
                 return;
             }
 
-            // Update selected bet
             selectedBet.amount = amount;
             
-            // Calculate potential win
             const potentialWin = amount * selectedBet.odds;
             
-            // Update potential win display
             let potentialWinDiv = document.querySelector(`#potentialWin_${matchId}`);
             if (!potentialWinDiv) {
-                // Create potential win section if it doesn't exist
                 const matchCard = input.closest('.match-card');
                 const betButton = document.getElementById(`betButton_${matchId}`);
                 const potentialWinHTML = `
@@ -968,7 +907,6 @@
                 potentialWinDiv.closest('.potential-win').style.display = 'block';
             }
 
-            // Enable bet button
             document.getElementById(`betButton_${matchId}`).disabled = false;
             document.getElementById(`betButton_${matchId}`).innerHTML = `
                 <i class="fas fa-coins"></i> BET ${formatCurrency(amount)}
@@ -989,7 +927,6 @@
                 return;
             }
 
-            // Confirm bet
             const betAmount = selectedBet.amount;
             const potentialWin = betAmount * selectedBet.odds;
             
@@ -998,7 +935,6 @@
             }
 
             try {
-                // Use transaction for atomic operations
                 await db.runTransaction(async (transaction) => {
                     // Get user wallet
                     const walletRef = db.collection('wallets').doc(currentUser.uid);
@@ -1021,12 +957,13 @@
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
 
-                    // Create bet record
+                    // Create bet record - use "bets" collection (authenticated users can write)
                     const betRef = db.collection('bets').doc();
                     transaction.set(betRef, {
                         userId: currentUser.uid,
+                        userEmail: currentUser.email,
                         matchId: matchId,
-                        matchTitle: `${match.team1} vs ${match.team2}`,
+                        matchTitle: selectedBet.matchTitle,
                         betOn: selectedBet.betOn,
                         team: selectedBet.team,
                         amount: betAmount,
@@ -1034,20 +971,21 @@
                         potentialWin: potentialWin,
                         status: 'pending',
                         placedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        matchTime: match.matchTime
+                        matchTime: match.matchTime || match.time
                     });
 
                     // Create transaction record
                     const txRef = db.collection('transactions').doc();
                     transaction.set(txRef, {
                         userId: currentUser.uid,
+                        userEmail: currentUser.email,
                         type: 'bet_placed',
                         amount: betAmount,
                         previousBalance: currentBalance,
                         newBalance: newBalance,
                         details: {
                             matchId: matchId,
-                            match: `${match.team1} vs ${match.team2}`,
+                            match: selectedBet.matchTitle,
                             betOn: selectedBet.betOn,
                             odds: selectedBet.odds,
                             potentialWin: potentialWin
@@ -1064,10 +1002,6 @@
                 // Clear selection
                 delete selectedMatches[matchId];
                 
-                // Reload user bets
-                await loadUserBets();
-                
-                // Show success message
                 showToast('success', `Bet placed successfully! Good luck!`);
                 
                 // Re-render matches
@@ -1080,220 +1014,73 @@
         }
 
         // ====================
-        // USER BETS MANAGEMENT
+        // CREATE SAMPLE MATCHES
         // ====================
-        async function loadUserBets() {
+        async function createSampleMatches() {
             try {
-                const snapshot = await db.collection('bets')
-                    .where('userId', '==', currentUser.uid)
-                    .orderBy('placedAt', 'desc')
-                    .limit(20)
-                    .get();
+                showToast('info', 'Creating sample matches...');
                 
-                userBets = [];
-                snapshot.forEach(doc => {
-                    userBets.push({
-                        id: doc.id,
-                        ...doc.data()
-                    });
-                });
-            } catch (error) {
-                console.error('Error loading bets:', error);
-            }
-        }
-
-        function showBets() {
-            // Update tabs
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            event.target.classList.add('active');
-            
-            // Show bets container
-            document.getElementById('matchesContainer').style.display = 'none';
-            const betsContainer = document.getElementById('betsContainer');
-            betsContainer.style.display = 'grid';
-            
-            // Render bets
-            renderUserBets();
-        }
-
-        function renderUserBets() {
-            const container = document.getElementById('betsContainer');
-            
-            if (userBets.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-history"></i>
-                        <p>No bets placed yet</p>
-                        <p style="font-size: 14px; margin-top: 10px;">Place your first bet on upcoming matches!</p>
-                    </div>
-                `;
-                return;
-            }
-
-            container.innerHTML = '';
-            
-            userBets.forEach(bet => {
-                const statusColor = {
-                    'pending': '#f8961e',
-                    'won': '#4cc9f0',
-                    'lost': '#f72585',
-                    'cancelled': '#64748b'
-                };
-
-                const betCard = document.createElement('div');
-                betCard.className = 'match-card';
-                betCard.innerHTML = `
-                    <div class="match-header">
-                        <div class="match-title">
-                            <i class="fas fa-receipt"></i>
-                            BET #${bet.id.substring(0, 8)}
-                        </div>
-                        <div class="match-time">
-                            <i class="fas fa-calendar-alt"></i>
-                            ${formatDate(bet.placedAt)}
-                        </div>
-                    </div>
-                    
-                    <div style="margin: 20px 0;">
-                        <div style="text-align: center; margin-bottom: 15px;">
-                            <div style="font-size: 20px; font-weight: bold; color: white;">
-                                ${bet.matchTitle}
-                            </div>
-                            <div style="color: #94a3b8; font-size: 14px;">
-                                ${formatDate(bet.matchTime)}
-                            </div>
-                        </div>
-                        
-                        <div style="background: rgba(255, 255, 255, 0.05); padding: 15px; border-radius: 10px; margin-bottom: 15px;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                                <span style="color: #94a3b8;">Bet On:</span>
-                                <span style="font-weight: bold; color: #4cc9f0;">${bet.team}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                                <span style="color: #94a3b8;">Amount:</span>
-                                <span style="font-weight: bold; color: white;">${formatCurrency(bet.amount)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                                <span style="color: #94a3b8;">Odds:</span>
-                                <span style="font-weight: bold; color: #f72585;">${bet.odds.toFixed(2)}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #94a3b8;">Potential Win:</span>
-                                <span style="font-weight: bold; color: #4cc9f0;">${formatCurrency(bet.potentialWin)}</span>
-                            </div>
-                        </div>
-                        
-                        <div style="text-align: center;">
-                            <span style="display: inline-block; padding: 8px 20px; background: ${statusColor[bet.status] || '#64748b'}; 
-                                   border-radius: 20px; font-weight: bold; color: white;">
-                                ${bet.status.toUpperCase()}
-                            </span>
-                        </div>
-                    </div>
-                `;
-                
-                container.appendChild(betCard);
-            });
-        }
-
-        // ====================
-        // TAB NAVIGATION
-        // ====================
-        function showMatches(status) {
-            // Update tabs
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            event.target.classList.add('active');
-            
-            // Show matches container
-            document.getElementById('matchesContainer').style.display = 'grid';
-            document.getElementById('betsContainer').style.display = 'none';
-            
-            // Load matches
-            loadFootballMatches(status);
-        }
-
-        // ====================
-        // INITIALIZATION
-        // ====================
-        async function initializeFootballMatches() {
-            // Create sample matches if they don't exist
-            try {
-                const matchesSnapshot = await db.collection('football_matches').limit(1).get();
-                
-                if (matchesSnapshot.empty) {
-                    // Create some sample matches
-                    const sampleMatches = [
-                        {
-                            team1: "Manchester City",
-                            team2: "Liverpool",
-                            team1Flag: "🔵",
-                            team2Flag: "🔴",
-                            odds1: 2.10,
-                            oddsDraw: 3.40,
-                            odds2: 3.10,
-                            league: "PREMIER LEAGUE",
-                            status: "upcoming",
-                            matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000))
-                        },
-                        {
-                            team1: "Real Madrid",
-                            team2: "Barcelona",
-                            team1Flag: "⚪",
-                            team2Flag: "🔵🔴",
-                            odds1: 2.30,
-                            oddsDraw: 3.25,
-                            odds2: 2.90,
-                            league: "LA LIGA",
-                            status: "upcoming",
-                            matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000))
-                        },
-                        {
-                            team1: "Bayern Munich",
-                            team2: "Borussia Dortmund",
-                            team1Flag: "🔴",
-                            team2Flag: "🟡",
-                            odds1: 1.80,
-                            oddsDraw: 3.60,
-                            odds2: 4.20,
-                            league: "BUNDESLIGA",
-                            status: "upcoming",
-                            matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000))
-                        },
-                        {
-                            team1: "PSG",
-                            team2: "Marseille",
-                            team1Flag: "🔵🔴",
-                            team2Flag: "🔵⚪",
-                            odds1: 1.65,
-                            oddsDraw: 3.80,
-                            odds2: 4.50,
-                            league: "LIGUE 1",
-                            status: "upcoming",
-                            matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000))
-                        },
-                        {
-                            team1: "AC Milan",
-                            team2: "Inter Milan",
-                            team1Flag: "🔴⚫",
-                            team2Flag: "🔵⚫",
-                            odds1: 2.70,
-                            oddsDraw: 3.10,
-                            odds2: 2.50,
-                            league: "SERIE A",
-                            status: "upcoming",
-                            matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 5 * 24 * 60 * 60 * 1000))
-                        }
-                    ];
-
-                    // Add all sample matches
-                    for (const match of sampleMatches) {
-                        await db.collection('football_matches').add(match);
-                    }
-                    
-                    console.log("Sample matches created successfully");
+                // Check if user is authenticated
+                if (!currentUser) {
+                    showToast('error', 'You must be logged in to create matches');
+                    return;
                 }
+
+                const sampleMatches = [
+                    {
+                        team1: "Manchester City",
+                        team2: "Liverpool",
+                        team1Flag: "🔵",
+                        team2Flag: "🔴",
+                        odds1: 2.10,
+                        oddsDraw: 3.40,
+                        odds2: 3.10,
+                        league: "PREMIER LEAGUE",
+                        status: "upcoming",
+                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
+                        sport: "football"
+                    },
+                    {
+                        team1: "Real Madrid",
+                        team2: "Barcelona",
+                        team1Flag: "⚪",
+                        team2Flag: "🔵🔴",
+                        odds1: 2.30,
+                        oddsDraw: 3.25,
+                        odds2: 2.90,
+                        league: "LA LIGA",
+                        status: "upcoming",
+                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)),
+                        sport: "football"
+                    },
+                    {
+                        team1: "Bayern Munich",
+                        team2: "Borussia Dortmund",
+                        team1Flag: "🔴",
+                        team2Flag: "🟡",
+                        odds1: 1.80,
+                        oddsDraw: 3.60,
+                        odds2: 4.20,
+                        league: "BUNDESLIGA",
+                        status: "upcoming",
+                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)),
+                        sport: "football"
+                    }
+                ];
+
+                // Add to football_matches collection (requires auth)
+                for (const match of sampleMatches) {
+                    await db.collection('football_matches').add(match);
+                }
+                
+                showToast('success', 'Sample matches created successfully!');
+                
+                // Reload matches
+                await loadFootballMatches();
+                
             } catch (error) {
-                console.error("Error creating sample matches:", error);
+                console.error('Error creating matches:', error);
+                showToast('error', `Failed to create matches: ${error.message}`);
             }
         }
 
@@ -1302,16 +1089,8 @@
         // ====================
         function logout() {
             auth.signOut();
-            window.location.href = 'index.html'; // Change to your login page
+            window.location.href = 'index.html';
         }
-
-        // ====================
-        // INITIALIZE ON LOAD
-        // ====================
-        document.addEventListener('DOMContentLoaded', async function() {
-            // Initialize sample matches if needed
-            await initializeFootballMatches();
-        });
     </script>
 </body>
 </html>
