@@ -16,9 +16,6 @@
     <!-- Toastify -->
     <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
     
-    <!-- Animate.css for animations -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
-    
     <style>
         :root {
             --primary: #4361ee;
@@ -61,6 +58,7 @@
             justify-content: center;
             align-items: center;
             z-index: 9999;
+            transition: opacity 0.5s ease;
         }
 
         .spinner {
@@ -75,6 +73,10 @@
 
         @keyframes spin {
             to { transform: rotate(360deg); }
+        }
+
+        .hide {
+            display: none !important;
         }
 
         /* Game Container */
@@ -96,7 +98,6 @@
             background: rgba(15, 52, 96, 0.8);
             border-radius: 15px;
             margin-bottom: 20px;
-            backdrop-filter: blur(10px);
             border: 2px solid var(--slot-frame);
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
         }
@@ -160,19 +161,6 @@
             box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
             position: relative;
             overflow: hidden;
-        }
-
-        .slot-machine::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
-            background-size: 30px 30px;
-            opacity: 0.2;
-            z-index: 0;
         }
 
         .reels-container {
@@ -385,9 +373,8 @@
             text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
         }
 
-        /* Paytable Modal */
+        /* Modals */
         .modal {
-            display: none;
             position: fixed;
             top: 0;
             left: 0;
@@ -395,8 +382,17 @@
             height: 100%;
             background: rgba(0, 0, 0, 0.8);
             z-index: 1000;
+            display: flex;
             justify-content: center;
             align-items: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+
+        .modal.active {
+            opacity: 1;
+            visibility: visible;
         }
 
         .modal-content {
@@ -408,6 +404,12 @@
             max-height: 80vh;
             overflow-y: auto;
             border: 3px solid var(--slot-frame);
+            transform: translateY(-20px);
+            transition: transform 0.3s;
+        }
+
+        .modal.active .modal-content {
+            transform: translateY(0);
         }
 
         .modal-header {
@@ -423,25 +425,12 @@
             color: white;
             font-size: 2rem;
             cursor: pointer;
-        }
-
-        .paytable-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-        }
-
-        .paytable-item {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            transition: transform 0.3s;
-        }
-
-        .paytable-item:hover {
-            transform: translateY(-5px);
-            background: rgba(255, 255, 255, 0.2);
+            padding: 0;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         /* Footer */
@@ -465,6 +454,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            text-decoration: none;
         }
 
         .btn-home {
@@ -559,41 +549,18 @@
             100% { transform: scale(1); }
         }
 
-        .jackpot-animation {
-            animation: jackpot 1s infinite alternate;
-        }
-
-        @keyframes jackpot {
-            0% { color: #ffd700; text-shadow: 0 0 10px #ffd700; }
-            100% { color: #ff6b6b; text-shadow: 0 0 20px #ff6b6b; }
-        }
-
-        /* Sound Controls */
-        .sound-controls {
+        /* Debug Button */
+        .debug-btn {
             position: fixed;
             bottom: 20px;
-            right: 20px;
-            z-index: 100;
-        }
-
-        .sound-btn {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            background: rgba(0, 0, 0, 0.5);
-            border: 2px solid var(--primary);
+            left: 20px;
+            background: var(--danger);
             color: white;
-            font-size: 1.2rem;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
             cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s;
-        }
-
-        .sound-btn:hover {
-            background: var(--primary);
-            transform: scale(1.1);
+            z-index: 1000;
         }
     </style>
 </head>
@@ -603,6 +570,9 @@
         <div class="spinner"></div>
         <h2>Loading Slots Game...</h2>
         <p>Preparing your gaming experience</p>
+        <button id="skipAuthBtn" style="margin-top: 20px; padding: 10px 20px; background: var(--primary); color: white; border: none; border-radius: 5px; cursor: pointer;">
+            Skip Authentication (Debug)
+        </button>
     </div>
 
     <!-- Player Name Modal -->
@@ -610,15 +580,19 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2>Welcome to Millioner Slots!</h2>
+                <button class="close-modal" onclick="closeModal('playerNameModal')">&times;</button>
             </div>
             <div style="text-align: center; padding: 30px;">
                 <i class="fas fa-user-circle" style="font-size: 4rem; color: var(--primary); margin-bottom: 20px;"></i>
-                <h3 style="margin-bottom: 20px;">Enter Your Name</h3>
-                <input type="text" id="playerNameInput" placeholder="Your name" 
+                <h3 style="margin-bottom: 20px;">Enter Your Player Name</h3>
+                <input type="text" id="playerNameInput" placeholder="Enter your name" 
                        style="width: 100%; padding: 15px; font-size: 1.2rem; border-radius: 8px; border: 2px solid var(--primary); background: rgba(255,255,255,0.1); color: white; margin-bottom: 20px;">
                 <button class="btn btn-home" onclick="startGame()" style="width: 100%; font-size: 1.2rem;">
                     <i class="fas fa-play"></i> Start Playing
                 </button>
+                <p style="margin-top: 15px; color: #aaa; font-size: 0.9rem;">
+                    You will receive $100 starting balance
+                </p>
             </div>
         </div>
     </div>
@@ -630,55 +604,56 @@
                 <h2><i class="fas fa-coins"></i> Paytable & Rules</h2>
                 <button class="close-modal" onclick="closeModal('paytableModal')">&times;</button>
             </div>
-            <div class="paytable-grid">
-                <div class="paytable-item">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px;">
+                <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; text-align: center;">
                     <div style="font-size: 3rem;">💎</div>
                     <h3>5 Diamonds</h3>
                     <p style="color: var(--win-glow); font-size: 1.5rem; font-weight: bold;">500x</p>
                 </div>
-                <div class="paytable-item">
+                <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; text-align: center;">
                     <div style="font-size: 3rem;">7️⃣</div>
                     <h3>5 Sevens</h3>
                     <p style="color: var(--win-glow); font-size: 1.5rem; font-weight: bold;">200x</p>
                 </div>
-                <div class="paytable-item">
+                <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; text-align: center;">
                     <div style="font-size: 3rem;">💵</div>
                     <h3>5 Money Bags</h3>
                     <p style="color: var(--win-glow); font-size: 1.5rem; font-weight: bold;">100x</p>
                 </div>
-                <div class="paytable-item">
+                <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; text-align: center;">
                     <div style="font-size: 3rem;">🔔</div>
                     <h3>5 Bells</h3>
                     <p style="color: var(--win-glow); font-size: 1.5rem; font-weight: bold;">50x</p>
                 </div>
-                <div class="paytable-item">
+                <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; text-align: center;">
                     <div style="font-size: 3rem;">🍒</div>
                     <h3>5 Cherries</h3>
                     <p style="color: var(--win-glow); font-size: 1.5rem; font-weight: bold;">25x</p>
                 </div>
-                <div class="paytable-item">
+                <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; text-align: center;">
                     <div style="font-size: 3rem;">⭐</div>
                     <h3>5 Stars</h3>
                     <p style="color: var(--win-glow); font-size: 1.5rem; font-weight: bold;">10x</p>
                 </div>
             </div>
-            <div style="margin-top: 30px; padding: 20px; background: rgba(0,0,0,0.3); border-radius: 10px;">
+            <div style="padding: 20px; background: rgba(0,0,0,0.3); border-radius: 10px;">
                 <h3><i class="fas fa-info-circle"></i> Game Rules</h3>
-                <ul style="margin-top: 15px; padding-left: 20px;">
-                    <li>Minimum bet: $1</li>
-                    <li>Maximum bet: $100</li>
-                    <li>Game RTP: 96.5%</li>
-                    <li>Win rate: ~10% (90% lose rate)</li>
+                <ul style="margin-top: 15px; padding-left: 20px; line-height: 1.8;">
+                    <li>Minimum bet: <strong>$1</strong></li>
+                    <li>Maximum bet: <strong>$100</strong></li>
+                    <li>Game RTP: <strong>96.5%</strong></li>
+                    <li>Win rate: <strong>~10%</strong> (90% lose rate)</li>
                     <li>5 reels, 3 rows, 20 paylines</li>
                     <li>Wins pay from left to right</li>
-                    <li>Max win per spin: $10,000</li>
+                    <li>Max win per spin: <strong>$10,000</strong></li>
+                    <li>Starting balance: <strong>$100</strong></li>
                 </ul>
             </div>
         </div>
     </div>
 
     <!-- Game Container -->
-    <div class="game-container" id="gameContainer" style="display: none;">
+    <div class="game-container hide" id="gameContainer">
         <!-- Header -->
         <div class="game-header">
             <div class="logo">
@@ -688,7 +663,7 @@
                 <h1>MILLIONER SLOTS</h1>
             </div>
             <div class="player-info">
-                <div class="balance-display" id="balanceDisplay">$0</div>
+                <div class="balance-display" id="balanceDisplay">$100.00</div>
                 <div class="player-name" id="playerNameDisplay">Player</div>
             </div>
         </div>
@@ -759,7 +734,7 @@
                     <h3><i class="fas fa-money-bill-wave"></i> Bet Amount</h3>
                     <div class="bet-amount">
                         <button class="bet-btn" onclick="changeBet(-1)">-</button>
-                        <div class="bet-display" id="betAmount">$1</div>
+                        <div class="bet-display" id="betAmount">$1.00</div>
                         <button class="bet-btn" onclick="changeBet(1)">+</button>
                     </div>
                     <button class="btn max-bet-btn" onclick="setMaxBet()">
@@ -781,7 +756,7 @@
                 <div class="info-panel">
                     <div class="win-display">
                         <div style="font-size: 0.9rem; color: #aaa;">LAST WIN</div>
-                        <div class="win-amount" id="lastWinAmount">$0</div>
+                        <div class="win-amount" id="lastWinAmount">$0.00</div>
                     </div>
                     <button class="btn btn-help" onclick="openModal('paytableModal')">
                         <i class="fas fa-question-circle"></i> PAYTABLE
@@ -792,27 +767,17 @@
 
         <!-- Footer -->
         <div class="game-footer">
-            <button class="btn btn-home" onclick="goHome()">
+            <a href="index.html" class="btn btn-home">
                 <i class="fas fa-home"></i> Back to Home
-            </button>
+            </a>
             <div style="color: #aaa; font-size: 0.9rem;">
                 <i class="fas fa-shield-alt"></i> Certified Fair RNG
             </div>
         </div>
     </div>
 
-    <!-- Sound Control -->
-    <div class="sound-controls">
-        <button class="sound-btn" onclick="toggleSound()">
-            <i class="fas fa-volume-up" id="soundIcon"></i>
-        </button>
-    </div>
-
     <!-- Toastify JS -->
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
-    
-    <!-- Howler.js for Sound -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
 
     <script>
         // ====================
@@ -829,20 +794,24 @@
         };
 
         // Initialize Firebase
-        const app = firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
+        let app, auth, db;
+        try {
+            app = firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+            db = firebase.firestore();
+            console.log("Firebase initialized successfully");
+        } catch (error) {
+            console.error("Firebase initialization error:", error);
+        }
 
         // ====================
         // GAME VARIABLES
         // ====================
-        let playerName = "";
-        let userId = "";
-        let userBalance = 0;
+        let playerName = "Player";
+        let userId = null;
+        let userBalance = 100;
         let currentBet = 1;
         let isSpinning = false;
-        let autoSpin = false;
-        let soundEnabled = true;
         let isAutoSpinning = false;
         let autoSpinCount = 0;
         let maxAutoSpins = 10;
@@ -850,10 +819,9 @@
         // Game Configuration
         const REELS_COUNT = 5;
         const ROWS_COUNT = 3;
-        const SYMBOLS_COUNT = 20; // Total symbols in each reel strip
-        const VISIBLE_SYMBOLS = 3; // Visible symbols per reel
+        const SYMBOLS_COUNT = 20;
         
-        // Symbols configuration with weighted probabilities
+        // Symbols with weights and payouts
         const SYMBOLS = [
             { icon: '🍒', name: 'Cherry', weight: 30, value: [0,0,2,5,25] },
             { icon: '🔔', name: 'Bell', weight: 25, value: [0,0,5,10,50] },
@@ -863,19 +831,9 @@
             { icon: '💎', name: 'Diamond', weight: 2, value: [50,100,200,500,1000] }
         ];
 
-        // Total weight for probability calculation
         const TOTAL_WEIGHT = SYMBOLS.reduce((sum, sym) => sum + sym.weight, 0);
 
-        // Paylines configuration [reel1_row, reel2_row, reel3_row, reel4_row, reel5_row]
-        const PAYLINES = [
-            [1, 1, 1, 1, 1], // Middle line
-            [0, 0, 0, 0, 0], // Top line
-            [2, 2, 2, 2, 2], // Bottom line
-            [0, 1, 2, 1, 0], // V shape
-            [2, 1, 0, 1, 2]  // Inverse V
-        ];
-
-        // Active paylines with multipliers
+        // Active paylines
         let activePaylines = [
             { id: 1, active: true, multiplier: 1 },
             { id: 2, active: false, multiplier: 2 },
@@ -884,19 +842,8 @@
             { id: 5, active: false, multiplier: 10 }
         ];
 
-        // Reel strips (generated based on symbol weights)
         let reelStrips = [];
-
-        // Current reel positions
         let reelPositions = [];
-
-        // Sound effects
-        let sounds = {
-            spin: null,
-            win: null,
-            reelStop: null,
-            click: null
-        };
 
         // ====================
         // UTILITY FUNCTIONS
@@ -929,44 +876,67 @@
         }
 
         function openModal(modalId) {
-            document.getElementById(modalId).style.display = 'flex';
+            document.getElementById(modalId).classList.add('active');
         }
 
         function closeModal(modalId) {
-            document.getElementById(modalId).style.display = 'none';
+            document.getElementById(modalId).classList.remove('active');
         }
 
-        function generateReelStrip() {
-            const strip = [];
-            for (let i = 0; i < SYMBOLS_COUNT; i++) {
-                let rand = Math.random() * TOTAL_WEIGHT;
-                let cumulativeWeight = 0;
-                
-                for (const symbol of SYMBOLS) {
-                    cumulativeWeight += symbol.weight;
-                    if (rand <= cumulativeWeight) {
-                        strip.push(symbol);
-                        break;
-                    }
-                }
-            }
-            return strip;
+        function hideLoading() {
+            const loadingScreen = document.getElementById('loadingScreen');
+            loadingScreen.style.opacity = '0';
+            setTimeout(() => {
+                loadingScreen.classList.add('hide');
+            }, 500);
         }
 
-        function initializeGame() {
+        function showGame() {
+            document.getElementById('gameContainer').classList.remove('hide');
+        }
+
+        // ====================
+        // GAME INITIALIZATION
+        // ====================
+        function initGame() {
+            console.log("Initializing game...");
+            
             // Generate reel strips
-            reelStrips = [];
-            for (let i = 0; i < REELS_COUNT; i++) {
-                reelStrips.push(generateReelStrip());
-            }
+            generateReelStrips();
             
             // Initialize reel positions
-            reelPositions = [];
-            for (let i = 0; i < REELS_COUNT; i++) {
-                reelPositions.push(Math.floor(Math.random() * SYMBOLS_COUNT));
-            }
+            reelPositions = Array(REELS_COUNT).fill(0).map(() => Math.floor(Math.random() * SYMBOLS_COUNT));
             
-            // Generate reels HTML
+            // Create reels in DOM
+            createReels();
+            
+            // Update display
+            updateDisplay();
+            
+            console.log("Game initialized successfully");
+        }
+
+        function generateReelStrips() {
+            reelStrips = [];
+            for (let i = 0; i < REELS_COUNT; i++) {
+                const strip = [];
+                for (let j = 0; j < SYMBOLS_COUNT; j++) {
+                    let rand = Math.random() * TOTAL_WEIGHT;
+                    let cumulativeWeight = 0;
+                    
+                    for (const symbol of SYMBOLS) {
+                        cumulativeWeight += symbol.weight;
+                        if (rand <= cumulativeWeight) {
+                            strip.push(symbol);
+                            break;
+                        }
+                    }
+                }
+                reelStrips.push(strip);
+            }
+        }
+
+        function createReels() {
             const reelsContainer = document.getElementById('reelsContainer');
             reelsContainer.innerHTML = '';
             
@@ -979,8 +949,8 @@
                 stripDiv.className = 'reel-strip';
                 stripDiv.id = `reelStrip${i}`;
                 
-                // Create visible symbols plus some extra for smooth animation
-                for (let j = -1; j < VISIBLE_SYMBOLS + 2; j++) {
+                // Add buffer symbols before and after for smooth animation
+                for (let j = -1; j < ROWS_COUNT + 2; j++) {
                     const symbolDiv = document.createElement('div');
                     symbolDiv.className = 'symbol';
                     const pos = (reelPositions[i] + j + SYMBOLS_COUNT) % SYMBOLS_COUNT;
@@ -992,205 +962,137 @@
                 reelDiv.appendChild(stripDiv);
                 reelsContainer.appendChild(reelDiv);
             }
-            
-            updateDisplay();
         }
 
         // ====================
-        // SOUND FUNCTIONS
-        // ====================
-        function initSounds() {
-            // Create sound objects
-            sounds.spin = new Howl({
-                src: ['https://assets.mixkit.co/sfx/preview/mixkit-slot-machine-spin-1092.mp3'],
-                volume: 0.5
-            });
-            
-            sounds.win = new Howl({
-                src: ['https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3'],
-                volume: 0.7
-            });
-            
-            sounds.reelStop = new Howl({
-                src: ['https://assets.mixkit.co/sfx/preview/mixkit-arcade-game-jump-coin-216.mp3'],
-                volume: 0.3
-            });
-            
-            sounds.click = new Howl({
-                src: ['https://assets.mixkit.co/sfx/preview/mixkit-select-click-1109.mp3'],
-                volume: 0.2
-            });
-        }
-
-        function playSound(soundName) {
-            if (soundEnabled && sounds[soundName]) {
-                sounds[soundName].play();
-            }
-        }
-
-        function toggleSound() {
-            soundEnabled = !soundEnabled;
-            const icon = document.getElementById('soundIcon');
-            icon.className = soundEnabled ? 'fas fa-volume-up' : 'fas fa-volume-mute';
-            showToast('info', soundEnabled ? 'Sound enabled' : 'Sound muted');
-        }
-
-        // ====================
-        // FIREBASE FUNCTIONS
+        // AUTHENTICATION
         // ====================
         async function checkAuth() {
-            return new Promise((resolve) => {
-                auth.onAuthStateChanged(async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        await loadUserData();
-                        resolve(true);
-                    } else {
-                        // User not logged in, show name modal
-                        showPlayerNameModal();
-                        resolve(false);
-                    }
-                });
-            });
+            console.log("Checking authentication...");
+            
+            try {
+                // Try to sign in anonymously first
+                const userCredential = await auth.signInAnonymously();
+                userId = userCredential.user.uid;
+                console.log("Signed in anonymously with ID:", userId);
+                
+                // Load or create user data
+                await loadUserData();
+                
+                // Show player name modal
+                setTimeout(() => {
+                    hideLoading();
+                    openModal('playerNameModal');
+                }, 1000);
+                
+            } catch (error) {
+                console.error("Authentication error:", error);
+                // If Firebase fails, start game offline
+                startGameOffline();
+            }
         }
 
         async function loadUserData() {
             try {
+                if (!userId) return;
+                
                 const userDoc = await db.collection('wallets').doc(userId).get();
                 if (userDoc.exists) {
                     const userData = userDoc.data();
-                    userBalance = userData.balance || 0;
-                    playerName = userData.username || 'Player';
-                    
-                    // Update display
-                    document.getElementById('balanceDisplay').textContent = formatCurrency(userBalance);
-                    document.getElementById('playerNameDisplay').textContent = playerName;
-                    
-                    showToast('success', `Welcome back, ${playerName}!`);
+                    userBalance = userData.balance || 100;
+                    playerName = userData.username || "Player";
+                    console.log("Loaded user data:", { userBalance, playerName });
                 } else {
-                    // Create wallet for new user
+                    // Create new wallet
                     await createUserWallet();
                 }
             } catch (error) {
-                console.error('Error loading user data:', error);
-                showToast('error', 'Failed to load user data');
+                console.error("Error loading user data:", error);
+                // Use default values if Firebase fails
+                userBalance = 100;
+                playerName = "Player";
             }
         }
 
         async function createUserWallet() {
             try {
                 await db.collection('wallets').doc(userId).set({
-                    balance: 100, // Starting balance
+                    balance: 100,
                     username: playerName,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
                     status: 'active'
                 });
-                
-                userBalance = 100;
-                updateDisplay();
-                showToast('success', 'Welcome! You received $100 starting balance');
+                console.log("Created user wallet");
             } catch (error) {
-                console.error('Error creating wallet:', error);
-                showToast('error', 'Failed to create wallet');
-            }
-        }
-
-        async function updateBalance(amount, type) {
-            try {
-                const newBalance = userBalance + amount;
-                
-                // Update local balance
-                userBalance = newBalance;
-                updateDisplay();
-                
-                // Update Firebase
-                await db.collection('wallets').doc(userId).update({
-                    balance: newBalance,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-                // Record transaction
-                await db.collection('transactions').add({
-                    userId: userId,
-                    type: type,
-                    amount: Math.abs(amount),
-                    previousBalance: userBalance - amount,
-                    newBalance: userBalance,
-                    description: type === 'bet' ? `Slot machine bet` : `Slot machine win`,
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    game: 'slots'
-                });
-                
-                // Send to admin logs if it's a significant win
-                if (amount > 100 && type === 'win') {
-                    await db.collection('admin_logs').add({
-                        adminId: 'system',
-                        action: 'big_win',
-                        playerId: userId,
-                        playerName: playerName,
-                        amount: amount,
-                        game: 'slots',
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                }
-                
-                return true;
-            } catch (error) {
-                console.error('Error updating balance:', error);
-                return false;
+                console.error("Error creating wallet:", error);
             }
         }
 
         // ====================
-        // GAME LOGIC
+        // GAME FUNCTIONS
         // ====================
-        function showPlayerNameModal() {
-            openModal('playerNameModal');
-            document.getElementById('loadingScreen').style.display = 'none';
-        }
-
         function startGame() {
-            playerName = document.getElementById('playerNameInput').value.trim();
-            if (!playerName) {
-                playerName = 'Player';
+            const nameInput = document.getElementById('playerNameInput').value.trim();
+            if (nameInput) {
+                playerName = nameInput;
             }
             
-            // Sign in anonymously or create user
-            auth.signInAnonymously()
-                .then(() => {
-                    closeModal('playerNameModal');
-                    document.getElementById('gameContainer').style.display = 'block';
-                    document.getElementById('playerNameDisplay').textContent = playerName;
-                    
-                    // Initialize sounds and game
-                    initSounds();
-                    initializeGame();
-                    
-                    showToast('success', `Welcome to Millioner Slots, ${playerName}!`);
-                })
-                .catch(error => {
-                    console.error('Auth error:', error);
-                    showToast('error', 'Failed to start game');
-                });
+            // Update player name display
+            document.getElementById('playerNameDisplay').textContent = playerName;
+            
+            // Close modal and show game
+            closeModal('playerNameModal');
+            showGame();
+            
+            // Initialize game
+            initGame();
+            
+            // Save player name to Firebase if authenticated
+            if (userId) {
+                db.collection('wallets').doc(userId).update({
+                    username: playerName
+                }).catch(console.error);
+            }
+            
+            showToast('success', `Welcome, ${playerName}! You have ${formatCurrency(userBalance)} to play with.`);
+        }
+
+        function startGameOffline() {
+            console.log("Starting game offline mode");
+            hideLoading();
+            
+            // Set default values
+            userBalance = 100;
+            playerName = "Player";
+            
+            // Show player name modal
+            openModal('playerNameModal');
         }
 
         function changeBet(amount) {
-            playSound('click');
-            
             const newBet = currentBet + amount;
-            if (newBet >= 1 && newBet <= 100 && newBet <= userBalance) {
-                currentBet = newBet;
-                document.getElementById('betAmount').textContent = formatCurrency(currentBet);
-            } else if (newBet > 100) {
-                showToast('warning', 'Maximum bet is $100');
-            } else if (newBet > userBalance) {
-                showToast('error', 'Insufficient balance');
+            
+            if (newBet < 1) {
+                showToast('error', 'Minimum bet is $1');
+                return;
             }
+            
+            if (newBet > 100) {
+                showToast('error', 'Maximum bet is $100');
+                return;
+            }
+            
+            if (newBet > userBalance) {
+                showToast('error', 'Insufficient balance');
+                return;
+            }
+            
+            currentBet = newBet;
+            document.getElementById('betAmount').textContent = formatCurrency(currentBet);
         }
 
         function setMaxBet() {
-            playSound('click');
             const maxBet = Math.min(100, userBalance);
             if (maxBet >= 1) {
                 currentBet = maxBet;
@@ -1206,11 +1108,8 @@
             if (lineIndex !== -1) {
                 activePaylines[lineIndex].active = !activePaylines[lineIndex].active;
                 
-                // Update UI
-                const lineElements = document.querySelectorAll('.payline');
-                lineElements[lineId - 1].classList.toggle('active');
-                
-                playSound('click');
+                const lineElement = document.querySelectorAll('.payline')[lineId - 1];
+                lineElement.classList.toggle('active');
             }
         }
 
@@ -1218,143 +1117,136 @@
             return activePaylines.filter(line => line.active).length;
         }
 
+        function updateDisplay() {
+            document.getElementById('balanceDisplay').textContent = formatCurrency(userBalance);
+            document.getElementById('betAmount').textContent = formatCurrency(currentBet);
+            
+            const spinBtn = document.getElementById('spinBtn');
+            const totalBet = currentBet * getActivePaylinesCount();
+            spinBtn.disabled = isSpinning || userBalance < totalBet || totalBet === 0;
+        }
+
         async function spin() {
             if (isSpinning) return;
             
-            const totalBet = currentBet * getActivePaylinesCount();
+            const activeLines = getActivePaylinesCount();
+            const totalBet = currentBet * activeLines;
             
-            // Check balance
-            if (userBalance < totalBet) {
+            // Validations
+            if (totalBet > userBalance) {
                 showToast('error', 'Insufficient balance');
                 return;
             }
             
-            // Check if bet is valid
             if (totalBet <= 0) {
                 showToast('error', 'Please activate at least one payline');
                 return;
             }
             
-            // Deduct bet
-            const success = await updateBalance(-totalBet, 'bet');
-            if (!success) {
-                showToast('error', 'Failed to place bet');
-                return;
-            }
-            
+            // Start spinning
             isSpinning = true;
+            userBalance -= totalBet;
+            updateDisplay();
+            
             const spinBtn = document.getElementById('spinBtn');
             spinBtn.disabled = true;
             spinBtn.classList.add('spinning');
             spinBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> SPINNING';
             
-            playSound('spin');
-            
-            // Generate new random positions for reels
+            // Generate new positions with 10% win rate
             const newPositions = [];
             for (let i = 0; i < REELS_COUNT; i++) {
-                // Apply 10% win rate: 90% of spins lose
-                if (Math.random() > 0.1) { // 90% chance of losing spin
-                    // Make sure it's not a winning combination
+                if (Math.random() > 0.1) { // 90% lose
                     newPositions.push(Math.floor(Math.random() * SYMBOLS_COUNT));
-                } else { // 10% chance of potential win
-                    // Slightly bias toward better symbols
+                } else { // 10% win
                     newPositions.push(Math.floor(Math.random() * (SYMBOLS_COUNT * 0.3)));
                 }
             }
             
             // Animate reels
-            const reelPromises = [];
-            for (let i = 0; i < REELS_COUNT; i++) {
-                reelPromises.push(spinReel(i, newPositions[i]));
+            await animateReels(newPositions);
+            
+            // Update positions
+            reelPositions = newPositions;
+            
+            // Evaluate wins
+            const winResult = evaluateWins();
+            
+            // Process win
+            if (winResult.totalWin > 0) {
+                userBalance += winResult.totalWin;
+                document.getElementById('lastWinAmount').textContent = formatCurrency(winResult.totalWin);
+                document.getElementById('lastWinAmount').classList.add('win-animation');
+                showWinAnimation(winResult.winningLines);
+                showToast('success', `You won ${formatCurrency(winResult.totalWin)}!`);
+                
+                // Record transaction if online
+                if (userId) {
+                    recordTransaction(totalBet, winResult.totalWin);
+                }
+            } else {
+                document.getElementById('lastWinAmount').textContent = '$0.00';
+                showToast('info', 'No win this time. Try again!');
             }
             
-            // Wait for all reels to stop
-            Promise.all(reelPromises).then(() => {
-                // Update positions
-                reelPositions = newPositions;
+            // Reset spin button
+            setTimeout(() => {
+                spinBtn.disabled = false;
+                spinBtn.classList.remove('spinning');
+                spinBtn.innerHTML = '<i class="fas fa-play"></i> SPIN';
+                isSpinning = false;
+                updateDisplay();
                 
-                // Evaluate wins
-                const winResult = evaluateWins();
+                document.getElementById('lastWinAmount').classList.remove('win-animation');
                 
-                // Update win display
-                if (winResult.totalWin > 0) {
-                    document.getElementById('lastWinAmount').textContent = formatCurrency(winResult.totalWin);
-                    document.getElementById('lastWinAmount').classList.add('win-animation');
-                    
-                    // Add winnings to balance
-                    updateBalance(winResult.totalWin, 'win');
-                    
-                    // Play win sound and animation
-                    playSound('win');
-                    showWinAnimation(winResult.winningLines);
-                    
-                    showToast('success', `You won ${formatCurrency(winResult.totalWin)}!`);
-                } else {
-                    document.getElementById('lastWinAmount').textContent = '$0';
-                    showToast('info', 'No win this time. Try again!');
+                // Auto-spin logic
+                if (isAutoSpinning && autoSpinCount < maxAutoSpins && userBalance >= currentBet) {
+                    autoSpinCount++;
+                    setTimeout(spin, 1000);
+                } else if (isAutoSpinning) {
+                    toggleAutoSpin();
+                    showToast('info', 'Auto-spin completed');
                 }
-                
-                // Reset spin button
-                setTimeout(() => {
-                    spinBtn.disabled = false;
-                    spinBtn.classList.remove('spinning');
-                    spinBtn.innerHTML = '<i class="fas fa-play"></i> SPIN';
-                    isSpinning = false;
-                    
-                    document.getElementById('lastWinAmount').classList.remove('win-animation');
-                    
-                    // If auto-spin is enabled, spin again
-                    if (isAutoSpinning && autoSpinCount < maxAutoSpins && userBalance >= currentBet) {
-                        autoSpinCount++;
-                        setTimeout(spin, 1000);
-                    } else if (isAutoSpinning) {
-                        toggleAutoSpin(); // Stop auto-spin
-                        showToast('info', 'Auto-spin completed');
-                    }
-                }, 2000);
-            });
+            }, 2000);
         }
 
-        function spinReel(reelIndex, newPosition) {
-            return new Promise((resolve) => {
-                const reelStrip = document.getElementById(`reelStrip${reelIndex}`);
-                const currentPos = reelPositions[reelIndex];
-                
-                // Calculate distance to spin (add extra spins for effect)
-                const distance = (newPosition - currentPos + SYMBOLS_COUNT * 3) % SYMBOLS_COUNT + SYMBOLS_COUNT;
-                
-                // Animate the spin
-                reelStrip.style.transition = 'transform 0s';
-                reelStrip.style.transform = `translateY(0px)`;
-                
-                setTimeout(() => {
-                    reelStrip.style.transition = `transform ${2 + reelIndex * 0.3}s cubic-bezier(0.2, 0.8, 0.2, 1)`;
-                    reelStrip.style.transform = `translateY(-${distance * 120}px)`;
+        function animateReels(newPositions) {
+            const promises = [];
+            
+            for (let i = 0; i < REELS_COUNT; i++) {
+                promises.push(new Promise(resolve => {
+                    const reelStrip = document.getElementById(`reelStrip${i}`);
+                    const currentPos = reelPositions[i];
+                    const distance = (newPositions[i] - currentPos + SYMBOLS_COUNT * 3) % SYMBOLS_COUNT + SYMBOLS_COUNT;
                     
-                    // Play reel stop sound
-                    setTimeout(() => {
-                        playSound('reelStop');
-                    }, 2000 + reelIndex * 300);
+                    // Reset transition
+                    reelStrip.style.transition = 'transform 0s';
+                    reelStrip.style.transform = 'translateY(0px)';
                     
-                    // Resolve when animation completes
                     setTimeout(() => {
-                        // Update displayed symbols
-                        const symbols = reelStrip.querySelectorAll('.symbol');
-                        for (let i = 0; i < symbols.length; i++) {
-                            const pos = (newPosition + i - 1 + SYMBOLS_COUNT) % SYMBOLS_COUNT;
-                            symbols[i].textContent = reelStrips[reelIndex][pos].icon;
-                            symbols[i].dataset.symbol = reelStrips[reelIndex][pos].name;
-                        }
+                        reelStrip.style.transition = `transform ${2 + i * 0.3}s cubic-bezier(0.2, 0.8, 0.2, 1)`;
+                        reelStrip.style.transform = `translateY(-${distance * 120}px)`;
                         
-                        // Reset position for next spin
-                        reelStrip.style.transition = 'transform 0s';
-                        reelStrip.style.transform = `translateY(-120px)`;
-                        
-                        resolve();
-                    }, 2000 + reelIndex * 300);
-                }, 50);
-            });
+                        setTimeout(() => {
+                            // Update symbols
+                            const symbols = reelStrip.querySelectorAll('.symbol');
+                            for (let j = 0; j < symbols.length; j++) {
+                                const pos = (newPositions[i] + j - 1 + SYMBOLS_COUNT) % SYMBOLS_COUNT;
+                                symbols[j].textContent = reelStrips[i][pos].icon;
+                                symbols[j].dataset.symbol = reelStrips[i][pos].name;
+                            }
+                            
+                            // Reset for next spin
+                            reelStrip.style.transition = 'transform 0s';
+                            reelStrip.style.transform = 'translateY(-120px)';
+                            
+                            resolve();
+                        }, 2000 + i * 300);
+                    }, 50);
+                }));
+            }
+            
+            return Promise.all(promises);
         }
 
         function evaluateWins() {
@@ -1363,7 +1255,7 @@
                 winningLines: []
             };
             
-            // Get visible symbols matrix
+            // Get visible symbols
             const visibleSymbols = [];
             for (let reel = 0; reel < REELS_COUNT; reel++) {
                 const reelSymbols = [];
@@ -1378,16 +1270,19 @@
             activePaylines.forEach((payline, lineIndex) => {
                 if (!payline.active) return;
                 
-                const linePositions = PAYLINES[payline.id - 1];
-                const lineSymbols = [];
+                // Simple payline patterns
+                const patterns = [
+                    [1, 1, 1, 1, 1], // Middle
+                    [0, 0, 0, 0, 0], // Top
+                    [2, 2, 2, 2, 2], // Bottom
+                    [0, 1, 2, 1, 0], // V
+                    [2, 1, 0, 1, 2]  // Inverse V
+                ];
                 
-                // Get symbols on this payline
-                for (let reel = 0; reel < REELS_COUNT; reel++) {
-                    const row = linePositions[reel];
-                    lineSymbols.push(visibleSymbols[reel][row]);
-                }
+                const pattern = patterns[payline.id - 1];
+                const lineSymbols = pattern.map((row, reel) => visibleSymbols[reel][row]);
                 
-                // Check for consecutive matching symbols from left
+                // Check for consecutive matches
                 let consecutiveCount = 1;
                 for (let i = 1; i < lineSymbols.length; i++) {
                     if (lineSymbols[i].name === lineSymbols[0].name) {
@@ -1397,10 +1292,10 @@
                     }
                 }
                 
-                // If we have at least 3 matching symbols, it's a win
+                // Award win for 3+ matching symbols
                 if (consecutiveCount >= 3) {
                     const symbol = lineSymbols[0];
-                    const winMultiplier = symbol.value[consecutiveCount - 1]; // Get payout for number of symbols
+                    const winMultiplier = symbol.value[consecutiveCount - 1];
                     const lineWin = currentBet * winMultiplier * payline.multiplier;
                     
                     result.totalWin += lineWin;
@@ -1415,7 +1310,7 @@
                     for (let i = 0; i < consecutiveCount; i++) {
                         const reelDiv = document.getElementById(`reel${i}`);
                         const symbols = reelDiv.querySelectorAll('.symbol');
-                        symbols[linePositions[i] + 1].classList.add('winning'); // +1 for buffer symbol
+                        symbols[pattern[i] + 1].classList.add('winning');
                     }
                 }
             });
@@ -1424,7 +1319,6 @@
         }
 
         function showWinAnimation(winningLines) {
-            // Show win lines
             winningLines.forEach(win => {
                 const winLine = document.getElementById(`winLine${win.line}`);
                 winLine.style.opacity = '1';
@@ -1435,11 +1329,9 @@
                 
                 setTimeout(() => {
                     winLine.style.opacity = '0';
-                    winLine.style.animation = 'none';
                 }, 2000);
             });
             
-            // Remove winning highlights after animation
             setTimeout(() => {
                 document.querySelectorAll('.symbol.winning').forEach(symbol => {
                     symbol.classList.remove('winning');
@@ -1449,12 +1341,10 @@
 
         function toggleAutoSpin() {
             if (isAutoSpinning) {
-                // Stop auto-spin
                 isAutoSpinning = false;
                 autoSpinCount = 0;
                 showToast('info', 'Auto-spin stopped');
             } else {
-                // Start auto-spin
                 if (userBalance < currentBet) {
                     showToast('error', 'Insufficient balance');
                     return;
@@ -1467,63 +1357,72 @@
                 
                 isAutoSpinning = true;
                 autoSpinCount = 0;
-                showToast('success', 'Auto-spin started');
+                showToast('success', 'Auto-spin started (10 spins max)');
                 
                 // Start spinning
                 spin();
             }
         }
 
-        function updateDisplay() {
-            document.getElementById('balanceDisplay').textContent = formatCurrency(userBalance);
-            document.getElementById('betAmount').textContent = formatCurrency(currentBet);
-            
-            // Update spin button state
-            const spinBtn = document.getElementById('spinBtn');
-            spinBtn.disabled = isSpinning || userBalance < currentBet;
-        }
-
-        function goHome() {
-            window.location.href = 'https://xcrazybet.github.io/millioner/';
+        async function recordTransaction(betAmount, winAmount) {
+            try {
+                await db.collection('transactions').add({
+                    userId: userId,
+                    type: winAmount > 0 ? 'win' : 'loss',
+                    betAmount: betAmount,
+                    winAmount: winAmount,
+                    netAmount: winAmount - betAmount,
+                    game: 'slots',
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    playerName: playerName
+                });
+                
+                // Update balance in Firebase
+                await db.collection('wallets').doc(userId).update({
+                    balance: userBalance
+                });
+            } catch (error) {
+                console.error("Error recording transaction:", error);
+            }
         }
 
         // ====================
-        // INITIALIZATION
+        // EVENT LISTENERS
         // ====================
-        document.addEventListener('DOMContentLoaded', async function() {
-            // Check authentication
-            await checkAuth();
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("DOM loaded, starting game...");
             
-            // Set up event listeners
+            // Skip auth button for debugging
+            document.getElementById('skipAuthBtn').addEventListener('click', function() {
+                console.log("Skipping authentication...");
+                startGameOffline();
+            });
+            
+            // Player name input enter key
             document.getElementById('playerNameInput').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     startGame();
                 }
             });
             
-            // Initialize game when page loads
+            // Start authentication
             setTimeout(() => {
-                if (!userId) {
-                    document.getElementById('loadingScreen').style.display = 'none';
+                checkAuth();
+            }, 1000);
+            
+            // Keyboard shortcuts
+            document.addEventListener('keydown', function(e) {
+                if (e.code === 'Space' && !isSpinning) {
+                    e.preventDefault();
+                    spin();
+                } else if (e.code === 'ArrowUp') {
+                    e.preventDefault();
+                    changeBet(1);
+                } else if (e.code === 'ArrowDown') {
+                    e.preventDefault();
+                    changeBet(-1);
                 }
-            }, 2000);
-        });
-
-        // Keyboard shortcuts
-        document.addEventListener('keydown', function(e) {
-            if (e.code === 'Space' && !isSpinning) {
-                e.preventDefault();
-                spin();
-            } else if (e.code === 'ArrowUp') {
-                e.preventDefault();
-                changeBet(1);
-            } else if (e.code === 'ArrowDown') {
-                e.preventDefault();
-                changeBet(-1);
-            } else if (e.code === 'KeyM') {
-                e.preventDefault();
-                toggleSound();
-            }
+            });
         });
     </script>
 </body>
