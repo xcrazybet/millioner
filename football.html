@@ -10,7 +10,10 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
     
-    <!-- Toastify for notifications -->
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Toastify -->
     <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
     
     <style>
@@ -45,6 +48,9 @@
             font-size: 24px;
             font-weight: bold;
             color: #4cc9f0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
         .logo span {
@@ -472,7 +478,11 @@
     <!-- Header -->
     <div class="header">
         <div class="logo">
-            <i class="fas fa-futbol"></i> MILLIONER <span>FOOTBALL</span>
+            <i class="fas fa-futbol"></i> 
+            <div>
+                <div>MILLIONER</div>
+                <div style="font-size: 14px; color: #f72585;">FOOTBALL BETTING</div>
+            </div>
         </div>
         
         <div class="user-info">
@@ -606,7 +616,7 @@
                 currentUser = user;
                 document.getElementById('userEmail').textContent = user.email;
                 await loadUserBalance();
-                await loadFootballMatches();
+                await initializeAndLoadMatches();
             }
         });
 
@@ -625,14 +635,114 @@
         }
 
         // ====================
-        // MATCHES MANAGEMENT
+        // CREATE SAMPLE MATCHES
         // ====================
-        async function loadFootballMatches() {
+        async function createSampleMatches() {
             try {
-                const container = document.getElementById('matchesContainer');
+                console.log('Creating sample matches...');
                 
-                // Try to load from "games" collection first (public access)
+                const sampleMatches = [
+                    {
+                        team1: "Manchester City",
+                        team2: "Liverpool",
+                        team1Flag: "🔵",
+                        team2Flag: "🔴",
+                        odds1: 2.10,
+                        oddsDraw: 3.40,
+                        odds2: 3.10,
+                        league: "PREMIER LEAGUE",
+                        status: "upcoming",
+                        sport: "football",
+                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000))
+                    },
+                    {
+                        team1: "Real Madrid",
+                        team2: "Barcelona",
+                        team1Flag: "⚪",
+                        team2Flag: "🔵🔴",
+                        odds1: 2.30,
+                        oddsDraw: 3.25,
+                        odds2: 2.90,
+                        league: "LA LIGA",
+                        status: "upcoming",
+                        sport: "football",
+                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000))
+                    },
+                    {
+                        team1: "Bayern Munich",
+                        team2: "Borussia Dortmund",
+                        team1Flag: "🔴",
+                        team2Flag: "🟡",
+                        odds1: 1.80,
+                        oddsDraw: 3.60,
+                        odds2: 4.20,
+                        league: "BUNDESLIGA",
+                        status: "upcoming",
+                        sport: "football",
+                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000))
+                    },
+                    {
+                        team1: "PSG",
+                        team2: "Marseille",
+                        team1Flag: "🔵🔴",
+                        team2Flag: "🔵⚪",
+                        odds1: 1.65,
+                        oddsDraw: 3.80,
+                        odds2: 4.50,
+                        league: "LIGUE 1",
+                        status: "upcoming",
+                        sport: "football",
+                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 4 * 24 * 60 * 60 * 1000))
+                    },
+                    {
+                        team1: "AC Milan",
+                        team2: "Inter Milan",
+                        team1Flag: "🔴⚫",
+                        team2Flag: "🔵⚫",
+                        odds1: 2.70,
+                        oddsDraw: 3.10,
+                        odds2: 2.50,
+                        league: "SERIE A",
+                        status: "upcoming",
+                        sport: "football",
+                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 5 * 24 * 60 * 60 * 1000))
+                    }
+                ];
+
+                // Add all sample matches to "games" collection (public access)
+                for (const match of sampleMatches) {
+                    await db.collection('games').add(match);
+                }
+                
+                console.log('Sample matches created successfully');
+                showToast('success', 'Sample matches created!');
+                return true;
+                
+            } catch (error) {
+                console.error('Error creating matches:', error);
+                showToast('error', 'Failed to create matches: ' + error.message);
+                return false;
+            }
+        }
+
+        // ====================
+        // LOAD MATCHES
+        // ====================
+        async function initializeAndLoadMatches() {
+            const container = document.getElementById('matchesContainer');
+            container.innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>Initializing matches...</p>
+                </div>
+            `;
+
+            try {
+                // First, try to load existing matches
                 let snapshot;
+                let matchesFound = false;
+                
+                // Try games collection first (public access)
                 try {
                     snapshot = await db.collection('games')
                         .where('sport', '==', 'football')
@@ -640,37 +750,84 @@
                         .orderBy('matchTime', 'asc')
                         .get();
                     
-                    if (snapshot.empty) {
-                        throw new Error('No games found in games collection');
+                    if (!snapshot.empty) {
+                        matchesFound = true;
+                        console.log('Found matches in games collection');
                     }
                 } catch (error) {
                     console.log('Could not access games collection:', error);
-                    
-                    // Fallback to authenticated collection
-                    snapshot = await db.collection('football_matches')
-                        .where('status', '==', 'upcoming')
-                        .orderBy('matchTime', 'asc')
-                        .get();
                 }
                 
-                currentMatches = [];
-                snapshot.forEach(doc => {
-                    currentMatches.push({
-                        id: doc.id,
-                        ...doc.data()
+                // If no matches found in games, try football_matches
+                if (!matchesFound) {
+                    try {
+                        snapshot = await db.collection('football_matches')
+                            .where('status', '==', 'upcoming')
+                            .orderBy('matchTime', 'asc')
+                            .get();
+                        
+                        if (!snapshot.empty) {
+                            matchesFound = true;
+                            console.log('Found matches in football_matches collection');
+                        }
+                    } catch (error) {
+                        console.log('Could not access football_matches collection:', error);
+                    }
+                }
+                
+                // If still no matches found, create sample matches
+                if (!matchesFound) {
+                    console.log('No matches found. Creating sample matches...');
+                    const created = await createSampleMatches();
+                    
+                    if (created) {
+                        // Try loading again after creation
+                        snapshot = await db.collection('games')
+                            .where('sport', '==', 'football')
+                            .where('status', '==', 'upcoming')
+                            .orderBy('matchTime', 'asc')
+                            .get();
+                        matchesFound = !snapshot.empty;
+                    }
+                }
+                
+                if (matchesFound && snapshot) {
+                    currentMatches = [];
+                    snapshot.forEach(doc => {
+                        currentMatches.push({
+                            id: doc.id,
+                            ...doc.data()
+                        });
                     });
-                });
-
-                renderMatches(currentMatches);
+                    
+                    console.log('Loaded matches:', currentMatches.length);
+                    renderMatches(currentMatches);
+                    
+                } else {
+                    // Still no matches
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>No football matches available</p>
+                            <p style="font-size: 14px; margin-top: 10px;">Please try again later</p>
+                            <button onclick="retryLoadMatches()" style="margin-top: 20px; padding: 10px 20px; background: #4361ee; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                Retry Loading Matches
+                            </button>
+                        </div>
+                    `;
+                }
                 
             } catch (error) {
                 console.error('Error loading matches:', error);
-                showToast('error', 'Failed to load matches');
-                document.getElementById('matchesContainer').innerHTML = `
+                container.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-exclamation-triangle"></i>
-                        <p>Failed to load matches. Please try again.</p>
-                        <button onclick="createSampleMatches()" style="margin-top: 20px; padding: 10px 20px; background: #4361ee; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                        <p>Failed to load matches</p>
+                        <p style="font-size: 14px; margin-top: 10px;">${error.message}</p>
+                        <button onclick="retryLoadMatches()" style="margin-top: 20px; padding: 10px 20px; background: #4361ee; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                            Retry Loading Matches
+                        </button>
+                        <button onclick="createSampleMatchesManually()" style="margin-top: 10px; padding: 10px 20px; background: #f72585; color: white; border: none; border-radius: 5px; cursor: pointer;">
                             Create Sample Matches
                         </button>
                     </div>
@@ -678,10 +835,32 @@
             }
         }
 
+        async function retryLoadMatches() {
+            await initializeAndLoadMatches();
+        }
+
+        async function createSampleMatchesManually() {
+            const container = document.getElementById('matchesContainer');
+            container.innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>Creating sample matches...</p>
+                </div>
+            `;
+            
+            const created = await createSampleMatches();
+            if (created) {
+                await initializeAndLoadMatches();
+            }
+        }
+
+        // ====================
+        // RENDER MATCHES
+        // ====================
         function renderMatches(matches) {
             const container = document.getElementById('matchesContainer');
             
-            if (matches.length === 0) {
+            if (!matches || matches.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-futbol"></i>
@@ -696,6 +875,12 @@
             
             matches.forEach(match => {
                 const selectedBet = selectedMatches[match.id];
+                const odds1 = match.odds1 || match.homeOdds || 2.00;
+                const oddsDraw = match.oddsDraw || match.drawOdds || 3.25;
+                const odds2 = match.odds2 || match.awayOdds || 3.00;
+                const team1 = match.team1 || match.homeTeam || "Team A";
+                const team2 = match.team2 || match.awayTeam || "Team B";
+                const league = match.league || match.tournament || "PREMIER LEAGUE";
                 
                 const matchCard = document.createElement('div');
                 matchCard.className = 'match-card';
@@ -703,7 +888,7 @@
                     <div class="match-header">
                         <div class="match-title">
                             <i class="fas fa-trophy"></i>
-                            ${match.league || match.tournament || 'PREMIER LEAGUE'}
+                            ${league}
                         </div>
                         <div class="match-time">
                             <i class="fas fa-calendar-alt"></i>
@@ -714,36 +899,36 @@
                     <div class="match-teams">
                         <div class="team">
                             <div class="team-flag">${match.team1Flag || '🏴󠁧󠁢󠁥󠁮󠁧󠁿'}</div>
-                            <div class="team-name">${match.team1 || match.homeTeam}</div>
+                            <div class="team-name">${team1}</div>
                         </div>
                         
                         <div class="vs">VS</div>
                         
                         <div class="team">
                             <div class="team-flag">${match.team2Flag || '🏴󠁧󠁢󠁥󠁮󠁧󠁿'}</div>
-                            <div class="team-name">${match.team2 || match.awayTeam}</div>
+                            <div class="team-name">${team2}</div>
                         </div>
                     </div>
                     
                     <div class="bet-options">
                         <div class="bet-option ${selectedBet && selectedBet.betOn === 'team1' ? 'selected' : ''}" 
-                             onclick="selectBet('${match.id}', 'team1', ${match.odds1 || match.homeOdds || 2.00})">
-                            <div class="bet-team">${match.team1 || match.homeTeam}</div>
-                            <div class="bet-odds">${(match.odds1 || match.homeOdds || 2.00).toFixed(2)}</div>
+                             onclick="selectBet('${match.id}', 'team1', ${odds1}, '${team1}', '${team1} vs ${team2}')">
+                            <div class="bet-team">${team1}</div>
+                            <div class="bet-odds">${odds1.toFixed(2)}</div>
                             <div class="bet-label">HOME WIN</div>
                         </div>
                         
                         <div class="bet-option ${selectedBet && selectedBet.betOn === 'draw' ? 'selected' : ''}" 
-                             onclick="selectBet('${match.id}', 'draw', ${match.oddsDraw || match.drawOdds || 3.25})">
+                             onclick="selectBet('${match.id}', 'draw', ${oddsDraw}, 'Draw', '${team1} vs ${team2}')">
                             <div class="bet-team">DRAW</div>
-                            <div class="bet-odds">${(match.oddsDraw || match.drawOdds || 3.25).toFixed(2)}</div>
+                            <div class="bet-odds">${oddsDraw.toFixed(2)}</div>
                             <div class="bet-label">DRAW</div>
                         </div>
                         
                         <div class="bet-option ${selectedBet && selectedBet.betOn === 'team2' ? 'selected' : ''}" 
-                             onclick="selectBet('${match.id}', 'team2', ${match.odds2 || match.awayOdds || 3.00})">
-                            <div class="bet-team">${match.team2 || match.awayTeam}</div>
-                            <div class="bet-odds">${(match.odds2 || match.awayOdds || 3.00).toFixed(2)}</div>
+                             onclick="selectBet('${match.id}', 'team2', ${odds2}, '${team2}', '${team1} vs ${team2}')">
+                            <div class="bet-team">${team2}</div>
+                            <div class="bet-odds">${odds2.toFixed(2)}</div>
                             <div class="bet-label">AWAY WIN</div>
                         </div>
                     </div>
@@ -798,16 +983,16 @@
         // ====================
         // BETTING FUNCTIONS
         // ====================
-        function selectBet(matchId, betOn, odds) {
+        function selectBet(matchId, betOn, odds, team, matchTitle) {
             const match = currentMatches.find(m => m.id === matchId);
             if (!match) return;
 
             selectedMatches[matchId] = {
                 betOn: betOn,
                 odds: odds,
-                team: betOn === 'team1' ? (match.team1 || match.homeTeam) : 
-                      betOn === 'team2' ? (match.team2 || match.awayTeam) : 'Draw',
-                matchTitle: `${match.team1 || match.homeTeam} vs ${match.team2 || match.awayTeam}`
+                team: team,
+                matchTitle: matchTitle,
+                matchId: matchId
             };
 
             renderMatches(currentMatches);
@@ -833,10 +1018,11 @@
             updatePotentialWin(matchId);
             
             document.getElementById(`betAmount_${matchId}`).value = amount;
-            document.getElementById(`betButton_${matchId}`).disabled = false;
-            document.getElementById(`betButton_${matchId}`).innerHTML = `
-                <i class="fas fa-coins"></i> BET ${formatCurrency(amount)}
-            `;
+            const betButton = document.getElementById(`betButton_${matchId}`);
+            if (betButton) {
+                betButton.disabled = false;
+                betButton.innerHTML = `<i class="fas fa-coins"></i> BET ${formatCurrency(amount)}`;
+            }
         }
 
         function setMaxAmount(matchId) {
@@ -854,10 +1040,11 @@
             updatePotentialWin(matchId);
             
             document.getElementById(`betAmount_${matchId}`).value = userBalance;
-            document.getElementById(`betButton_${matchId}`).disabled = false;
-            document.getElementById(`betButton_${matchId}`).innerHTML = `
-                <i class="fas fa-coins"></i> BET ${formatCurrency(userBalance)}
-            `;
+            const betButton = document.getElementById(`betButton_${matchId}`);
+            if (betButton) {
+                betButton.disabled = false;
+                betButton.innerHTML = `<i class="fas fa-coins"></i> BET ${formatCurrency(userBalance)}`;
+            }
         }
 
         function updatePotentialWin(matchId) {
@@ -872,10 +1059,11 @@
                 if (potentialWinDiv) {
                     potentialWinDiv.closest('.potential-win').style.display = 'none';
                 }
-                document.getElementById(`betButton_${matchId}`).disabled = true;
-                document.getElementById(`betButton_${matchId}`).innerHTML = `
-                    <i class="fas fa-coins"></i> SELECT BET TO CONTINUE
-                `;
+                const betButton = document.getElementById(`betButton_${matchId}`);
+                if (betButton) {
+                    betButton.disabled = true;
+                    betButton.innerHTML = `<i class="fas fa-coins"></i> SELECT BET TO CONTINUE`;
+                }
                 return;
             }
 
@@ -891,26 +1079,28 @@
             
             let potentialWinDiv = document.querySelector(`#potentialWin_${matchId}`);
             if (!potentialWinDiv) {
-                const matchCard = input.closest('.match-card');
                 const betButton = document.getElementById(`betButton_${matchId}`);
-                const potentialWinHTML = `
-                    <div class="potential-win">
-                        <div class="potential-win-label">POTENTIAL WIN</div>
-                        <div class="potential-win-amount" id="potentialWin_${matchId}">
-                            ${formatCurrency(potentialWin)}
+                if (betButton) {
+                    const potentialWinHTML = `
+                        <div class="potential-win">
+                            <div class="potential-win-label">POTENTIAL WIN</div>
+                            <div class="potential-win-amount" id="potentialWin_${matchId}">
+                                ${formatCurrency(potentialWin)}
+                            </div>
                         </div>
-                    </div>
-                `;
-                betButton.insertAdjacentHTML('beforebegin', potentialWinHTML);
+                    `;
+                    betButton.insertAdjacentHTML('beforebegin', potentialWinHTML);
+                }
             } else {
                 potentialWinDiv.textContent = formatCurrency(potentialWin);
                 potentialWinDiv.closest('.potential-win').style.display = 'block';
             }
 
-            document.getElementById(`betButton_${matchId}`).disabled = false;
-            document.getElementById(`betButton_${matchId}`).innerHTML = `
-                <i class="fas fa-coins"></i> BET ${formatCurrency(amount)}
-            `;
+            const betButton = document.getElementById(`betButton_${matchId}`);
+            if (betButton) {
+                betButton.disabled = false;
+                betButton.innerHTML = `<i class="fas fa-coins"></i> BET ${formatCurrency(amount)}`;
+            }
         }
 
         async function placeBet(matchId) {
@@ -957,7 +1147,7 @@
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
 
-                    // Create bet record - use "bets" collection (authenticated users can write)
+                    // Create bet record
                     const betRef = db.collection('bets').doc();
                     transaction.set(betRef, {
                         userId: currentUser.uid,
@@ -1010,77 +1200,6 @@
             } catch (error) {
                 console.error('Error placing bet:', error);
                 showToast('error', `Failed to place bet: ${error.message}`);
-            }
-        }
-
-        // ====================
-        // CREATE SAMPLE MATCHES
-        // ====================
-        async function createSampleMatches() {
-            try {
-                showToast('info', 'Creating sample matches...');
-                
-                // Check if user is authenticated
-                if (!currentUser) {
-                    showToast('error', 'You must be logged in to create matches');
-                    return;
-                }
-
-                const sampleMatches = [
-                    {
-                        team1: "Manchester City",
-                        team2: "Liverpool",
-                        team1Flag: "🔵",
-                        team2Flag: "🔴",
-                        odds1: 2.10,
-                        oddsDraw: 3.40,
-                        odds2: 3.10,
-                        league: "PREMIER LEAGUE",
-                        status: "upcoming",
-                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
-                        sport: "football"
-                    },
-                    {
-                        team1: "Real Madrid",
-                        team2: "Barcelona",
-                        team1Flag: "⚪",
-                        team2Flag: "🔵🔴",
-                        odds1: 2.30,
-                        oddsDraw: 3.25,
-                        odds2: 2.90,
-                        league: "LA LIGA",
-                        status: "upcoming",
-                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)),
-                        sport: "football"
-                    },
-                    {
-                        team1: "Bayern Munich",
-                        team2: "Borussia Dortmund",
-                        team1Flag: "🔴",
-                        team2Flag: "🟡",
-                        odds1: 1.80,
-                        oddsDraw: 3.60,
-                        odds2: 4.20,
-                        league: "BUNDESLIGA",
-                        status: "upcoming",
-                        matchTime: firebase.firestore.Timestamp.fromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)),
-                        sport: "football"
-                    }
-                ];
-
-                // Add to football_matches collection (requires auth)
-                for (const match of sampleMatches) {
-                    await db.collection('football_matches').add(match);
-                }
-                
-                showToast('success', 'Sample matches created successfully!');
-                
-                // Reload matches
-                await loadFootballMatches();
-                
-            } catch (error) {
-                console.error('Error creating matches:', error);
-                showToast('error', `Failed to create matches: ${error.message}`);
             }
         }
 
