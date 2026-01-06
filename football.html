@@ -1426,18 +1426,33 @@
                     }
                 }
                 
-                const matchTime = new Date(match.commence_time);
+                // Handle commenceTime properly
+                let matchTime;
+                try {
+                    if (match.commence_time) {
+                        matchTime = new Date(match.commence_time);
+                        if (isNaN(matchTime.getTime())) {
+                            matchTime = new Date(); // Fallback to current time
+                        }
+                    } else {
+                        matchTime = new Date(); // Default to current time
+                    }
+                } catch (error) {
+                    console.warn('Error parsing commence_time:', error);
+                    matchTime = new Date(); // Fallback to current time
+                }
+                
                 const now = new Date();
                 const isLive = matchTime <= now && matchTime >= new Date(now.getTime() - 3 * 60 * 60 * 1000);
                 
                 // Apply house margin (5%)
                 const houseMargin = 0.05;
-                homeOdds = homeOdds * (1 - houseMargin);
-                drawOdds = drawOdds * (1 - houseMargin);
-                awayOdds = awayOdds * (1 - houseMargin);
+                homeOdds = parseFloat((homeOdds * (1 - houseMargin)).toFixed(2));
+                drawOdds = parseFloat((drawOdds * (1 - houseMargin)).toFixed(2));
+                awayOdds = parseFloat((awayOdds * (1 - houseMargin)).toFixed(2));
                 
                 return {
-                    id: match.id,
+                    id: match.id || `match_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                     league: match.sport_title || gameState.currentSportTitle,
                     homeTeam: match.home_team || 'Home Team',
                     awayTeam: match.away_team || 'Away Team',
@@ -1446,11 +1461,11 @@
                     status: isLive ? 'live' : 'upcoming',
                     isLive: isLive,
                     odds: {
-                        home: parseFloat(homeOdds).toFixed(2),
-                        draw: parseFloat(drawOdds).toFixed(2),
-                        away: parseFloat(awayOdds).toFixed(2)
+                        home: homeOdds,
+                        draw: drawOdds,
+                        away: awayOdds
                     },
-                    commenceTime: match.commence_time,
+                    commenceTime: matchTime, // Valid Date object
                     sport: match.sport_key || gameState.currentSport,
                     bookmakers: match.bookmakers || []
                 };
@@ -1463,7 +1478,6 @@
             const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
             const dayAfter = new Date(now.getTime() + 48 * 60 * 60 * 1000);
             
-            // Enhanced fallback matches
             gameState.matches = [
                 {
                     id: 'fallback_1',
@@ -1474,8 +1488,9 @@
                     time: '20:00',
                     status: 'upcoming',
                     isLive: false,
-                    odds: { home: '2.50', draw: '3.40', away: '2.80' },
-                    sport: 'soccer_epl'
+                    odds: { home: 2.50, draw: 3.40, away: 2.80 },
+                    sport: 'soccer_epl',
+                    commenceTime: tomorrow
                 },
                 {
                     id: 'fallback_2',
@@ -1486,8 +1501,9 @@
                     time: '21:30',
                     status: 'upcoming',
                     isLive: false,
-                    odds: { home: '1.85', draw: '15.00', away: '2.05' },
-                    sport: 'basketball_nba'
+                    odds: { home: 1.85, draw: 15.00, away: 2.05 },
+                    sport: 'basketball_nba',
+                    commenceTime: dayAfter
                 },
                 {
                     id: 'fallback_3',
@@ -1498,32 +1514,9 @@
                     time: '18:00',
                     status: 'upcoming',
                     isLive: false,
-                    odds: { home: '1.90', draw: '21.00', away: '1.95' },
-                    sport: 'americanfootball_nfl'
-                },
-                {
-                    id: 'fallback_4',
-                    league: 'UEFA Champions League',
-                    homeTeam: 'Real Madrid',
-                    awayTeam: 'Bayern Munich',
-                    date: tomorrow.toLocaleDateString(),
-                    time: '19:45',
-                    status: 'upcoming',
-                    isLive: false,
-                    odds: { home: '2.10', draw: '3.30', away: '3.60' },
-                    sport: 'soccer_uefa_champions_league'
-                },
-                {
-                    id: 'fallback_5',
-                    league: 'UFC',
-                    homeTeam: 'Conor McGregor',
-                    awayTeam: 'Khabib Nurmagomedov',
-                    date: dayAfter.toLocaleDateString(),
-                    time: '22:00',
-                    status: 'upcoming',
-                    isLive: false,
-                    odds: { home: '2.30', draw: '12.00', away: '1.70' },
-                    sport: 'mma_ufc'
+                    odds: { home: 1.90, draw: 21.00, away: 1.95 },
+                    sport: 'americanfootball_nfl',
+                    commenceTime: tomorrow
                 }
             ];
         }
@@ -1914,7 +1907,9 @@
                     
                     // Create bet in user's bets collection
                     const betRef = db.collection("users").doc(gameState.currentUser.uid).collection("bets").doc(betId);
-                    const bet = {
+                    
+                    // Prepare bet data
+                    const betData = {
                         id: betId,
                         userId: gameState.currentUser.uid,
                         userEmail: gameState.currentUser.email,
@@ -1926,25 +1921,36 @@
                         betType: gameState.selectedBet,
                         odds: gameState.selectedOdds,
                         amount: gameState.betAmount,
-                        potentialWin: gameState.betAmount * gameState.selectedOdds,
+                        potentialWin: parseFloat((gameState.betAmount * gameState.selectedOdds).toFixed(2)),
                         status: 'pending',
                         placedAt: new Date(),
                         result: null,
                         winAmount: 0,
                         settledAt: null,
-                        isLive: gameState.selectedMatch.isLive,
-                        commenceTime: gameState.selectedMatch.commenceTime
+                        isLive: gameState.selectedMatch.isLive || false
                     };
                     
-                    transaction.set(betRef, bet);
+                    // Add commenceTime if it exists and is valid
+                    if (gameState.selectedMatch.commenceTime && gameState.selectedMatch.commenceTime instanceof Date && !isNaN(gameState.selectedMatch.commenceTime.getTime())) {
+                        betData.commenceTime = gameState.selectedMatch.commenceTime;
+                    } else {
+                        // If no valid commenceTime, use current time + 24 hours as default
+                        betData.commenceTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
+                    }
+                    
+                    transaction.set(betRef, betData);
                     
                     // Also save to global bets collection for the lists.bets.html page
                     const globalBetRef = db.collection("all_bets").doc(betId);
-                    transaction.set(globalBetRef, {
-                        ...bet,
+                    
+                    // Prepare global bet data
+                    const globalBetData = {
+                        ...betData,
                         isGlobal: true,
                         listedAt: new Date()
-                    });
+                    };
+                    
+                    transaction.set(globalBetRef, globalBetData);
                     
                     return { currentBalance, newBalance };
                 });
@@ -1965,11 +1971,12 @@
                     betType: gameState.selectedBet,
                     odds: gameState.selectedOdds,
                     amount: gameState.betAmount,
-                    potentialWin: gameState.betAmount * gameState.selectedOdds,
+                    potentialWin: parseFloat((gameState.betAmount * gameState.selectedOdds).toFixed(2)),
                     status: 'pending',
                     placedAt: new Date(),
                     result: null,
-                    winAmount: 0
+                    winAmount: 0,
+                    isLive: gameState.selectedMatch.isLive || false
                 };
                 
                 // Add to user bets array
@@ -1985,7 +1992,7 @@
                 saveGameStats();
                 
                 // Show success message
-                showToast(`✅ Bet placed successfully! $${gameState.betAmount} deducted.`, 'success');
+                showToast(`✅ Bet placed successfully! $${gameState.betAmount.toFixed(2)} deducted.`, 'success');
                 
                 // Reset selection
                 resetBetSelection();
