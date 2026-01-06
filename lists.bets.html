@@ -1140,9 +1140,6 @@
                 // Check authentication
                 auth.onAuthStateChanged(user => {
                     appState.currentUser = user;
-                    if (!user) {
-                        showMessage('Please login to view bets', 'info');
-                    }
                     loadAllBets();
                     loadRecords();
                     setupEventListeners();
@@ -1161,6 +1158,7 @@
                 // Listen to all_bets collection in real-time
                 db.collection("all_bets")
                     .orderBy("placedAt", "desc")
+                    .limit(100) // Limit to 100 bets for performance
                     .onSnapshot(async (snapshot) => {
                         appState.allBets = [];
                         
@@ -1179,23 +1177,12 @@
                                 bet.commenceTime = bet.commenceTime.toDate();
                             }
                             
-                            // Calculate if bet is live (within 3 hours of commence time)
+                            // Calculate if bet is live
                             if (bet.commenceTime && !bet.settledAt) {
                                 const now = new Date();
                                 const commenceTime = bet.commenceTime instanceof Date ? bet.commenceTime : new Date(bet.commenceTime);
-                                const isLive = commenceTime <= now && commenceTime >= new Date(now.getTime() - 3 * 60 * 60 * 1000);
-                                bet.isLive = isLive;
-                            }
-                            
-                            // Check if bet is older than 3 days and auto-settle if needed
-                            if (bet.placedAt) {
-                                const placedDate = bet.placedAt instanceof Date ? bet.placedAt : new Date(bet.placedAt);
-                                const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-                                
-                                if (placedDate < threeDaysAgo && bet.status === 'pending') {
-                                    // Auto-settle old pending bets
-                                    autoSettleOldBet(bet);
-                                }
+                                const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+                                bet.isLive = commenceTime <= now && commenceTime >= threeHoursAgo;
                             }
                             
                             appState.allBets.push(bet);
@@ -1216,44 +1203,6 @@
                 console.error('Error loading bets:', error);
                 showLoading(false);
                 showMessage('Error loading bets data', 'error');
-            }
-        }
-
-        // ===== AUTO SETTLE OLD BETS =====
-        async function autoSettleOldBet(bet) {
-            try {
-                // Only settle if still pending and older than 3 days
-                if (bet.status !== 'pending') return;
-                
-                // Determine result based on odds (simulate)
-                const winProbability = 0.85 / bet.odds; // 15% house edge
-                const isWin = Math.random() < winProbability;
-                
-                const updateData = {
-                    status: isWin ? 'won' : 'lost',
-                    result: isWin ? 'win' : 'loss',
-                    settledAt: new Date(),
-                    settlementTime: new Date().toISOString(),
-                    autoSettled: true
-                };
-                
-                if (isWin) {
-                    updateData.winAmount = parseFloat((bet.amount * bet.odds).toFixed(2));
-                }
-                
-                // Update in all_bets collection
-                await db.collection("all_bets").doc(bet.id).update(updateData);
-                
-                // Also update in user's bets collection if exists
-                if (bet.userId) {
-                    await db.collection("users").doc(bet.userId)
-                        .collection("bets").doc(bet.id).update(updateData);
-                }
-                
-                console.log(`Auto-settled bet ${bet.id}: ${updateData.status}`);
-                
-            } catch (error) {
-                console.error('Error auto-settling bet:', error);
             }
         }
 
@@ -1283,11 +1232,16 @@
                 const snapshot = await db.collection("all_bets")
                     .where("placedAt", ">=", threeDaysAgo)
                     .orderBy("placedAt", "desc")
+                    .limit(50)
                     .get();
                 
                 const bets = [];
                 snapshot.forEach(doc => {
-                    bets.push(doc.data());
+                    const bet = doc.data();
+                    if (bet.placedAt && bet.placedAt.toDate) {
+                        bet.placedAt = bet.placedAt.toDate();
+                    }
+                    bets.push(bet);
                 });
                 
                 // Group by day and calculate stats
@@ -1341,7 +1295,7 @@
             // Convert to array and sort by date descending
             return Object.values(days)
                 .sort((a, b) => new Date(b.date) - new Date(a.date))
-                .slice(0, 5); // Show last 5 days max
+                .slice(0, 5);
         }
 
         function displayRecords(records) {
@@ -1448,6 +1402,7 @@
             
             appState.filteredBets = filtered;
             appState.totalPages = Math.ceil(filtered.length / appState.itemsPerPage);
+            appState.currentPage = 1;
             
             updateActiveFiltersDisplay();
             updatePagination();
@@ -1809,40 +1764,6 @@ Settled: ${bet.settledAt ? new Date(bet.settledAt).toLocaleString() : 'Not yet'}
         }
 
         // ===== STORAGE INTEGRATION =====
-        const STORAGE_INTEGRATION = {
-            STORAGE_PAGE_URL: 'bet-storage.html',
-            
-            extractBetsFromTable: function() {
-                const bets = [];
-                const rows = document.querySelectorAll('#betsTableBody tr');
-                
-                rows.forEach(row => {
-                    const cells = row.querySelectorAll('td');
-                    if (cells.length >= 8) {
-                        const match = cells[1].querySelector('.bet-match')?.textContent.trim() || '';
-                        const league = cells[1].querySelector('.bet-league')?.textContent.trim() || '';
-                        const betType = cells[3].querySelector('.bet-type')?.textContent.trim() || '';
-                        const oddsText = cells[4].textContent.trim();
-                        const amountText = cells[5].textContent.trim();
-                        const status = cells[7].querySelector('.status-badge')?.textContent.trim().toLowerCase() || 'pending';
-                        
-                        const odds = parseFloat(oddsText.replace(/[^0-9.]/g, '')) || 0;
-                        const amount = parseFloat(amountText.replace(/[^0-9.]/g, '')) || 0;
-                        
-                        bets.push({
-                            description: `${match} - ${league} (${betType})`,
-                            amount: amount,
-                            odds: odds,
-                            status: status,
-                            savedAt: new Date().toISOString()
-                        });
-                    }
-                });
-                
-                return bets;
-            }
-        };
-
         function showStorageModal() {
             document.getElementById('storageModal').classList.add('active');
             
@@ -1864,18 +1785,18 @@ Settled: ${bet.settledAt ? new Date(bet.settledAt).toLocaleString() : 'Not yet'}
             
             try {
                 // Extract bets from current filtered view
-                const bets = STORAGE_INTEGRATION.extractBetsFromTable();
+                const bets = [];
+                const currentPageBets = appState.filteredBets.slice(0, 20);
                 
-                if (bets.length === 0 && appState.filteredBets.length > 0) {
-                    // Fallback: use filtered bets data
-                    bets.push(...appState.filteredBets.slice(0, 20).map(bet => ({
+                currentPageBets.forEach(bet => {
+                    bets.push({
                         description: `${bet.match} - ${bet.league} (${bet.betType})`,
                         amount: bet.amount || 0,
                         odds: bet.odds || 0,
                         status: bet.status || 'pending',
                         betId: bet.id
-                    })));
-                }
+                    });
+                });
                 
                 if (bets.length === 0) {
                     showMessage('No bets found to save', 'error');
@@ -1908,16 +1829,9 @@ Settled: ${bet.settledAt ? new Date(bet.settledAt).toLocaleString() : 'Not yet'}
         
         function saveToBetStorage(listData) {
             try {
-                const currentUser = appState.currentUser ? 
-                    appState.currentUser.uid : 
-                    localStorage.getItem('millioner_last_user');
-                
-                if (!currentUser) {
-                    const username = prompt('Please enter a username for storage:');
-                    if (!username) return false;
-                    localStorage.setItem('millioner_last_user', username);
-                    return saveToBetStorage(listData);
-                }
+                const currentUser = auth.currentUser ? 
+                    auth.currentUser.uid : 
+                    'anonymous';
                 
                 const storageKey = `millioner_bets_${currentUser}`;
                 const existingData = localStorage.getItem(storageKey);
@@ -1957,13 +1871,14 @@ Settled: ${bet.settledAt ? new Date(bet.settledAt).toLocaleString() : 'Not yet'}
         }
         
         function openStorageManager() {
-            window.open(STORAGE_INTEGRATION.STORAGE_PAGE_URL, '_blank');
+            // You would need to create a bet-storage.html file
+            showMessage('Storage manager feature coming soon!', 'info');
         }
 
         // ===== AUTO REFRESH =====
         setInterval(() => {
             loadRecords();
-        }, 30000); // Refresh records every 30 seconds
+        }, 30000);
 
         // ===== CLEANUP =====
         window.addEventListener('beforeunload', () => {
