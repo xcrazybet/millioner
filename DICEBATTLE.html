@@ -1,0 +1,2869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🎲 Dice Battle - Premium Casino Duel | XCrazyBet</title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        :root {
+            --primary: #ffd700;
+            --primary-dark: #b39700;
+            --secondary: #1a0b2e;
+            --secondary-light: #2d1b47;
+            --accent: #10b981;
+            --accent-dark: #059669;
+            --danger: #ef4444;
+            --danger-dark: #dc2626;
+            --success: #10b981;
+            --success-dark: #059669;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            
+            --bg-primary: #0a0419;
+            --bg-secondary: #1a0b2e;
+            --bg-surface: #2d1b47;
+            --bg-surface-light: #3d2b57;
+            
+            --text-primary: #ffffff;
+            --text-secondary: #d1d5db;
+            --text-dim: #9ca3af;
+            
+            --border-gold: linear-gradient(45deg, var(--primary), #ffed4e, var(--primary));
+            --shadow-gold: 0 0 30px rgba(255, 215, 0, 0.3);
+            --shadow-gold-strong: 0 0 50px rgba(255, 215, 0, 0.5);
+            
+            --dice-red: #ef4444;
+            --dice-blue: #3b82f6;
+            --dice-green: #10b981;
+            --dice-purple: #8b5cf6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+        }
+
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+            touch-action: pan-y;
+        }
+
+        /* Background Effects */
+        .bg-effects {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -3;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(255, 215, 0, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(26, 11, 46, 0.8) 0%, transparent 50%),
+                linear-gradient(135deg, #0a0419 0%, #1a0b2e 100%);
+        }
+
+        .velvet-texture {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 25% 25%, rgba(255, 255, 255, 0.02) 2%, transparent 2.5%),
+                radial-gradient(circle at 75% 75%, rgba(255, 255, 255, 0.02) 2%, transparent 2.5%);
+            background-size: 50px 50px;
+            z-index: -2;
+            opacity: 0.3;
+        }
+
+        /* Loading Screen */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.5s;
+            backdrop-filter: blur(10px);
+        }
+
+        .loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-dice {
+            width: 80px;
+            height: 80px;
+            position: relative;
+            transform-style: preserve-3d;
+            animation: diceRotate 2s infinite linear;
+            margin-bottom: 30px;
+        }
+
+        .dice-face {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 215, 0, 0.1);
+            border: 2px solid var(--primary);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            color: var(--primary);
+            backface-visibility: hidden;
+        }
+
+        .dice-face.front { transform: translateZ(40px); }
+        .dice-face.back { transform: rotateY(180deg) translateZ(40px); }
+        .dice-face.right { transform: rotateY(90deg) translateZ(40px); }
+        .dice-face.left { transform: rotateY(-90deg) translateZ(40px); }
+        .dice-face.top { transform: rotateX(90deg) translateZ(40px); }
+        .dice-face.bottom { transform: rotateX(-90deg) translateZ(40px); }
+
+        @keyframes diceRotate {
+            0% { transform: rotateX(0) rotateY(0) rotateZ(0); }
+            100% { transform: rotateX(360deg) rotateY(360deg) rotateZ(180deg); }
+        }
+
+        .loading-text {
+            margin-top: 20px;
+            color: var(--text-dim);
+            text-align: center;
+            font-size: 1.1rem;
+        }
+
+        /* Error Message */
+        .error-message {
+            background: linear-gradient(135deg, var(--danger), var(--danger-dark));
+            color: white;
+            padding: 15px 20px;
+            text-align: center;
+            border-radius: 10px;
+            margin: 20px;
+            display: none;
+            box-shadow: var(--shadow-gold);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .error-message.show {
+            display: block;
+            animation: slideDown 0.5s ease-out;
+        }
+
+        @keyframes slideDown {
+            0% { transform: translateY(-20px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, 
+                rgba(26, 11, 46, 0.95),
+                rgba(45, 27, 71, 0.95));
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px solid var(--primary);
+            backdrop-filter: blur(15px);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 5px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .home-btn {
+            width: 45px;
+            height: 45px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            color: #000;
+            font-size: 1.3rem;
+            transition: all 0.3s;
+            box-shadow: var(--shadow-gold);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .home-btn:hover {
+            transform: scale(1.1) rotate(5deg);
+            box-shadow: var(--shadow-gold-strong);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: #000;
+            box-shadow: var(--shadow-gold);
+        }
+
+        .logo-text {
+            font-family: 'Cinzel', serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+        }
+
+        .balance-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: linear-gradient(135deg, 
+                rgba(26, 11, 46, 0.8),
+                rgba(45, 27, 71, 0.8));
+            padding: 12px 24px;
+            border-radius: 25px;
+            border: 2px solid var(--primary);
+            box-shadow: var(--shadow-gold);
+        }
+
+        .balance-icon {
+            color: var(--primary);
+            font-size: 1.3rem;
+        }
+
+        .balance-amount {
+            font-family: 'Orbitron', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+        }
+
+        /* Live Winners Feed */
+        .winners-feed {
+            background: linear-gradient(135deg, 
+                rgba(26, 11, 46, 0.9),
+                rgba(45, 27, 71, 0.9));
+            padding: 12px 20px;
+            border-bottom: 2px solid rgba(255, 215, 0, 0.2);
+            backdrop-filter: blur(10px);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .winners-title {
+            color: var(--primary);
+            font-family: 'Cinzel', serif;
+            font-size: 1rem;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .winners-marquee {
+            display: flex;
+            gap: 40px;
+            animation: marquee 40s linear infinite;
+            white-space: nowrap;
+            padding: 5px 0;
+        }
+
+        @keyframes marquee {
+            0% { transform: translateX(100%); }
+            100% { transform: translateX(-100%); }
+        }
+
+        .winner-item {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 8px 20px;
+            background: rgba(255, 215, 0, 0.1);
+            border-radius: 25px;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+            backdrop-filter: blur(5px);
+            min-width: 250px;
+        }
+
+        .winner-avatar {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: #000;
+            font-size: 0.9rem;
+        }
+
+        .winner-name {
+            font-weight: 600;
+            font-size: 1rem;
+            color: var(--text-primary);
+        }
+
+        .winner-amount {
+            color: var(--primary);
+            font-weight: 800;
+            font-size: 1.1rem;
+            margin-left: auto;
+        }
+
+        /* Main Game Container */
+        .game-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            min-height: calc(100vh - 180px);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Battle Arena */
+        .battle-arena {
+            flex: 1;
+            background: linear-gradient(135deg, 
+                rgba(26, 11, 46, 0.8),
+                rgba(45, 27, 71, 0.8));
+            border-radius: 25px;
+            border: 3px solid var(--primary);
+            box-shadow: 
+                var(--shadow-gold),
+                inset 0 0 100px rgba(0, 0, 0, 0.5);
+            padding: 30px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .battle-table {
+            position: relative;
+            width: 100%;
+            height: 500px;
+            background: 
+                linear-gradient(135deg, 
+                    rgba(10, 4, 25, 0.9),
+                    rgba(26, 11, 46, 0.9)),
+                url('data:image/svg+xml,<svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="20" fill="%230a0419"/><path d="M0,0 L20,20 M20,0 L0,20" stroke="%23ffd700" stroke-width="0.5" opacity="0.1"/></svg>');
+            border-radius: 20px;
+            border: 2px solid rgba(255, 215, 0, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 50px;
+        }
+
+        .battle-line {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            height: 4px;
+            background: linear-gradient(90deg, 
+                transparent 0%,
+                var(--primary) 20%,
+                var(--primary) 80%,
+                transparent 100%);
+            opacity: 0.5;
+            z-index: 1;
+        }
+
+        .player-side, .dealer-side {
+            width: 45%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+            z-index: 2;
+        }
+
+        .side-label {
+            font-family: 'Cinzel', serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            padding: 10px 30px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 15px;
+            border: 2px solid var(--primary);
+        }
+
+        .player-side .side-label {
+            background: linear-gradient(135deg, 
+                rgba(16, 185, 129, 0.2),
+                rgba(16, 185, 129, 0.1));
+            border-color: var(--success);
+        }
+
+        .dealer-side .side-label {
+            background: linear-gradient(135deg, 
+                rgba(239, 68, 68, 0.2),
+                rgba(239, 68, 68, 0.1));
+            border-color: var(--danger);
+        }
+
+        /* Dice Container */
+        .dice-container {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .dice {
+            width: 100px;
+            height: 100px;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.5s;
+            cursor: pointer;
+        }
+
+        .dice.rolling {
+            animation: diceRoll 1s infinite linear;
+        }
+
+        @keyframes diceRoll {
+            0% { transform: rotateX(0) rotateY(0) rotateZ(0); }
+            25% { transform: rotateX(90deg) rotateY(90deg) rotateZ(90deg); }
+            50% { transform: rotateX(180deg) rotateY(180deg) rotateZ(180deg); }
+            75% { transform: rotateX(270deg) rotateY(270deg) rotateZ(270deg); }
+            100% { transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg); }
+        }
+
+        .dice-face-real {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            border: 3px solid var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backface-visibility: hidden;
+            box-shadow: 
+                inset 0 0 20px rgba(0, 0, 0, 0.2),
+                0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .dice-pip {
+            width: 18px;
+            height: 18px;
+            background: #000;
+            border-radius: 50%;
+            position: absolute;
+        }
+
+        /* Dice face configurations */
+        .face-1 .pip:nth-child(1) { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        
+        .face-2 .pip:nth-child(1) { top: 25%; left: 25%; }
+        .face-2 .pip:nth-child(2) { bottom: 25%; right: 25%; }
+        
+        .face-3 .pip:nth-child(1) { top: 25%; left: 25%; }
+        .face-3 .pip:nth-child(2) { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .face-3 .pip:nth-child(3) { bottom: 25%; right: 25%; }
+        
+        .face-4 .pip:nth-child(1) { top: 25%; left: 25%; }
+        .face-4 .pip:nth-child(2) { top: 25%; right: 25%; }
+        .face-4 .pip:nth-child(3) { bottom: 25%; left: 25%; }
+        .face-4 .pip:nth-child(4) { bottom: 25%; right: 25%; }
+        
+        .face-5 .pip:nth-child(1) { top: 25%; left: 25%; }
+        .face-5 .pip:nth-child(2) { top: 25%; right: 25%; }
+        .face-5 .pip:nth-child(3) { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .face-5 .pip:nth-child(4) { bottom: 25%; left: 25%; }
+        .face-5 .pip:nth-child(5) { bottom: 25%; right: 25%; }
+        
+        .face-6 .pip:nth-child(1) { top: 25%; left: 25%; }
+        .face-6 .pip:nth-child(2) { top: 25%; right: 25%; }
+        .face-6 .pip:nth-child(3) { top: 50%; left: 25%; transform: translateY(-50%); }
+        .face-6 .pip:nth-child(4) { top: 50%; right: 25%; transform: translateY(-50%); }
+        .face-6 .pip:nth-child(5) { bottom: 25%; left: 25%; }
+        .face-6 .pip:nth-child(6) { bottom: 25%; right: 25%; }
+
+        /* Dice positions */
+        .dice-face-real.front { transform: translateZ(50px); }
+        .dice-face-real.back { transform: rotateY(180deg) translateZ(50px); }
+        .dice-face-real.right { transform: rotateY(90deg) translateZ(50px); }
+        .dice-face-real.left { transform: rotateY(-90deg) translateZ(50px); }
+        .dice-face-real.top { transform: rotateX(90deg) translateZ(50px); }
+        .dice-face-real.bottom { transform: rotateX(-90deg) translateZ(50px); }
+
+        /* Dice colors */
+        .player-dice .dice-face-real {
+            background: rgba(16, 185, 129, 0.9);
+            border-color: var(--success);
+        }
+
+        .dealer-dice .dice-face-real {
+            background: rgba(239, 68, 68, 0.9);
+            border-color: var(--danger);
+        }
+
+        /* Dice total display */
+        .dice-total {
+            font-family: 'Orbitron', monospace;
+            font-size: 2.5rem;
+            font-weight: 900;
+            color: var(--primary);
+            margin-top: 20px;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+            padding: 10px 30px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 15px;
+            border: 2px solid var(--primary);
+            min-width: 100px;
+            text-align: center;
+        }
+
+        /* Dealer Character */
+        .dealer-character {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, 
+                rgba(45, 27, 71, 0.9),
+                rgba(26, 11, 46, 0.9));
+            border-radius: 50%;
+            border: 4px solid var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 3;
+            box-shadow: var(--shadow-gold);
+        }
+
+        .dealer-icon {
+            font-size: 3rem;
+            color: var(--primary);
+        }
+
+        /* Control Panel */
+        .control-panel {
+            background: linear-gradient(135deg, 
+                rgba(26, 11, 46, 0.95),
+                rgba(45, 27, 71, 0.95));
+            border-radius: 25px;
+            padding: 30px;
+            border: 3px solid var(--primary);
+            backdrop-filter: blur(20px);
+            box-shadow: var(--shadow-gold);
+        }
+
+        /* Bet Controls */
+        .bet-section {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 30px;
+            margin-bottom: 30px;
+            align-items: center;
+        }
+
+        .bet-input-container {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .bet-input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        .bet-input {
+            width: 100%;
+            padding: 25px;
+            background: rgba(10, 4, 25, 0.8);
+            border: 3px solid var(--primary);
+            border-radius: 20px;
+            color: var(--text-primary);
+            font-family: 'Orbitron', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+            text-align: center;
+            transition: all 0.3s;
+        }
+
+        .bet-input:focus {
+            outline: none;
+            border-color: var(--success);
+            box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.2);
+        }
+
+        .bet-currency {
+            position: absolute;
+            right: 25px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--primary);
+            font-family: 'Orbitron', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+            pointer-events: none;
+        }
+
+        .potential-win {
+            text-align: center;
+            padding: 20px 30px;
+            background: rgba(10, 4, 25, 0.6);
+            border-radius: 20px;
+            border: 2px solid var(--primary);
+            min-width: 250px;
+        }
+
+        .potential-win-label {
+            color: var(--text-dim);
+            font-size: 1rem;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .potential-win-value {
+            color: var(--primary);
+            font-family: 'Orbitron', monospace;
+            font-size: 2.2rem;
+            font-weight: 900;
+            text-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        }
+
+        /* Quick Bets */
+        .quick-bets {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .quick-bet {
+            padding: 20px;
+            background: rgba(10, 4, 25, 0.8);
+            border: 2px solid var(--primary);
+            border-radius: 15px;
+            color: var(--primary);
+            font-weight: 700;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .quick-bet:hover {
+            background: var(--primary);
+            color: #000;
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-gold);
+        }
+
+        .quick-bet.active {
+            background: var(--primary);
+            color: #000;
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-gold);
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .action-btn {
+            padding: 25px;
+            border: none;
+            border-radius: 20px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .double-btn {
+            background: linear-gradient(135deg, var(--info), #2563eb);
+            color: #000;
+        }
+
+        .double-btn:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(59, 130, 246, 0.4);
+        }
+
+        .roll-btn {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: #000;
+            font-size: 1.8rem;
+            font-weight: 900;
+        }
+
+        .roll-btn:hover:not(:disabled) {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: var(--shadow-gold-strong);
+        }
+
+        .roll-btn.pulsing {
+            animation: pulseGlow 1.5s infinite alternate;
+        }
+
+        @keyframes pulseGlow {
+            0% { 
+                transform: scale(1);
+                box-shadow: 0 10px 30px rgba(255, 215, 0, 0.4);
+            }
+            100% { 
+                transform: scale(1.05);
+                box-shadow: 0 20px 50px rgba(255, 215, 0, 0.8);
+            }
+        }
+
+        .clear-btn {
+            background: linear-gradient(135deg, var(--danger), var(--danger-dark));
+            color: #000;
+        }
+
+        .clear-btn:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(239, 68, 68, 0.4);
+        }
+
+        /* Game Stats */
+        .game-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .stat-item {
+            background: rgba(10, 4, 25, 0.6);
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-label {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            color: var(--text-primary);
+            font-family: 'Orbitron', monospace;
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+
+        /* History Panel */
+        .history-panel {
+            background: linear-gradient(135deg, 
+                rgba(26, 11, 46, 0.95),
+                rgba(45, 27, 71, 0.95));
+            border-radius: 25px;
+            padding: 30px;
+            border: 3px solid var(--primary);
+            backdrop-filter: blur(20px);
+            box-shadow: var(--shadow-gold);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .history-title {
+            color: var(--primary);
+            font-family: 'Cinzel', serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(255, 215, 0, 0.3);
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px;
+            background: rgba(10, 4, 25, 0.6);
+            border-radius: 15px;
+            border-left: 5px solid var(--primary);
+            transition: all 0.3s;
+        }
+
+        .history-item:hover {
+            transform: translateX(5px);
+            background: rgba(10, 4, 25, 0.8);
+        }
+
+        .history-item.win {
+            border-left-color: var(--success);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .history-item.lose {
+            border-left-color: var(--danger);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .history-item.push {
+            border-left-color: var(--warning);
+            background: rgba(245, 158, 11, 0.1);
+        }
+
+        .history-details {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .history-result {
+            font-size: 1.2rem;
+            font-weight: 700;
+            padding: 8px 20px;
+            border-radius: 10px;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .history-result.win {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .history-result.lose {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+
+        .history-result.push {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--warning);
+        }
+
+        .history-rolls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: 'Orbitron', monospace;
+            font-size: 1.2rem;
+        }
+
+        .history-amount {
+            font-family: 'Orbitron', monospace;
+            font-size: 1.5rem;
+            font-weight: 900;
+            min-width: 150px;
+            text-align: right;
+        }
+
+        .history-amount.win {
+            color: var(--success);
+        }
+
+        .history-amount.lose {
+            color: var(--danger);
+        }
+
+        .history-amount.push {
+            color: var(--warning);
+        }
+
+        .history-time {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            min-width: 100px;
+            text-align: right;
+        }
+
+        /* Fullscreen Toggle */
+        .fullscreen-toggle {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 70px;
+            height: 70px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+            font-size: 1.8rem;
+            cursor: pointer;
+            z-index: 1001;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            box-shadow: var(--shadow-gold-strong);
+            transition: all 0.3s;
+        }
+
+        .fullscreen-toggle:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.8);
+        }
+
+        /* Result Overlay */
+        .result-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.5s;
+            backdrop-filter: blur(20px);
+        }
+
+        .result-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .result-content {
+            background: linear-gradient(135deg, 
+                rgba(26, 11, 46, 0.95),
+                rgba(45, 27, 71, 0.95));
+            padding: 50px;
+            border-radius: 30px;
+            border: 5px solid var(--primary);
+            text-align: center;
+            max-width: 600px;
+            width: 90%;
+            backdrop-filter: blur(30px);
+            box-shadow: 
+                var(--shadow-gold-strong),
+                inset 0 0 50px rgba(255, 255, 255, 0.1);
+            transform: scale(0.9);
+            transition: transform 0.5s;
+        }
+
+        .result-overlay.show .result-content {
+            transform: scale(1);
+        }
+
+        .result-icon {
+            font-size: 5rem;
+            margin-bottom: 30px;
+            animation: bounce 1s infinite alternate;
+        }
+
+        @keyframes bounce {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(-20px); }
+        }
+
+        .result-title {
+            font-family: 'Cinzel', serif;
+            font-size: 3.5rem;
+            font-weight: 900;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+        }
+
+        .result-win {
+            color: var(--primary);
+            text-shadow: 0 0 30px rgba(255, 215, 0, 0.7);
+        }
+
+        .result-lose {
+            color: var(--danger);
+            text-shadow: 0 0 30px rgba(239, 68, 68, 0.7);
+        }
+
+        .result-push {
+            color: var(--warning);
+            text-shadow: 0 0 30px rgba(245, 158, 11, 0.7);
+        }
+
+        .result-details {
+            font-size: 1.5rem;
+            margin: 25px 0;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .result-rolls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 30px;
+            margin: 30px 0;
+            font-family: 'Orbitron', monospace;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+
+        .result-amount {
+            font-family: 'Orbitron', monospace;
+            font-size: 4.5rem;
+            font-weight: 900;
+            margin: 30px 0;
+            color: var(--primary);
+            text-shadow: 0 0 40px rgba(255, 215, 0, 0.8);
+        }
+
+        .result-amount.lose {
+            color: var(--danger);
+            text-shadow: 0 0 40px rgba(239, 68, 68, 0.8);
+        }
+
+        .result-amount.push {
+            color: var(--warning);
+            text-shadow: 0 0 40px rgba(245, 158, 11, 0.8);
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .toast {
+            padding: 20px 25px;
+            background: linear-gradient(135deg, 
+                rgba(26, 11, 46, 0.95),
+                rgba(45, 27, 71, 0.95));
+            border-radius: 15px;
+            border-left: 5px solid var(--primary);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            transform: translateY(100%);
+            opacity: 0;
+            transition: all 0.5s;
+            backdrop-filter: blur(20px);
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            border-color: var(--success);
+        }
+
+        .toast.error {
+            border-color: var(--danger);
+        }
+
+        .toast.warning {
+            border-color: var(--warning);
+        }
+
+        .toast-icon {
+            font-size: 1.5rem;
+        }
+
+        /* Particles */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .particle {
+            position: absolute;
+            border-radius: 50%;
+            animation: float 3s infinite linear;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0) rotate(0deg); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(-100vh) rotate(360deg); opacity: 0; }
+        }
+
+        /* Game Description */
+        .game-description {
+            background: linear-gradient(135deg, 
+                rgba(26, 11, 46, 0.95),
+                rgba(45, 27, 71, 0.95));
+            border-radius: 25px;
+            padding: 30px;
+            border: 3px solid var(--primary);
+            backdrop-filter: blur(20px);
+            box-shadow: var(--shadow-gold);
+            margin-top: 20px;
+        }
+
+        .description-title {
+            font-family: 'Cinzel', serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .description-content {
+            color: var(--text-secondary);
+            line-height: 1.8;
+            font-size: 1.1rem;
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1200px) {
+            .game-container {
+                padding: 15px;
+            }
+            
+            .battle-table {
+                height: 400px;
+                padding: 0 30px;
+            }
+            
+            .dice {
+                width: 80px;
+                height: 80px;
+            }
+            
+            .dice-face-real {
+                width: 80px;
+                height: 80px;
+            }
+            
+            .dice-face-real.front { transform: translateZ(40px); }
+            .dice-face-real.back { transform: rotateY(180deg) translateZ(40px); }
+            .dice-face-real.right { transform: rotateY(90deg) translateZ(40px); }
+            .dice-face-real.left { transform: rotateY(-90deg) translateZ(40px); }
+            .dice-face-real.top { transform: rotateX(90deg) translateZ(40px); }
+            .dice-face-real.bottom { transform: rotateX(-90deg) translateZ(40px); }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 15px;
+                padding: 10px;
+            }
+            
+            .header-left {
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            .balance-container {
+                width: 100%;
+                justify-content: center;
+            }
+            
+            .battle-table {
+                height: 300px;
+                padding: 0 20px;
+                flex-direction: column;
+                justify-content: space-around;
+            }
+            
+            .player-side, .dealer-side {
+                width: 100%;
+                flex-direction: row;
+                justify-content: space-between;
+                gap: 10px;
+            }
+            
+            .side-label {
+                font-size: 1.2rem;
+                padding: 8px 15px;
+            }
+            
+            .dice-container {
+                margin-top: 0;
+            }
+            
+            .dice {
+                width: 60px;
+                height: 60px;
+            }
+            
+            .dice-face-real {
+                width: 60px;
+                height: 60px;
+                border-radius: 10px;
+            }
+            
+            .dice-face-real.front { transform: translateZ(30px); }
+            .dice-face-real.back { transform: rotateY(180deg) translateZ(30px); }
+            .dice-face-real.right { transform: rotateY(90deg) translateZ(30px); }
+            .dice-face-real.left { transform: rotateY(-90deg) translateZ(30px); }
+            .dice-face-real.top { transform: rotateX(90deg) translateZ(30px); }
+            .dice-face-real.bottom { transform: rotateX(-90deg) translateZ(30px); }
+            
+            .dice-pip {
+                width: 12px;
+                height: 12px;
+            }
+            
+            .dice-total {
+                font-size: 1.8rem;
+                padding: 8px 15px;
+                min-width: 70px;
+            }
+            
+            .dealer-character {
+                width: 80px;
+                height: 80px;
+            }
+            
+            .dealer-icon {
+                font-size: 2rem;
+            }
+            
+            .bet-section {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .quick-bets {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .action-buttons {
+                grid-template-columns: 1fr;
+            }
+            
+            .game-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .history-item {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            
+            .history-details {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .fullscreen-toggle {
+                bottom: 20px;
+                right: 20px;
+                width: 60px;
+                height: 60px;
+                font-size: 1.5rem;
+            }
+            
+            .result-content {
+                padding: 30px;
+            }
+            
+            .result-title {
+                font-size: 2.5rem;
+            }
+            
+            .result-amount {
+                font-size: 3rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .battle-table {
+                height: 250px;
+            }
+            
+            .dice {
+                width: 50px;
+                height: 50px;
+            }
+            
+            .dice-face-real {
+                width: 50px;
+                height: 50px;
+                border-radius: 8px;
+            }
+            
+            .dice-face-real.front { transform: translateZ(25px); }
+            .dice-face-real.back { transform: rotateY(180deg) translateZ(25px); }
+            .dice-face-real.right { transform: rotateY(90deg) translateZ(25px); }
+            .dice-face-real.left { transform: rotateY(-90deg) translateZ(25px); }
+            .dice-face-real.top { transform: rotateX(90deg) translateZ(25px); }
+            .dice-face-real.bottom { transform: rotateX(-90deg) translateZ(25px); }
+            
+            .dice-pip {
+                width: 8px;
+                height: 8px;
+            }
+            
+            .bet-input {
+                padding: 20px;
+                font-size: 1.5rem;
+            }
+            
+            .bet-currency {
+                font-size: 1.5rem;
+                right: 20px;
+            }
+            
+            .potential-win-value {
+                font-size: 1.8rem;
+            }
+            
+            .action-btn {
+                padding: 20px;
+                font-size: 1rem;
+            }
+            
+            .roll-btn {
+                font-size: 1.5rem;
+            }
+            
+            .game-stats {
+                grid-template-columns: 1fr;
+            }
+            
+            .fullscreen-toggle {
+                bottom: 10px;
+                right: 10px;
+                width: 50px;
+                height: 50px;
+                font-size: 1.2rem;
+            }
+            
+            .result-icon {
+                font-size: 3.5rem;
+            }
+            
+            .result-title {
+                font-size: 2rem;
+            }
+            
+            .result-amount {
+                font-size: 2.5rem;
+            }
+        }
+
+        /* Touch Optimization */
+        @media (hover: none) and (pointer: coarse) {
+            .quick-bet,
+            .action-btn {
+                min-height: 70px;
+            }
+            
+            .bet-input {
+                font-size: 2rem;
+                padding: 30px;
+            }
+            
+            .result-overlay {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }
+            
+            .result-content {
+                width: 95%;
+                max-height: 90vh;
+                overflow-y: auto;
+            }
+        }
+
+        /* Fullscreen Specific Styles */
+        :fullscreen .game-container {
+            max-width: none;
+            padding: 10px;
+        }
+        
+        :fullscreen .battle-table {
+            height: 60vh;
+        }
+        
+        :fullscreen .control-panel {
+            margin-top: 20px;
+            border-radius: 20px;
+        }
+        
+        :fullscreen .fullscreen-toggle {
+            display: none;
+        }
+        
+        :fullscreen .header {
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 1000;
+        }
+        
+        :fullscreen .winners-feed {
+            position: fixed;
+            width: 100%;
+            top: 80px;
+            z-index: 999;
+        }
+        
+        :fullscreen .game-container {
+            padding-top: 180px;
+        }
+
+        /* Landscape Optimization */
+        @media (orientation: landscape) and (max-height: 600px) {
+            .header {
+                padding: 5px 15px;
+            }
+            
+            .winners-feed {
+                padding: 5px 10px;
+            }
+            
+            .game-container {
+                flex-direction: row;
+                padding: 10px;
+                gap: 10px;
+            }
+            
+            .battle-arena {
+                flex: 2;
+            }
+            
+            .control-panel {
+                flex: 1;
+                margin-top: 0;
+            }
+            
+            .history-panel {
+                flex: 1;
+                max-height: none;
+            }
+            
+            .battle-table {
+                height: 40vh;
+            }
+        }
+
+        /* High DPI Screens */
+        @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+            .dice-face-real {
+                border-width: 2px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="loading-dice">
+            <div class="dice-face front">🎲</div>
+            <div class="dice-face back">🎲</div>
+            <div class="dice-face right">🎲</div>
+            <div class="dice-face left">🎲</div>
+            <div class="dice-face top">🎲</div>
+            <div class="dice-face bottom">🎲</div>
+        </div>
+        <h2 style="margin-bottom: 10px; color: var(--primary); font-family: 'Cinzel', serif;">🎲 DICE BATTLE</h2>
+        <p class="loading-text" id="loadingStatus">Loading premium casino duel...</p>
+        <div style="margin-top: 30px; color: var(--text-dim); font-size: 0.9rem;">
+            <i class="fas fa-shield-alt"></i> Secure Real Money Gaming
+        </div>
+    </div>
+
+    <!-- Background Effects -->
+    <div class="bg-effects"></div>
+    <div class="velvet-texture"></div>
+    <div class="particles" id="particles"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <a href="https://xcrazybet.github.io/millioner/games.html" class="home-btn" title="Return to Games">
+                <i class="fas fa-dice"></i>
+            </a>
+            <div class="logo">
+                <div class="logo-icon">
+                    <i class="fas fa-hand-fist"></i>
+                </div>
+                <div class="logo-text">DICE BATTLE</div>
+            </div>
+        </div>
+        <div class="balance-container">
+            <i class="fas fa-coins balance-icon"></i>
+            <div class="balance-amount">$<span id="balanceVal">0.00</span></div>
+        </div>
+    </header>
+
+    <!-- Live Winners Feed -->
+    <div class="winners-feed">
+        <div class="winners-title">
+            <i class="fas fa-trophy"></i> Live Winners
+        </div>
+        <div class="winners-marquee" id="winnersMarquee">
+            <!-- Winners will be dynamically added here -->
+        </div>
+    </div>
+
+    <!-- Main Game Container -->
+    <div class="game-container" id="gameContainer">
+        <!-- Battle Arena -->
+        <div class="battle-arena">
+            <div class="battle-table">
+                <div class="battle-line"></div>
+                
+                <!-- Dealer Character -->
+                <div class="dealer-character">
+                    <div class="dealer-icon">👔</div>
+                </div>
+                
+                <!-- Player Side -->
+                <div class="player-side">
+                    <div class="side-label">PLAYER</div>
+                    <div class="dice-container" id="playerDiceContainer">
+                        <!-- Player dice will be generated here -->
+                    </div>
+                    <div class="dice-total" id="playerTotal">0</div>
+                </div>
+                
+                <!-- Dealer Side -->
+                <div class="dealer-side">
+                    <div class="side-label">DEALER</div>
+                    <div class="dice-container" id="dealerDiceContainer">
+                        <!-- Dealer dice will be generated here -->
+                    </div>
+                    <div class="dice-total" id="dealerTotal">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <!-- Bet Controls -->
+            <div class="bet-section">
+                <div class="bet-input-container">
+                    <div class="bet-input-wrapper">
+                        <input type="number" class="bet-input" id="betAmount" value="5" min="1" step="1">
+                        <div class="bet-currency">$</div>
+                    </div>
+                </div>
+                <div class="potential-win">
+                    <div class="potential-win-label">Potential Win</div>
+                    <div class="potential-win-value" id="potentialWin">$10.00</div>
+                </div>
+            </div>
+
+            <!-- Quick Bets -->
+            <div class="quick-bets">
+                <button class="quick-bet" data-amount="1">
+                    <i class="fas fa-dollar-sign"></i> $1
+                </button>
+                <button class="quick-bet active" data-amount="5">
+                    <i class="fas fa-dollar-sign"></i> $5
+                </button>
+                <button class="quick-bet" data-amount="10">
+                    <i class="fas fa-dollar-sign"></i> $10
+                </button>
+                <button class="quick-bet" data-amount="25">
+                    <i class="fas fa-dollar-sign"></i> $25
+                </button>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <button id="doubleBtn" class="action-btn double-btn" disabled>
+                    <i class="fas fa-times-circle"></i> Double
+                </button>
+                <button id="rollBtn" class="action-btn roll-btn pulsing">
+                    <i class="fas fa-dice"></i> ROLL DICE
+                </button>
+                <button id="clearBtn" class="action-btn clear-btn">
+                    <i class="fas fa-eraser"></i> Clear
+                </button>
+            </div>
+
+            <!-- Game Stats -->
+            <div class="game-stats">
+                <div class="stat-item">
+                    <div class="stat-label">Total Games</div>
+                    <div class="stat-value" id="totalGames">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Win Streak</div>
+                    <div class="stat-value" id="winStreak">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Biggest Win</div>
+                    <div class="stat-value" id="biggestWin">$0.00</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Panel -->
+        <div class="history-panel">
+            <div class="history-title">
+                <i class="fas fa-history"></i> Your Game History
+            </div>
+            <div class="history-list" id="historyList">
+                <!-- History items will be generated here -->
+            </div>
+        </div>
+
+        <!-- Game Description -->
+        <div class="game-description">
+            <div class="description-title">🎲 How to Play Dice Battle</div>
+            <div class="description-content">
+                <p>Place your bet and roll the dice against the dealer. Higher total wins! 
+                Get 1:1 payout on wins, push on ties. Experience the thrill of classic casino dice duels 
+                with premium visuals and real money stakes. Remember to play responsibly!</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fullscreen Toggle -->
+    <div class="fullscreen-toggle" id="fullscreenToggle" title="Toggle Fullscreen">
+        <i class="fas fa-expand"></i>
+    </div>
+
+    <!-- Result Overlay -->
+    <div class="result-overlay" id="resultOverlay">
+        <div class="result-content">
+            <div class="result-icon" id="resultIcon">🎲</div>
+            <div class="result-title" id="resultTitle">ROLLING...</div>
+            <div class="result-details" id="resultDetails">
+                Player: <span id="resultPlayerRoll">0</span> vs Dealer: <span id="resultDealerRoll">0</span>
+            </div>
+            <div class="result-rolls">
+                <span id="resultPlayerDice">⚅⚅</span> vs <span id="resultDealerDice">⚅⚅</span>
+            </div>
+            <div class="result-amount" id="resultAmount">$0.00</div>
+            <button id="playAgainBtn" class="action-btn roll-btn" style="margin-top: 30px;">
+                <i class="fas fa-redo"></i> PLAY AGAIN
+            </button>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // ===== FIREBASE CONFIGURATION =====
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+            measurementId: "G-PTV4XMYQ6P"
+        };
+
+        // ===== GAME STATE =====
+        const gameState = {
+            currentUser: null,
+            balance: 0,
+            isAuthenticated: false,
+            
+            // Game settings
+            betAmount: 5,
+            minBet: 1,
+            maxBet: 1000,
+            gameActive: false,
+            isRolling: false,
+            
+            // Game data
+            totalGames: 0,
+            winStreak: 0,
+            biggestWin: 0,
+            gameHistory: [],
+            
+            // Current game
+            currentGame: {
+                id: null,
+                playerRolls: [0, 0],
+                dealerRolls: [0, 0],
+                playerTotal: 0,
+                dealerTotal: 0,
+                result: null,
+                winAmount: 0,
+                betAmount: 0,
+                timestamp: null
+            },
+            
+            // 100+ Unique Casino Nicknames
+            uniqueNicknames: [
+                "LuckyRoller", "DiceMaster", "GoldenHand", "ChipStacker", "JackpotKing", 
+                "RoyalFlush", "HighRollerX", "BetBaron", "CasinoKing", "DiceWizard",
+                "FortuneSeeker", "GoldHunter", "StackMaster", "RollRoyce", "DiceLord",
+                "BetPro", "ChipMagnet", "WinMaker", "DiceNinja", "RollPro",
+                "FortuneMaker", "GoldDigger", "DiceWarrior", "BetWarrior", "WinHunter",
+                "ChipCollector", "RollMaster", "DiceGenius", "BetGenius", "WinGenius",
+                "GoldenRoll", "DiceChamp", "BetChamp", "WinChamp", "CasinoPro",
+                "DiceAce", "BetAce", "WinAce", "RollAce", "ChipAce",
+                "FortuneHunter", "GoldMiner", "DicePro", "BetWizard", "WinWizard",
+                "RollWizard", "ChipWizard", "DiceLegend", "BetLegend", "WinLegend",
+                "CasinoLegend", "RollLegend", "ChipLegend", "DiceHero", "BetHero",
+                "WinHero", "RollHero", "ChipHero", "FortuneHero", "GoldHero",
+                "DiceStar", "BetStar", "WinStar", "RollStar", "ChipStar",
+                "CasinoStar", "DiceBoss", "BetBoss", "WinBoss", "RollBoss",
+                "ChipBoss", "FortuneBoss", "GoldBoss", "DiceKing", "BetKing",
+                "WinKing", "RollKing", "ChipKing", "CasinoEmperor", "DiceEmperor",
+                "BetEmperor", "WinEmperor", "RollEmperor", "ChipEmperor", "FortuneLord",
+                "GoldLord", "DiceWarriorX", "BetWarriorX", "WinWarriorX", "RollWarriorX",
+                "ChipWarriorX", "DiceSamurai", "BetSamurai", "WinSamurai", "RollSamurai",
+                "ChipSamurai", "FortuneKnight", "GoldKnight", "DiceKnight", "BetKnight"
+            ],
+            
+            // Sound URLs from SoundBible
+            sounds: {
+                diceRoll: 'https://soundbible.com/mp3/Dice Roll-SoundBible.com-591494672.mp3',
+                diceStop: 'https://soundbible.com/mp3/click_SoundBible.com_1385808674.mp3',
+                win: 'https://soundbible.com/mp3/Video Game Win-SoundBible.com-1047292840.mp3',
+                lose: 'https://soundbible.com/mp3/Sad_Trombone-Joe_Lamb-665429450.mp3',
+                chipPlace: 'https://soundbible.com/mp3/Click2-Sebastian-759472264.mp3',
+                dealerMove: 'https://soundbible.com/mp3/card-flip-4s-92256.mp3'
+            }
+        };
+
+        // ===== SOUND MANAGER =====
+        const SoundManager = {
+            enabled: true,
+            
+            play: (soundName) => {
+                if (!SoundManager.enabled) return;
+                
+                try {
+                    const audio = new Audio(gameState.sounds[soundName] || gameState.sounds.chipPlace);
+                    audio.volume = 0.3;
+                    audio.play().catch(e => console.log("Sound play error:", e));
+                } catch (error) {
+                    console.log("Sound error:", error);
+                }
+            },
+            
+            toggle: () => {
+                SoundManager.enabled = !SoundManager.enabled;
+                showToast(`Sounds ${SoundManager.enabled ? 'enabled' : 'disabled'}`, 'info');
+                return SoundManager.enabled;
+            }
+        };
+
+        // ===== PARTICLE SYSTEM =====
+        const ParticleSystem = {
+            createParticles: (count, color, x, y) => {
+                const particles = document.getElementById('particles');
+                for (let i = 0; i < count; i++) {
+                    const particle = document.createElement('div');
+                    particle.className = 'particle';
+                    particle.style.background = color;
+                    particle.style.left = `${x + (Math.random() - 0.5) * 100}px`;
+                    particle.style.top = `${y + (Math.random() - 0.5) * 100}px`;
+                    particle.style.width = `${Math.random() * 10 + 5}px`;
+                    particle.style.height = particle.style.width;
+                    particle.style.animationDuration = `${Math.random() * 2 + 1}s`;
+                    particle.style.animationDelay = `${Math.random() * 0.5}s`;
+                    particles.appendChild(particle);
+                    
+                    setTimeout(() => {
+                        if (particle.parentNode) {
+                            particle.remove();
+                        }
+                    }, 3000);
+                }
+            },
+            
+            createWinConfetti: () => {
+                const colors = ['#ffd700', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444'];
+                const centerX = window.innerWidth / 2;
+                const centerY = window.innerHeight / 2;
+                
+                for (let i = 0; i < 150; i++) {
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    ParticleSystem.createParticles(1, color, centerX, centerY);
+                }
+            }
+        };
+
+        // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("🎲 Dice Battle Initializing...");
+            updateLoadingStatus("Loading game engine...");
+            
+            // Initialize Firebase
+            try {
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                }
+                console.log("✅ Firebase initialized");
+                checkAuth();
+            } catch (error) {
+                console.log("Firebase initialization error:", error);
+                checkAuth();
+            }
+            
+            // Setup initial UI
+            setupInitialUI();
+        });
+
+        // ===== AUTHENTICATION =====
+        function checkAuth() {
+            updateLoadingStatus("Checking authentication...");
+            
+            const auth = firebase.auth();
+            
+            auth.onAuthStateChanged(user => {
+                if (!user) {
+                    showError("Please login to play with real money");
+                    updateLoadingStatus("Redirecting to login...");
+                    
+                    setTimeout(() => {
+                        if (confirm("Login required for real money gaming. Go to login page?")) {
+                            window.location.href = 'https://xcrazybet.github.io/millioner/login.html';
+                        } else {
+                            // Demo mode
+                            gameState.balance = 1000;
+                            updateBalanceDisplay();
+                            setupGame();
+                        }
+                    }, 2000);
+                    return;
+                }
+                
+                gameState.currentUser = user;
+                gameState.isAuthenticated = true;
+                console.log("✅ User authenticated:", user.uid);
+                updateLoadingStatus("Loading player data...");
+                
+                loadBalance();
+            }, (error) => {
+                console.error("Auth error:", error);
+                showError("Authentication failed. Using demo mode.");
+                
+                // Fallback to demo mode
+                setTimeout(() => {
+                    gameState.balance = 1000;
+                    updateBalanceDisplay();
+                    setupGame();
+                }, 1000);
+            });
+        }
+
+        // ===== BALANCE MANAGEMENT =====
+        async function loadBalance() {
+            try {
+                const db = firebase.firestore();
+                const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+                const walletDoc = await walletRef.get();
+                
+                if (walletDoc.exists) {
+                    const walletData = walletDoc.data();
+                    gameState.balance = walletData.balance || 0;
+                    gameState.totalGames = walletData.totalGames || 0;
+                    gameState.winStreak = walletData.winStreak || 0;
+                    gameState.biggestWin = walletData.biggestWin || 0;
+                    console.log("💰 Balance loaded:", gameState.balance);
+                } else {
+                    // Create new wallet
+                    await walletRef.set({
+                        balance: 100,
+                        totalGames: 0,
+                        winStreak: 0,
+                        biggestWin: 0,
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                        userId: gameState.currentUser.uid
+                    });
+                    gameState.balance = 100;
+                    console.log("✅ New wallet created");
+                }
+                
+                updateBalanceDisplay();
+                updateStatsDisplay();
+                setupBalanceListener();
+                setupGame();
+                
+            } catch (error) {
+                console.error('Error loading balance:', error);
+                showError('Balance load failed. Using demo mode.');
+                gameState.balance = 1000;
+                updateBalanceDisplay();
+                setupGame();
+            }
+        }
+
+        function updateBalanceDisplay() {
+            document.getElementById('balanceVal').textContent = gameState.balance.toFixed(2);
+        }
+
+        function updateStatsDisplay() {
+            document.getElementById('totalGames').textContent = gameState.totalGames;
+            document.getElementById('winStreak').textContent = gameState.winStreak;
+            document.getElementById('biggestWin').textContent = `$${gameState.biggestWin.toFixed(2)}`;
+        }
+
+        function setupBalanceListener() {
+            try {
+                const db = firebase.firestore();
+                const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+                
+                walletRef.onSnapshot((doc) => {
+                    if (doc.exists) {
+                        const walletData = doc.data();
+                        const newBalance = walletData.balance || 0;
+                        if (newBalance !== gameState.balance) {
+                            gameState.balance = newBalance;
+                            updateBalanceDisplay();
+                            updateBetLimits();
+                        }
+                        
+                        gameState.totalGames = walletData.totalGames || 0;
+                        gameState.winStreak = walletData.winStreak || 0;
+                        gameState.biggestWin = walletData.biggestWin || 0;
+                        updateStatsDisplay();
+                    }
+                });
+            } catch (error) {
+                console.error('Balance listener error:', error);
+            }
+        }
+
+        // ===== TRANSACTION PROCESSING =====
+        async function processTransaction(amount, type, description, gameData = {}) {
+            try {
+                const db = firebase.firestore();
+                const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+                
+                return await db.runTransaction(async (transaction) => {
+                    const walletDoc = await transaction.get(walletRef);
+                    
+                    if (!walletDoc.exists) {
+                        throw new Error("Wallet not found");
+                    }
+                    
+                    const walletData = walletDoc.data();
+                    const currentBalance = walletData.balance || 0;
+                    const newBalance = currentBalance + amount;
+                    
+                    if (newBalance < 0) {
+                        throw new Error("Insufficient funds");
+                    }
+                    
+                    // Update wallet stats
+                    const updates = {
+                        balance: newBalance,
+                        updatedAt: new Date()
+                    };
+                    
+                    if (type === "dice_bet") {
+                        updates.totalGames = (walletData.totalGames || 0) + 1;
+                        updates.totalWagered = (walletData.totalWagered || 0) + Math.abs(amount);
+                    } else if (type === "dice_win") {
+                        updates.totalWon = (walletData.totalWon || 0) + amount;
+                        if (amount > (walletData.biggestWin || 0)) {
+                            updates.biggestWin = amount;
+                        }
+                        if (gameData.result === "win") {
+                            updates.winStreak = (walletData.winStreak || 0) + 1;
+                        } else {
+                            updates.winStreak = 0;
+                        }
+                    }
+                    
+                    transaction.update(walletRef, updates);
+                    
+                    // Record transaction
+                    const transactionRef = walletRef.collection("transactions").doc();
+                    const gameId = gameState.currentGame.id || `dice_${Date.now()}`;
+                    
+                    transaction.set(transactionRef, {
+                        type: type,
+                        amount: amount,
+                        description: description,
+                        createdAt: new Date(),
+                        gameId: gameId,
+                        beforeBalance: currentBalance,
+                        afterBalance: newBalance,
+                        playerRolls: gameData.playerRolls || [],
+                        dealerRolls: gameData.dealerRolls || [],
+                        playerTotal: gameData.playerTotal || 0,
+                        dealerTotal: gameData.dealerTotal || 0,
+                        result: gameData.result,
+                        betAmount: gameData.betAmount,
+                        winAmount: gameData.winAmount
+                    });
+                    
+                    // Update game state
+                    gameState.balance = newBalance;
+                    updateBalanceDisplay();
+                    
+                    if (type === "dice_win" && gameData.result === "win" && amount > gameState.biggestWin) {
+                        gameState.biggestWin = amount;
+                    }
+                    
+                    return { success: true, newBalance };
+                });
+            } catch (error) {
+                console.error('Transaction failed:', error);
+                showToast(`Transaction failed: ${error.message}`, 'error');
+                return { success: false, error: error.message };
+            }
+        }
+
+        // ===== GAME SETUP =====
+        function setupGame() {
+            updateLoadingStatus("Setting up game components...");
+            
+            // Initialize UI components
+            generateDice();
+            generateWinnersFeed();
+            loadGameHistory();
+            
+            // Setup event listeners
+            setupEventListeners();
+            
+            // Calculate initial potential win
+            updatePotentialWin();
+            updateBetLimits();
+            
+            // Enable game controls
+            enableGameControls();
+            
+            // Hide loading screen
+            setTimeout(() => {
+                document.getElementById('loadingScreen').classList.add('hidden');
+                showToast('🎲 Welcome to Dice Battle! Beat the dealer!', 'success');
+                SoundManager.play('chipPlace');
+            }, 1000);
+            
+            console.log("✅ Game setup complete");
+        }
+
+        function setupInitialUI() {
+            // Create initial winners feed
+            generateWinnersFeed();
+            
+            // Create background particles
+            createBackgroundParticles();
+        }
+
+        function createBackgroundParticles() {
+            const particles = document.getElementById('particles');
+            const colors = ['#ffd700', '#10b981', '#3b82f6', '#8b5cf6'];
+            
+            for (let i = 0; i < 20; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.background = colors[Math.floor(Math.random() * colors.length)];
+                particle.style.left = `${Math.random() * 100}vw`;
+                particle.style.top = `${Math.random() * 100}vh`;
+                particle.style.width = `${Math.random() * 6 + 2}px`;
+                particle.style.height = particle.style.width;
+                particle.style.animationDuration = `${Math.random() * 8 + 4}s`;
+                particle.style.animationDelay = `${Math.random() * 2}s`;
+                particles.appendChild(particle);
+            }
+        }
+
+        // ===== DICE GENERATION =====
+        function generateDice() {
+            const playerContainer = document.getElementById('playerDiceContainer');
+            const dealerContainer = document.getElementById('dealerDiceContainer');
+            
+            playerContainer.innerHTML = '';
+            dealerContainer.innerHTML = '';
+            
+            // Create player dice
+            for (let i = 0; i < 2; i++) {
+                const dice = createDiceElement('player', i);
+                playerContainer.appendChild(dice);
+            }
+            
+            // Create dealer dice
+            for (let i = 0; i < 2; i++) {
+                const dice = createDiceElement('dealer', i);
+                dealerContainer.appendChild(dice);
+            }
+        }
+
+        function createDiceElement(side, index) {
+            const dice = document.createElement('div');
+            dice.className = `dice ${side}-dice`;
+            dice.dataset.side = side;
+            dice.dataset.index = index;
+            
+            // Create 6 faces for the dice
+            const faces = [1, 2, 3, 4, 5, 6];
+            faces.forEach((faceValue, i) => {
+                const face = document.createElement('div');
+                face.className = `dice-face-real face-${faceValue}`;
+                
+                // Create pips for this face
+                for (let p = 0; p < faceValue; p++) {
+                    const pip = document.createElement('div');
+                    pip.className = 'pip';
+                    face.appendChild(pip);
+                }
+                
+                // Position the face
+                const positions = ['front', 'back', 'right', 'left', 'top', 'bottom'];
+                face.classList.add(positions[i]);
+                
+                dice.appendChild(face);
+            });
+            
+            return dice;
+        }
+
+        function rollDice(side) {
+            const diceElements = document.querySelectorAll(`.${side}-dice`);
+            const rolls = [];
+            
+            diceElements.forEach((dice, index) => {
+                // Add rolling animation
+                dice.classList.add('rolling');
+                
+                // Generate random roll (1-6)
+                const roll = Math.floor(Math.random() * 6) + 1;
+                rolls.push(roll);
+                
+                // Calculate rotation to show the correct face
+                const rotations = {
+                    1: { x: 0, y: 0 },
+                    2: { x: 0, y: 90 },
+                    3: { x: -90, y: 0 },
+                    4: { x: 90, y: 0 },
+                    5: { x: 0, y: -90 },
+                    6: { x: 180, y: 0 }
+                };
+                
+                const rotation = rotations[roll] || rotations[1];
+                
+                // Apply rotation after animation
+                setTimeout(() => {
+                    dice.classList.remove('rolling');
+                    dice.style.transform = `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)`;
+                    
+                    // Update game state
+                    if (side === 'player') {
+                        gameState.currentGame.playerRolls[index] = roll;
+                    } else {
+                        gameState.currentGame.dealerRolls[index] = roll;
+                    }
+                }, 1000);
+            });
+            
+            return rolls;
+        }
+
+        // ===== WINNERS FEED =====
+        function generateWinnersFeed() {
+            const marquee = document.getElementById('winnersMarquee');
+            marquee.innerHTML = '';
+            
+            // Generate random winners
+            const winnerCount = 10;
+            
+            for (let i = 0; i < winnerCount; i++) {
+                const name = gameState.uniqueNicknames[Math.floor(Math.random() * gameState.uniqueNicknames.length)];
+                const amount = Math.floor(Math.random() * 5000) + 100;
+                const timeAgo = `${Math.floor(Math.random() * 10) + 1} min ago`;
+                
+                const winnerItem = document.createElement('div');
+                winnerItem.className = 'winner-item';
+                
+                winnerItem.innerHTML = `
+                    <div class="winner-avatar">${name.charAt(0)}</div>
+                    <div class="winner-name">${name}</div>
+                    <div class="winner-amount">$${amount.toLocaleString()}</div>
+                    <div style="color: var(--text-dim); font-size: 0.9rem;">${timeAgo}</div>
+                `;
+                
+                marquee.appendChild(winnerItem);
+            }
+        }
+
+        // ===== GAME HISTORY =====
+        async function loadGameHistory() {
+            try {
+                const db = firebase.firestore();
+                const historyRef = db.collection("wallets")
+                    .doc(gameState.currentUser?.uid)
+                    .collection("transactions")
+                    .where("type", "in", ["dice_win", "dice_loss", "dice_push"])
+                    .orderBy("createdAt", "desc")
+                    .limit(10);
+                
+                const snapshot = await historyRef.get();
+                const historyList = document.getElementById('historyList');
+                historyList.innerHTML = '';
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    addHistoryItem(data);
+                });
+                
+            } catch (error) {
+                console.error('Error loading history:', error);
+                // Show sample history for demo
+                showSampleHistory();
+            }
+        }
+
+        function addHistoryItem(gameData) {
+            const historyList = document.getElementById('historyList');
+            
+            const historyItem = document.createElement('div');
+            historyItem.className = `history-item ${gameData.result}`;
+            
+            const time = gameData.createdAt?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) || 'Just now';
+            const playerTotal = gameData.playerRolls?.reduce((a, b) => a + b, 0) || 0;
+            const dealerTotal = gameData.dealerRolls?.reduce((a, b) => a + b, 0) || 0;
+            
+            let resultText = '';
+            let amountText = '';
+            
+            if (gameData.result === 'win') {
+                resultText = 'WIN';
+                amountText = `+$${gameData.winAmount?.toFixed(2) || '0.00'}`;
+            } else if (gameData.result === 'lose') {
+                resultText = 'LOSE';
+                amountText = `-$${gameData.betAmount?.toFixed(2) || '0.00'}`;
+            } else {
+                resultText = 'PUSH';
+                amountText = `±$${gameData.betAmount?.toFixed(2) || '0.00'}`;
+            }
+            
+            historyItem.innerHTML = `
+                <div class="history-details">
+                    <div class="history-result ${gameData.result}">${resultText}</div>
+                    <div class="history-rolls">
+                        ${gameData.playerRolls?.[0] || 0}⚅ + ${gameData.playerRolls?.[1] || 0}⚅ = ${playerTotal}
+                        vs
+                        ${gameData.dealerRolls?.[0] || 0}⚅ + ${gameData.dealerRolls?.[1] || 0}⚅ = ${dealerTotal}
+                    </div>
+                </div>
+                <div class="history-amount ${gameData.result}">${amountText}</div>
+                <div class="history-time">${time}</div>
+            `;
+            
+            historyList.insertBefore(historyItem, historyList.firstChild);
+            
+            // Keep only last 10 items
+            while (historyList.children.length > 10) {
+                historyList.removeChild(historyList.lastChild);
+            }
+        }
+
+        function showSampleHistory() {
+            const sampleHistory = [
+                { result: 'win', playerRolls: [5, 6], dealerRolls: [3, 4], winAmount: 10, betAmount: 5 },
+                { result: 'lose', playerRolls: [2, 3], dealerRolls: [4, 5], winAmount: 0, betAmount: 5 },
+                { result: 'push', playerRolls: [4, 4], dealerRolls: [4, 4], winAmount: 0, betAmount: 5 },
+                { result: 'win', playerRolls: [6, 6], dealerRolls: [5, 4], winAmount: 10, betAmount: 5 }
+            ];
+            
+            sampleHistory.forEach(gameData => {
+                addHistoryItem(gameData);
+            });
+        }
+
+        // ===== GAME FUNCTIONS =====
+        function updatePotentialWin() {
+            const betAmount = parseFloat(document.getElementById('betAmount').value) || 0;
+            document.getElementById('potentialWin').textContent = `$${(betAmount * 2).toFixed(2)}`;
+        }
+
+        function updateBetLimits() {
+            const betInput = document.getElementById('betAmount');
+            const maxBet = Math.min(gameState.balance, gameState.maxBet);
+            
+            betInput.max = maxBet;
+            
+            if (parseFloat(betInput.value) > maxBet) {
+                betInput.value = maxBet;
+                gameState.betAmount = maxBet;
+            }
+            
+            updatePotentialWin();
+        }
+
+        function enableGameControls() {
+            const rollBtn = document.getElementById('rollBtn');
+            const doubleBtn = document.getElementById('doubleBtn');
+            
+            rollBtn.disabled = false;
+            doubleBtn.disabled = false;
+            
+            rollBtn.classList.add('pulsing');
+        }
+
+        // ===== GAME LOGIC =====
+        async function startGame() {
+            if (!gameState.isAuthenticated) {
+                showToast('Please login to play with real money', 'warning');
+                return;
+            }
+            
+            const betAmount = parseFloat(document.getElementById('betAmount').value);
+            
+            // Validate bet
+            if (betAmount < gameState.minBet || betAmount > Math.min(gameState.balance, gameState.maxBet)) {
+                showToast(`Bet must be between $${gameState.minBet} and $${Math.min(gameState.balance, gameState.maxBet)}`, 'error');
+                return;
+            }
+            
+            if (gameState.isRolling) {
+                showToast('Dice are already rolling!', 'warning');
+                return;
+            }
+            
+            // Process bet transaction
+            const betResult = await processTransaction(
+                -betAmount,
+                "dice_bet",
+                `Dice Battle bet: $${betAmount}`,
+                { betAmount: betAmount }
+            );
+            
+            if (!betResult.success) {
+                return;
+            }
+            
+            // Initialize game state
+            gameState.isRolling = true;
+            gameState.currentGame = {
+                id: `dice_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                playerRolls: [0, 0],
+                dealerRolls: [0, 0],
+                playerTotal: 0,
+                dealerTotal: 0,
+                result: null,
+                winAmount: 0,
+                betAmount: betAmount,
+                timestamp: new Date()
+            };
+            
+            // Disable controls
+            document.getElementById('rollBtn').disabled = true;
+            document.getElementById('doubleBtn').disabled = true;
+            document.getElementById('betAmount').disabled = true;
+            
+            // Start game sequence
+            playGameSequence();
+            SoundManager.play('diceRoll');
+        }
+
+        async function playGameSequence() {
+            // Step 1: Player rolls
+            await playerRoll();
+            
+            // Step 2: Dealer rolls
+            await dealerRoll();
+            
+            // Step 3: Calculate result
+            calculateResult();
+            
+            // Step 4: Process win/loss
+            await processResult();
+            
+            // Step 5: Show result
+            showResult();
+            
+            // Step 6: Re-enable controls
+            setTimeout(() => {
+                gameState.isRolling = false;
+                document.getElementById('rollBtn').disabled = false;
+                document.getElementById('doubleBtn').disabled = false;
+                document.getElementById('betAmount').disabled = false;
+            }, 2000);
+        }
+
+        async function playerRoll() {
+            const rolls = rollDice('player');
+            gameState.currentGame.playerTotal = rolls.reduce((a, b) => a + b, 0);
+            
+            // Update display
+            document.getElementById('playerTotal').textContent = gameState.currentGame.playerTotal;
+            
+            // Wait for animation
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            SoundManager.play('diceStop');
+        }
+
+        async function dealerRoll() {
+            const rolls = rollDice('dealer');
+            gameState.currentGame.dealerTotal = rolls.reduce((a, b) => a + b, 0);
+            
+            // Update display
+            document.getElementById('dealerTotal').textContent = gameState.currentGame.dealerTotal;
+            
+            // Wait for animation
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            SoundManager.play('diceStop');
+        }
+
+        function calculateResult() {
+            const playerTotal = gameState.currentGame.playerTotal;
+            const dealerTotal = gameState.currentGame.dealerTotal;
+            
+            // 10-15% win rate algorithm
+            let result;
+            
+            // Special losing conditions (house edge)
+            if (playerTotal === 2) { // Snake eyes always loses
+                result = 'lose';
+            } else if (playerTotal === 12 && dealerTotal !== 12) { // Boxcars win unless dealer also has 12
+                result = 'win';
+            } else if (playerTotal > dealerTotal) {
+                // Weighted win probability (10-15%)
+                const winProbability = 0.12; // 12% average
+                result = Math.random() < winProbability ? 'win' : 'lose';
+            } else if (playerTotal < dealerTotal) {
+                result = 'lose';
+            } else {
+                result = 'push';
+            }
+            
+            gameState.currentGame.result = result;
+            
+            // Calculate win amount
+            if (result === 'win') {
+                gameState.currentGame.winAmount = gameState.currentGame.betAmount * 2;
+            } else if (result === 'push') {
+                gameState.currentGame.winAmount = gameState.currentGame.betAmount;
+            } else {
+                gameState.currentGame.winAmount = 0;
+            }
+        }
+
+        async function processResult() {
+            const game = gameState.currentGame;
+            
+            if (game.result === 'win' || game.result === 'push') {
+                const winResult = await processTransaction(
+                    game.winAmount - (game.result === 'push' ? 0 : game.betAmount),
+                    "dice_win",
+                    `Dice Battle ${game.result}: $${game.winAmount.toFixed(2)}`,
+                    game
+                );
+                
+                if (!winResult.success) {
+                    showToast('Failed to process win', 'error');
+                }
+            } else {
+                // Log loss transaction
+                const lossResult = await processTransaction(
+                    0,
+                    "dice_loss",
+                    `Dice Battle loss: -$${game.betAmount.toFixed(2)}`,
+                    game
+                );
+            }
+            
+            // Add to history
+            addHistoryItem(game);
+            
+            // Update winners feed occasionally
+            if (game.result === 'win' && Math.random() > 0.7) {
+                updateWinnersFeed(game.winAmount);
+            }
+        }
+
+        function showResult() {
+            const game = gameState.currentGame;
+            
+            // Update result overlay
+            document.getElementById('resultPlayerRoll').textContent = game.playerTotal;
+            document.getElementById('resultDealerRoll').textContent = game.dealerTotal;
+            document.getElementById('resultPlayerDice').textContent = `${getDiceSymbol(game.playerRolls[0])}${getDiceSymbol(game.playerRolls[1])}`;
+            document.getElementById('resultDealerDice').textContent = `${getDiceSymbol(game.dealerRolls[0])}${getDiceSymbol(game.dealerRolls[1])}`;
+            
+            let title, icon, amountText, amountClass;
+            
+            if (game.result === 'win') {
+                title = '🎉 YOU WIN!';
+                icon = '💰';
+                amountText = `+$${game.winAmount.toFixed(2)}`;
+                amountClass = '';
+                SoundManager.play('win');
+                ParticleSystem.createWinConfetti();
+            } else if (game.result === 'lose') {
+                title = '💸 YOU LOSE';
+                icon = '😔';
+                amountText = `-$${game.betAmount.toFixed(2)}`;
+                amountClass = 'lose';
+                SoundManager.play('lose');
+            } else {
+                title = '⚖️ PUSH';
+                icon = '🤝';
+                amountText = `±$${game.betAmount.toFixed(2)}`;
+                amountClass = 'push';
+            }
+            
+            document.getElementById('resultIcon').textContent = icon;
+            document.getElementById('resultTitle').textContent = title;
+            document.getElementById('resultTitle').className = `result-title result-${game.result}`;
+            document.getElementById('resultAmount').textContent = amountText;
+            document.getElementById('resultAmount').className = `result-amount ${amountClass}`;
+            
+            // Show overlay
+            setTimeout(() => {
+                document.getElementById('resultOverlay').classList.add('show');
+            }, 1000);
+        }
+
+        function getDiceSymbol(value) {
+            const symbols = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+            return symbols[value - 1] || '⚄';
+        }
+
+        function updateWinnersFeed(amount) {
+            const marquee = document.getElementById('winnersMarquee');
+            const name = gameState.uniqueNicknames[Math.floor(Math.random() * gameState.uniqueNicknames.length)];
+            
+            const winnerItem = document.createElement('div');
+            winnerItem.className = 'winner-item';
+            
+            winnerItem.innerHTML = `
+                <div class="winner-avatar">${name.charAt(0)}</div>
+                <div class="winner-name">${name}</div>
+                <div class="winner-amount">$${amount.toLocaleString()}</div>
+                <div style="color: var(--text-dim); font-size: 0.9rem;">Just now</div>
+            `;
+            
+            marquee.appendChild(winnerItem);
+            
+            // Keep marquee flowing
+            if (marquee.children.length > 15) {
+                marquee.removeChild(marquee.firstChild);
+            }
+        }
+
+        // ===== EVENT LISTENERS =====
+        function setupEventListeners() {
+            console.log("Setting up event listeners...");
+            
+            // Roll button
+            document.getElementById('rollBtn').addEventListener('click', () => {
+                SoundManager.play('chipPlace');
+                startGame();
+            });
+            
+            // Double bet button
+            document.getElementById('doubleBtn').addEventListener('click', () => {
+                SoundManager.play('chipPlace');
+                doubleBet();
+            });
+            
+            // Clear button
+            document.getElementById('clearBtn').addEventListener('click', () => {
+                SoundManager.play('chipPlace');
+                clearBet();
+            });
+            
+            // Quick bet buttons
+            document.querySelectorAll('.quick-bet').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    SoundManager.play('chipPlace');
+                    const amount = parseFloat(btn.dataset.amount);
+                    document.getElementById('betAmount').value = amount;
+                    gameState.betAmount = amount;
+                    updatePotentialWin();
+                    updateBetLimits();
+                    
+                    // Update active state
+                    document.querySelectorAll('.quick-bet').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+            });
+            
+            // Bet input
+            document.getElementById('betAmount').addEventListener('input', (e) => {
+                let value = parseFloat(e.target.value) || gameState.minBet;
+                const maxBet = Math.min(gameState.balance, gameState.maxBet);
+                value = Math.max(gameState.minBet, Math.min(value, maxBet));
+                e.target.value = value;
+                gameState.betAmount = value;
+                updatePotentialWin();
+                
+                // Update quick bet selection
+                document.querySelectorAll('.quick-bet').forEach(btn => {
+                    btn.classList.toggle('active', parseFloat(btn.dataset.amount) === value);
+                });
+            });
+            
+            // Play again button
+            document.getElementById('playAgainBtn').addEventListener('click', () => {
+                SoundManager.play('chipPlace');
+                document.getElementById('resultOverlay').classList.remove('show');
+                resetDice();
+            });
+            
+            // Fullscreen toggle
+            document.getElementById('fullscreenToggle').addEventListener('click', toggleFullscreen);
+            
+            // Enter key to roll
+            document.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !gameState.isRolling) {
+                    startGame();
+                }
+            });
+            
+            // Touch events for mobile
+            setupTouchEvents();
+            
+            console.log("✅ Event listeners setup complete");
+        }
+
+        function setupTouchEvents() {
+            const rollBtn = document.getElementById('rollBtn');
+            let touchStartY = 0;
+            
+            rollBtn.addEventListener('touchstart', (e) => {
+                touchStartY = e.touches[0].clientY;
+            });
+            
+            rollBtn.addEventListener('touchend', (e) => {
+                const touchEndY = e.changedTouches[0].clientY;
+                const deltaY = touchEndY - touchStartY;
+                
+                // Swipe up to roll
+                if (deltaY < -50 && !gameState.isRolling) {
+                    startGame();
+                }
+            });
+        }
+
+        function doubleBet() {
+            if (!gameState.isAuthenticated) {
+                showToast('Login to use this feature', 'warning');
+                return;
+            }
+            
+            const currentBet = gameState.betAmount;
+            const newBet = currentBet * 2;
+            const maxBet = Math.min(gameState.balance, gameState.maxBet);
+            
+            if (newBet > maxBet) {
+                showToast(`Maximum bet is $${maxBet}`, 'warning');
+                return;
+            }
+            
+            gameState.betAmount = newBet;
+            document.getElementById('betAmount').value = newBet;
+            updatePotentialWin();
+            
+            // Update quick bet selection
+            document.querySelectorAll('.quick-bet').forEach(btn => {
+                btn.classList.toggle('active', parseFloat(btn.dataset.amount) === newBet);
+            });
+            
+            showToast(`Bet doubled to $${newBet}`, 'success');
+        }
+
+        function clearBet() {
+            gameState.betAmount = gameState.minBet;
+            document.getElementById('betAmount').value = gameState.minBet;
+            updatePotentialWin();
+            
+            // Update quick bet selection
+            document.querySelectorAll('.quick-bet').forEach(btn => {
+                btn.classList.toggle('active', parseFloat(btn.dataset.amount) === gameState.minBet);
+            });
+            
+            showToast('Bet cleared', 'info');
+        }
+
+        function resetDice() {
+            // Reset dice rotation
+            document.querySelectorAll('.dice').forEach(dice => {
+                dice.style.transform = 'rotateX(0) rotateY(0)';
+            });
+            
+            // Reset totals
+            document.getElementById('playerTotal').textContent = '0';
+            document.getElementById('dealerTotal').textContent = '0';
+        }
+
+        function toggleFullscreen() {
+            const container = document.getElementById('gameContainer');
+            
+            if (!document.fullscreenElement) {
+                if (container.requestFullscreen) {
+                    container.requestFullscreen();
+                } else if (container.webkitRequestFullscreen) {
+                    container.webkitRequestFullscreen();
+                } else if (container.msRequestFullscreen) {
+                    container.msRequestFullscreen();
+                }
+                document.getElementById('fullscreenToggle').innerHTML = '<i class="fas fa-compress"></i>';
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+                document.getElementById('fullscreenToggle').innerHTML = '<i class="fas fa-expand"></i>';
+            }
+        }
+
+        // ===== UI HELPER FUNCTIONS =====
+        function updateLoadingStatus(message) {
+            const loadingStatus = document.getElementById('loadingStatus');
+            if (loadingStatus) {
+                loadingStatus.textContent = message;
+            }
+        }
+
+        function showError(message) {
+            console.error(message);
+            showToast(message, 'error');
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            const icons = {
+                success: '✅',
+                error: '❌',
+                warning: '⚠️',
+                info: 'ℹ️'
+            };
+            
+            toast.innerHTML = `
+                <div class="toast-icon">${icons[type] || icons.info}</div>
+                <div>${message}</div>
+            `;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (container.contains(toast)) {
+                        container.removeChild(toast);
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        // ===== FULLSCREEN EVENT LISTENERS =====
+        document.addEventListener('fullscreenchange', () => {
+            const isFullscreen = !!document.fullscreenElement;
+            document.body.classList.toggle('fullscreen-active', isFullscreen);
+        });
+
+        document.addEventListener('webkitfullscreenchange', () => {
+            const isFullscreen = !!document.webkitFullscreenElement;
+            document.body.classList.toggle('fullscreen-active', isFullscreen);
+        });
+
+        // Initialize
+        console.log("🎲 Dice Battle Ready!");
+        console.log("💰 Real Money Gaming: ACTIVE");
+        console.log("🎰 Win Rate: 10-15% | Lose Rate: 85-90%");
+        console.log("🎲 Premium Casino Experience: ACTIVE");
+        console.log("📱 Full Mobile Touch Support: ACTIVE");
+        console.log("🎲 Ready to roll!");
+    </script>
+</body>
+</html>
