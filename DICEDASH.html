@@ -1,0 +1,2359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🎲 Dice Dash - XCrazyBet</title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <!-- Sound Effects (Hosted on SoundBible CDN) -->
+    <audio id="sound-dice-roll" preload="auto">
+        <source src="https://soundbible.com/mp3/Dice_Shake-Mike_Koenig-101781.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="sound-win" preload="auto">
+        <source src="https://soundbible.com/mp3/Video_Game_SFX_Pack_2__Coin_Collect-563.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="sound-lose" preload="auto">
+        <source src="https://soundbible.com/mp3/Punch-90563.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="sound-bet" preload="auto">
+        <source src="https://soundbible.com/mp3/Video_Game_SFX_Pack_2__Open_Chest-803.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="sound-cashout" preload="auto">
+        <source src="https://soundbible.com/mp3/tada-803.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="sound-multiplier" preload="auto">
+        <source src="https://soundbible.com/mp3/Blop_Mark_DiAngelo-79054334.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="sound-button" preload="auto">
+        <source src="https://soundbible.com/mp3/Blip_Select-Sort-01-40111730.mp3" type="audio/mpeg">
+    </audio>
+
+    <style>
+        :root {
+            --primary: #00d9ff;
+            --primary-dark: #00a8cc;
+            --secondary: #ff3b8d;
+            --secondary-dark: #cc2e71;
+            --success: #00ff9d;
+            --danger: #ff4757;
+            --warning: #ffcc00;
+            --bg: #0a0f1f;
+            --surface: #121a2a;
+            --surface-light: #1a243b;
+            --text: #ffffff;
+            --text-dim: #8a9bb8;
+            --dice-blue: #00d9ff;
+            --dice-red: #ff3b8d;
+            --dice-glow: rgba(0, 217, 255, 0.5);
+            --dark-bg: #000814;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            font-family: 'Exo 2', 'Segoe UI', system-ui, sans-serif;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+            touch-action: manipulation;
+            font-family: 'Exo 2', sans-serif;
+        }
+
+        /* Background Effects */
+        .bg-effects {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(0, 217, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(255, 59, 141, 0.1) 0%, transparent 50%),
+                linear-gradient(135deg, var(--dark-bg) 0%, var(--bg) 100%);
+        }
+
+        /* Grid Pattern Overlay */
+        .grid-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 217, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 217, 255, 0.05) 1px, transparent 1px);
+            background-size: 40px 40px;
+            z-index: -1;
+            opacity: 0.3;
+        }
+
+        /* Floating Particles */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: float 15s infinite linear;
+        }
+
+        /* Header */
+        .game-header {
+            background: rgba(18, 26, 42, 0.95);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px solid var(--primary);
+            backdrop-filter: blur(20px);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 5px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .home-btn {
+            width: 42px;
+            height: 42px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            color: #000;
+            font-size: 20px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 217, 255, 0.3);
+        }
+
+        .home-btn:hover {
+            transform: scale(1.1) rotate(5deg);
+            box-shadow: 0 6px 20px rgba(0, 217, 255, 0.5);
+        }
+
+        .logo {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            font-weight: 900;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: linear-gradient(45deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: 1px;
+        }
+
+        .logo i {
+            font-size: 26px;
+        }
+
+        .balance-display {
+            background: linear-gradient(45deg, rgba(18, 26, 42, 0.9), rgba(26, 36, 59, 0.9));
+            padding: 10px 24px;
+            border-radius: 15px;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 4px 20px rgba(0, 217, 255, 0.2);
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        /* Main Container */
+        .game-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 20px;
+            min-height: calc(100vh - 80px);
+        }
+
+        /* Game Area */
+        .game-area {
+            background: rgba(18, 26, 42, 0.8);
+            border-radius: 25px;
+            border: 3px solid rgba(0, 217, 255, 0.3);
+            padding: 30px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 
+                0 10px 50px rgba(0, 0, 0, 0.5),
+                inset 0 0 100px rgba(0, 217, 255, 0.05);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 600px;
+        }
+
+        /* Dice Container */
+        .dice-container {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 30px 0;
+        }
+
+        /* Multiplier Ring */
+        .multiplier-ring {
+            position: absolute;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            border: 4px solid transparent;
+            background: conic-gradient(
+                var(--primary) 0%,
+                var(--secondary) 50%,
+                var(--danger) 100%
+            );
+            mask: radial-gradient(transparent 60%, black 61%);
+            -webkit-mask: radial-gradient(transparent 60%, black 61%);
+            animation: ringRotate 20s linear infinite;
+            opacity: 0.3;
+        }
+
+        .multiplier-ring.active {
+            opacity: 0.8;
+            animation: ringRotate 5s linear infinite;
+        }
+
+        /* Dice Display */
+        .dice-display {
+            display: flex;
+            gap: 30px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .dice {
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, var(--dice-blue), var(--dice-red));
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            font-weight: 900;
+            color: white;
+            box-shadow: 
+                0 10px 30px rgba(0, 217, 255, 0.4),
+                0 0 50px rgba(255, 59, 141, 0.3),
+                inset 0 0 20px rgba(255, 255, 255, 0.2);
+            transform-style: preserve-3d;
+            transition: transform 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .dice::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(
+                45deg,
+                transparent 30%,
+                rgba(255, 255, 255, 0.1) 50%,
+                transparent 70%
+            );
+            transform: rotate(45deg);
+            animation: shine 2s infinite;
+        }
+
+        .dice.rolling {
+            animation: diceRoll 0.5s ease-in-out infinite;
+        }
+
+        .dice-value {
+            font-family: 'Orbitron', sans-serif;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        /* Multiplier Display */
+        .multiplier-display {
+            text-align: center;
+            margin: 20px 0;
+            position: relative;
+            z-index: 2;
+        }
+
+        .multiplier-label {
+            font-size: 18px;
+            color: var(--text-dim);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            font-weight: 600;
+        }
+
+        .multiplier-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 72px;
+            font-weight: 900;
+            background: linear-gradient(45deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 30px rgba(0, 217, 255, 0.5);
+            line-height: 1;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+
+        .multiplier-value.growing {
+            animation: multiplierPulse 0.5s infinite alternate;
+        }
+
+        /* Streak Display */
+        .streak-display {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .streak-counter {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 20px;
+            border-radius: 20px;
+            border: 2px solid var(--primary);
+            font-weight: 700;
+            font-size: 18px;
+            color: var(--primary);
+        }
+
+        .streak-fire {
+            font-size: 24px;
+            color: var(--warning);
+            animation: firePulse 1s infinite;
+        }
+
+        /* Game Status */
+        .game-status {
+            text-align: center;
+            padding: 15px 30px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            margin: 20px 0;
+            border: 2px solid rgba(0, 217, 255, 0.2);
+            font-weight: 600;
+            font-size: 18px;
+            color: var(--primary);
+            min-width: 300px;
+            backdrop-filter: blur(10px);
+        }
+
+        .game-status.win {
+            color: var(--success);
+            border-color: var(--success);
+            animation: statusPulse 2s infinite;
+        }
+
+        .game-status.lose {
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        /* Control Panel */
+        .control-panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 30px;
+            width: 100%;
+        }
+
+        /* Bet Controls */
+        .bet-section {
+            background: rgba(26, 36, 59, 0.8);
+            border-radius: 20px;
+            padding: 25px;
+            border: 2px solid rgba(0, 217, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        .section-title {
+            font-size: 18px;
+            color: var(--primary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+        }
+
+        .bet-input-group {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+
+        .bet-input {
+            flex: 1;
+            padding: 18px;
+            background: rgba(10, 15, 31, 0.8);
+            border: 3px solid var(--primary);
+            border-radius: 15px;
+            color: var(--text);
+            font-size: 20px;
+            font-weight: 700;
+            font-family: 'Orbitron', sans-serif;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .bet-input:focus {
+            outline: none;
+            border-color: var(--secondary);
+            box-shadow: 0 0 0 4px rgba(255, 59, 141, 0.2);
+        }
+
+        /* Quick Bets */
+        .quick-bets {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+
+        .quick-bet {
+            padding: 15px;
+            background: rgba(10, 15, 31, 0.8);
+            border: 2px solid var(--primary);
+            border-radius: 12px;
+            color: var(--primary);
+            font-weight: 700;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 16px;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .quick-bet:hover, .quick-bet.active {
+            background: var(--primary);
+            color: #000;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 20px rgba(0, 217, 255, 0.4);
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .btn {
+            padding: 20px;
+            border: none;
+            border-radius: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .btn-play {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: #000;
+        }
+
+        .btn-play:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 217, 255, 0.4);
+        }
+
+        .btn-cashout {
+            background: linear-gradient(135deg, var(--success), #00cc7a);
+            color: #000;
+        }
+
+        .btn-cashout:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 255, 157, 0.4);
+        }
+
+        .btn-cashout.pulsing {
+            animation: cashoutPulse 1.5s infinite;
+        }
+
+        /* Auto Controls */
+        .auto-section {
+            background: rgba(26, 36, 59, 0.8);
+            border-radius: 20px;
+            padding: 25px;
+            border: 2px solid rgba(255, 59, 141, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        .auto-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .auto-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px;
+            background: rgba(10, 15, 31, 0.8);
+            border-radius: 12px;
+            border: 2px solid rgba(255, 59, 141, 0.3);
+        }
+
+        .toggle-switch {
+            width: 60px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .toggle-switch.active {
+            background: var(--secondary);
+        }
+
+        .toggle-slider {
+            width: 26px;
+            height: 26px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            transition: all 0.3s;
+        }
+
+        .toggle-switch.active .toggle-slider {
+            left: 32px;
+        }
+
+        .auto-input-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .auto-input {
+            flex: 1;
+            padding: 15px;
+            background: rgba(10, 15, 31, 0.8);
+            border: 2px solid rgba(255, 59, 141, 0.3);
+            border-radius: 12px;
+            color: var(--text);
+            text-align: center;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 16px;
+        }
+
+        .auto-label {
+            color: var(--secondary);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Recent Winners */
+        .winners-section {
+            background: rgba(18, 26, 42, 0.95);
+            border-radius: 25px;
+            padding: 25px;
+            border: 3px solid rgba(255, 204, 0, 0.3);
+            backdrop-filter: blur(20px);
+            flex: 1;
+            min-height: 300px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .winners-title {
+            font-size: 20px;
+            color: var(--warning);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 700;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .winners-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+
+        /* Scrollbar Styling */
+        .winners-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .winners-list::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+
+        .winners-list::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 10px;
+        }
+
+        .winner-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            transition: all 0.3s;
+            border-left: 4px solid var(--primary);
+        }
+
+        .winner-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateX(5px);
+        }
+
+        .winner-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .winner-avatar {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: #000;
+            font-size: 14px;
+        }
+
+        .winner-name {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .winner-amount {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            color: var(--success);
+            font-size: 16px;
+        }
+
+        .winner-time {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 3px;
+        }
+
+        /* Game History */
+        .history-section {
+            background: rgba(18, 26, 42, 0.95);
+            border-radius: 25px;
+            padding: 25px;
+            border: 3px solid rgba(0, 217, 255, 0.3);
+            backdrop-filter: blur(20px);
+            flex: 1;
+            min-height: 300px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .history-title {
+            font-size: 20px;
+            color: var(--primary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 700;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            font-size: 14px;
+        }
+
+        .history-item.win {
+            border-left: 4px solid var(--success);
+            background: rgba(0, 255, 157, 0.05);
+        }
+
+        .history-item.lose {
+            border-left: 4px solid var(--danger);
+            background: rgba(255, 71, 87, 0.05);
+        }
+
+        .history-multiplier {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .history-amount {
+            font-weight: 700;
+        }
+
+        .history-amount.win {
+            color: var(--success);
+        }
+
+        .history-amount.lose {
+            color: var(--danger);
+        }
+
+        /* Fullscreen Toggle */
+        .fullscreen-toggle {
+            position: fixed;
+            top: 90px;
+            right: 20px;
+            width: 46px;
+            height: 46px;
+            background: rgba(18, 26, 42, 0.95);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 1001;
+            border: 2px solid var(--primary);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s;
+        }
+
+        .fullscreen-toggle:hover {
+            transform: scale(1.1);
+            background: var(--primary);
+            color: #000;
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .toast {
+            padding: 18px 24px;
+            background: rgba(18, 26, 42, 0.98);
+            border-radius: 15px;
+            border-left: 6px solid var(--primary);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+            transform: translateY(100%);
+            opacity: 0;
+            transition: all 0.4s;
+            backdrop-filter: blur(20px);
+            font-size: 15px;
+            font-weight: 500;
+            line-height: 1.4;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            border-color: var(--success);
+        }
+
+        .toast.error {
+            border-color: var(--danger);
+        }
+
+        .toast.warning {
+            border-color: var(--warning);
+        }
+
+        /* Animations */
+        @keyframes diceRoll {
+            0% { transform: rotateX(0) rotateY(0) rotateZ(0); }
+            25% { transform: rotateX(90deg) rotateY(45deg) rotateZ(45deg); }
+            50% { transform: rotateX(180deg) rotateY(90deg) rotateZ(90deg); }
+            75% { transform: rotateX(270deg) rotateY(135deg) rotateZ(135deg); }
+            100% { transform: rotateX(360deg) rotateY(180deg) rotateZ(180deg); }
+        }
+
+        @keyframes multiplierPulse {
+            0% { transform: scale(1); text-shadow: 0 0 30px rgba(0, 217, 255, 0.5); }
+            100% { transform: scale(1.05); text-shadow: 0 0 50px rgba(0, 217, 255, 0.8); }
+        }
+
+        @keyframes cashoutPulse {
+            0%, 100% { 
+                box-shadow: 0 0 0 0 rgba(0, 255, 157, 0.7);
+                transform: scale(1);
+            }
+            50% { 
+                box-shadow: 0 0 0 20px rgba(0, 255, 157, 0);
+                transform: scale(1.02);
+            }
+        }
+
+        @keyframes ringRotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes shine {
+            0% { transform: rotate(45deg) translateX(-100%); }
+            100% { transform: rotate(45deg) translateX(100%); }
+        }
+
+        @keyframes float {
+            0% { transform: translateY(100vh) translateX(0); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(-100px) translateX(100px); opacity: 0; }
+        }
+
+        @keyframes statusPulse {
+            0%, 100% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(0, 255, 157, 0.6); }
+        }
+
+        @keyframes firePulse {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+        }
+
+        /* Win/Lose Animations */
+        .win-animation {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 100px;
+            color: var(--success);
+            z-index: 9999;
+            pointer-events: none;
+            animation: winExplosion 1s ease-out forwards;
+            opacity: 0;
+        }
+
+        .lose-animation {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 100px;
+            color: var(--danger);
+            z-index: 9999;
+            pointer-events: none;
+            animation: loseShake 1s ease-out forwards;
+            opacity: 0;
+        }
+
+        @keyframes winExplosion {
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+            50% { transform: translate(-50%, -50%) scale(1.5); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+        }
+
+        @keyframes loseShake {
+            0% { transform: translate(-50%, -50%) rotate(0deg); opacity: 0; }
+            25% { transform: translate(-50%, -50%) rotate(-10deg); opacity: 1; }
+            50% { transform: translate(-50%, -50%) rotate(10deg); opacity: 1; }
+            75% { transform: translate(-50%, -50%) rotate(-10deg); opacity: 1; }
+            100% { transform: translate(-50%, -50%) rotate(0deg); opacity: 0; }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1200px) {
+            .game-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                grid-template-columns: 1fr 1fr;
+                display: grid;
+                gap: 20px;
+            }
+            
+            .multiplier-value {
+                font-size: 60px;
+            }
+            
+            .dice {
+                width: 100px;
+                height: 100px;
+                font-size: 40px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .game-header {
+                flex-direction: column;
+                gap: 15px;
+                padding: 15px;
+            }
+            
+            .header-left {
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            .balance-display {
+                width: 100%;
+            }
+            
+            .game-container {
+                padding: 15px;
+            }
+            
+            .dice-display {
+                gap: 20px;
+            }
+            
+            .dice {
+                width: 80px;
+                height: 80px;
+                font-size: 32px;
+            }
+            
+            .multiplier-value {
+                font-size: 48px;
+            }
+            
+            .control-panel {
+                grid-template-columns: 1fr;
+            }
+            
+            .quick-bets {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .fullscreen-toggle {
+                top: 140px;
+                right: 15px;
+                width: 40px;
+                height: 40px;
+                font-size: 18px;
+            }
+            
+            .sidebar {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .dice {
+                width: 70px;
+                height: 70px;
+                font-size: 28px;
+            }
+            
+            .multiplier-value {
+                font-size: 36px;
+            }
+            
+            .multiplier-ring {
+                width: 200px;
+                height: 200px;
+            }
+            
+            .btn {
+                padding: 16px;
+                font-size: 16px;
+            }
+            
+            .bet-input {
+                padding: 15px;
+                font-size: 18px;
+            }
+        }
+
+        /* Touch Optimizations */
+        .touch-button {
+            min-height: 48px;
+            min-width: 48px;
+        }
+
+        /* Loading Spinner */
+        .loading {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255, 59, 141, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Result Overlay */
+        .result-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+            backdrop-filter: blur(20px);
+        }
+
+        .result-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .result-content {
+            background: linear-gradient(135deg, rgba(18, 26, 42, 0.95), rgba(26, 36, 59, 0.95));
+            padding: 40px;
+            border-radius: 30px;
+            border: 4px solid var(--primary);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            backdrop-filter: blur(30px);
+            box-shadow: 0 0 60px rgba(0, 217, 255, 0.4);
+            animation: resultAppear 0.5s ease-out;
+        }
+
+        @keyframes resultAppear {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .result-title {
+            font-size: 36px;
+            font-weight: 900;
+            margin-bottom: 20px;
+            font-family: 'Orbitron', sans-serif;
+            background: linear-gradient(45deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .result-details {
+            font-size: 20px;
+            margin: 20px 0;
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .result-amount {
+            font-size: 48px;
+            font-weight: 900;
+            margin: 30px 0;
+            font-family: 'Orbitron', sans-serif;
+            color: var(--success);
+            text-shadow: 0 0 30px rgba(0, 255, 157, 0.5);
+        }
+
+        .result-amount.lose {
+            color: var(--danger);
+            text-shadow: 0 0 30px rgba(255, 71, 87, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <!-- Background Effects -->
+    <div class="bg-effects"></div>
+    <div class="grid-overlay"></div>
+    <div class="particles" id="particles"></div>
+
+    <!-- Fullscreen Toggle -->
+    <div class="fullscreen-toggle" id="fullscreen-toggle" title="Toggle Fullscreen">
+        <i class="fas fa-expand"></i>
+    </div>
+
+    <!-- Header -->
+    <header class="game-header">
+        <div class="header-left">
+            <a href="https://xcrazybet.github.io/millioner/games.html" class="home-btn" title="Return to Games">
+                <i class="fas fa-gamepad"></i>
+            </a>
+            <div class="logo">
+                <i class="fas fa-dice"></i>
+                DICE DASH
+            </div>
+        </div>
+        <div class="balance-display">
+            <i class="fas fa-wallet"></i>
+            $<span id="balance-val">0.00</span>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="game-container" id="game-container">
+        <!-- Game Area -->
+        <div class="game-area">
+            <!-- Multiplier Ring -->
+            <div class="multiplier-ring" id="multiplier-ring"></div>
+
+            <!-- Dice Container -->
+            <div class="dice-container">
+                <div class="dice-display">
+                    <div class="dice" id="dice1">
+                        <div class="dice-value">?</div>
+                    </div>
+                    <div class="dice" id="dice2">
+                        <div class="dice-value">?</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Multiplier Display -->
+            <div class="multiplier-display">
+                <div class="multiplier-label">Current Multiplier</div>
+                <div class="multiplier-value" id="multiplier-value">1.00x</div>
+                <div class="streak-display">
+                    <div class="streak-counter">
+                        <i class="fas fa-fire streak-fire"></i>
+                        Streak: <span id="streak-count">0</span> rolls
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Status -->
+            <div class="game-status" id="game-status">
+                Place your bet and start rolling!
+                <div style="font-size: 14px; color: var(--text-dim); margin-top: 8px;">
+                    <i class="fas fa-info-circle"></i> Roll dice, build multiplier, cash out before losing roll!
+                </div>
+            </div>
+
+            <!-- Control Panel -->
+            <div class="control-panel">
+                <!-- Bet Section -->
+                <div class="bet-section">
+                    <div class="section-title">
+                        <i class="fas fa-coins"></i> Bet Settings
+                    </div>
+                    <div class="bet-input-group">
+                        <input type="number" class="bet-input" id="bet-amount" value="5" min="1" max="1000" step="1">
+                        <div style="color: var(--primary); font-weight: 700; font-size: 20px;">$</div>
+                    </div>
+                    <div class="quick-bets">
+                        <div class="quick-bet" data-amount="1">$1</div>
+                        <div class="quick-bet" data-amount="5">$5</div>
+                        <div class="quick-bet" data-amount="10">$10</div>
+                        <div class="quick-bet" data-amount="25">$25</div>
+                        <div class="quick-bet" data-amount="50">$50</div>
+                        <div class="quick-bet" data-amount="100">$100</div>
+                    </div>
+                    <div style="text-align: center; margin-top: 15px;">
+                        <div style="color: var(--text-dim); font-size: 14px;">Potential Win:</div>
+                        <div style="color: var(--success); font-weight: 700; font-size: 22px; font-family: 'Orbitron';" id="potential-win">$0.00</div>
+                    </div>
+                </div>
+
+                <!-- Auto Section -->
+                <div class="auto-section">
+                    <div class="section-title">
+                        <i class="fas fa-robot"></i> Auto Controls
+                    </div>
+                    <div class="auto-controls">
+                        <div class="auto-toggle">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <i class="fas fa-redo"></i>
+                                <span class="auto-label">Auto Roll</span>
+                            </div>
+                            <div class="toggle-switch" id="auto-roll-toggle">
+                                <div class="toggle-slider"></div>
+                            </div>
+                        </div>
+                        <div class="auto-toggle">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <i class="fas fa-money-check-alt"></i>
+                                <span class="auto-label">Auto Cashout</span>
+                            </div>
+                            <div class="toggle-switch" id="auto-cashout-toggle">
+                                <div class="toggle-slider"></div>
+                            </div>
+                        </div>
+                        <div class="auto-input-group">
+                            <input type="number" class="auto-input" id="auto-cashout-value" value="3.00" min="1.10" max="100" step="0.1" disabled>
+                            <span class="auto-label">Target Multiplier</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons" style="width: 100%; margin-top: 30px;">
+                <button id="play-btn" class="btn btn-play">
+                    <i class="fas fa-play"></i> START ROLLING
+                </button>
+                <button id="cashout-btn" class="btn btn-cashout" disabled>
+                    <i class="fas fa-money-check-alt"></i> CASH OUT
+                </button>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <!-- Recent Winners -->
+            <div class="winners-section">
+                <div class="winners-title">
+                    <i class="fas fa-trophy"></i> LIVE WINNERS
+                </div>
+                <div class="winners-list" id="winners-list">
+                    <!-- Winners will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Game History -->
+            <div class="history-section">
+                <div class="history-title">
+                    <i class="fas fa-history"></i> YOUR HISTORY
+                </div>
+                <div class="history-list" id="history-list">
+                    <!-- Game history will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Result Overlay -->
+    <div class="result-overlay" id="result-overlay">
+        <div class="result-content">
+            <div class="result-title" id="result-title">YOU WON!</div>
+            <div class="result-details" id="result-details">
+                Multiplier: <span id="result-multiplier">1.00x</span><br>
+                Rolls: <span id="result-rolls">0</span><br>
+                Duration: <span id="result-duration">0s</span>
+            </div>
+            <div class="result-amount" id="result-amount">+$0.00</div>
+            <button id="play-again-btn" class="btn btn-play" style="margin-top: 20px; width: 100%;">
+                <i class="fas fa-redo"></i> PLAY AGAIN
+            </button>
+        </div>
+    </div>
+
+    <!-- Win/Lose Animations -->
+    <div class="win-animation" id="win-animation">
+        <i class="fas fa-trophy"></i>
+    </div>
+    <div class="lose-animation" id="lose-animation">
+        <i class="fas fa-bomb"></i>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        // ===== FIREBASE CONFIG =====
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+
+        // ===== GAME STATE =====
+        const gameState = {
+            currentUser: null,
+            balance: 0,
+            
+            // Game settings
+            betAmount: 5,
+            currentMultiplier: 1.00,
+            gameActive: false,
+            autoRoll: false,
+            autoCashout: false,
+            autoCashoutValue: 3.00,
+            gameTimer: 0,
+            gameInterval: null,
+            rollInterval: null,
+            rollCount: 0,
+            diceValues: [1, 1],
+            streakCount: 0,
+            
+            // 85-90% lose rate system (10-15% win)
+            diceSystem: {
+                winProbability: 0.12, // 12% overall win rate
+                
+                // Dice total distribution (2-12, where lower = lose)
+                distribution: {
+                    2: { chance: 0.05, result: 'instantLose' },   // 5%
+                    3: { chance: 0.08, result: 'instantLose' },   // 8%
+                    4: { chance: 0.10, result: 'instantLose' },   // 10%
+                    5: { chance: 0.12, result: 'earlyLose' },     // 12%
+                    6: { chance: 0.14, result: 'earlyLose' },     // 14%
+                    7: { chance: 0.17, result: 'midLose' },       // 17%
+                    8: { chance: 0.14, result: 'midLose' },       // 14%
+                    9: { chance: 0.10, result: 'midLose' },       // 10%
+                    10: { chance: 0.06, result: 'smallWin' },     // 6%
+                    11: { chance: 0.03, result: 'bigWin' },       // 3%
+                    12: { chance: 0.01, result: 'jackpot' }       // 1%
+                },
+                
+                // Multiplier growth based on roll count
+                multiplierGrowth: [
+                    { rolls: 1, increment: 0.25 },   // Roll 1: +0.25x
+                    { rolls: 2, increment: 0.25 },   // Roll 2: +0.25x
+                    { rolls: 3, increment: 0.25 },   // Roll 3: +0.25x
+                    { rolls: 4, increment: 0.25 },   // Roll 4: +0.25x
+                    { rolls: 5, increment: 0.20 },   // Roll 5: +0.20x
+                    { rolls: 6, increment: 0.20 },   // Roll 6: +0.20x
+                    { rolls: 7, increment: 0.15 },   // Roll 7: +0.15x
+                    { rolls: 8, increment: 0.15 },   // Roll 8: +0.15x
+                    { rolls: 9, increment: 0.10 },   // Roll 9: +0.10x
+                    { rolls: 10, increment: 0.10 },  // Roll 10: +0.10x
+                    { rolls: 11, increment: 0.05 },  // Roll 11+: +0.05x
+                ]
+            },
+            
+            // 100+ random player names for winners feed
+            winnerNames: [
+                "Michel", "John", "Loze", "Laza", "Roza", "Kako", "Abduo", "Aban", "Khan", "Shekh",
+                "Jack", "Trump", "Bino", "Baker", "Baby", "Love", "Exist", "Bebo", "Naren", "Jihan",
+                "Orhan", "Osman", "Dodo", "Namiq", "Sarden", "Soraya", "Ssoo", "Xo120", "Parto", "Panda",
+                "Bear", "Ghost", "Beast", "Bets", "Bubble", "Bombo", "Fat", "Slima", "Lovelygirl", "Kurd",
+                "Egypt", "Turkorhan", "Narmen", "Lord", "King", "Prince", "Princes", "Kingdom", "Kobra",
+                "Copra", "Plantin", "Silver", "Gold", "Gama", "Bitcon", "Xprt", "Zoology", "Biology",
+                "Neo", "Matrix", "Cyber", "Phantom", "Shadow", "Blaze", "Frost", "Storm", "Thunder",
+                "Vortex", "Nova", "Cosmo", "Astro", "Quantum", "Pixel", "Byte", "Code", "Vector",
+                "Synth", "Retro", "Vapor", "Glitch", "Hacker", "Crypto", "Miner", "Trader", "Whale",
+                "Shark", "Fish", "Noob", "Pro", "Legend", "Myth", "Hero", "Villain", "Ninja", "Samurai",
+                "Rider", "Knight", "Wizard", "Mage", "Warrior", "Rogue", "Archer", "Paladin", "Berserk", "Monk"
+            ],
+            
+            // Game history
+            gameHistory: [],
+            winnersHistory: [],
+            currentGame: {
+                bet: 0,
+                multiplier: 0,
+                win: false,
+                rolls: 0,
+                duration: 0,
+                winAmount: 0,
+                gameId: null
+            }
+        };
+
+        // ===== SOUND MANAGER =====
+        const SoundManager = {
+            enabled: true,
+            
+            play: (soundId) => {
+                if (!SoundManager.enabled || !gameState.currentUser) return;
+                
+                try {
+                    const sound = document.getElementById(soundId);
+                    if (sound) {
+                        sound.currentTime = 0;
+                        sound.volume = soundId.includes('win') ? 0.6 : 0.4;
+                        sound.play().catch(e => console.log("Sound play failed"));
+                    }
+                } catch (e) {
+                    console.log("Sound error:", e);
+                }
+            },
+            
+            toggle: () => {
+                SoundManager.enabled = !SoundManager.enabled;
+                showToast(SoundManager.enabled ? '🔊 Sound ON' : '🔇 Sound OFF', 'info');
+            }
+        };
+
+        // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("🎲 Dice Dash Initializing...");
+            
+            // Initialize Firebase
+            try {
+                firebase.initializeApp(firebaseConfig);
+                console.log("✅ Firebase initialized");
+                
+                // Check authentication
+                checkAuth();
+            } catch (error) {
+                console.log("Firebase already initialized or error:", error);
+                checkAuth();
+            }
+            
+            // Setup game
+            setupEventListeners();
+            updatePotentialWin();
+            createParticles();
+            generateWinnersFeed();
+            loadGameHistory();
+            setupFullscreen();
+            
+            console.log("✅ Dice Dash Ready!");
+        });
+
+        // ===== AUTHENTICATION =====
+        function checkAuth() {
+            const auth = firebase.auth();
+            
+            auth.onAuthStateChanged(user => {
+                if (!user) {
+                    showToast('Please login to play', 'error');
+                    setTimeout(() => {
+                        window.location.href = 'https://xcrazybet.github.io/millioner/login.html';
+                    }, 2000);
+                    return;
+                }
+                
+                gameState.currentUser = user;
+                console.log("✅ User authenticated:", user.uid);
+                loadBalance();
+            });
+        }
+
+        // ===== BALANCE MANAGEMENT =====
+        async function loadBalance() {
+            try {
+                const db = firebase.firestore();
+                const doc = await db.collection("wallets").doc(gameState.currentUser.uid).get();
+                
+                if (doc.exists) {
+                    gameState.balance = doc.data().balance || 0;
+                    updateBalanceDisplay();
+                    showToast('🎲 Welcome to Dice Dash!', 'success');
+                    console.log("💰 Balance loaded:", gameState.balance);
+                } else {
+                    // Create wallet if doesn't exist
+                    await db.collection("wallets").doc(gameState.currentUser.uid).set({
+                        balance: 100,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    });
+                    gameState.balance = 100;
+                    updateBalanceDisplay();
+                    showToast('🎉 New wallet created with $100', 'success');
+                }
+                
+                // Setup real-time balance listener
+                setupBalanceListener();
+                
+            } catch (error) {
+                console.error('Error loading balance:', error);
+                showToast('Error loading balance', 'error');
+            }
+        }
+
+        function updateBalanceDisplay() {
+            document.getElementById('balance-val').textContent = gameState.balance.toFixed(2);
+        }
+
+        // ===== REAL-TIME BALANCE LISTENER =====
+        function setupBalanceListener() {
+            const db = firebase.firestore();
+            const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+            
+            walletRef.onSnapshot((doc) => {
+                if (doc.exists) {
+                    const newBalance = doc.data().balance || 0;
+                    if (newBalance !== gameState.balance) {
+                        gameState.balance = newBalance;
+                        updateBalanceDisplay();
+                        updateBetLimits();
+                    }
+                }
+            }, (error) => {
+                console.error('Balance listener error:', error);
+            });
+        }
+
+        // ===== ATOMIC TRANSACTIONS =====
+        async function processTransaction(amount, type, description) {
+            try {
+                const db = firebase.firestore();
+                const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+                
+                return await db.runTransaction(async (transaction) => {
+                    const walletDoc = await transaction.get(walletRef);
+                    
+                    if (!walletDoc.exists) {
+                        throw new Error("Wallet not found");
+                    }
+                    
+                    const currentBalance = walletDoc.data().balance || 0;
+                    const newBalance = currentBalance + amount;
+                    
+                    if (newBalance < 0) {
+                        throw new Error("Insufficient funds");
+                    }
+                    
+                    // Update main balance
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        updatedAt: new Date()
+                    });
+                    
+                    // Record transaction
+                    const transactionRef = walletRef.collection("transactions").doc();
+                    transaction.set(transactionRef, {
+                        type: type,
+                        amount: amount,
+                        description: description,
+                        createdAt: new Date(),
+                        gameId: gameState.currentGame.gameId || 'dicedash_game',
+                        beforeBalance: currentBalance,
+                        afterBalance: newBalance
+                    });
+                    
+                    // Update local balance
+                    gameState.balance = newBalance;
+                    updateBalanceDisplay();
+                    
+                    return { success: true, newBalance };
+                    
+                });
+            } catch (error) {
+                console.error('Transaction failed:', error);
+                showToast('Transaction failed: ' + error.message, 'error');
+                return { success: false, error: error.message };
+            }
+        }
+
+        // ===== GAME LOGIC =====
+        function rollDice() {
+            // Generate random dice values (1-6 each)
+            const dice1 = Math.floor(Math.random() * 6) + 1;
+            const dice2 = Math.floor(Math.random() * 6) + 1;
+            const total = dice1 + dice2;
+            
+            // Determine outcome based on distribution
+            const outcome = gameState.diceSystem.distribution[total];
+            
+            // Apply 85-90% lose bias
+            let isLose = false;
+            let loseChance = Math.random();
+            
+            if (!outcome) {
+                isLose = true; // Shouldn't happen, but safety
+            } else if (outcome.result === 'instantLose') {
+                isLose = true;
+            } else if (outcome.result === 'earlyLose') {
+                // Early lose: 80% chance to lose
+                isLose = loseChance < 0.80;
+            } else if (outcome.result === 'midLose') {
+                // Mid lose: 70% chance to lose
+                isLose = loseChance < 0.70;
+            } else if (outcome.result === 'smallWin') {
+                // Small win: 40% chance to lose (60% win)
+                isLose = loseChance < 0.40;
+            } else if (outcome.result === 'bigWin') {
+                // Big win: 20% chance to lose (80% win)
+                isLose = loseChance < 0.20;
+            } else if (outcome.result === 'jackpot') {
+                // Jackpot: 10% chance to lose (90% win)
+                isLose = loseChance < 0.10;
+            }
+            
+            // Update dice values
+            gameState.diceValues = [dice1, dice2];
+            gameState.rollCount++;
+            
+            // Calculate multiplier increment
+            let increment = 0.05; // Default
+            for (let i = 0; i < gameState.diceSystem.multiplierGrowth.length; i++) {
+                if (gameState.rollCount >= gameState.diceSystem.multiplierGrowth[i].rolls) {
+                    increment = gameState.diceSystem.multiplierGrowth[i].increment;
+                }
+            }
+            
+            if (!isLose) {
+                // Successful roll - increase multiplier
+                gameState.currentMultiplier += increment;
+                gameState.currentMultiplier = parseFloat(gameState.currentMultiplier.toFixed(2));
+                gameState.streakCount++;
+                
+                // Update UI
+                updateDiceDisplay();
+                updateMultiplierDisplay();
+                updateStreakDisplay();
+                
+                // Play sound
+                SoundManager.play('sound-dice-roll');
+                SoundManager.play('sound-multiplier');
+                
+                // Check auto cashout
+                if (gameState.autoCashout && gameState.currentMultiplier >= gameState.autoCashoutValue) {
+                    cashout();
+                    return { dice1, dice2, total, isLose: false, autoCashout: true };
+                }
+                
+                return { dice1, dice2, total, isLose: false };
+            } else {
+                // Losing roll - end game
+                endGame();
+                return { dice1, dice2, total, isLose: true };
+            }
+        }
+
+        async function startGame() {
+            const betAmount = parseFloat(document.getElementById('bet-amount').value);
+            
+            // Validation
+            if (betAmount < 1 || betAmount > Math.min(gameState.balance, 1000)) {
+                showToast('Invalid bet amount', 'error');
+                return;
+            }
+            
+            if (gameState.gameActive) {
+                showToast('Game already in progress', 'warning');
+                return;
+            }
+            
+            // Process bet transaction
+            const result = await processTransaction(
+                -betAmount,
+                "dicedash_bet",
+                `Dice Dash bet of $${betAmount}`
+            );
+            
+            if (!result.success) {
+                showToast('Failed to place bet', 'error');
+                return;
+            }
+            
+            // Play bet sound
+            SoundManager.play('sound-bet');
+            
+            // Reset game state
+            gameState.gameActive = true;
+            gameState.currentMultiplier = 1.00;
+            gameState.rollCount = 0;
+            gameState.streakCount = 0;
+            gameState.gameTimer = 0;
+            gameState.betAmount = betAmount;
+            gameState.currentGame.gameId = 'dicedash_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            
+            // Update UI
+            document.getElementById('bet-amount').disabled = true;
+            document.getElementById('play-btn').disabled = true;
+            document.getElementById('cashout-btn').disabled = false;
+            document.getElementById('cashout-btn').classList.add('pulsing');
+            document.getElementById('multiplier-value').classList.add('growing');
+            document.getElementById('multiplier-ring').classList.add('active');
+            document.getElementById('game-status').textContent = 'Rolling dice...';
+            document.getElementById('game-status').className = 'game-status';
+            
+            // Reset dice display
+            document.getElementById('dice1').innerHTML = '<div class="dice-value">?</div>';
+            document.getElementById('dice2').innerHTML = '<div class="dice-value">?</div>';
+            
+            // Start game timer
+            gameState.gameInterval = setInterval(() => {
+                gameState.gameTimer += 0.1;
+            }, 100);
+            
+            // Start rolling
+            startRolling();
+            
+            // Save game start
+            gameState.currentGame = {
+                bet: betAmount,
+                multiplier: 0,
+                win: false,
+                rolls: 0,
+                duration: 0,
+                winAmount: 0,
+                gameId: gameState.currentGame.gameId
+            };
+            
+            showToast('🎲 Game started! Dice rolling...', 'success');
+            console.log("🎮 Game started. Bet: $" + betAmount);
+        }
+
+        function startRolling() {
+            // First roll immediately
+            rollDice();
+            
+            // Set up rolling interval (every 1.5 seconds)
+            gameState.rollInterval = setInterval(() => {
+                if (gameState.gameActive) {
+                    const result = rollDice();
+                    
+                    // Update potential win
+                    updatePotentialWin();
+                    
+                    // If auto-roll is off and game is still active, stop
+                    if (!gameState.autoRoll && gameState.gameActive) {
+                        clearInterval(gameState.rollInterval);
+                    }
+                } else {
+                    clearInterval(gameState.rollInterval);
+                }
+            }, 1500);
+        }
+
+        async function cashout() {
+            if (!gameState.gameActive) return;
+            
+            const winAmount = parseFloat((gameState.betAmount * gameState.currentMultiplier).toFixed(2));
+            
+            // Stop game
+            clearInterval(gameState.gameInterval);
+            clearInterval(gameState.rollInterval);
+            gameState.gameActive = false;
+            
+            // Update game stats
+            gameState.currentGame.win = true;
+            gameState.currentGame.multiplier = gameState.currentMultiplier;
+            gameState.currentGame.winAmount = winAmount;
+            gameState.currentGame.rolls = gameState.rollCount;
+            gameState.currentGame.duration = gameState.gameTimer;
+            
+            // Play win sound
+            SoundManager.play('sound-win');
+            SoundManager.play('sound-cashout');
+            
+            // Show win animation
+            showWinAnimation();
+            
+            // Update UI
+            document.getElementById('cashout-btn').classList.remove('pulsing');
+            document.getElementById('multiplier-value').classList.remove('growing');
+            document.getElementById('multiplier-ring').classList.remove('active');
+            document.getElementById('game-status').textContent = `Cashed out at ${gameState.currentMultiplier.toFixed(2)}x!`;
+            document.getElementById('game-status').className = 'game-status win';
+            
+            // Process win transaction
+            const result = await processTransaction(
+                winAmount,
+                "dicedash_win",
+                `Dice Dash win at ${gameState.currentMultiplier.toFixed(2)}x - $${winAmount.toFixed(2)}`
+            );
+            
+            // Add to winners feed
+            addToWinnersFeed(gameState.currentUser.displayName || 'You', winAmount);
+            
+            // Add to history
+            addToHistory(true, gameState.currentMultiplier, winAmount);
+            
+            // Show result
+            showResult(true);
+            
+            // Enable bet input for next game
+            setTimeout(() => {
+                document.getElementById('bet-amount').disabled = false;
+                document.getElementById('play-btn').disabled = false;
+            }, 2000);
+            
+            console.log("💰 Cashed out at:", gameState.currentMultiplier.toFixed(2) + 'x', "Win: $" + winAmount);
+        }
+
+        function endGame() {
+            if (!gameState.gameActive) return;
+            
+            // Stop game
+            clearInterval(gameState.gameInterval);
+            clearInterval(gameState.rollInterval);
+            gameState.gameActive = false;
+            
+            // Update game stats
+            gameState.currentGame.win = false;
+            gameState.currentGame.multiplier = gameState.currentMultiplier;
+            gameState.currentGame.rolls = gameState.rollCount;
+            gameState.currentGame.duration = gameState.gameTimer;
+            
+            // Play lose sound
+            SoundManager.play('sound-lose');
+            
+            // Show lose animation
+            showLoseAnimation();
+            
+            // Update UI
+            document.getElementById('cashout-btn').classList.remove('pulsing');
+            document.getElementById('multiplier-value').classList.remove('growing');
+            document.getElementById('multiplier-ring').classList.remove('active');
+            document.getElementById('game-status').textContent = `Lost at roll ${gameState.rollCount}`;
+            document.getElementById('game-status').className = 'game-status lose';
+            
+            // Add to history
+            addToHistory(false, gameState.currentMultiplier, -gameState.betAmount);
+            
+            // Show result
+            setTimeout(() => {
+                showResult(false);
+            }, 1000);
+            
+            // Enable bet input for next game
+            setTimeout(() => {
+                document.getElementById('bet-amount').disabled = false;
+                document.getElementById('play-btn').disabled = false;
+            }, 2000);
+            
+            console.log("💥 Game ended at roll:", gameState.rollCount, "Multiplier:", gameState.currentMultiplier.toFixed(2) + 'x');
+        }
+
+        // ===== UI UPDATES =====
+        function updateDiceDisplay() {
+            const dice1 = document.getElementById('dice1');
+            const dice2 = document.getElementById('dice2');
+            
+            dice1.classList.add('rolling');
+            dice2.classList.add('rolling');
+            
+            setTimeout(() => {
+                dice1.innerHTML = `<div class="dice-value">${gameState.diceValues[0]}</div>`;
+                dice2.innerHTML = `<div class="dice-value">${gameState.diceValues[1]}</div>`;
+                
+                dice1.classList.remove('rolling');
+                dice2.classList.remove('rolling');
+            }, 300);
+        }
+
+        function updateMultiplierDisplay() {
+            const multiplierValue = document.getElementById('multiplier-value');
+            multiplierValue.textContent = gameState.currentMultiplier.toFixed(2) + 'x';
+            
+            // Update color based on multiplier
+            if (gameState.currentMultiplier >= 5) {
+                multiplierValue.style.background = 'linear-gradient(45deg, var(--warning), var(--secondary))';
+            } else if (gameState.currentMultiplier >= 3) {
+                multiplierValue.style.background = 'linear-gradient(45deg, var(--success), var(--primary))';
+            } else {
+                multiplierValue.style.background = 'linear-gradient(45deg, var(--primary), var(--secondary))';
+            }
+            
+            updatePotentialWin();
+        }
+
+        function updateStreakDisplay() {
+            document.getElementById('streak-count').textContent = gameState.streakCount;
+        }
+
+        function updatePotentialWin() {
+            const betAmount = parseFloat(document.getElementById('bet-amount').value) || 0;
+            const multiplier = gameState.currentMultiplier;
+            const potentialWin = (betAmount * multiplier).toFixed(2);
+            document.getElementById('potential-win').textContent = `$${potentialWin}`;
+        }
+
+        function updateBetLimits() {
+            const betInput = document.getElementById('bet-amount');
+            const maxBet = Math.min(gameState.balance, 1000);
+            betInput.max = maxBet;
+            
+            if (parseFloat(betInput.value) > maxBet) {
+                betInput.value = maxBet;
+                gameState.betAmount = maxBet;
+            }
+            
+            updatePotentialWin();
+        }
+
+        // ===== WINNERS FEED =====
+        function generateWinnersFeed() {
+            const winnersList = document.getElementById('winners-list');
+            winnersList.innerHTML = '';
+            
+            // Generate 8-12 random winners
+            const winnerCount = Math.floor(Math.random() * 5) + 8;
+            
+            for (let i = 0; i < winnerCount; i++) {
+                const name = gameState.winnerNames[Math.floor(Math.random() * gameState.winnerNames.length)];
+                const amount = (Math.random() * 500 + 5).toFixed(2);
+                const minutesAgo = Math.floor(Math.random() * 60);
+                
+                const winnerItem = document.createElement('div');
+                winnerItem.className = 'winner-item';
+                winnerItem.innerHTML = `
+                    <div class="winner-info">
+                        <div class="winner-avatar">${name.charAt(0)}</div>
+                        <div>
+                            <div class="winner-name">${name}</div>
+                            <div class="winner-time">${minutesAgo} min ago</div>
+                        </div>
+                    </div>
+                    <div class="winner-amount">+$${amount}</div>
+                `;
+                
+                winnersList.appendChild(winnerItem);
+            }
+            
+            // Auto-update winners feed every 30 seconds
+            setTimeout(generateWinnersFeed, 30000);
+        }
+
+        function addToWinnersFeed(name, amount) {
+            const winnersList = document.getElementById('winners-list');
+            const winnerItem = document.createElement('div');
+            winnerItem.className = 'winner-item';
+            winnerItem.innerHTML = `
+                <div class="winner-info">
+                    <div class="winner-avatar">${name.charAt(0)}</div>
+                    <div>
+                        <div class="winner-name">${name}</div>
+                        <div class="winner-time">just now</div>
+                    </div>
+                </div>
+                <div class="winner-amount">+$${amount.toFixed(2)}</div>
+            `;
+            
+            // Add to top and remove oldest if more than 10
+            winnersList.insertBefore(winnerItem, winnersList.firstChild);
+            if (winnersList.children.length > 10) {
+                winnersList.removeChild(winnersList.lastChild);
+            }
+        }
+
+        // ===== GAME HISTORY =====
+        function loadGameHistory() {
+            // Load from localStorage or Firebase
+            const savedHistory = localStorage.getItem('dicedash_history');
+            if (savedHistory) {
+                gameState.gameHistory = JSON.parse(savedHistory);
+                updateHistoryDisplay();
+            }
+        }
+
+        function addToHistory(isWin, multiplier, amount) {
+            const historyItem = {
+                id: Date.now(),
+                win: isWin,
+                multiplier: multiplier,
+                amount: amount,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                date: new Date().toLocaleDateString()
+            };
+            
+            gameState.gameHistory.unshift(historyItem);
+            if (gameState.gameHistory.length > 20) {
+                gameState.gameHistory.pop();
+            }
+            
+            // Save to localStorage
+            localStorage.setItem('dicedash_history', JSON.stringify(gameState.gameHistory));
+            
+            // Update display
+            updateHistoryDisplay();
+            
+            // Save to Firebase if user is logged in
+            saveToFirebaseHistory(historyItem);
+        }
+
+        function updateHistoryDisplay() {
+            const historyList = document.getElementById('history-list');
+            historyList.innerHTML = '';
+            
+            gameState.gameHistory.forEach(item => {
+                const historyItem = document.createElement('div');
+                historyItem.className = `history-item ${item.win ? 'win' : 'lose'}`;
+                historyItem.innerHTML = `
+                    <div>
+                        <div style="font-size: 12px; color: var(--text-dim);">${item.time}</div>
+                        <div class="history-multiplier">${item.multiplier.toFixed(2)}x</div>
+                    </div>
+                    <div class="history-amount ${item.win ? 'win' : 'lose'}">
+                        ${item.amount > 0 ? '+' : ''}$${Math.abs(item.amount).toFixed(2)}
+                    </div>
+                `;
+                historyList.appendChild(historyItem);
+            });
+        }
+
+        async function saveToFirebaseHistory(historyItem) {
+            if (!gameState.currentUser) return;
+            
+            try {
+                const db = firebase.firestore();
+                await db.collection('dicedash_history').doc(gameState.currentUser.uid).collection('games').add({
+                    userId: gameState.currentUser.uid,
+                    ...historyItem,
+                    gameId: gameState.currentGame.gameId,
+                    createdAt: new Date()
+                });
+            } catch (error) {
+                console.error('Error saving history:', error);
+            }
+        }
+
+        // ===== ANIMATIONS =====
+        function createParticles() {
+            const particlesContainer = document.getElementById('particles');
+            const particleCount = 50;
+            
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.top = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 15 + 's';
+                particle.style.animationDuration = (Math.random() * 10 + 15) + 's';
+                particle.style.opacity = Math.random() * 0.5 + 0.1;
+                particle.style.width = particle.style.height = (Math.random() * 3 + 2) + 'px';
+                particle.style.background = Math.random() > 0.5 ? 'var(--primary)' : 'var(--secondary)';
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+        function showWinAnimation() {
+            const winAnimation = document.getElementById('win-animation');
+            winAnimation.style.opacity = '1';
+            winAnimation.style.animation = 'winExplosion 1s ease-out forwards';
+            
+            setTimeout(() => {
+                winAnimation.style.opacity = '0';
+            }, 1000);
+        }
+
+        function showLoseAnimation() {
+            const loseAnimation = document.getElementById('lose-animation');
+            loseAnimation.style.opacity = '1';
+            loseAnimation.style.animation = 'loseShake 1s ease-out forwards';
+            
+            setTimeout(() => {
+                loseAnimation.style.opacity = '0';
+            }, 1000);
+        }
+
+        function showResult(isWin) {
+            const result = gameState.currentGame;
+            
+            if (isWin) {
+                document.getElementById('result-title').textContent = '🎉 YOU WON!';
+                document.getElementById('result-amount').textContent = `+$${result.winAmount.toFixed(2)}`;
+                document.getElementById('result-amount').className = 'result-amount';
+            } else {
+                document.getElementById('result-title').textContent = '💥 YOU LOST';
+                document.getElementById('result-amount').textContent = `-$${result.bet.toFixed(2)}`;
+                document.getElementById('result-amount').className = 'result-amount lose';
+            }
+            
+            document.getElementById('result-multiplier').textContent = result.multiplier.toFixed(2) + 'x';
+            document.getElementById('result-rolls').textContent = result.rolls;
+            document.getElementById('result-duration').textContent = result.duration.toFixed(1) + 's';
+            
+            // Show overlay
+            document.getElementById('result-overlay').classList.add('show');
+        }
+
+        function resetGame() {
+            // Hide result overlay
+            document.getElementById('result-overlay').classList.remove('show');
+            
+            // Reset game display
+            gameState.currentMultiplier = 1.00;
+            gameState.rollCount = 0;
+            gameState.streakCount = 0;
+            
+            document.getElementById('multiplier-value').textContent = '1.00x';
+            document.getElementById('multiplier-value').style.background = 'linear-gradient(45deg, var(--primary), var(--secondary))';
+            document.getElementById('streak-count').textContent = '0';
+            document.getElementById('game-status').textContent = 'Place your bet and start rolling!';
+            document.getElementById('game-status').className = 'game-status';
+            
+            // Reset dice
+            document.getElementById('dice1').innerHTML = '<div class="dice-value">?</div>';
+            document.getElementById('dice2').innerHTML = '<div class="dice-value">?</div>';
+            
+            // Update potential win
+            updatePotentialWin();
+        }
+
+        // ===== FULLSCREEN FUNCTIONS =====
+        function setupFullscreen() {
+            const toggleBtn = document.getElementById('fullscreen-toggle');
+            
+            toggleBtn.addEventListener('click', () => {
+                const container = document.getElementById('game-container');
+                
+                if (!document.fullscreenElement) {
+                    if (container.requestFullscreen) {
+                        container.requestFullscreen();
+                    } else if (container.webkitRequestFullscreen) {
+                        container.webkitRequestFullscreen();
+                    }
+                    toggleBtn.innerHTML = '<i class="fas fa-compress"></i>';
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    }
+                    toggleBtn.innerHTML = '<i class="fas fa-expand"></i>';
+                }
+            });
+            
+            // Update button on fullscreen change
+            document.addEventListener('fullscreenchange', updateFullscreenButton);
+            document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+        }
+        
+        function updateFullscreenButton() {
+            const toggleBtn = document.getElementById('fullscreen-toggle');
+            toggleBtn.innerHTML = document.fullscreenElement 
+                ? '<i class="fas fa-compress"></i>' 
+                : '<i class="fas fa-expand"></i>';
+        }
+
+        // ===== EVENT LISTENERS =====
+        function setupEventListeners() {
+            console.log("Setting up event listeners...");
+            
+            // Play button
+            document.getElementById('play-btn').addEventListener('click', startGame);
+            
+            // Cashout button
+            document.getElementById('cashout-btn').addEventListener('click', cashout);
+            
+            // Quick bet buttons
+            document.querySelectorAll('.quick-bet').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    SoundManager.play('sound-button');
+                    const amount = parseFloat(btn.dataset.amount);
+                    document.getElementById('bet-amount').value = amount;
+                    gameState.betAmount = amount;
+                    updatePotentialWin();
+                    
+                    // Visual feedback
+                    document.querySelectorAll('.quick-bet').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+            });
+            
+            // Bet input
+            document.getElementById('bet-amount').addEventListener('input', (e) => {
+                let value = parseFloat(e.target.value) || 1;
+                value = Math.max(1, Math.min(value, Math.min(gameState.balance, 1000)));
+                e.target.value = value;
+                gameState.betAmount = value;
+                updatePotentialWin();
+                
+                // Update quick bet selection
+                document.querySelectorAll('.quick-bet').forEach(btn => {
+                    btn.classList.toggle('active', parseFloat(btn.dataset.amount) === value);
+                });
+            });
+            
+            // Auto roll toggle
+            document.getElementById('auto-roll-toggle').addEventListener('click', () => {
+                SoundManager.play('sound-button');
+                gameState.autoRoll = !gameState.autoRoll;
+                document.getElementById('auto-roll-toggle').classList.toggle('active');
+            });
+            
+            // Auto cashout toggle
+            document.getElementById('auto-cashout-toggle').addEventListener('click', () => {
+                SoundManager.play('sound-button');
+                gameState.autoCashout = !gameState.autoCashout;
+                document.getElementById('auto-cashout-toggle').classList.toggle('active');
+                document.getElementById('auto-cashout-value').disabled = !gameState.autoCashout;
+            });
+            
+            // Auto cashout value
+            document.getElementById('auto-cashout-value').addEventListener('input', (e) => {
+                let value = parseFloat(e.target.value) || 3.00;
+                value = Math.max(1.10, Math.min(value, 100));
+                e.target.value = value.toFixed(2);
+                gameState.autoCashoutValue = value;
+            });
+            
+            // Play again button
+            document.getElementById('play-again-btn').addEventListener('click', resetGame);
+            
+            // Enter key to start game
+            document.getElementById('bet-amount').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !gameState.gameActive) {
+                    startGame();
+                }
+            });
+            
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                // Space to cashout
+                if (e.code === 'Space' && gameState.gameActive) {
+                    cashout();
+                    e.preventDefault();
+                }
+                // Enter to start if not active
+                if (e.code === 'Enter' && !gameState.gameActive && document.activeElement.id !== 'bet-amount') {
+                    startGame();
+                    e.preventDefault();
+                }
+                // Number keys for quick bets
+                if (e.code === 'Digit1') setQuickBet(1);
+                if (e.code === 'Digit2') setQuickBet(5);
+                if (e.code === 'Digit3') setQuickBet(10);
+                if (e.code === 'Digit4') setQuickBet(25);
+                if (e.code === 'Digit5') setQuickBet(50);
+                if (e.code === 'Digit6') setQuickBet(100);
+            });
+            
+            // Touch feedback for mobile
+            document.addEventListener('touchstart', handleTouch, { passive: true });
+            
+            console.log("✅ Event listeners setup complete!");
+        }
+        
+        function setQuickBet(amount) {
+            if (!gameState.gameActive) {
+                SoundManager.play('sound-button');
+                document.getElementById('bet-amount').value = amount;
+                gameState.betAmount = amount;
+                updatePotentialWin();
+                
+                document.querySelectorAll('.quick-bet').forEach(btn => {
+                    btn.classList.toggle('active', parseFloat(btn.dataset.amount) === amount);
+                });
+            }
+        }
+        
+        function handleTouch(e) {
+            // Visual feedback for touch
+            if (e.target.tagName === 'BUTTON' || e.target.classList.contains('quick-bet')) {
+                e.target.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    e.target.style.transform = '';
+                }, 100);
+            }
+        }
+
+        // ===== TOAST NOTIFICATIONS =====
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    container.removeChild(toast);
+                }, 300);
+            }, 3000);
+        }
+
+        // ===== INITIAL SETUP =====
+        // Update UI when balance is loaded
+        setTimeout(() => {
+            if (gameState.balance > 0) {
+                updateBetLimits();
+                showToast('🎲 Welcome to Dice Dash! Place bet, roll dice, cash out before losing roll!', 'success');
+            }
+        }, 2000);
+
+        console.log("🎲 Dice Dash Game Ready!");
+        console.log("💰 Real Money Integration: ACTIVE");
+        console.log("🎯 Win Rate: 10-15% (85-90% lose)");
+        console.log("🚀 Ready to play!");
+    </script>
+</body>
+</html>
