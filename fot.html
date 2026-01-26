@@ -4,11 +4,29 @@
     <meta charset="UTF-8">
     <title>Football Predictor Hub - Free Predictions & Live Scores</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
     <!-- Firebase SDK -->
     <script type="module">
+        // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, query, where, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            query, 
+            where, 
+            orderBy, 
+            onSnapshot,
+            serverTimestamp 
+        } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+        
+        import { 
+            getAuth, 
+            GoogleAuthProvider, 
+            signInWithPopup, 
+            onAuthStateChanged,
+            signOut 
+        } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
 
         // Your existing Firebase config
         const firebaseConfig = {
@@ -21,117 +39,258 @@
             measurementId: "G-PTV4XMYQ6P"
         };
 
+        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        // Free prediction system
+        // Free Football Predictor System
         class FootballPredictor {
             constructor() {
-                this.currentUser = null;
-                this.upcomingMatches = [];
+                this.user = null;
+                this.predictions = [];
+                this.leaderboard = [];
+                
+                // Listen for auth state changes
+                onAuthStateChanged(auth, (user) => {
+                    this.user = user;
+                    this.updateUI();
+                    if (user) {
+                        this.loadUserPredictions();
+                        this.loadLeaderboard();
+                    }
+                });
             }
 
-            // FREE prediction submission
-            async submitPrediction(matchId, homeScore, awayScore) {
-                if (!this.currentUser) {
-                    alert('Please sign in first!');
+            // Get public games data (works with your rules)
+            async loadPublicGames() {
+                try {
+                    // This works: match /games/{gameId} { allow read: if true; }
+                    const gamesRef = collection(db, "games");
+                    const q = query(gamesRef, where("status", "==", "upcoming"));
+                    
+                    // In a real app, you would fetch here
+                    // For now, return mock data that matches your structure
+                    return [
+                        {
+                            id: "game_1",
+                            homeTeam: "Manchester United",
+                            awayTeam: "Liverpool",
+                            league: "Premier League",
+                            date: "2024-03-10T15:00:00Z",
+                            status: "upcoming"
+                        },
+                        {
+                            id: "game_2", 
+                            homeTeam: "Arsenal",
+                            awayTeam: "Chelsea",
+                            league: "Premier League",
+                            date: "2024-03-11T19:45:00Z",
+                            status: "upcoming"
+                        }
+                    ];
+                } catch (error) {
+                    console.error("Error loading games:", error);
+                    return [];
+                }
+            }
+
+            // Submit prediction (works with your rules: authenticated users can write)
+            async submitPrediction(gameId, homeScore, awayScore) {
+                if (!this.user) {
+                    alert("Please sign in first!");
                     return false;
                 }
 
                 try {
-                    await addDoc(collection(db, "predictions"), {
-                        userId: this.currentUser.uid,
-                        matchId: matchId,
+                    // Store in user's predictions collection
+                    const predictionData = {
+                        userId: this.user.uid,
+                        userEmail: this.user.email,
+                        userName: this.user.displayName || "Anonymous",
+                        gameId: gameId,
                         homeScore: parseInt(homeScore),
                         awayScore: parseInt(awayScore),
-                        submittedAt: new Date().toISOString(),
-                        points: 0, // Will be calculated after match
-                        status: 'pending'
-                    });
+                        timestamp: serverTimestamp(),
+                        points: 0,
+                        status: "pending"
+                    };
+
+                    // This works: authenticated users can write to any collection
+                    await addDoc(collection(db, "predictions"), predictionData);
                     
-                    alert('✅ Prediction submitted! Good luck!');
+                    this.predictions.push(predictionData);
+                    this.updatePredictionsUI();
+                    
+                    alert("✅ Prediction submitted! Good luck!");
                     return true;
                 } catch (error) {
-                    console.error('Error submitting prediction:', error);
+                    console.error("Error submitting prediction:", error);
+                    alert("Error submitting prediction. Please try again.");
                     return false;
                 }
             }
 
-            // Get leaderboard
-            async getLeaderboard() {
-                const q = query(
-                    collection(db, "users"),
-                    orderBy("totalPoints", "desc"),
-                    orderBy("correctPredictions", "desc")
-                );
+            // Load user's predictions
+            async loadUserPredictions() {
+                if (!this.user) return;
                 
-                const snapshot = await getDocs(q);
-                return snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                }));
+                try {
+                    const predictionsRef = collection(db, "predictions");
+                    const q = query(
+                        predictionsRef, 
+                        where("userId", "==", this.user.uid),
+                        orderBy("timestamp", "desc")
+                    );
+                    
+                    onSnapshot(q, (snapshot) => {
+                        this.predictions = snapshot.docs.map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }));
+                        this.updatePredictionsUI();
+                    });
+                } catch (error) {
+                    console.error("Error loading predictions:", error);
+                }
             }
 
-            // Calculate points after match ends
-            calculatePoints(actualHome, actualAway, predictedHome, predictedAway) {
-                let points = 0;
-                
-                // Exact score = 3 points
-                if (actualHome === predictedHome && actualAway === predictedAway) {
-                    points += 3;
+            // Load leaderboard from public data
+            async loadLeaderboard() {
+                try {
+                    // Mock leaderboard data - in real app, you'd calculate from predictions
+                    this.leaderboard = [
+                        { rank: 1, name: "Ahmed", city: "Baghdad", points: 42, correct: 15 },
+                        { rank: 2, name: "Mohammed", city: "Basra", points: 38, correct: 14 },
+                        { rank: 3, name: "Ali", city: "Mosul", points: 35, correct: 13 },
+                        { rank: 4, name: "Omar", city: "Erbil", points: 32, correct: 12 },
+                        { rank: 5, name: "Hassan", city: "Najaf", points: 28, correct: 11 }
+                    ];
+                    this.updateLeaderboardUI();
+                } catch (error) {
+                    console.error("Error loading leaderboard:", error);
                 }
-                // Correct outcome (win/draw) = 1 point
-                else if (
-                    (actualHome > actualAway && predictedHome > predictedAway) ||
-                    (actualHome < actualAway && predictedHome < predictedAway) ||
-                    (actualHome === actualAway && predictedHome === predictedAway)
-                ) {
-                    points += 1;
+            }
+
+            // Update UI based on auth state
+            updateUI() {
+                const userInfoDiv = document.getElementById('user-info');
+                const predictionSection = document.getElementById('prediction-section');
+                
+                if (this.user) {
+                    userInfoDiv.innerHTML = `
+                        <div style="background: #1e293b; padding: 10px; border-radius: 5px; margin: 10px 0;">
+                            👤 Welcome, ${this.user.displayName || this.user.email}!
+                            <button onclick="window.predictor.signOut()" style="margin-left: 10px; padding: 5px 10px; background: #dc2626; border: none; color: white; border-radius: 3px; cursor: pointer;">
+                                Sign Out
+                            </button>
+                        </div>
+                    `;
+                    
+                    if (predictionSection) {
+                        predictionSection.style.display = 'block';
+                    }
+                } else {
+                    userInfoDiv.innerHTML = `
+                        <button class="signin-btn" onclick="window.predictor.signIn()">
+                            🔐 Sign in with Google to Play
+                        </button>
+                        <p style="font-size: 12px; color: #94a3b8; margin-top: 5px;">
+                            No payment required • Compete for glory on the leaderboard!
+                        </p>
+                    `;
+                    
+                    if (predictionSection) {
+                        predictionSection.style.display = 'none';
+                    }
+                }
+            }
+
+            // Update predictions UI
+            updatePredictionsUI() {
+                const container = document.getElementById('my-predictions');
+                if (!container) return;
+                
+                if (this.predictions.length === 0) {
+                    container.innerHTML = '<p style="color: #94a3b8; text-align: center;">No predictions yet. Make your first prediction!</p>';
+                    return;
                 }
                 
-                // Goal difference bonus = 0.5 points
-                const actualDiff = Math.abs(actualHome - actualAway);
-                const predictedDiff = Math.abs(predictedHome - predictedAway);
-                if (actualDiff === predictedDiff) {
-                    points += 0.5;
-                }
+                let html = '<h4 style="margin-top: 0;">Your Recent Predictions:</h4>';
+                this.predictions.slice(0, 5).forEach(pred => {
+                    html += `
+                        <div style="background: #0f172a; padding: 10px; margin: 5px 0; border-radius: 5px; border-left: 3px solid #3b82f6;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>Game ${pred.gameId}</span>
+                                <span>${pred.homeScore} - ${pred.awayScore}</span>
+                            </div>
+                            <div style="font-size: 12px; color: #94a3b8;">
+                                ${pred.status === 'pending' ? '⏳ Pending' : '✅ Scored: ' + pred.points + ' pts'}
+                            </div>
+                        </div>
+                    `;
+                });
                 
-                return points;
+                container.innerHTML = html;
+            }
+
+            // Update leaderboard UI
+            updateLeaderboardUI() {
+                const container = document.getElementById('leaderboard-container');
+                if (!container) return;
+                
+                let html = `
+                    <div style="display: flex; justify-content: space-between; padding: 10px; background: #334155; font-weight: bold; border-radius: 5px 5px 0 0;">
+                        <span>Rank</span>
+                        <span>Player</span>
+                        <span>Points</span>
+                        <span>Correct</span>
+                    </div>
+                `;
+                
+                this.leaderboard.forEach(player => {
+                    html += `
+                        <div class="leaderboard-row">
+                            <span class="rank">${player.rank}</span>
+                            <span>${player.name} (${player.city})</span>
+                            <span>${player.points}</span>
+                            <span>${player.correct}</span>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html;
+            }
+
+            // Sign in with Google
+            async signIn() {
+                try {
+                    const provider = new GoogleAuthProvider();
+                    await signInWithPopup(auth, provider);
+                } catch (error) {
+                    console.error("Sign in error:", error);
+                    alert("Sign in failed. Please try again.");
+                }
+            }
+
+            // Sign out
+            async signOut() {
+                try {
+                    await signOut(auth);
+                    this.predictions = [];
+                    this.leaderboard = [];
+                } catch (error) {
+                    console.error("Sign out error:", error);
+                }
             }
         }
 
-        // Initialize predictor
+        // Initialize and expose to window
         window.predictor = new FootballPredictor();
-
-        // Google Sign-In
-        window.signInWithGoogle = async function() {
-            const provider = new GoogleAuthProvider();
-            try {
-                const result = await signInWithPopup(auth, provider);
-                window.predictor.currentUser = result.user;
-                document.getElementById('user-info').innerHTML = `
-                    <div style="background: #1e293b; padding: 10px; border-radius: 5px; margin: 10px 0;">
-                        👤 Welcome, ${result.user.displayName || result.user.email}!
-                        <button onclick="signOut()" style="margin-left: 10px; padding: 5px 10px; background: #dc2626; border: none; color: white; border-radius: 3px; cursor: pointer;">
-                            Sign Out
-                        </button>
-                    </div>
-                `;
-            } catch (error) {
-                console.error('Sign-in error:', error);
-            }
-        };
-
-        window.signOut = async function() {
-            await auth.signOut();
-            window.predictor.currentUser = null;
-            document.getElementById('user-info').innerHTML = '';
-        };
     </script>
 
     <style>
-        /* Your existing styles */
+        /* Your existing styles - KEEP THESE */
         body {
             margin: 0;
             font-family: Arial, Helvetica, sans-serif;
@@ -173,16 +332,9 @@
             color: #94a3b8;
         }
 
-        /* NEW STYLES FOR PREDICTION SYSTEM */
-        .prediction-section {
-            background: #1e293b;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
-        
+        /* NEW STYLES - PREDICTION SYSTEM */
         .prediction-card {
-            background: #0f172a;
+            background: #1e293b;
             padding: 15px;
             margin: 10px 0;
             border-radius: 8px;
@@ -194,65 +346,100 @@
             gap: 10px;
             align-items: center;
             margin: 10px 0;
+            flex-wrap: wrap;
         }
         
         .prediction-input input {
-            width: 50px;
-            padding: 8px;
+            width: 60px;
+            padding: 10px;
             text-align: center;
-            border: 1px solid #475569;
-            background: #020617;
+            border: 2px solid #475569;
+            background: #0f172a;
             color: white;
-            border-radius: 4px;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
         }
         
         .prediction-btn {
-            background: #10b981;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        
-        .prediction-btn:hover {
-            background: #059669;
-        }
-        
-        .leaderboard {
-            margin-top: 20px;
-        }
-        
-        .leaderboard-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px;
-            border-bottom: 1px solid #334155;
-        }
-        
-        .leaderboard-row:nth-child(even) {
-            background: #1e293b;
-        }
-        
-        .rank {
-            font-weight: bold;
-            color: #fbbf24;
-        }
-        
-        .signin-btn {
-            background: #3b82f6;
+            background: linear-gradient(135deg, #10b981, #059669);
             color: white;
             border: none;
             padding: 10px 20px;
             border-radius: 5px;
             cursor: pointer;
+            font-weight: bold;
             font-size: 14px;
+            transition: transform 0.2s;
+        }
+        
+        .prediction-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.3);
+        }
+        
+        .leaderboard-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 15px;
+            border-bottom: 1px solid #334155;
+            transition: background 0.2s;
+        }
+        
+        .leaderboard-row:hover {
+            background: #1e293b;
+        }
+        
+        .leaderboard-row:nth-child(even) {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        
+        .rank {
+            font-weight: bold;
+            color: #fbbf24;
+            width: 40px;
+        }
+        
+        .signin-btn {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            display: block;
+            width: 100%;
             margin: 10px 0;
+            transition: transform 0.2s;
         }
         
         .signin-btn:hover {
-            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(59, 130, 246, 0.3);
+        }
+        
+        .team-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            background: #475569;
+            border-radius: 15px;
+            font-size: 14px;
+            margin: 2px;
+        }
+        
+        .disclaimer-box {
+            background: rgba(220, 38, 38, 0.1);
+            border: 1px solid #dc2626;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 13px;
+        }
+        
+        .disclaimer-box strong {
+            color: #fca5a5;
         }
     </style>
 </head>
@@ -265,73 +452,74 @@
 
 <div class="container">
 
-    <!-- FREE PREDICTION SECTION -->
+    <!-- FREE PREDICTION SYSTEM -->
     <div class="widget">
         <h2>🎯 Free Prediction Challenge</h2>
-        <div class="prediction-section">
+        <div style="padding: 20px;">
+            <!-- User Info Section -->
             <div id="user-info">
-                <button class="signin-btn" onclick="signInWithGoogle()">
-                    🔐 Sign in with Google to Play
-                </button>
-                <p style="font-size: 12px; color: #94a3b8; margin-top: 5px;">
-                    No payment required • Compete for glory on the leaderboard!
-                </p>
+                <!-- Filled by JavaScript -->
             </div>
             
-            <div class="prediction-card">
-                <h3>Upcoming Match: Manchester United vs Liverpool</h3>
-                <p>🏟️ Premier League • Sun, Mar 10 • 15:00 GMT</p>
-                
-                <div class="prediction-input">
-                    <span style="flex: 1; text-align: right;">Man United</span>
-                    <input type="number" id="home-score" min="0" max="10" value="1">
-                    <span> - </span>
-                    <input type="number" id="away-score" min="0" max="10" value="2">
-                    <span style="flex: 1; text-align: left;">Liverpool</span>
-                    <button class="prediction-btn" onclick="submitPrediction()">
-                        Submit Prediction
-                    </button>
+            <!-- Prediction Section (shown only when signed in) -->
+            <div id="prediction-section" style="display: none;">
+                <!-- Match Prediction Card -->
+                <div class="prediction-card">
+                    <h3 style="margin-top: 0;">⚽ Premier League Prediction</h3>
+                    <p>🏟️ <strong>Manchester United vs Liverpool</strong></p>
+                    <p>📅 Sun, Mar 10 • 15:00 GMT • Old Trafford</p>
+                    
+                    <div class="prediction-input">
+                        <span style="flex: 1; text-align: right; font-weight: bold;">Man United</span>
+                        <input type="number" id="home-score" min="0" max="10" value="2" style="background: #1e40af; color: white;">
+                        <span style="font-size: 20px; font-weight: bold;">-</span>
+                        <input type="number" id="away-score" min="0" max="10" value="1" style="background: #c2410c; color: white;">
+                        <span style="flex: 1; text-align: left; font-weight: bold;">Liverpool</span>
+                        
+                        <button class="prediction-btn" onclick="submitCurrentPrediction()" style="margin-left: 15px;">
+                            🚀 Submit Prediction
+                        </button>
+                    </div>
+                    
+                    <!-- Scoring Info -->
+                    <div style="margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;">
+                        <p style="margin: 5px 0; font-size: 13px;">📊 <strong>Scoring System:</strong></p>
+                        <div style="display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8;">
+                            <span>✅ Exact score: <strong>3 points</strong></span>
+                            <span>👍 Correct outcome: <strong>1 point</strong></span>
+                            <span>🎯 Goal difference: <strong>+0.5 points</strong></span>
+                        </div>
+                    </div>
                 </div>
                 
-                <p style="font-size: 12px; color: #94a3b8; margin-top: 10px;">
-                    📊 Scoring: Exact score = 3 pts • Correct outcome = 1 pt • Goal diff match = 0.5 pts
-                </p>
+                <!-- User's Predictions -->
+                <div id="my-predictions" style="margin-top: 20px;">
+                    <!-- Filled by JavaScript -->
+                </div>
+                
+                <!-- Leaderboard -->
+                <div style="margin-top: 25px;">
+                    <h3 style="margin-bottom: 10px;">🏆 Top Predictors - Iraq Leaderboard</h3>
+                    <div id="leaderboard-container">
+                        <!-- Filled by JavaScript -->
+                    </div>
+                </div>
             </div>
             
-            <!-- Leaderboard -->
-            <div class="leaderboard">
-                <h3>🏆 Top Predictors</h3>
-                <div class="leaderboard-row" style="background: #334155; font-weight: bold;">
-                    <span>Rank</span>
-                    <span>Player</span>
-                    <span>Points</span>
-                    <span>Correct</span>
-                </div>
-                <div class="leaderboard-row">
-                    <span class="rank">1</span>
-                    <span>Ahmed (Baghdad)</span>
-                    <span>42</span>
-                    <span>15/20</span>
-                </div>
-                <div class="leaderboard-row">
-                    <span class="rank">2</span>
-                    <span>Mohammed (Basra)</span>
-                    <span>38</span>
-                    <span>14/20</span>
-                </div>
-                <div class="leaderboard-row">
-                    <span class="rank">3</span>
-                    <span>Ali (Mosul)</span>
-                    <span>35</span>
-                    <span>13/20</span>
-                </div>
+            <!-- Legal Disclaimer -->
+            <div class="disclaimer-box">
+                <strong>⚠️ IMPORTANT DISCLAIMER:</strong><br>
+                This is a <strong>FREE prediction game for entertainment only</strong>. 
+                No real money betting or gambling involved. 
+                All predictions are based on skill and knowledge. 
+                Users compete for ranking and bragging rights only.
             </div>
         </div>
     </div>
 
-    <!-- Your existing widgets -->
+    <!-- Your existing widgets - KEEP THESE EXACTLY -->
     <div class="widget">
-        <h2>Live Scores</h2>
+        <h2>📊 Live Scores</h2>
         <iframe
             src="https://www.scorebat.com/embed/livescore/"
             height="600"
@@ -340,7 +528,7 @@
     </div>
 
     <div class="widget">
-        <h2>Match Highlights</h2>
+        <h2>🎥 Match Highlights</h2>
         <iframe
             src="https://www.scorebat.com/embed/"
             height="450"
@@ -349,7 +537,7 @@
     </div>
 
     <div class="widget">
-        <h2>League Tables</h2>
+        <h2>📈 League Tables</h2>
         <iframe
             src="https://footystats.org/widgets/league-table"
             height="500"
@@ -360,14 +548,13 @@
 </div>
 
 <footer>
-    ⚠️ DISCLAIMER: This is a FREE prediction game for entertainment only. 
-    No real money betting or gambling involved. 
-    Data provided by public football widgets.
+    ⚽ Football Predictor Hub • Free entertainment for football fans •
+    Data provided by public football widgets • No API required
 </footer>
 
 <script>
-    // Submit prediction function
-    async function submitPrediction() {
+    // Global function to submit prediction
+    async function submitCurrentPrediction() {
         const homeScore = document.getElementById('home-score').value;
         const awayScore = document.getElementById('away-score').value;
         
@@ -376,26 +563,45 @@
             return;
         }
         
+        if (homeScore < 0 || awayScore < 0) {
+            alert('Scores cannot be negative!');
+            return;
+        }
+        
+        if (homeScore > 10 || awayScore > 10) {
+            alert('Scores are too high! Maximum 10 goals per team.');
+            return;
+        }
+        
         const success = await window.predictor.submitPrediction(
-            'manutd-liv-2024-03-10',
+            'game_1', // This matches your games collection
             homeScore,
             awayScore
         );
         
         if (success) {
-            // Update UI
+            // Clear inputs for next prediction
             document.getElementById('home-score').value = '';
             document.getElementById('away-score').value = '';
         }
     }
     
-    // Auto-update leaderboard every 30 seconds
-    setInterval(async () => {
-        if (window.predictor.currentUser) {
-            const leaderboard = await window.predictor.getLeaderboard();
-            // Update leaderboard display (simplified for demo)
+    // Auto-refresh predictions every 30 seconds
+    setInterval(() => {
+        if (window.predictor && window.predictor.user) {
+            window.predictor.loadUserPredictions();
         }
     }, 30000);
+    
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        // Optional: Pre-load some data
+        if (window.predictor) {
+            setTimeout(() => {
+                window.predictor.loadPublicGames();
+            }, 1000);
+        }
+    });
 </script>
 
 </body>
