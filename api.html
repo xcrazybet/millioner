@@ -1,1 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚽ Football Live Scores API</title>
+    
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
+        import { 
+            getFirestore, 
+            collection, 
+            query, 
+            orderBy, 
+            limit, 
+            getDocs 
+        } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
 
+        // Your existing Firebase config
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+            measurementId: "G-PTV4XMYQ6P"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // API Handler Class
+        class FootballAPI {
+            constructor() {
+                this.cache = {};
+                this.cacheDuration = 30000; // 30 seconds cache
+            }
+
+            // Get API data based on endpoint
+            async getEndpointData(endpoint, params = {}) {
+                const cacheKey = `${endpoint}_${JSON.stringify(params)}`;
+                
+                // Check cache
+                if (this.cache[cacheKey] && 
+                    Date.now() - this.cache[cacheKey].timestamp < this.cacheDuration) {
+                    return this.cache[cacheKey].data;
+                }
+
+                let data;
+                switch(endpoint) {
+                    case 'live':
+                        data = await this.getLiveScores();
+                        break;
+                    case 'fixtures':
+                        data = await this.getFixtures(params.league);
+                        break;
+                    case 'leagues':
+                        data = await this.getLeagues();
+                        break;
+                    case 'standings':
+                        data = await this.getStandings(params.league);
+                        break;
+                    default:
+                        data = await this.getLiveScores();
+                }
+
+                // Cache the result
+                this.cache[cacheKey] = {
+                    data: data,
+                    timestamp: Date.now()
+                };
+
+                return data;
+            }
+
+            // Get live scores from Firebase
+            async getLiveScores() {
+                try {
+                    const apiDataRef = collection(db, 'api_live_data');
+                    const q = query(apiDataRef, orderBy('updated_at', 'desc'), limit(1));
+                    const snapshot = await getDocs(q);
+                    
+                    if (!snapshot.empty) {
+                        const latestDoc = snapshot.docs[0];
+                        return {
+                            success: true,
+                            endpoint: 'live',
+                            data: latestDoc.data().data,
+                            updated: latestDoc.data().updated_at,
+                            cached: false
+                        };
+                    } else {
+                        return this.getFallbackData('live');
+                    }
+                } catch (error) {
+                    console.error('Firebase fetch error:', error);
+                    return this.getFallbackData('live');
+                }
+            }
+
+            // Get fixtures (simplified - can expand later)
+            async getFixtures(league) {
+                // For now, extract upcoming from live data
+                const liveData = await this.getLiveScores();
+                const fixtures = liveData.data?.matches?.filter(match => 
+                    match.status === 'SCHEDULED' || match.status === 'UPCOMING'
+                ) || [];
+                
+                if (league) {
+                    return fixtures.filter(f => 
+                        f.league.toLowerCase().includes(league.toLowerCase())
+                    );
+                }
+                
+                return {
+                    success: true,
+                    endpoint: 'fixtures',
+                    data: fixtures,
+                    count: fixtures.length,
+                    updated: new Date().toISOString()
+                };
+            }
+
+            // Get available leagues
+            async getLeagues() {
+                const liveData = await this.getLiveScores();
+                const matches = liveData.data?.matches || [];
+                const leagues = [...new Set(matches.map(m => m.league))];
+                
+                return {
+                    success: true,
+                    endpoint: 'leagues',
+                    data: leagues,
+                    count: leagues.length,
+                    updated: new Date().toISOString()
+                };
+            }
+
+            // Get standings (placeholder - can integrate real data later)
+            async getStandings(league) {
+                const standings = [
+                    { position: 1, team: "Manchester City", points: 65 },
+                    { position: 2, team: "Liverpool", points: 63 },
+                    { position: 3, team: "Arsenal", points: 61 }
+                ];
+                
+                return {
+                    success: true,
+                    endpoint: 'standings',
+                    data: standings,
+                    league: league || 'Premier League',
+                    updated: new Date().toISOString()
+                };
+            }
+
+            // Fallback data when Firebase is empty
+            getFallbackData(endpoint) {
+                const fallbackData = {
+                    live: {
+                        success: true,
+                        endpoint: 'live',
+                        data: {
+                            last_updated: new Date().toISOString(),
+                            matches: [
+                                {
+                                    id: "fb_1",
+                                    homeTeam: "Manchester United",
+                                    awayTeam: "Liverpool",
+                                    score: "2-1",
+                                    minute: "67",
+                                    league: "Premier League",
+                                    status: "LIVE",
+                                    timestamp: new Date().toISOString()
+                                }
+                            ],
+                            source: 'fallback'
+                        },
+                        note: 'Using fallback data - no Firebase data yet'
+                    },
+                    fixtures: {
+                        success: true,
+                        endpoint: 'fixtures',
+                        data: [],
+                        note: 'No fixture data available'
+                    }
+                };
+
+                return fallbackData[endpoint] || fallbackData.live;
+            }
+
+            // Handle API request
+            async handleRequest() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const endpoint = urlParams.get('endpoint') || 'live';
+                const format = urlParams.get('format') || 'json';
+                const league = urlParams.get('league');
+                const callback = urlParams.get('callback'); // For JSONP
+
+                const params = {};
+                if (league) params.league = league;
+
+                try {
+                    const result = await this.getEndpointData(endpoint, params);
+                    
+                    // Add request metadata
+                    result.request = {
+                        endpoint: endpoint,
+                        params: params,
+                        timestamp: new Date().toISOString(),
+                        url: window.location.href
+                    };
+
+                    // Output based on format
+                    if (format === 'jsonp' && callback) {
+                        this.outputJSONP(result, callback);
+                    } else {
+                        this.outputJSON(result);
+                    }
+                } catch (error) {
+                    this.outputError(error);
+                }
+            }
+
+            // Output as JSON
+            outputJSON(data) {
+                document.body.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                
+                // Also set content type for API calls
+                const style = document.createElement('style');
+                style.textContent = `
+                    body { margin: 0; padding: 20px; background: #0f172a; color: #f8fafc; font-family: monospace; }
+                    pre { white-space: pre-wrap; word-wrap: break-word; }
+                `;
+                document.head.appendChild(style);
+            }
+
+            // Output JSONP (for cross-domain requests)
+            outputJSONP(data, callback) {
+                const script = document.createElement('script');
+                script.textContent = `${callback}(${JSON.stringify(data)})`;
+                document.body.appendChild(script);
+            }
+
+            // Output error
+            outputError(error) {
+                const errorData = {
+                    success: false,
+                    error: error.message,
+                    endpoint: new URLSearchParams(window.location.search).get('endpoint') || 'unknown',
+                    timestamp: new Date().toISOString()
+                };
+                
+                document.body.innerHTML = `<pre style="color: #ef4444;">${JSON.stringify(errorData, null, 2)}</pre>`;
+            }
+        }
+
+        // Initialize and run API
+        document.addEventListener('DOMContentLoaded', () => {
+            const api = new FootballAPI();
+            api.handleRequest();
+        });
+    </script>
+    
+    <style>
+        /* Basic styles for API documentation view */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .api-info {
+            background: #f8fafc;
+            border-left: 4px solid #3b82f6;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        
+        .endpoint {
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+        
+        h1 {
+            color: #0f172a;
+            border-bottom: 2px solid #3b82f6;
+            padding-bottom: 10px;
+        }
+        
+        .note {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- This content will be replaced by API output -->
+    <div id="api-output">
+        <h1>⚽ Football Live Scores API</h1>
+        <div class="api-info">
+            <p>Your API is loading data from Firebase. If you see this message, JavaScript is disabled or there was an error.</p>
+            <p>Try accessing these endpoints directly:</p>
+            
+            <div class="endpoint">
+                <strong>Live Scores:</strong><br>
+                <a href="?endpoint=live">api.html?endpoint=live</a>
+            </div>
+            
+            <div class="endpoint">
+                <strong>Fixtures:</strong><br>
+                <a href="?endpoint=fixtures">api.html?endpoint=fixtures</a>
+            </div>
+            
+            <div class="endpoint">
+                <strong>Leagues:</strong><br>
+                <a href="?endpoint=leagues">api.html?endpoint=leagues</a>
+            </div>
+            
+            <div class="note">
+                <strong>Note:</strong> Make sure <code>fot.html</code> is running to collect data first!<br>
+                The API updates every 5 minutes from live ScoreBat data.
+            </div>
+        </div>
+    </div>
+</body>
+</html>
