@@ -3,13 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>⚽ Iraq Football Hub - Live Scores & Predictions</title>
+    <title>⚽ Football Data Hub - Live Scores Extractor</title>
     
     <!-- Favicon -->
     <link rel="icon" href="https://img.icons8.com/color/96/000000/football.png" type="image/x-icon">
-    
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- Firebase SDK -->
     <script type="module">
@@ -20,19 +17,15 @@
             addDoc, 
             serverTimestamp,
             query,
-            where,
             orderBy,
-            onSnapshot
+            limit,
+            getDocs,
+            doc,
+            setDoc,
+            updateDoc
         } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
-        import { 
-            getAuth, 
-            GoogleAuthProvider, 
-            signInWithPopup,
-            onAuthStateChanged,
-            signOut
-        } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js";
 
-        // Your Firebase Configuration
+        // Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
             authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -46,524 +39,605 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        const auth = getAuth(app);
 
-        // Your Railway API URL - CHANGE THIS TO YOUR ACTUAL URL
-        const API_URL = 'https://your-football-api.railway.app'; // ← CHANGE THIS
+        // ============ FOOTBALL DATA EXTRACTOR & API FEEDER ============
 
-        // Football Predictor System
-        class FootballPredictor {
+        class FootballDataExtractor {
             constructor() {
-                this.user = null;
-                this.predictions = [];
-                this.apiData = {
-                    games: [],
-                    leaderboard: [],
-                    stats: {}
+                this.currentData = {
+                    live_matches: [],
+                    last_updated: null,
+                    stats: {
+                        total_matches: 0,
+                        live_matches: 0,
+                        leagues: []
+                    }
                 };
-                this.isLoading = false;
+                this.updateInterval = null;
+                this.isExtracting = false;
+                this.updateCount = 0;
                 
-                // Initialize
-                this.init();
+                // Status elements
+                this.statusElement = null;
+                this.logElement = null;
             }
 
+            // Initialize the extractor
             async init() {
-                // Setup auth listener
-                onAuthStateChanged(auth, (user) => {
-                    this.user = user;
-                    this.updateAuthUI();
-                    if (user) {
-                        this.loadUserPredictions();
+                console.log('🚀 Football Data Extractor Initializing...');
+                
+                // Create status display
+                this.createStatusUI();
+                
+                // Load any existing data first
+                await this.loadExistingData();
+                
+                // Start extraction immediately
+                await this.extractAllData();
+                
+                // Start auto-update (every 2 minutes)
+                this.startAutoUpdate(2);
+                
+                // Also update when page becomes visible
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden) {
+                        this.extractAllData();
                     }
                 });
-
-                // Load initial API data
-                await this.loadAPIData();
-                
-                // Setup auto-refresh (every 2 minutes)
-                setInterval(() => this.loadAPIData(), 120000);
             }
 
-            // Load all data from your API
-            async loadAPIData() {
-                if (this.isLoading) return;
+            // Create status UI
+            createStatusUI() {
+                const statusContainer = document.createElement('div');
+                statusContainer.id = 'extractor-status';
+                statusContainer.style.cssText = `
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    background: #1e293b;
+                    color: white;
+                    padding: 15px;
+                    border-radius: 10px;
+                    border-left: 4px solid #3b82f6;
+                    z-index: 1000;
+                    max-width: 300px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                    font-family: monospace;
+                    font-size: 12px;
+                `;
                 
-                this.isLoading = true;
-                this.showLoader();
+                statusContainer.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <strong>⚽ Data Extractor</strong>
+                        <span id="status-indicator" style="width: 10px; height: 10px; background: #10b981; border-radius: 50%;"></span>
+                    </div>
+                    <div id="status-text">Initializing...</div>
+                    <div style="margin-top: 8px; font-size: 11px; color: #94a3b8;">
+                        Updates: <span id="update-count">0</span> | 
+                        Live: <span id="live-count">0</span>
+                    </div>
+                `;
                 
+                document.body.appendChild(statusContainer);
+                this.statusElement = document.getElementById('status-text');
+                this.logElement = document.getElementById('update-count');
+                
+                // Add logs panel
+                const logsPanel = document.createElement('div');
+                logsPanel.id = 'extractor-logs';
+                logsPanel.style.cssText = `
+                    position: fixed;
+                    bottom: 100px;
+                    right: 20px;
+                    background: #0f172a;
+                    color: #94a3b8;
+                    padding: 10px;
+                    border-radius: 5px;
+                    font-size: 10px;
+                    max-height: 200px;
+                    overflow-y: auto;
+                    width: 300px;
+                    display: none;
+                    border: 1px solid #334155;
+                `;
+                document.body.appendChild(logsPanel);
+            }
+
+            // Update status
+            updateStatus(message, type = 'info') {
+                if (!this.statusElement) return;
+                
+                const colors = {
+                    info: '#3b82f6',
+                    success: '#10b981',
+                    warning: '#f59e0b',
+                    error: '#ef4444'
+                };
+                
+                this.statusElement.innerHTML = message;
+                document.getElementById('status-indicator').style.background = colors[type];
+                
+                // Add to logs
+                const logEntry = `[${new Date().toLocaleTimeString()}] ${message}`;
+                const logsPanel = document.getElementById('extractor-logs');
+                logsPanel.innerHTML = logEntry + '<br>' + logsPanel.innerHTML;
+                
+                console.log(`🔧 ${message}`);
+            }
+
+            // Load existing data from Firebase
+            async loadExistingData() {
                 try {
-                    // Load games from API
-                    const gamesResponse = await fetch(`${API_URL}/api/games`);
-                    const gamesData = await gamesResponse.json();
+                    const apiDataRef = collection(db, 'api_live_data');
+                    const q = query(apiDataRef, orderBy('updated_at', 'desc'), limit(1));
+                    const snapshot = await getDocs(q);
                     
-                    // Load leaderboard from API
-                    const leaderboardResponse = await fetch(`${API_URL}/api/leaderboard`);
-                    const leaderboardData = await leaderboardResponse.json();
-                    
-                    // Load stats from API
-                    const statsResponse = await fetch(`${API_URL}/api/stats`);
-                    const statsData = await statsResponse.json();
-                    
-                    // Update local data
-                    this.apiData.games = gamesData.data || [];
-                    this.apiData.leaderboard = leaderboardData.data || [];
-                    this.apiData.stats = statsData.data || {};
-                    
-                    // Update UI
-                    this.updateGamesUI();
-                    this.updateLeaderboardUI();
-                    this.updateStatsUI();
-                    
-                    console.log('✅ API data loaded successfully');
-                    
-                } catch (error) {
-                    console.error('API load error:', error);
-                    this.showError('⚠️ API temporarily unavailable. Using local data.');
-                    this.loadLocalFallbackData();
-                } finally {
-                    this.isLoading = false;
-                    this.hideLoader();
-                }
-            }
-
-            // Local fallback data
-            loadLocalFallbackData() {
-                this.apiData.games = [
-                    {
-                        id: "local_1",
-                        homeTeam: "Al-Zawraa",
-                        awayTeam: "Al-Quwa Al-Jawiya",
-                        league: "Iraqi Premier League",
-                        date: new Date(Date.now() + 86400000).toISOString(),
-                        status: "upcoming",
-                        venue: "Al-Shaab Stadium, Baghdad"
-                    },
-                    {
-                        id: "local_2",
-                        homeTeam: "Al Shorta",
-                        awayTeam: "Al-Talaba",
-                        league: "Iraqi Premier League",
-                        date: new Date(Date.now() + 172800000).toISOString(),
-                        status: "upcoming",
-                        venue: "Al-Sinaa Stadium"
+                    if (!snapshot.empty) {
+                        const latestDoc = snapshot.docs[0];
+                        this.currentData = latestDoc.data().data || this.currentData;
+                        this.updateStatus(`Loaded ${this.currentData.live_matches?.length || 0} matches from storage`, 'success');
                     }
-                ];
-                
-                this.apiData.leaderboard = [
-                    { rank: 1, userName: "Ahmed (Baghdad)", totalPoints: 42, correctPredictions: 15 },
-                    { rank: 2, userName: "Mohammed (Basra)", totalPoints: 38, correctPredictions: 14 },
-                    { rank: 3, userName: "Ali (Mosul)", totalPoints: 35, correctPredictions: 13 }
-                ];
-                
-                this.updateGamesUI();
-                this.updateLeaderboardUI();
-            }
-
-            // Submit prediction
-            async submitPrediction(gameId, homeScore, awayScore) {
-                if (!this.user) {
-                    this.showError('Please sign in first!');
-                    return false;
-                }
-
-                if (!homeScore || !awayScore || homeScore < 0 || awayScore < 0) {
-                    this.showError('Please enter valid scores (0 or higher)');
-                    return false;
-                }
-
-                try {
-                    const predictionData = {
-                        userId: this.user.uid,
-                        userEmail: this.user.email,
-                        userName: this.user.displayName || 'Anonymous',
-                        gameId: gameId,
-                        homeScore: parseInt(homeScore),
-                        awayScore: parseInt(awayScore),
-                        timestamp: serverTimestamp(),
-                        points: 0,
-                        status: 'pending'
-                    };
-
-                    await addDoc(collection(db, "predictions"), predictionData);
-                    
-                    this.predictions.push(predictionData);
-                    this.updatePredictionsUI();
-                    
-                    this.showSuccess('✅ Prediction submitted successfully!');
-                    return true;
-                    
                 } catch (error) {
-                    console.error('Error submitting prediction:', error);
-                    this.showError('Failed to submit prediction. Please try again.');
-                    return false;
+                    console.warn('No existing data found, starting fresh');
                 }
             }
 
-            // Load user's predictions
-            async loadUserPredictions() {
-                if (!this.user) return;
-                
-                try {
-                    const predictionsRef = collection(db, "predictions");
-                    const q = query(
-                        predictionsRef, 
-                        where("userId", "==", this.user.uid),
-                        orderBy("timestamp", "desc")
-                    );
-                    
-                    onSnapshot(q, (snapshot) => {
-                        this.predictions = snapshot.docs.map(doc => ({
-                            id: doc.id,
-                            ...doc.data()
-                        }));
-                        this.updatePredictionsUI();
-                    });
-                } catch (error) {
-                    console.error('Error loading predictions:', error);
-                }
-            }
-
-            // UI Update Methods
-            updateAuthUI() {
-                const userInfoDiv = document.getElementById('user-info');
-                if (!userInfoDiv) return;
-                
-                if (this.user) {
-                    userInfoDiv.innerHTML = `
-                        <div class="user-card">
-                            <div class="user-avatar">
-                                <i class="fas fa-user-circle"></i>
-                            </div>
-                            <div class="user-details">
-                                <strong>${this.user.displayName || this.user.email}</strong>
-                                <small>${this.predictions.length} predictions</small>
-                            </div>
-                            <button class="btn-signout" onclick="window.predictor.signOut()">
-                                <i class="fas fa-sign-out-alt"></i>
-                            </button>
-                        </div>
-                    `;
-                    
-                    document.getElementById('prediction-section').style.display = 'block';
-                } else {
-                    userInfoDiv.innerHTML = `
-                        <button class="btn-signin" onclick="window.predictor.signIn()">
-                            <i class="fab fa-google"></i> Sign in with Google to Predict
-                        </button>
-                        <p class="signin-note">No payment required • Compete for glory!</p>
-                    `;
-                    document.getElementById('prediction-section').style.display = 'none';
-                }
-            }
-
-            updateGamesUI() {
-                const container = document.getElementById('api-games');
-                if (!container || !this.apiData.games) return;
-                
-                const games = this.apiData.games.slice(0, 5); // Show first 5 games
-                
-                let html = `
-                    <div class="section-header">
-                        <h3><i class="fas fa-futbol"></i> Upcoming Matches</h3>
-                        <span class="badge">${this.apiData.games.length} games</span>
-                    </div>
-                `;
-                
-                if (games.length === 0) {
-                    html += `<p class="no-data">No upcoming matches found</p>`;
-                } else {
-                    games.forEach(game => {
-                        const gameDate = new Date(game.date);
-                        const timeStr = gameDate.toLocaleTimeString('en-IQ', { 
-                            hour: '2-digit', 
-                            minute: '2-digit',
-                            timeZone: 'Asia/Baghdad'
-                        });
-                        const dateStr = gameDate.toLocaleDateString('en-IQ', {
-                            weekday: 'short',
-                            month: 'short',
-                            day: 'numeric'
-                        });
-                        
-                        html += `
-                            <div class="game-card" data-game-id="${game.id}">
-                                <div class="game-header">
-                                    <span class="game-league">${game.league}</span>
-                                    <span class="game-status ${game.status}">${game.status}</span>
-                                </div>
-                                <div class="game-teams">
-                                    <div class="team">
-                                        <div class="team-name">${game.homeTeam}</div>
-                                        <div class="team-city">${game.venue || 'TBD'}</div>
-                                    </div>
-                                    <div class="vs">VS</div>
-                                    <div class="team">
-                                        <div class="team-name">${game.awayTeam}</div>
-                                        <div class="team-city">${game.venue || 'TBD'}</div>
-                                    </div>
-                                </div>
-                                <div class="game-footer">
-                                    <div class="game-time">
-                                        <i class="far fa-clock"></i> ${dateStr} • ${timeStr}
-                                    </div>
-                                    <div class="game-actions">
-                                        <button class="btn-predict" onclick="openPredictionModal('${game.id}', '${game.homeTeam}', '${game.awayTeam}')">
-                                            <i class="fas fa-bullseye"></i> Predict
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    });
-                }
-                
-                container.innerHTML = html;
-            }
-
-            updateLeaderboardUI() {
-                const container = document.getElementById('api-leaderboard');
-                if (!container || !this.apiData.leaderboard) return;
-                
-                const topPlayers = this.apiData.leaderboard.slice(0, 10);
-                
-                let html = `
-                    <div class="section-header">
-                        <h3><i class="fas fa-trophy"></i> Iraqi Top Predictors</h3>
-                        <span class="badge">Live</span>
-                    </div>
-                    <div class="leaderboard-header">
-                        <div>Rank</div>
-                        <div>Player</div>
-                        <div>Points</div>
-                        <div>Accuracy</div>
-                    </div>
-                `;
-                
-                if (topPlayers.length === 0) {
-                    html += `<p class="no-data">No leaderboard data yet</p>`;
-                } else {
-                    topPlayers.forEach(player => {
-                        const accuracy = player.accuracy || 
-                            (player.correctPredictions && player.totalPredictions 
-                                ? `${Math.round((player.correctPredictions / player.totalPredictions) * 100)}%`
-                                : 'N/A');
-                        
-                        html += `
-                            <div class="leaderboard-row ${player.rank <= 3 ? 'top-three' : ''}">
-                                <div class="rank">${player.rank}</div>
-                                <div class="player">
-                                    <div class="player-name">${player.userName || 'Anonymous'}</div>
-                                    <div class="player-city">${player.userCity || 'Iraq'}</div>
-                                </div>
-                                <div class="points">${player.totalPoints || 0}</div>
-                                <div class="accuracy">${accuracy}</div>
-                            </div>
-                        `;
-                    });
-                }
-                
-                container.innerHTML = html;
-            }
-
-            updateStatsUI() {
-                const container = document.getElementById('api-stats');
-                if (!container || !this.apiData.stats) return;
-                
-                const stats = this.apiData.stats;
-                
-                html = `
-                    <div class="section-header">
-                        <h3><i class="fas fa-chart-bar"></i> Platform Statistics</h3>
-                    </div>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-users"></i></div>
-                            <div class="stat-value">${stats.activeUsers || stats.totalUsers || '0'}</div>
-                            <div class="stat-label">Active Users</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-futbol"></i></div>
-                            <div class="stat-value">${stats.totalPredictions || '0'}</div>
-                            <div class="stat-label">Predictions</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-gamepad"></i></div>
-                            <div class="stat-value">${stats.totalGames || '0'}</div>
-                            <div class="stat-label">Games</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-percentage"></i></div>
-                            <div class="stat-value">${stats.avgPredictionsPerUser || '0.0'}</div>
-                            <div class="stat-label">Avg per User</div>
-                        </div>
-                    </div>
-                `;
-                
-                container.innerHTML = html;
-            }
-
-            updatePredictionsUI() {
-                const container = document.getElementById('my-predictions');
-                if (!container) return;
-                
-                if (this.predictions.length === 0) {
-                    container.innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-bullseye"></i>
-                            <p>No predictions yet</p>
-                            <small>Predict your first match!</small>
-                        </div>
-                    `;
+            // Main data extraction function
+            async extractAllData() {
+                if (this.isExtracting) {
+                    console.log('⏳ Extraction already in progress...');
                     return;
                 }
                 
-                const recentPredictions = this.predictions.slice(0, 3);
+                this.isExtracting = true;
+                this.updateStatus('🔄 Extracting live data...', 'info');
                 
-                let html = `
-                    <div class="section-header">
-                        <h3><i class="fas fa-history"></i> Your Recent Predictions</h3>
-                    </div>
-                `;
-                
-                recentPredictions.forEach(pred => {
-                    html += `
-                        <div class="prediction-item">
-                            <div class="prediction-score">
-                                <span class="score">${pred.homeScore} - ${pred.awayScore}</span>
-                                <span class="prediction-status ${pred.status}">${pred.status}</span>
-                            </div>
-                            <div class="prediction-meta">
-                                <small>Game ${pred.gameId}</small>
-                                <small>${pred.points || 0} points</small>
-                            </div>
-                        </div>
-                    `;
-                });
-                
-                if (this.predictions.length > 3) {
-                    html += `<div class="view-more">+ ${this.predictions.length - 3} more predictions</div>`;
-                }
-                
-                container.innerHTML = html;
-            }
-
-            // Auth methods
-            async signIn() {
                 try {
-                    const provider = new GoogleAuthProvider();
-                    await signInWithPopup(auth, provider);
-                    this.showSuccess('Welcome! You can now make predictions.');
-                } catch (error) {
-                    console.error('Sign in error:', error);
-                    this.showError('Sign in failed. Please try again.');
-                }
-            }
-
-            async signOut() {
-                try {
-                    await signOut(auth);
-                    this.predictions = [];
-                    this.showSuccess('Signed out successfully');
-                } catch (error) {
-                    console.error('Sign out error:', error);
-                }
-            }
-
-            // UI Helper methods
-            showLoader() {
-                const loader = document.getElementById('loader');
-                if (loader) loader.style.display = 'flex';
-            }
-
-            hideLoader() {
-                const loader = document.getElementById('loader');
-                if (loader) loader.style.display = 'none';
-            }
-
-            showSuccess(message) {
-                this.showNotification(message, 'success');
-            }
-
-            showError(message) {
-                this.showNotification(message, 'error');
-            }
-
-            showNotification(message, type = 'info') {
-                // Create notification element
-                const notification = document.createElement('div');
-                notification.className = `notification ${type}`;
-                notification.innerHTML = `
-                    <div class="notification-content">
-                        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
-                        <span>${message}</span>
-                    </div>
-                    <button class="notification-close" onclick="this.parentElement.remove()">
-                        <i class="fas fa-times"></i>
-                    </button>
-                `;
-                
-                // Add to notifications container
-                const container = document.getElementById('notifications');
-                if (container) {
-                    container.appendChild(notification);
+                    // Extract from multiple sources
+                    const [scorebatData, staticData] = await Promise.allSettled([
+                        this.extractFromScoreBat(),
+                        this.loadStaticFixtures()
+                    ]);
                     
-                    // Auto-remove after 5 seconds
-                    setTimeout(() => {
-                        if (notification.parentElement) {
-                            notification.remove();
+                    // Process and merge data
+                    const extractedMatches = [];
+                    
+                    // Add ScoreBat data
+                    if (scorebatData.status === 'fulfilled' && scorebatData.value) {
+                        extractedMatches.push(...scorebatData.value);
+                    }
+                    
+                    // Add static data for upcoming matches
+                    if (staticData.status === 'fulfilled' && staticData.value) {
+                        extractedMatches.push(...staticData.value);
+                    }
+                    
+                    // Remove duplicates
+                    const uniqueMatches = this.removeDuplicates(extractedMatches);
+                    
+                    // Update current data
+                    this.currentData = {
+                        live_matches: uniqueMatches,
+                        last_updated: new Date().toISOString(),
+                        stats: {
+                            total_matches: uniqueMatches.length,
+                            live_matches: uniqueMatches.filter(m => m.status === 'LIVE').length,
+                            leagues: [...new Set(uniqueMatches.map(m => m.league))].filter(Boolean)
                         }
-                    }, 5000);
+                    };
+                    
+                    // Save to Firebase
+                    await this.saveToFirebase();
+                    
+                    // Update counters
+                    this.updateCount++;
+                    document.getElementById('update-count').textContent = this.updateCount;
+                    document.getElementById('live-count').textContent = this.currentData.stats.live_matches;
+                    
+                    this.updateStatus(
+                        `✅ Extracted ${uniqueMatches.length} matches (${this.currentData.stats.live_matches} live)`, 
+                        'success'
+                    );
+                    
+                } catch (error) {
+                    console.error('Extraction failed:', error);
+                    this.updateStatus(`❌ Extraction failed: ${error.message}`, 'error');
+                } finally {
+                    this.isExtracting = false;
                 }
+            }
+
+            // Extract from ScoreBat
+            async extractFromScoreBat() {
+                try {
+                    this.updateStatus('📡 Connecting to ScoreBat...', 'info');
+                    
+                    // Try multiple endpoints
+                    const endpoints = [
+                        { 
+                            url: 'https://www.scorebat.com/api/feed/livescore/', 
+                            type: 'api' 
+                        },
+                        { 
+                            url: 'https://www.scorebat.com/embed/livescore/', 
+                            type: 'widget' 
+                        }
+                    ];
+                    
+                    for (const endpoint of endpoints) {
+                        try {
+                            const response = await fetch(endpoint.url, {
+                                headers: {
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                                    'Accept': endpoint.type === 'api' ? 'application/json' : 'text/html'
+                                },
+                                timeout: 10000
+                            });
+                            
+                            if (response.ok) {
+                                const data = endpoint.type === 'api' 
+                                    ? await response.json()
+                                    : await response.text();
+                                
+                                const matches = endpoint.type === 'api'
+                                    ? this.parseScoreBatAPI(data)
+                                    : this.parseScoreBatWidget(data);
+                                
+                                if (matches.length > 0) {
+                                    this.updateStatus(`📊 ScoreBat: ${matches.length} matches`, 'success');
+                                    return matches;
+                                }
+                            }
+                        } catch (e) {
+                            continue; // Try next endpoint
+                        }
+                    }
+                    
+                    throw new Error('All ScoreBat endpoints failed');
+                    
+                } catch (error) {
+                    console.warn('ScoreBat extraction failed:', error);
+                    return this.getFallbackLiveData();
+                }
+            }
+
+            // Parse ScoreBat API response
+            parseScoreBatAPI(data) {
+                const matches = [];
+                
+                if (data && Array.isArray(data)) {
+                    data.forEach(item => {
+                        if (item.title && item.title.includes(' - ')) {
+                            const [homeTeam, awayTeam] = item.title.split(' - ');
+                            const score = item.score || '0-0';
+                            const minute = item.time || '0';
+                            
+                            matches.push({
+                                id: `sb_${Date.now()}_${matches.length}`,
+                                home_team: homeTeam.trim(),
+                                away_team: awayTeam.trim(),
+                                score: score,
+                                minute: minute,
+                                league: item.competition || 'Unknown',
+                                status: minute !== '0' ? 'LIVE' : 'UPCOMING',
+                                source: 'scorebat',
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                    });
+                }
+                
+                return matches;
+            }
+
+            // Parse ScoreBat widget HTML
+            parseScoreBatWidget(html) {
+                const matches = [];
+                
+                // Simple regex parsing (ScoreBat widget has predictable structure)
+                const matchRegex = /<div class="gamestrip"[^>]*>([\s\S]*?)<\/div>/g;
+                const teamRegex = /<div class="teams"[^>]*>([^<]+)<\/div>/;
+                const scoreRegex = /<div class="score"[^>]*>([^<]+)<\/div>/;
+                const timeRegex = /<div class="time"[^>]*>([^<]+)<\/div>/;
+                
+                let match;
+                while ((match = matchRegex.exec(html)) !== null) {
+                    const content = match[1];
+                    
+                    const teamsMatch = content.match(teamRegex);
+                    const scoreMatch = content.match(scoreRegex);
+                    const timeMatch = content.match(timeRegex);
+                    
+                    if (teamsMatch && teamsMatch[1].includes(' - ')) {
+                        const [homeTeam, awayTeam] = teamsMatch[1].split(' - ');
+                        const score = scoreMatch ? scoreMatch[1].trim() : '0-0';
+                        const minute = timeMatch ? timeMatch[1].trim() : '0';
+                        
+                        matches.push({
+                            id: `sb_widget_${Date.now()}_${matches.length}`,
+                            home_team: homeTeam.trim(),
+                            away_team: awayTeam.trim(),
+                            score: score,
+                            minute: minute,
+                            league: 'Unknown', // Widget doesn't show league
+                            status: minute !== '0' ? 'LIVE' : 'UPCOMING',
+                            source: 'scorebat_widget',
+                            timestamp: new Date().toISOString()
+                        });
+                    }
+                }
+                
+                return matches;
+            }
+
+            // Load static fixtures (fallback/upcoming matches)
+            async loadStaticFixtures() {
+                try {
+                    // Use openfootball data as fallback
+                    const response = await fetch('https://raw.githubusercontent.com/openfootball/football.json/master/2023-24/en.1.json');
+                    const data = await response.json();
+                    
+                    const fixtures = [];
+                    data.forEach(match => {
+                        if (!match.score || !match.score.ft) { // Only upcoming matches
+                            fixtures.push({
+                                id: `static_${match.date}_${fixtures.length}`,
+                                home_team: match.team1,
+                                away_team: match.team2,
+                                score: '0-0',
+                                minute: '0',
+                                league: 'Premier League',
+                                status: 'UPCOMING',
+                                date: match.date,
+                                source: 'openfootball',
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                    });
+                    
+                    return fixtures.slice(0, 10); // Limit to 10 fixtures
+                } catch (error) {
+                    console.warn('Static fixtures load failed:', error);
+                    return [];
+                }
+            }
+
+            // Fallback live data
+            getFallbackLiveData() {
+                return [
+                    {
+                        id: "fallback_1",
+                        home_team: "Manchester United",
+                        away_team: "Liverpool",
+                        score: "2-1",
+                        minute: "67",
+                        league: "Premier League",
+                        status: "LIVE",
+                        source: "fallback",
+                        timestamp: new Date().toISOString()
+                    },
+                    {
+                        id: "fallback_2",
+                        home_team: "Barcelona",
+                        away_team: "Real Madrid",
+                        score: "1-1",
+                        minute: "45",
+                        league: "La Liga",
+                        status: "LIVE",
+                        source: "fallback",
+                        timestamp: new Date().toISOString()
+                    }
+                ];
+            }
+
+            // Remove duplicate matches
+            removeDuplicates(matches) {
+                const seen = new Set();
+                return matches.filter(match => {
+                    const key = `${match.home_team}_${match.away_team}_${match.league}`;
+                    if (seen.has(key)) {
+                        return false;
+                    }
+                    seen.add(key);
+                    return true;
+                });
+            }
+
+            // Save data to Firebase
+            async saveToFirebase() {
+                try {
+                    // Use a fixed document ID for easier querying
+                    const docRef = doc(db, 'api_live_data', 'current');
+                    
+                    await setDoc(docRef, {
+                        data: this.currentData,
+                        updated_at: serverTimestamp(),
+                        extraction_count: this.updateCount,
+                        source: 'fot.html_extractor'
+                    }, { merge: true });
+                    
+                    console.log('💾 Data saved to Firebase');
+                    return true;
+                } catch (error) {
+                    console.error('Firebase save error:', error);
+                    this.updateStatus('⚠️ Firebase save failed', 'warning');
+                    return false;
+                }
+            }
+
+            // Start auto-update
+            startAutoUpdate(intervalMinutes = 2) {
+                // Clear existing interval
+                if (this.updateInterval) {
+                    clearInterval(this.updateInterval);
+                }
+                
+                // Set new interval
+                this.updateInterval = setInterval(() => {
+                    this.extractAllData();
+                }, intervalMinutes * 60 * 1000);
+                
+                this.updateStatus(`🔄 Auto-update: every ${intervalMinutes} minutes`, 'info');
+                
+                // Return interval ID for potential cleanup
+                return this.updateInterval;
+            }
+
+            // Stop auto-update
+            stopAutoUpdate() {
+                if (this.updateInterval) {
+                    clearInterval(this.updateInterval);
+                    this.updateInterval = null;
+                    this.updateStatus('⏸️ Auto-update stopped', 'warning');
+                }
+            }
+
+            // Get current data
+            getCurrentData() {
+                return this.currentData;
+            }
+
+            // Force immediate update
+            async forceUpdate() {
+                this.updateStatus('🔄 Manual update triggered...', 'info');
+                await this.extractAllData();
             }
         }
 
-        // Initialize and expose to window
-        window.predictor = new FootballPredictor();
-        
-        // Global functions for button clicks
-        window.openPredictionModal = function(gameId, homeTeam, awayTeam) {
-            if (!window.predictor.user) {
-                window.predictor.showError('Please sign in first!');
-                return;
-            }
-            
-            document.getElementById('modal-game-id').value = gameId;
-            document.getElementById('modal-home-team').textContent = homeTeam;
-            document.getElementById('modal-away-team').textContent = awayTeam;
-            document.getElementById('prediction-modal').style.display = 'flex';
-            
-            // Reset inputs
-            document.getElementById('modal-home-score').value = '';
-            document.getElementById('modal-away-score').value = '';
-        };
-        
-        window.submitPredictionModal = async function() {
-            const gameId = document.getElementById('modal-game-id').value;
-            const homeScore = document.getElementById('modal-home-score').value;
-            const awayScore = document.getElementById('modal-away-score').value;
-            
-            const success = await window.predictor.submitPrediction(gameId, homeScore, awayScore);
-            
-            if (success) {
-                document.getElementById('prediction-modal').style.display = 'none';
-            }
-        };
-        
-        window.closeModal = function() {
-            document.getElementById('prediction-modal').style.display = 'none';
-        };
-        
-        // Close modal when clicking outside
-        document.addEventListener('click', function(event) {
-            const modal = document.getElementById('prediction-modal');
-            if (event.target === modal) {
-                modal.style.display = 'none';
-            }
-        });
-    </script>
+        // ============ PAGE INITIALIZATION ============
 
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('🚀 Page loaded, starting Football Data Extractor...');
+            
+            // Initialize extractor
+            window.footballExtractor = new FootballDataExtractor();
+            
+            // Add controls to page
+            addControlsToPage();
+            
+            // Start extractor after short delay
+            setTimeout(() => {
+                window.footballExtractor.init();
+            }, 2000);
+            
+            // Show help info
+            showHelpInfo();
+        });
+
+        // Add control buttons to page
+        function addControlsToPage() {
+            const controls = document.createElement('div');
+            controls.id = 'extractor-controls';
+            controls.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #1e293b;
+                padding: 15px;
+                border-radius: 10px;
+                z-index: 999;
+                border: 2px solid #3b82f6;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            `;
+            
+            controls.innerHTML = `
+                <div style="color: white; margin-bottom: 10px; font-weight: bold; display: flex; align-items: center; gap: 8px;">
+                    <span>⚽</span> Data Extractor Controls
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button onclick="window.footballExtractor.forceUpdate()" style="
+                        background: #3b82f6;
+                        color: white;
+                        border: none;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 12px;
+                    ">🔄 Update Now</button>
+                    
+                    <button onclick="toggleLogs()" style="
+                        background: #6b7280;
+                        color: white;
+                        border: none;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 12px;
+                    ">📋 Toggle Logs</button>
+                    
+                    <button onclick="checkAPI()" style="
+                        background: #10b981;
+                        color: white;
+                        border: none;
+                        padding: 8px 12px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 12px;
+                    ">🔗 Test API</button>
+                </div>
+            `;
+            
+            document.body.appendChild(controls);
+        }
+
+        // Show help information
+        function showHelpInfo() {
+            const info = document.createElement('div');
+            info.style.cssText = `
+                position: fixed;
+                top: 100px;
+                right: 20px;
+                background: #0f172a;
+                color: #94a3b8;
+                padding: 15px;
+                border-radius: 8px;
+                max-width: 300px;
+                font-size: 12px;
+                border: 1px solid #334155;
+                display: none;
+            `;
+            info.id = 'help-info';
+            
+            info.innerHTML = `
+                <strong>📖 How This Works:</strong>
+                <div style="margin-top: 10px;">
+                    1. <strong>Data Extraction:</strong> Fetches live scores every 2 minutes<br>
+                    2. <strong>Storage:</strong> Saves to Firebase in 'api_live_data' collection<br>
+                    3. <strong>API Access:</strong> Your api.html reads from Firebase<br>
+                    4. <strong>Zero Cost:</strong> Runs on GitHub Pages + Firebase free tier
+                </div>
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #334155;">
+                    <strong>📊 Current Status:</strong><br>
+                    • Updates: <span id="help-update-count">0</span><br>
+                    • Last Update: <span id="help-last-update">Never</span><br>
+                    • Firebase: <span id="help-firebase-status">Checking...</span>
+                </div>
+            `;
+            
+            document.body.appendChild(info);
+        }
+
+        // Toggle logs panel
+        function toggleLogs() {
+            const logsPanel = document.getElementById('extractor-logs');
+            logsPanel.style.display = logsPanel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Test API connection
+        async function checkAPI() {
+            try {
+                const response = await fetch('api.html?endpoint=live');
+                const data = await response.json();
+                alert(`✅ API Working!\nMatches: ${data.data?.live_matches?.length || 0}\nStatus: ${data.data?.last_updated || 'Unknown'}`);
+            } catch (error) {
+                alert(`❌ API Error: ${error.message}`);
+            }
+        }
+
+    </script>
+    
     <style>
-        /* ====== BASE STYLES ====== */
+        /* Base styles */
         * {
             margin: 0;
             padding: 0;
@@ -575,35 +649,22 @@
             background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
             color: #f8fafc;
             min-height: 100vh;
-            line-height: 1.6;
+            padding: 20px;
         }
 
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 20px;
         }
 
-        /* ====== HEADER ====== */
+        /* Header */
         header {
-            background: linear-gradient(90deg, #020617 0%, #0f172a 100%);
-            padding: 20px;
             text-align: center;
-            border-bottom: 3px solid #3b82f6;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            margin-bottom: 30px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        header::before {
-            content: '⚽';
-            position: absolute;
-            font-size: 120px;
-            opacity: 0.05;
-            right: 50px;
-            top: 50%;
-            transform: translateY(-50%);
+            padding: 40px 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            margin-bottom: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .logo {
@@ -611,12 +672,11 @@
             align-items: center;
             justify-content: center;
             gap: 15px;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
         }
 
         .logo-icon {
-            font-size: 32px;
-            color: #3b82f6;
+            font-size: 48px;
             animation: bounce 2s infinite;
         }
 
@@ -626,891 +686,392 @@
         }
 
         .logo-text {
-            font-size: 28px;
+            font-size: 36px;
             font-weight: 800;
             background: linear-gradient(90deg, #3b82f6, #8b5cf6);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            text-shadow: 0 2px 10px rgba(59, 130, 246, 0.3);
         }
 
         .tagline {
             color: #94a3b8;
-            font-size: 14px;
-            margin-top: 5px;
-        }
-
-        /* ====== NOTIFICATIONS ====== */
-        #notifications {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1000;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            max-width: 350px;
-        }
-
-        .notification {
-            background: #1e293b;
-            border-radius: 10px;
-            padding: 15px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            animation: slideIn 0.3s ease-out;
-            border-left: 4px solid;
-        }
-
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-
-        .notification.success {
-            border-left-color: #10b981;
-        }
-
-        .notification.error {
-            border-left-color: #ef4444;
-        }
-
-        .notification-content {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .notification-close {
-            background: none;
-            border: none;
-            color: #94a3b8;
-            cursor: pointer;
-            padding: 5px;
-            border-radius: 4px;
-            transition: background 0.2s;
-        }
-
-        .notification-close:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        /* ====== LOADER ====== */
-        #loader {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(15, 23, 42, 0.95);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-        }
-
-        .loader-content {
-            text-align: center;
-        }
-
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid #334155;
-            border-top: 4px solid #3b82f6;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        /* ====== WIDGET STYLES ====== */
-        .widget {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            overflow: hidden;
-            margin-bottom: 25px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .widget:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
-        }
-
-        .widget h2 {
-            margin: 0;
-            padding: 20px;
             font-size: 18px;
-            background: linear-gradient(90deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9));
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .widget-content {
-            padding: 20px;
-        }
-
-        /* ====== AUTH SECTION ====== */
-        #user-info {
-            margin-bottom: 20px;
-        }
-
-        .user-card {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            padding: 15px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            border: 1px solid rgba(59, 130, 246, 0.3);
-        }
-
-        .user-avatar {
-            font-size: 40px;
-            color: #3b82f6;
-        }
-
-        .user-details {
-            flex: 1;
-        }
-
-        .user-details small {
-            color: #94a3b8;
-            font-size: 12px;
-        }
-
-        .btn-signout {
-            background: rgba(239, 68, 68, 0.2);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #ef4444;
-            padding: 8px 15px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-signout:hover {
-            background: rgba(239, 68, 68, 0.3);
-        }
-
-        .btn-signin {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
-            color: white;
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .btn-signin:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
-        }
-
-        .signin-note {
-            text-align: center;
-            color: #94a3b8;
-            font-size: 13px;
             margin-top: 10px;
         }
 
-        /* ====== GAMES SECTION ====== */
-        .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
+        /* Main Content */
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
         }
 
-        .section-header h3 {
+        .card {
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 16px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .card h2 {
+            color: #3b82f6;
+            margin-bottom: 20px;
             display: flex;
             align-items: center;
             gap: 10px;
-            font-size: 18px;
         }
 
-        .badge {
-            background: #3b82f6;
-            color: white;
+        /* Data Display */
+        .match-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .match-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .match-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .match-teams {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .match-score {
+            font-size: 24px;
+            font-weight: 800;
+            color: #fbbf24;
+            margin: 10px 0;
+        }
+
+        .match-status {
+            display: inline-block;
             padding: 4px 12px;
             border-radius: 20px;
             font-size: 12px;
-            font-weight: 600;
+            font-weight: bold;
         }
 
-        .game-card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: all 0.3s ease;
-        }
-
-        .game-card:hover {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: rgba(59, 130, 246, 0.3);
-        }
-
-        .game-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 15px;
-        }
-
-        .game-league {
-            color: #60a5fa;
-            font-size: 14px;
-            font-weight: 600;
-        }
-
-        .game-status {
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .game-status.upcoming {
-            background: rgba(59, 130, 246, 0.2);
-            color: #60a5fa;
-        }
-
-        .game-status.live {
+        .status-live {
             background: rgba(34, 197, 94, 0.2);
             color: #4ade80;
             animation: pulse 2s infinite;
         }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
+        .status-upcoming {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
         }
 
-        .game-teams {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin: 20px 0;
-        }
-
-        .team {
-            text-align: center;
-            flex: 1;
-        }
-
-        .team-name {
-            font-size: 18px;
-            font-weight: 700;
-            margin-bottom: 5px;
-        }
-
-        .team-city {
-            color: #94a3b8;
-            font-size: 13px;
-        }
-
-        .vs {
-            margin: 0 20px;
-            color: #cbd5e1;
-            font-weight: 700;
-            font-size: 14px;
-        }
-
-        .game-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .game-time {
-            color: #94a3b8;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .btn-predict {
-            background: linear-gradient(90deg, #10b981, #059669);
-            color: white;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.2s;
-        }
-
-        .btn-predict:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(16, 185, 129, 0.3);
-        }
-
-        /* ====== LEADERBOARD ====== */
-        .leaderboard-header {
-            display: grid;
-            grid-template-columns: 50px 1fr 80px 80px;
-            gap: 15px;
-            padding: 12px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            font-weight: 600;
-            color: #94a3b8;
-            font-size: 14px;
-            margin-bottom: 10px;
-        }
-
-        .leaderboard-row {
-            display: grid;
-            grid-template-columns: 50px 1fr 80px 80px;
-            gap: 15px;
-            padding: 15px 20px;
-            align-items: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            transition: background 0.2s;
-        }
-
-        .leaderboard-row:hover {
-            background: rgba(255, 255, 255, 0.03);
-        }
-
-        .leaderboard-row.top-three {
-            background: linear-gradient(90deg, rgba(251, 191, 36, 0.1), rgba(245, 158, 11, 0.05));
-        }
-
-        .rank {
-            font-weight: 700;
-            font-size: 18px;
-            text-align: center;
-        }
-
-        .player-name {
-            font-weight: 600;
-        }
-
-        .player-city {
-            color: #94a3b8;
-            font-size: 12px;
-        }
-
-        .points {
-            font-weight: 700;
-            text-align: center;
-        }
-
-        .accuracy {
-            text-align: center;
-            font-weight: 600;
-        }
-
-        /* ====== STATS GRID ====== */
+        /* Stats */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
             gap: 15px;
-            margin-top: 15px;
+            margin-top: 20px;
         }
 
-        .stat-card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 20px;
+        .stat-item {
             text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: transform 0.2s;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            border-color: rgba(59, 130, 246, 0.3);
-        }
-
-        .stat-icon {
-            font-size: 32px;
-            color: #3b82f6;
-            margin-bottom: 10px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
         }
 
         .stat-value {
             font-size: 28px;
             font-weight: 800;
-            margin: 10px 0;
-            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: #3b82f6;
+            margin-bottom: 5px;
         }
 
         .stat-label {
             color: #94a3b8;
-            font-size: 14px;
+            font-size: 12px;
         }
 
-        /* ====== PREDICTION MODAL ====== */
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.8);
-            align-items: center;
-            justify-content: center;
-            z-index: 1001;
-            padding: 20px;
-        }
-
-        .modal-content {
-            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-            border-radius: 20px;
-            width: 100%;
-            max-width: 500px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-            overflow: hidden;
-            animation: modalSlideIn 0.3s ease-out;
-        }
-
-        @keyframes modalSlideIn {
-            from { transform: translateY(50px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-
-        .modal-header {
-            padding: 25px;
-            text-align: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .modal-header h3 {
-            font-size: 22px;
-            margin-bottom: 10px;
-        }
-
-        .modal-teams {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 20px;
-            margin: 20px 0;
-            font-size: 24px;
-            font-weight: 700;
-        }
-
-        .modal-inputs {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 20px;
-            margin: 30px 0;
-        }
-
-        .modal-inputs input {
-            width: 80px;
-            height: 80px;
-            font-size: 32px;
-            text-align: center;
-            background: rgba(255, 255, 255, 0.05);
-            border: 2px solid rgba(59, 130, 246, 0.3);
+        /* Instructions */
+        .instructions {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
             border-radius: 12px;
-            color: white;
-            font-weight: 700;
-        }
-
-        .modal-inputs input:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
-        }
-
-        .vs-large {
-            font-size: 24px;
-            font-weight: 700;
-            color: #94a3b8;
-        }
-
-        .modal-footer {
             padding: 25px;
-            display: flex;
-            gap: 15px;
-        }
-
-        .btn-modal {
-            flex: 1;
-            padding: 15px;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: none;
-        }
-
-        .btn-submit {
-            background: linear-gradient(90deg, #10b981, #059669);
-            color: white;
-        }
-
-        .btn-submit:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4);
-        }
-
-        .btn-cancel {
-            background: rgba(255, 255, 255, 0.1);
-            color: #94a3b8;
-        }
-
-        .btn-cancel:hover {
-            background: rgba(255, 255, 255, 0.15);
-        }
-
-        /* ====== PREDICTIONS LIST ====== */
-        .prediction-item {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .prediction-score {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .prediction-score .score {
-            font-size: 24px;
-            font-weight: 700;
-        }
-
-        .prediction-meta {
-            display: flex;
-            justify-content: space-between;
-            color: #94a3b8;
-            font-size: 13px;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 40px 20px;
-            color: #94a3b8;
-        }
-
-        .empty-state i {
-            font-size: 48px;
-            margin-bottom: 15px;
-            opacity: 0.5;
-        }
-
-        .view-more {
-            text-align: center;
-            padding: 15px;
-            color: #3b82f6;
-            font-weight: 600;
-            cursor: pointer;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            margin-top: 10px;
-        }
-
-        .view-more:hover {
-            color: #60a5fa;
-        }
-
-        /* ====== GRID LAYOUT ====== */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 25px;
-            margin-bottom: 25px;
-        }
-
-        /* ====== FOOTER ====== */
-        footer {
-            text-align: center;
-            padding: 30px 20px;
-            color: #94a3b8;
-            font-size: 14px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
             margin-top: 40px;
         }
 
-        .disclaimer {
-            background: rgba(220, 38, 38, 0.1);
-            border: 1px solid rgba(220, 38, 38, 0.3);
-            border-radius: 10px;
-            padding: 15px;
-            margin: 20px auto;
-            max-width: 800px;
-            font-size: 13px;
+        .instructions h3 {
+            color: #60a5fa;
+            margin-bottom: 15px;
         }
 
-        .disclaimer strong {
-            color: #fca5a5;
+        .instructions ul {
+            padding-left: 20px;
+            margin-bottom: 20px;
         }
 
-        .api-status {
-            display: inline-block;
-            padding: 4px 12px;
-            background: rgba(34, 197, 94, 0.2);
-            color: #4ade80;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-left: 10px;
-            animation: pulse 2s infinite;
+        .instructions li {
+            margin-bottom: 8px;
+            color: #cbd5e1;
         }
 
-        /* ====== RESPONSIVE DESIGN ====== */
+        /* API Info */
+        .api-endpoints {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .endpoint {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px;
+            border-radius: 8px;
+            margin: 8px 0;
+            font-family: monospace;
+            font-size: 14px;
+            word-break: break-all;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 30px;
+            color: #94a3b8;
+            margin-top: 50px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Responsive */
         @media (max-width: 768px) {
-            .container {
-                padding: 15px;
+            .logo-text { font-size: 28px; }
+            .dashboard { grid-template-columns: 1fr; }
+            #extractor-status { 
+                bottom: 10px;
+                right: 10px;
+                left: 10px;
+                max-width: none;
             }
-            
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .game-teams {
-                flex-direction: column;
-                gap: 15px;
-            }
-            
-            .vs {
-                margin: 10px 0;
-            }
-            
-            .modal-inputs input {
-                width: 60px;
-                height: 60px;
-                font-size: 24px;
-            }
-            
-            .leaderboard-header,
-            .leaderboard-row {
-                grid-template-columns: 40px 1fr 60px 60px;
-                gap: 10px;
-                padding: 10px 15px;
-            }
-            
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        @media (max-width: 480px) {
-            .logo-text {
-                font-size: 22px;
-            }
-            
-            .widget h2 {
-                padding: 15px;
-                font-size: 16px;
-            }
-            
-            .widget-content {
-                padding: 15px;
-            }
-            
-            .modal-footer {
-                flex-direction: column;
-            }
-            
-            .stats-grid {
-                grid-template-columns: 1fr;
+            #extractor-controls {
+                top: 10px;
+                right: 10px;
+                left: 10px;
             }
         }
     </style>
 </head>
-
 <body>
-
-    <!-- Loader -->
-    <div id="loader">
-        <div class="loader-content">
-            <div class="spinner"></div>
-            <p>Loading football data...</p>
-        </div>
-    </div>
-
-    <!-- Notifications Container -->
-    <div id="notifications"></div>
-
-    <!-- Prediction Modal -->
-    <div id="prediction-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3><i class="fas fa-bullseye"></i> Make Your Prediction</h3>
-                <p>Predict the final score of the match</p>
-                
-                <div class="modal-teams">
-                    <span id="modal-home-team">Team A</span>
-                    <span class="vs-large">VS</span>
-                    <span id="modal-away-team">Team B</span>
-                </div>
-            </div>
-            
-            <div class="modal-inputs">
-                <input type="number" id="modal-home-score" min="0" max="10" placeholder="0" required>
-                <span class="vs-large">-</span>
-                <input type="number" id="modal-away-score" min="0" max="10" placeholder="0" required>
-            </div>
-            
-            <input type="hidden" id="modal-game-id" value="">
-            
-            <div class="modal-footer">
-                <button class="btn-modal btn-cancel" onclick="closeModal()">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-                <button class="btn-modal btn-submit" onclick="submitPredictionModal()">
-                    <i class="fas fa-paper-plane"></i> Submit Prediction
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Header -->
-    <header>
-        <div class="logo">
-            <div class="logo-icon">⚽</div>
-            <div class="logo-text">IRAQ FOOTBALL HUB</div>
-        </div>
-        <p class="tagline">Live Scores • Match Predictions • Iraqi League Focus</p>
-        <div class="api-status">API Connected</div>
-    </header>
-
-    <!-- Main Container -->
     <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="logo">
+                <div class="logo-icon">⚽</div>
+                <div class="logo-text">FOOTBALL DATA HUB</div>
+            </div>
+            <p class="tagline">Live Scores Extractor & API Backend</p>
+        </header>
 
-        <!-- Dashboard Grid -->
-        <div class="dashboard-grid">
-            
-            <!-- User & Predictions Widget -->
-            <div class="widget">
-                <h2><i class="fas fa-user"></i> Your Predictions</h2>
-                <div class="widget-content">
-                    <div id="user-info">
-                        <!-- Auth UI goes here -->
-                    </div>
-                    
-                    <div id="prediction-section" style="display: none;">
-                        <div id="my-predictions">
-                            <!-- User's predictions will appear here -->
+        <!-- Main Dashboard -->
+        <div class="dashboard">
+            <!-- Live Matches Card -->
+            <div class="card">
+                <h2><i class="fas fa-futbol"></i> Live Matches</h2>
+                <div id="live-matches" class="match-list">
+                    <div class="match-item">
+                        <div class="match-header">
+                            <span class="match-league">Loading...</span>
+                            <span class="match-status status-live">LIVE</span>
                         </div>
+                        <div class="match-teams">Waiting for data...</div>
+                        <div class="match-score">0-0</div>
+                        <div class="match-minute">00'</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Upcoming Games Widget -->
-            <div class="widget">
-                <h2><i class="fas fa-calendar-alt"></i> Upcoming Matches</h2>
-                <div class="widget-content">
-                    <div id="api-games">
-                        <!-- Games from API will appear here -->
+            <!-- Stats Card -->
+            <div class="card">
+                <h2><i class="fas fa-chart-bar"></i> Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-total">0</div>
+                        <div class="stat-label">Total Matches</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-live">0</div>
+                        <div class="stat-label">Live Now</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-leagues">0</div>
+                        <div class="stat-label">Leagues</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-updates">0</div>
+                        <div class="stat-label">Updates</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Leaderboard Widget -->
-            <div class="widget">
-                <h2><i class="fas fa-trophy"></i> Top Predictors</h2>
-                <div class="widget-content">
-                    <div id="api-leaderboard">
-                        <!-- Leaderboard from API will appear here -->
+            <!-- System Info Card -->
+            <div class="card">
+                <h2><i class="fas fa-info-circle"></i> System Status</h2>
+                <div id="system-status">
+                    <div style="margin-bottom: 15px;">
+                        <strong>Extractor:</strong> 
+                        <span id="extractor-state" style="color: #f59e0b;">Initializing...</span>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <strong>Last Update:</strong> 
+                        <span id="last-update-time">Never</span>
+                    </div>
+                    <div>
+                        <strong>Next Update:</strong> 
+                        <span id="next-update-time">2 minutes</span>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Statistics Widget -->
-            <div class="widget">
-                <h2><i class="fas fa-chart-line"></i> Platform Stats</h2>
-                <div class="widget-content">
-                    <div id="api-stats">
-                        <!-- Stats from API will appear here -->
-                    </div>
-                </div>
+        <!-- Instructions -->
+        <div class="card instructions">
+            <h3><i class="fas fa-book"></i> How This Works</h3>
+            <ul>
+                <li>This page automatically extracts live football scores every 2 minutes</li>
+                <li>Data is saved to Firebase in real-time</li>
+                <li>Your <code>api.html</code> reads from Firebase and serves as an API</li>
+                <li>The system runs 100% on free services (GitHub Pages + Firebase)</li>
+            </ul>
+            
+            <div class="api-endpoints">
+                <h4><i class="fas fa-link"></i> API Endpoints:</h4>
+                <div class="endpoint">api.html?endpoint=live</div>
+                <div class="endpoint">api.html?endpoint=fixtures</div>
+                <div class="endpoint">api.html?endpoint=leagues</div>
+                <div class="endpoint">api.html?endpoint=standings&league=premier</div>
             </div>
         </div>
 
-        <!-- Your Existing Widgets (ScoreBat) -->
-        <div class="widget">
-            <h2><i class="fas fa-futbol"></i> Live Football Scores</h2>
-            <iframe
-                src="https://www.scorebat.com/embed/livescore/"
-                height="600"
-                loading="lazy"
-                style="border-radius: 0 0 16px 16px;">
-            </iframe>
-        </div>
-
-        <div class="widget">
-            <h2><i class="fas fa-video"></i> Match Highlights</h2>
-            <iframe
-                src="https://www.scorebat.com/embed/"
-                height="450"
-                loading="lazy"
-                style="border-radius: 0 0 16px 16px;">
-            </iframe>
-        </div>
-
-        <div class="widget">
-            <h2><i class="fas fa-table"></i> League Tables</h2>
-            <iframe
-                src="https://footystats.org/widgets/league-table"
-                height="500"
-                loading="lazy"
-                style="border-radius: 0 0 16px 16px;">
-            </iframe>
-        </div>
-
-        <!-- Legal Disclaimer -->
-        <div class="disclaimer">
-            <strong>⚠️ IMPORTANT DISCLAIMER:</strong><br>
-            This platform is for <strong>entertainment purposes only</strong>. 
-            All predictions are based on skill and knowledge. 
-            <strong>No real money betting or gambling is involved</strong>. 
-            Users compete for ranking and community recognition only. 
-            Data is provided for informational purposes.
-        </div>
-
+        <!-- Footer -->
+        <footer>
+            <p>⚽ Football Data Hub • Automatic Live Scores Extractor • Powered by Firebase</p>
+            <p style="margin-top: 10px; font-size: 14px;">
+                Data updates every 2 minutes • API available at <code>api.html</code>
+            </p>
+        </footer>
     </div>
 
-    <!-- Footer -->
-    <footer>
-        <p>⚽ Iraq Football Hub • Free platform for Iraqi football fans</p>
-        <p>Data provided by public widgets • Predictions powered by community</p>
-        <p>© 2024 • Made with ❤️ for Iraqi football community</p>
-    </footer>
-
+    <script>
+        // UI Update Functions
+        function updateMatchDisplay(matches) {
+            const container = document.getElementById('live-matches');
+            if (!matches || matches.length === 0) {
+                container.innerHTML = `
+                    <div class="match-item">
+                        <div class="match-header">
+                            <span class="match-league">No Live Matches</span>
+                            <span class="match-status status-upcoming">CHECKING</span>
+                        </div>
+                        <div class="match-teams">Waiting for live data...</div>
+                        <div class="match-score">-</div>
+                        <div class="match-minute">Next update soon</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            matches.slice(0, 5).forEach(match => {
+                html += `
+                    <div class="match-item">
+                        <div class="match-header">
+                            <span class="match-league">${match.league || 'Unknown League'}</span>
+                            <span class="match-status ${match.status === 'LIVE' ? 'status-live' : 'status-upcoming'}">
+                                ${match.status || 'UPCOMING'}
+                            </span>
+                        </div>
+                        <div class="match-teams">${match.home_team} vs ${match.away_team}</div>
+                        <div class="match-score">${match.score || '0-0'}</div>
+                        <div class="match-minute">${match.minute || '0'}'</div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        function updateStats(stats) {
+            document.getElementById('stat-total').textContent = stats.total_matches || 0;
+            document.getElementById('stat-live').textContent = stats.live_matches || 0;
+            document.getElementById('stat-leagues').textContent = stats.leagues?.length || 0;
+        }
+        
+        function updateSystemStatus(status, lastUpdate) {
+            document.getElementById('extractor-state').textContent = status;
+            document.getElementById('extractor-state').style.color = 
+                status.includes('✅') ? '#10b981' : 
+                status.includes('❌') ? '#ef4444' : '#f59e0b';
+            
+            if (lastUpdate) {
+                const time = new Date(lastUpdate);
+                document.getElementById('last-update-time').textContent = 
+                    time.toLocaleTimeString();
+            }
+            
+            // Update next update time
+            const now = new Date();
+            const nextUpdate = new Date(now.getTime() + 2 * 60 * 1000);
+            document.getElementById('next-update-time').textContent = 
+                nextUpdate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+        
+        // Watch for extractor updates
+        setInterval(() => {
+            if (window.footballExtractor) {
+                const data = window.footballExtractor.getCurrentData();
+                if (data) {
+                    updateMatchDisplay(data.live_matches);
+                    updateStats(data.stats);
+                    updateSystemStatus('✅ Running', data.last_updated);
+                    
+                    // Update help info
+                    const helpUpdate = document.getElementById('help-update-count');
+                    const helpLast = document.getElementById('help-last-update');
+                    const helpFirebase = document.getElementById('help-firebase-status');
+                    
+                    if (helpUpdate) helpUpdate.textContent = window.footballExtractor.updateCount || 0;
+                    if (helpLast && data.last_updated) {
+                        helpLast.textContent = new Date(data.last_updated).toLocaleTimeString();
+                    }
+                    if (helpFirebase) helpFirebase.textContent = 'Connected';
+                }
+            }
+        }, 5000);
+        
+        // Show help info on hover
+        document.addEventListener('DOMContentLoaded', () => {
+            const controls = document.getElementById('extractor-controls');
+            const help = document.getElementById('help-info');
+            
+            if (controls && help) {
+                controls.addEventListener('mouseenter', () => {
+                    help.style.display = 'block';
+                });
+                
+                controls.addEventListener('mouseleave', () => {
+                    help.style.display = 'none';
+                });
+            }
+        });
+    </script>
 </body>
 </html>
