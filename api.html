@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>⚽ Football Live Scores API</title>
     
+    <!-- API-Sports Widgets Configuration -->
+    <api-sports-widget data-type="config"
+      data-key="6d195f8dabdc38db3dbc6a776a7187f1"
+      data-sport="football"
+      data-lang="en"
+      data-theme="white"
+      data-show-errors="true"
+    ></api-sports-widget>
+    
+    <script type="module" src="https://widgets.api-sports.io/3.1.0/widgets.js"></script>
+    
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
@@ -17,7 +28,6 @@
             getDocs 
         } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
 
-        // Your existing Firebase config
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
             authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -28,192 +38,49 @@
             measurementId: "G-PTV4XMYQ6P"
         };
 
-        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // API Handler Class
+        // ============ FOOTBALL API ============
+
         class FootballAPI {
             constructor() {
                 this.cache = {};
-                this.cacheDuration = 30000; // 30 seconds cache
+                this.cacheDuration = 30000;
             }
 
-            // Get API data based on endpoint
-            async getEndpointData(endpoint, params = {}) {
-                const cacheKey = `${endpoint}_${JSON.stringify(params)}`;
-                
-                // Check cache
-                if (this.cache[cacheKey] && 
-                    Date.now() - this.cache[cacheKey].timestamp < this.cacheDuration) {
-                    return this.cache[cacheKey].data;
-                }
-
-                let data;
-                switch(endpoint) {
-                    case 'live':
-                        data = await this.getLiveScores();
-                        break;
-                    case 'fixtures':
-                        data = await this.getFixtures(params.league);
-                        break;
-                    case 'leagues':
-                        data = await this.getLeagues();
-                        break;
-                    case 'standings':
-                        data = await this.getStandings(params.league);
-                        break;
-                    default:
-                        data = await this.getLiveScores();
-                }
-
-                // Cache the result
-                this.cache[cacheKey] = {
-                    data: data,
-                    timestamp: Date.now()
-                };
-
-                return data;
-            }
-
-            // Get live scores from Firebase
-            async getLiveScores() {
-                try {
-                    const apiDataRef = collection(db, 'api_live_data');
-                    const q = query(apiDataRef, orderBy('updated_at', 'desc'), limit(1));
-                    const snapshot = await getDocs(q);
-                    
-                    if (!snapshot.empty) {
-                        const latestDoc = snapshot.docs[0];
-                        return {
-                            success: true,
-                            endpoint: 'live',
-                            data: latestDoc.data().data,
-                            updated: latestDoc.data().updated_at,
-                            cached: false
-                        };
-                    } else {
-                        return this.getFallbackData('live');
-                    }
-                } catch (error) {
-                    console.error('Firebase fetch error:', error);
-                    return this.getFallbackData('live');
-                }
-            }
-
-            // Get fixtures (simplified - can expand later)
-            async getFixtures(league) {
-                // For now, extract upcoming from live data
-                const liveData = await this.getLiveScores();
-                const fixtures = liveData.data?.matches?.filter(match => 
-                    match.status === 'SCHEDULED' || match.status === 'UPCOMING'
-                ) || [];
-                
-                if (league) {
-                    return fixtures.filter(f => 
-                        f.league.toLowerCase().includes(league.toLowerCase())
-                    );
-                }
-                
-                return {
-                    success: true,
-                    endpoint: 'fixtures',
-                    data: fixtures,
-                    count: fixtures.length,
-                    updated: new Date().toISOString()
-                };
-            }
-
-            // Get available leagues
-            async getLeagues() {
-                const liveData = await this.getLiveScores();
-                const matches = liveData.data?.matches || [];
-                const leagues = [...new Set(matches.map(m => m.league))];
-                
-                return {
-                    success: true,
-                    endpoint: 'leagues',
-                    data: leagues,
-                    count: leagues.length,
-                    updated: new Date().toISOString()
-                };
-            }
-
-            // Get standings (placeholder - can integrate real data later)
-            async getStandings(league) {
-                const standings = [
-                    { position: 1, team: "Manchester City", points: 65 },
-                    { position: 2, team: "Liverpool", points: 63 },
-                    { position: 3, team: "Arsenal", points: 61 }
-                ];
-                
-                return {
-                    success: true,
-                    endpoint: 'standings',
-                    data: standings,
-                    league: league || 'Premier League',
-                    updated: new Date().toISOString()
-                };
-            }
-
-            // Fallback data when Firebase is empty
-            getFallbackData(endpoint) {
-                const fallbackData = {
-                    live: {
-                        success: true,
-                        endpoint: 'live',
-                        data: {
-                            last_updated: new Date().toISOString(),
-                            matches: [
-                                {
-                                    id: "fb_1",
-                                    homeTeam: "Manchester United",
-                                    awayTeam: "Liverpool",
-                                    score: "2-1",
-                                    minute: "67",
-                                    league: "Premier League",
-                                    status: "LIVE",
-                                    timestamp: new Date().toISOString()
-                                }
-                            ],
-                            source: 'fallback'
-                        },
-                        note: 'Using fallback data - no Firebase data yet'
-                    },
-                    fixtures: {
-                        success: true,
-                        endpoint: 'fixtures',
-                        data: [],
-                        note: 'No fixture data available'
-                    }
-                };
-
-                return fallbackData[endpoint] || fallbackData.live;
-            }
-
-            // Handle API request
+            // Main handler
             async handleRequest() {
                 const urlParams = new URLSearchParams(window.location.search);
                 const endpoint = urlParams.get('endpoint') || 'live';
                 const format = urlParams.get('format') || 'json';
                 const league = urlParams.get('league');
-                const callback = urlParams.get('callback'); // For JSONP
+                const team = urlParams.get('team');
+                const country = urlParams.get('country');
+                const source = urlParams.get('source');
+                const callback = urlParams.get('callback');
 
-                const params = {};
-                if (league) params.league = league;
+                const params = { league, team, country, source };
 
                 try {
                     const result = await this.getEndpointData(endpoint, params);
                     
-                    // Add request metadata
+                    // Add metadata
+                    result.api = {
+                        version: '2.0',
+                        multi_source: true,
+                        endpoints: ['live', 'fixtures', 'leagues', 'standings', 'sources', 'widgets'],
+                        documentation: 'https://xcrazybet.github.io/millioner/'
+                    };
+
                     result.request = {
                         endpoint: endpoint,
                         params: params,
                         timestamp: new Date().toISOString(),
-                        url: window.location.href
+                        url: window.location.href.split('?')[0]
                     };
 
-                    // Output based on format
+                    // Output
                     if (format === 'jsonp' && callback) {
                         this.outputJSONP(result, callback);
                     } else {
@@ -224,117 +91,731 @@
                 }
             }
 
-            // Output as JSON
-            outputJSON(data) {
-                document.body.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            // Get data for endpoint
+            async getEndpointData(endpoint, params) {
+                const cacheKey = `${endpoint}_${JSON.stringify(params)}`;
                 
-                // Also set content type for API calls
-                const style = document.createElement('style');
-                style.textContent = `
-                    body { margin: 0; padding: 20px; background: #0f172a; color: #f8fafc; font-family: monospace; }
-                    pre { white-space: pre-wrap; word-wrap: break-word; }
-                `;
-                document.head.appendChild(style);
+                // Check cache
+                if (this.cache[cacheKey] && 
+                    Date.now() - this.cache[cacheKey].timestamp < this.cacheDuration) {
+                    return { ...this.cache[cacheKey].data, cached: true };
+                }
+
+                let data;
+                switch(endpoint) {
+                    case 'live':
+                        data = await this.getLiveScores(params);
+                        break;
+                    case 'fixtures':
+                        data = await this.getFixtures(params);
+                        break;
+                    case 'leagues':
+                        data = await this.getLeagues(params);
+                        break;
+                    case 'standings':
+                        data = await this.getStandings(params);
+                        break;
+                    case 'sources':
+                        data = await this.getSourceStats(params);
+                        break;
+                    case 'widgets':
+                        data = await this.getWidgetData(params);
+                        break;
+                    default:
+                        data = await this.getLiveScores(params);
+                }
+
+                // Cache
+                this.cache[cacheKey] = {
+                    data: data,
+                    timestamp: Date.now()
+                };
+
+                return { ...data, cached: false };
             }
 
-            // Output JSONP (for cross-domain requests)
+            // ============ CORE FUNCTIONS ============
+
+            async getLiveScores(params = {}) {
+                try {
+                    const firebaseData = await this.getFirebaseData();
+                    
+                    if (!firebaseData.success) {
+                        return this.getFallbackData('live');
+                    }
+
+                    let matches = firebaseData.data.live_matches || [];
+                    
+                    // Apply filters
+                    if (params.league) {
+                        matches = matches.filter(m => 
+                            m.league?.toLowerCase().includes(params.league.toLowerCase())
+                        );
+                    }
+                    if (params.team) {
+                        matches = matches.filter(m => 
+                            m.home_team?.toLowerCase().includes(params.team.toLowerCase()) ||
+                            m.away_team?.toLowerCase().includes(params.team.toLowerCase())
+                        );
+                    }
+                    if (params.country) {
+                        matches = matches.filter(m => 
+                            m.country?.toLowerCase().includes(params.country.toLowerCase())
+                        );
+                    }
+                    if (params.source) {
+                        matches = matches.filter(m => 
+                            m.source?.toLowerCase() === params.source.toLowerCase()
+                        );
+                    }
+
+                    return {
+                        success: true,
+                        endpoint: 'live',
+                        data: matches,
+                        count: matches.length,
+                        filters: params,
+                        sources: firebaseData.data.stats?.sources || {},
+                        updated: firebaseData.data.last_updated,
+                        total_available: firebaseData.data.stats?.total_matches || 0
+                    };
+                } catch (error) {
+                    console.error('Live scores error:', error);
+                    return this.getFallbackData('live');
+                }
+            }
+
+            async getFixtures(params = {}) {
+                try {
+                    const firebaseData = await this.getFirebaseData();
+                    
+                    if (!firebaseData.success) {
+                        return this.getFallbackData('fixtures');
+                    }
+
+                    let fixtures = firebaseData.data.fixtures || [];
+                    
+                    // Apply filters
+                    if (params.league) {
+                        fixtures = fixtures.filter(f => 
+                            f.league?.toLowerCase().includes(params.league.toLowerCase())
+                        );
+                    }
+
+                    return {
+                        success: true,
+                        endpoint: 'fixtures',
+                        data: fixtures,
+                        count: fixtures.length,
+                        filters: params,
+                        updated: firebaseData.data.last_updated
+                    };
+                } catch (error) {
+                    console.error('Fixtures error:', error);
+                    return this.getFallbackData('fixtures');
+                }
+            }
+
+            async getLeagues(params = {}) {
+                try {
+                    const firebaseData = await this.getFirebaseData();
+                    
+                    if (!firebaseData.success) {
+                        return this.getFallbackData('leagues');
+                    }
+
+                    let leagues = firebaseData.data.leagues || [];
+                    
+                    if (params.country) {
+                        leagues = leagues.filter(l => 
+                            l.country?.toLowerCase().includes(params.country.toLowerCase())
+                        );
+                    }
+
+                    return {
+                        success: true,
+                        endpoint: 'leagues',
+                        data: leagues,
+                        count: leagues.length,
+                        filters: params,
+                        updated: firebaseData.data.last_updated
+                    };
+                } catch (error) {
+                    console.error('Leagues error:', error);
+                    return this.getFallbackData('leagues');
+                }
+            }
+
+            async getStandings(params = {}) {
+                // Simple standings based on match results
+                try {
+                    const firebaseData = await this.getFirebaseData();
+                    
+                    if (!firebaseData.success) {
+                        return this.getFallbackData('standings');
+                    }
+
+                    const allMatches = [
+                        ...(firebaseData.data.live_matches || []),
+                        ...(firebaseData.data.fixtures || [])
+                    ];
+
+                    // Calculate standings per league
+                    const standings = {};
+                    const league = params.league || 'Premier League';
+                    
+                    const leagueMatches = allMatches.filter(m => 
+                        m.league?.toLowerCase().includes(league.toLowerCase()) && 
+                        m.status === 'FINISHED'
+                    );
+
+                    // Simple points calculation
+                    const teams = {};
+                    leagueMatches.forEach(match => {
+                        if (!teams[match.home_team]) {
+                            teams[match.home_team] = { points: 0, played: 0, gf: 0, ga: 0 };
+                        }
+                        if (!teams[match.away_team]) {
+                            teams[match.away_team] = { points: 0, played: 0, gf: 0, ga: 0 };
+                        }
+
+                        const homeScore = parseInt(match.home_score) || 0;
+                        const awayScore = parseInt(match.away_score) || 0;
+
+                        teams[match.home_team].played++;
+                        teams[match.away_team].played++;
+                        
+                        teams[match.home_team].gf += homeScore;
+                        teams[match.home_team].ga += awayScore;
+                        teams[match.away_team].gf += awayScore;
+                        teams[match.away_team].ga += homeScore;
+
+                        if (homeScore > awayScore) {
+                            teams[match.home_team].points += 3;
+                        } else if (homeScore < awayScore) {
+                            teams[match.away_team].points += 3;
+                        } else {
+                            teams[match.home_team].points += 1;
+                            teams[match.away_team].points += 1;
+                        }
+                    });
+
+                    // Convert to array and sort
+                    const standingsArray = Object.entries(teams).map(([team, stats]) => ({
+                        team: team,
+                        position: 0,
+                        played: stats.played,
+                        wins: 0,
+                        draws: 0,
+                        losses: 0,
+                        goals_for: stats.gf,
+                        goals_against: stats.ga,
+                        goal_difference: stats.gf - stats.ga,
+                        points: stats.points
+                    }));
+
+                    standingsArray.sort((a, b) => b.points - a.points || b.goal_difference - a.goal_difference);
+                    standingsArray.forEach((team, index) => {
+                        team.position = index + 1;
+                    });
+
+                    standings[league] = standingsArray;
+
+                    return {
+                        success: true,
+                        endpoint: 'standings',
+                        data: standings,
+                        league: league,
+                        updated: firebaseData.data.last_updated
+                    };
+                } catch (error) {
+                    console.error('Standings error:', error);
+                    return this.getFallbackData('standings');
+                }
+            }
+
+            async getSourceStats(params = {}) {
+                try {
+                    const apiDataRef = collection(db, 'api_live_data');
+                    const q = query(apiDataRef, orderBy('updated_at', 'desc'), limit(1));
+                    const snapshot = await getDocs(q);
+                    
+                    if (!snapshot.empty) {
+                        const latestDoc = snapshot.docs[0];
+                        const data = latestDoc.data();
+                        
+                        return {
+                            success: true,
+                            endpoint: 'sources',
+                            data: {
+                                source_stats: data.source_stats || {},
+                                sources: data.sources || [],
+                                extraction_count: data.extraction_count || 0,
+                                last_extraction: data.updated_at
+                            },
+                            updated: new Date().toISOString()
+                        };
+                    }
+                    
+                    return {
+                        success: true,
+                        endpoint: 'sources',
+                        data: {
+                            sources: ['scorebat', 'api-football', 'espn', 'bbc'],
+                            status: 'Waiting for first extraction'
+                        },
+                        updated: new Date().toISOString()
+                    };
+                    
+                } catch (error) {
+                    console.error('Source stats error:', error);
+                    return {
+                        success: false,
+                        endpoint: 'sources',
+                        error: error.message
+                    };
+                }
+            }
+
+            async getWidgetData(params = {}) {
+                return {
+                    success: true,
+                    endpoint: 'widgets',
+                    data: {
+                        available_widgets: [
+                            {
+                                name: 'Live Games',
+                                code: '<api-sports-widget data-type="games" data-tab="live"></api-sports-widget>',
+                                description: 'Live football matches'
+                            },
+                            {
+                                name: 'Leagues',
+                                code: '<api-sports-widget data-type="leagues"></api-sports-widget>',
+                                description: 'All football leagues'
+                            },
+                            {
+                                name: 'Standings',
+                                code: '<api-sports-widget data-type="league" data-league="39" data-standings="true"></api-sports-widget>',
+                                description: 'Premier League standings'
+                            },
+                            {
+                                name: 'Team Info',
+                                code: '<api-sports-widget data-type="team" data-team-id="33"></api-sports-widget>',
+                                description: 'Manchester United info'
+                            }
+                        ],
+                        configuration: {
+                            api_key: '6d195f8dabdc38db3dbc6a776a7187f1',
+                            theme: 'white',
+                            language: 'en'
+                        }
+                    },
+                    updated: new Date().toISOString()
+                };
+            }
+
+            // ============ HELPER FUNCTIONS ============
+
+            async getFirebaseData() {
+                try {
+                    const apiDataRef = collection(db, 'api_live_data');
+                    const q = query(apiDataRef, orderBy('updated_at', 'desc'), limit(1));
+                    const snapshot = await getDocs(q);
+                    
+                    if (!snapshot.empty) {
+                        const latestDoc = snapshot.docs[0];
+                        return {
+                            success: true,
+                            data: latestDoc.data().data,
+                            updated: latestDoc.data().updated_at
+                        };
+                    } else {
+                        return {
+                            success: false,
+                            error: 'No data in Firebase'
+                        };
+                    }
+                } catch (error) {
+                    console.error('Firebase fetch error:', error);
+                    return {
+                        success: false,
+                        error: error.message
+                    };
+                }
+            }
+
+            getFallbackData(endpoint) {
+                const fallbackData = {
+                    live: {
+                        success: true,
+                        endpoint: 'live',
+                        data: [
+                            {
+                                id: "fb_1",
+                                home_team: "Manchester United",
+                                away_team: "Liverpool",
+                                home_score: "2",
+                                away_score: "1",
+                                score: "2-1",
+                                minute: "67",
+                                league: "Premier League",
+                                country: "England",
+                                status: "LIVE",
+                                source: "fallback",
+                                timestamp: new Date().toISOString()
+                            }
+                        ],
+                        note: 'Fallback data - Firebase data not available yet',
+                        updated: new Date().toISOString()
+                    },
+                    fixtures: {
+                        success: true,
+                        endpoint: 'fixtures',
+                        data: [],
+                        note: 'No fixture data available',
+                        updated: new Date().toISOString()
+                    },
+                    leagues: {
+                        success: true,
+                        endpoint: 'leagues',
+                        data: [
+                            { name: 'Premier League', country: 'England', match_count: 1 },
+                            { name: 'La Liga', country: 'Spain', match_count: 0 },
+                            { name: 'Serie A', country: 'Italy', match_count: 0 }
+                        ],
+                        note: 'Fallback league data',
+                        updated: new Date().toISOString()
+                    },
+                    standings: {
+                        success: true,
+                        endpoint: 'standings',
+                        data: {
+                            'Premier League': [
+                                {
+                                    position: 1,
+                                    team: "Manchester City",
+                                    played: 20,
+                                    wins: 15,
+                                    draws: 3,
+                                    losses: 2,
+                                    goals_for: 45,
+                                    goals_against: 18,
+                                    goal_difference: 27,
+                                    points: 48
+                                },
+                                {
+                                    position: 2,
+                                    team: "Liverpool",
+                                    played: 20,
+                                    wins: 14,
+                                    draws: 4,
+                                    losses: 2,
+                                    goals_for: 42,
+                                    goals_against: 20,
+                                    goal_difference: 22,
+                                    points: 46
+                                }
+                            ]
+                        },
+                        note: 'Fallback standings data',
+                        updated: new Date().toISOString()
+                    }
+                };
+
+                return fallbackData[endpoint] || fallbackData.live;
+            }
+
+            // ============ OUTPUT FUNCTIONS ============
+
+            outputJSON(data) {
+                // Check if this is an API call (no .html in referrer or has format=json)
+                const isAPICall = !document.referrer || 
+                                 !document.referrer.includes('.html') ||
+                                 window.location.search.includes('format=json');
+                
+                if (isAPICall) {
+                    // Pure JSON for API calls
+                    document.head.innerHTML = '';
+                    document.body.innerHTML = '';
+                    
+                    const pre = document.createElement('pre');
+                    pre.textContent = JSON.stringify(data, null, 2);
+                    document.body.appendChild(pre);
+                    
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        body { 
+                            margin: 0; 
+                            padding: 20px; 
+                            background: #0f172a; 
+                            color: #f8fafc; 
+                            font-family: monospace; 
+                            font-size: 14px;
+                        }
+                        pre { 
+                            white-space: pre-wrap; 
+                            word-wrap: break-word;
+                            margin: 0;
+                        }
+                    `;
+                    document.head.appendChild(style);
+                } else {
+                    // Enhanced display for browser
+                    this.renderAPIDocumentation(data);
+                }
+            }
+
             outputJSONP(data, callback) {
                 const script = document.createElement('script');
                 script.textContent = `${callback}(${JSON.stringify(data)})`;
                 document.body.appendChild(script);
             }
 
-            // Output error
             outputError(error) {
                 const errorData = {
                     success: false,
                     error: error.message,
                     endpoint: new URLSearchParams(window.location.search).get('endpoint') || 'unknown',
-                    timestamp: new Date().toISOString()
+                    timestamp: new Date().toISOString(),
+                    help: 'Check https://xcrazybet.github.io/millioner/api.html for documentation'
                 };
                 
                 document.body.innerHTML = `<pre style="color: #ef4444;">${JSON.stringify(errorData, null, 2)}</pre>`;
             }
+
+            // ============ UI RENDER ============
+
+            renderAPIDocumentation(data) {
+                document.body.innerHTML = '';
+                
+                const container = document.createElement('div');
+                container.style.cssText = `
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    padding: 20px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                `;
+                
+                // Header
+                const header = document.createElement('div');
+                header.style.cssText = `
+                    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+                    color: white;
+                    padding: 40px;
+                    border-radius: 20px;
+                    margin-bottom: 30px;
+                    text-align: center;
+                `;
+                header.innerHTML = `
+                    <h1 style="font-size: 2.5rem; margin-bottom: 10px;">⚽ Football Live Scores API</h1>
+                    <p style="color: #94a3b8; font-size: 1.2rem;">Multi-Source • Real-Time • Free</p>
+                    <div style="margin-top: 20px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
+                        <a href="?endpoint=live" style="padding: 10px 20px; background: #3b82f6; color: white; border-radius: 6px; text-decoration: none;">Live Scores</a>
+                        <a href="?endpoint=fixtures" style="padding: 10px 20px; background: #8b5cf6; color: white; border-radius: 6px; text-decoration: none;">Fixtures</a>
+                        <a href="?endpoint=leagues" style="padding: 10px 20px; background: #10b981; color: white; border-radius: 6px; text-decoration: none;">Leagues</a>
+                        <a href="?endpoint=widgets" style="padding: 10px 20px; background: #f59e0b; color: white; border-radius: 6px; text-decoration: none;">Widgets</a>
+                    </div>
+                `;
+                
+                // Content
+                const content = document.createElement('div');
+                content.style.cssText = `
+                    display: grid;
+                    grid-template-columns: 300px 1fr;
+                    gap: 30px;
+                `;
+                
+                // Sidebar
+                const sidebar = document.createElement('div');
+                sidebar.innerHTML = `
+                    <div style="background: #f8fafc; border-radius: 10px; padding: 20px; margin-bottom: 20px;">
+                        <h3 style="color: #0f172a; margin-bottom: 15px;">📚 API Endpoints</h3>
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <a href="?endpoint=live" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
+                                <strong>GET /live</strong><br>
+                                <small>Live matches</small>
+                            </a>
+                            <a href="?endpoint=fixtures" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
+                                <strong>GET /fixtures</strong><br>
+                                <small>Upcoming & finished</small>
+                            </a>
+                            <a href="?endpoint=leagues" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
+                                <strong>GET /leagues</strong><br>
+                                <small>All leagues</small>
+                            </a>
+                            <a href="?endpoint=standings&league=premier" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
+                                <strong>GET /standings</strong><br>
+                                <small>League table</small>
+                            </a>
+                            <a href="?endpoint=sources" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
+                                <strong>GET /sources</strong><br>
+                                <small>Source stats</small>
+                            </a>
+                        </div>
+                    </div>
+                    
+                    <div style="background: #0f172a; color: white; border-radius: 10px; padding: 20px;">
+                        <h3 style="margin-bottom: 10px;">🚀 Quick Examples</h3>
+                        <pre style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 6px; font-size: 12px; overflow-x: auto; color: #94a3b8;">
+// JavaScript
+fetch('api.html?endpoint=live')
+  .then(res => res.json())
+  .then(data => console.log(data));
+
+// With filters
+fetch('api.html?endpoint=live&league=premier&limit=5')
+  .then(res => res.json())
+  .then(data => console.log(data));
+
+// JSONP for cross-domain
+&lt;script src="api.html?endpoint=live&format=jsonp&callback=myCallback"&gt;&lt;/script&gt;
+                        </pre>
+                    </div>
+                `;
+                
+                // Main content
+                const main = document.createElement('div');
+                main.innerHTML = `
+                    <div style="background: white; border-radius: 10px; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <h2 style="color: #0f172a; margin: 0;">API Response</h2>
+                            <div style="display: flex; gap: 10px;">
+                                <button onclick="location.reload()" style="padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                                    🔄 Refresh
+                                </button>
+                                <button onclick="copyJSON()" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                                    📋 Copy JSON
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div style="background: #0f172a; color: #f8fafc; padding: 20px; border-radius: 8px; font-family: monospace; font-size: 14px; max-height: 500px; overflow-y: auto;">
+                            <pre id="json-output">${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                        
+                        <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                            <h3 style="color: #0f172a; margin-bottom: 15px;">📊 Response Info</h3>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                                <div style="background: #f1f5f9; padding: 15px; border-radius: 8px;">
+                                    <div style="font-size: 12px; color: #64748b;">Endpoint</div>
+                                    <div style="font-weight: bold; color: #0f172a;">${data.endpoint || 'live'}</div>
+                                </div>
+                                <div style="background: #f1f5f9; padding: 15px; border-radius: 8px;">
+                                    <div style="font-size: 12px; color: #64748b;">Status</div>
+                                    <div style="font-weight: bold; color: ${data.success ? '#10b981' : '#ef4444'}">${data.success ? '✅ Success' : '❌ Error'}</div>
+                                </div>
+                                <div style="background: #f1f5f9; padding: 15px; border-radius: 8px;">
+                                    <div style="font-size: 12px; color: #64748b;">Data Count</div>
+                                    <div style="font-weight: bold; color: #0f172a;">${data.count || data.data?.length || 0}</div>
+                                </div>
+                                <div style="background: #f1f5f9; padding: 15px; border-radius: 8px;">
+                                    <div style="font-size: 12px; color: #64748b;">Updated</div>
+                                    <div style="font-weight: bold; color: #0f172a;">${new Date(data.updated || new Date()).toLocaleTimeString()}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    ${data.endpoint === 'live' || data.endpoint === 'fixtures' ? `
+                    <div style="background: white; border-radius: 10px; padding: 25px; margin-top: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+                        <h3 style="color: #0f172a; margin-bottom: 15px;">⚽ Live Data Preview</h3>
+                        <div style="display: grid; gap: 10px;" id="matches-preview">
+                            ${this.renderMatchesPreview(data.data)}
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    ${data.endpoint === 'widgets' ? `
+                    <div style="background: white; border-radius: 10px; padding: 25px; margin-top: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+                        <h3 style="color: #0f172a; margin-bottom: 15px;">📊 Widget Preview</h3>
+                        <div style="display: grid; gap: 15px;">
+                            <div>
+                                <h4 style="color: #64748b; margin-bottom: 10px;">Live Games Widget</h4>
+                                <api-sports-widget data-type="games" data-tab="live"></api-sports-widget>
+                            </div>
+                            <div>
+                                <h4 style="color: #64748b; margin-bottom: 10px;">Leagues Widget</h4>
+                                <api-sports-widget data-type="leagues"></api-sports-widget>
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+                `;
+                
+                content.appendChild(sidebar);
+                content.appendChild(main);
+                
+                container.appendChild(header);
+                container.appendChild(content);
+                document.body.appendChild(container);
+                
+                // Add copy function
+                window.copyJSON = () => {
+                    const jsonText = JSON.stringify(data, null, 2);
+                    navigator.clipboard.writeText(jsonText)
+                        .then(() => alert('JSON copied to clipboard!'))
+                        .catch(err => console.error('Copy failed:', err));
+                };
+            }
+
+            renderMatchesPreview(matches) {
+                if (!matches || !Array.isArray(matches)) {
+                    return '<p style="color: #64748b; text-align: center;">No match data available</p>';
+                }
+                
+                return matches.slice(0, 3).map(match => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #f8fafc; border-radius: 8px; border-left: 4px solid #3b82f6;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: bold; color: #0f172a;">${match.home_team || 'Unknown'} vs ${match.away_team || 'Unknown'}</div>
+                            <div style="font-size: 12px; color: #64748b; margin-top: 5px;">
+                                ${match.league || ''} • ${match.status || ''} • ${match.source || ''}
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 24px; font-weight: bold; color: #0f172a;">${match.score || '0-0'}</div>
+                            <div style="font-size: 12px; color: #64748b;">${match.minute || '0'}'</div>
+                        </div>
+                    </div>
+                `).join('');
+            }
         }
 
-        // Initialize and run API
+        // Initialize API
         document.addEventListener('DOMContentLoaded', () => {
             const api = new FootballAPI();
             api.handleRequest();
         });
     </script>
     
-    <style>
-        /* Basic styles for API documentation view */
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        .api-info {
-            background: #f8fafc;
-            border-left: 4px solid #3b82f6;
-            padding: 20px;
-            margin: 20px 0;
-            border-radius: 8px;
-        }
-        
-        .endpoint {
-            background: #0f172a;
-            color: #f8fafc;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 10px 0;
-            font-family: monospace;
-        }
-        
-        h1 {
-            color: #0f172a;
-            border-bottom: 2px solid #3b82f6;
-            padding-bottom: 10px;
-        }
-        
-        .note {
-            background: #fef3c7;
-            border: 1px solid #f59e0b;
-            padding: 10px;
-            border-radius: 6px;
-            margin: 15px 0;
-        }
-    </style>
+    <!-- Fallback -->
+    <noscript>
+        <style>
+            body { font-family: sans-serif; padding: 40px; text-align: center; }
+            .error-box { max-width: 600px; margin: 0 auto; padding: 40px; background: #fee; border: 2px solid #ef4444; border-radius: 10px; }
+        </style>
+        <div class="error-box">
+            <h1>JavaScript Required</h1>
+            <p>Enable JavaScript to use the Football API.</p>
+            <p>Try direct endpoints:</p>
+            <ul style="list-style: none; padding: 0;">
+                <li><a href="?endpoint=live">/live</a></li>
+                <li><a href="?endpoint=fixtures">/fixtures</a></li>
+                <li><a href="?endpoint=leagues">/leagues</a></li>
+            </ul>
+        </div>
+    </noscript>
 </head>
 <body>
-    <!-- This content will be replaced by API output -->
-    <div id="api-output">
-        <h1>⚽ Football Live Scores API</h1>
-        <div class="api-info">
-            <p>Your API is loading data from Firebase. If you see this message, JavaScript is disabled or there was an error.</p>
-            <p>Try accessing these endpoints directly:</p>
-            
-            <div class="endpoint">
-                <strong>Live Scores:</strong><br>
-                <a href="?endpoint=live">api.html?endpoint=live</a>
-            </div>
-            
-            <div class="endpoint">
-                <strong>Fixtures:</strong><br>
-                <a href="?endpoint=fixtures">api.html?endpoint=fixtures</a>
-            </div>
-            
-            <div class="endpoint">
-                <strong>Leagues:</strong><br>
-                <a href="?endpoint=leagues">api.html?endpoint=leagues</a>
-            </div>
-            
-            <div class="note">
-                <strong>Note:</strong> Make sure <code>fot.html</code> is running to collect data first!<br>
-                The API updates every 5 minutes from live ScoreBat data.
-            </div>
+    <!-- Loading -->
+    <div style="padding: 40px; text-align: center; color: #666;">
+        <h1>Loading Football API...</h1>
+        <p>Fetching multi-source data</p>
+        <div style="margin-top: 20px;">
+            <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite;"></div>
         </div>
+        <style>
+            @keyframes spin { to { transform: rotate(360deg); } }
+        </style>
     </div>
 </body>
 </html>
