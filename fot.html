@@ -63,6 +63,7 @@
                 this.updateCount = 0;
                 this.totalMatchesExtracted = 0;
                 this.statusElement = null;
+                this.updateInterval = null;
             }
 
             // Initialize system
@@ -72,6 +73,9 @@
                 await this.loadFromFirebase();
                 await this.extractAllData();
                 this.startAutoUpdate(3);
+                
+                // Check for GitHub Actions mode
+                this.checkGitHubActionsMode();
             }
 
             // ============ DATA EXTRACTION METHODS ============
@@ -780,6 +784,79 @@
                     this.updateStatus('❌ Test failed', 'error');
                 }
             }
+
+            // ============ GITHUB ACTIONS SUPPORT ============
+
+            checkGitHubActionsMode() {
+                // Detect if running via GitHub Actions (headless)
+                const isHeadless = !navigator.userAgent.includes('Mozilla') || 
+                                 navigator.userAgent.includes('Headless');
+                
+                // Check URL parameters for auto-run
+                const urlParams = new URLSearchParams(window.location.search);
+                const hasAutoParam = urlParams.has('auto') || urlParams.has('gh_actions');
+                
+                if (isHeadless || hasAutoParam) {
+                    console.log('🤖 Running in GitHub Actions/headless mode');
+                    
+                    // Auto-run extraction
+                    setTimeout(async () => {
+                        try {
+                            console.log('🚀 Starting automated extraction...');
+                            await this.extractAllData();
+                            
+                            // Enhanced data storage for GitHub Actions
+                            const saveData = {
+                                data: this.currentData,
+                                saved_at: new Date().toISOString(),
+                                extraction_count: this.updateCount,
+                                timestamp: Date.now(),
+                                stats: this.currentData.stats || {},
+                                environment: 'github_actions',
+                                version: '1.0.0'
+                            };
+                            
+                            // Save to multiple storage locations
+                            localStorage.setItem('football_data_cache', JSON.stringify(saveData, null, 2));
+                            localStorage.setItem('github_actions_data', JSON.stringify(saveData));
+                            
+                            // Create downloadable file
+                            const dataStr = JSON.stringify(saveData, null, 2);
+                            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+                            
+                            // For headless environments, log success
+                            console.log('✅ GitHub Actions extraction complete');
+                            console.log(`📊 Stats: ${saveData.stats.total_matches || 0} matches`);
+                            console.log(`🔄 Update count: ${saveData.extraction_count}`);
+                            console.log(`💾 Data saved to localStorage`);
+                            
+                            // If running in true headless mode (not in browser)
+                            if (isHeadless && typeof window === 'undefined') {
+                                console.log('📁 Headless mode detected - exiting');
+                                if (typeof process !== 'undefined') {
+                                    process.exit(0);
+                                }
+                            }
+                            
+                        } catch (error) {
+                            console.error('❌ GitHub Actions extraction failed:', error);
+                            
+                            // Save error log
+                            localStorage.setItem('github_actions_error', JSON.stringify({
+                                error: error.message,
+                                timestamp: new Date().toISOString(),
+                                stack: error.stack
+                            }));
+                            
+                            if (isHeadless && typeof window === 'undefined') {
+                                if (typeof process !== 'undefined') {
+                                    process.exit(1);
+                                }
+                            }
+                        }
+                    }, 3000);
+                }
+            }
         }
 
         // ============ PAGE INITIALIZATION ============
@@ -835,6 +912,11 @@
                         background: #8b5cf6; color: white; border: none;
                         padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
                     ">🔗 Test API</button>
+                    
+                    <button onclick="window.runGitHubActionsMode()" style="
+                        background: #f59e0b; color: white; border: none;
+                        padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+                    ">🤖 GitHub Actions</button>
                 </div>
             `;
             
@@ -860,6 +942,57 @@
         window.openStorage = () => {
             window.open('bet-storage.html', '_blank');
         };
+
+        window.runGitHubActionsMode = async () => {
+            if (window.footballExtractor) {
+                const confirmed = confirm('Run in GitHub Actions mode? This will extract data and save to localStorage for automated workflows.');
+                if (confirmed) {
+                    window.footballExtractor.updateStatus('🤖 Starting GitHub Actions mode...', 'info');
+                    
+                    // Add URL parameter to simulate GitHub Actions
+                    const url = new URL(window.location);
+                    url.searchParams.set('gh_actions', 'true');
+                    window.history.pushState({}, '', url);
+                    
+                    // Run extraction
+                    await window.footballExtractor.extractAllData();
+                    
+                    // Download data as JSON file
+                    const data = {
+                        data: window.footballExtractor.currentData,
+                        saved_at: new Date().toISOString(),
+                        extraction_count: window.footballExtractor.updateCount,
+                        environment: 'github_actions_simulation'
+                    };
+                    
+                    const dataStr = JSON.stringify(data, null, 2);
+                    const dataBlob = new Blob([dataStr], {type: 'application/json'});
+                    const dataUrl = URL.createObjectURL(dataBlob);
+                    
+                    const a = document.createElement('a');
+                    a.href = dataUrl;
+                    a.download = `football_data_${Date.now()}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    
+                    alert(`✅ GitHub Actions mode complete!\n📊 Extracted ${data.data.stats?.total_matches || 0} matches\n💾 Data downloaded as JSON file`);
+                }
+            }
+        };
+
+        // Auto-detect and run GitHub Actions mode on page load if parameter exists
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('auto') || urlParams.has('gh_actions')) {
+                console.log('🤖 Auto-running GitHub Actions mode from URL parameter');
+                setTimeout(() => {
+                    if (window.footballExtractor) {
+                        window.footballExtractor.extractAllData();
+                    }
+                }, 2000);
+            }
+        });
 
     </script>
     
@@ -1016,6 +1149,15 @@
             font-family: monospace; font-size: 14px; word-break: break-all;
         }
         
+        /* GitHub Actions Section */
+        .github-actions {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 12px; padding: 20px; margin-top: 20px;
+        }
+        
+        .github-actions h4 { color: #f59e0b; margin-bottom: 10px; }
+        
         /* Footer */
         footer {
             text-align: center; padding: 30px; color: #94a3b8;
@@ -1044,7 +1186,7 @@
                 <div class="logo-icon">⚽</div>
                 <div class="logo-text">FOOTBALL DATA HUB</div>
             </div>
-            <p class="tagline">Live Scores Extractor with Multi-Source Integration</p>
+            <p class="tagline">Live Scores Extractor with Multi-Source Integration & GitHub Actions Support</p>
         </header>
 
         <!-- Main Dashboard -->
@@ -1123,6 +1265,7 @@
                 <li><strong>Saves data to Firebase</strong> for API access</li>
                 <li><strong>Auto-updates every 3 minutes</strong> with fresh data</li>
                 <li><strong>Provides public API endpoints</strong> for developers</li>
+                <li><strong>GitHub Actions ready</strong> for automated workflows</li>
             </ul>
             
             <div class="api-endpoints">
@@ -1133,6 +1276,17 @@
                 <div class="endpoint">api.html?endpoint=standings&league=premier</div>
                 <div class="endpoint">api.html?endpoint=sources</div>
                 <div class="endpoint">api.html?endpoint=status</div>
+            </div>
+            
+            <div class="github-actions">
+                <h4>🤖 GitHub Actions Support</h4>
+                <p style="color: #cbd5b8; margin-bottom: 15px;">Run automated data extraction via GitHub Actions:</p>
+                <div class="endpoint" style="background: rgba(245, 158, 11, 0.1);">
+                    https://yourdomain.com/fot.html?gh_actions=true
+                </div>
+                <p style="font-size: 12px; color: #94a3b8; margin-top: 10px;">
+                    Add this URL to GitHub Actions workflow to trigger automated extraction and data saving.
+                </p>
             </div>
             
             <div style="margin-top: 20px; padding: 15px; background: rgba(139, 92, 246, 0.1); border-radius: 8px;">
@@ -1148,7 +1302,7 @@
 
         <!-- Footer -->
         <footer>
-            <p>⚽ Football Data Hub • Multi-Source Extractor • Powered by Firebase</p>
+            <p>⚽ Football Data Hub • Multi-Source Extractor • Powered by Firebase • GitHub Actions Ready</p>
             <p style="margin-top: 10px; font-size: 14px;">
                 API Key Active • Updates every 3 minutes • Data stored in /football_data
             </p>
