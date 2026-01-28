@@ -5,17 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>⚽ Football Live Scores API</title>
     
-    <!-- API-Sports Widgets Configuration -->
-    <api-sports-widget data-type="config"
-      data-key="6d195f8dabdc38db3dbc6a776a7187f1"
-      data-sport="football"
-      data-lang="en"
-      data-theme="white"
-      data-show-errors="true"
-    ></api-sports-widget>
-    
-    <script type="module" src="https://widgets.api-sports.io/3.1.0/widgets.js"></script>
-    
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
@@ -46,10 +35,10 @@
         class FootballAPI {
             constructor() {
                 this.cache = {};
-                this.cacheDuration = 30000;
+                this.cacheDuration = 10000; // 10 seconds cache
             }
 
-            // Main handler
+            // Main request handler
             async handleRequest() {
                 const urlParams = new URLSearchParams(window.location.search);
                 const endpoint = urlParams.get('endpoint') || 'live';
@@ -58,29 +47,37 @@
                 const team = urlParams.get('team');
                 const country = urlParams.get('country');
                 const source = urlParams.get('source');
+                const limit = urlParams.get('limit') || '50';
                 const callback = urlParams.get('callback');
 
-                const params = { league, team, country, source };
+                const params = { league, team, country, source, limit };
 
                 try {
                     const result = await this.getEndpointData(endpoint, params);
                     
-                    // Add metadata
+                    // Add API metadata
                     result.api = {
                         version: '2.0',
-                        multi_source: true,
-                        endpoints: ['live', 'fixtures', 'leagues', 'standings', 'sources', 'widgets'],
-                        documentation: 'https://xcrazybet.github.io/millioner/'
+                        name: 'Football Data Hub API',
+                        documentation: 'https://xcrazybet.github.io/millioner/api.html',
+                        endpoints: [
+                            'live', 'fixtures', 'leagues', 'standings', 
+                            'sources', 'status', 'help'
+                        ],
+                        rate_limit: '100 requests/hour',
+                        cache: '10 seconds'
                     };
 
                     result.request = {
                         endpoint: endpoint,
                         params: params,
                         timestamp: new Date().toISOString(),
-                        url: window.location.href.split('?')[0]
+                        url: window.location.href
                     };
 
-                    // Output
+                    result.success = true;
+
+                    // Output based on format
                     if (format === 'jsonp' && callback) {
                         this.outputJSONP(result, callback);
                     } else {
@@ -91,14 +88,18 @@
                 }
             }
 
-            // Get data for endpoint
+            // Get data for specific endpoint
             async getEndpointData(endpoint, params) {
                 const cacheKey = `${endpoint}_${JSON.stringify(params)}`;
                 
                 // Check cache
                 if (this.cache[cacheKey] && 
                     Date.now() - this.cache[cacheKey].timestamp < this.cacheDuration) {
-                    return { ...this.cache[cacheKey].data, cached: true };
+                    return { 
+                        ...this.cache[cacheKey].data, 
+                        cached: true,
+                        cache_expires: new Date(Date.now() + this.cacheDuration).toISOString()
+                    };
                 }
 
                 let data;
@@ -118,14 +119,17 @@
                     case 'sources':
                         data = await this.getSourceStats(params);
                         break;
-                    case 'widgets':
-                        data = await this.getWidgetData(params);
+                    case 'status':
+                        data = await this.getSystemStatus(params);
+                        break;
+                    case 'help':
+                        data = this.getAPIHelp(params);
                         break;
                     default:
                         data = await this.getLiveScores(params);
                 }
 
-                // Cache
+                // Cache the result
                 this.cache[cacheKey] = {
                     data: data,
                     timestamp: Date.now()
@@ -134,7 +138,7 @@
                 return { ...data, cached: false };
             }
 
-            // ============ CORE FUNCTIONS ============
+            // ============ CORE DATA FUNCTIONS ============
 
             async getLiveScores(params = {}) {
                 try {
@@ -152,29 +156,36 @@
                             m.league?.toLowerCase().includes(params.league.toLowerCase())
                         );
                     }
+                    
                     if (params.team) {
+                        const teamLower = params.team.toLowerCase();
                         matches = matches.filter(m => 
-                            m.home_team?.toLowerCase().includes(params.team.toLowerCase()) ||
-                            m.away_team?.toLowerCase().includes(params.team.toLowerCase())
+                            m.home_team?.toLowerCase().includes(teamLower) ||
+                            m.away_team?.toLowerCase().includes(teamLower)
                         );
                     }
+                    
                     if (params.country) {
                         matches = matches.filter(m => 
                             m.country?.toLowerCase().includes(params.country.toLowerCase())
                         );
                     }
+                    
                     if (params.source) {
                         matches = matches.filter(m => 
                             m.source?.toLowerCase() === params.source.toLowerCase()
                         );
                     }
+                    
+                    // Apply limit
+                    const limit = parseInt(params.limit) || 50;
+                    matches = matches.slice(0, limit);
 
                     return {
-                        success: true,
                         endpoint: 'live',
                         data: matches,
                         count: matches.length,
-                        filters: params,
+                        filters_applied: params,
                         sources: firebaseData.data.stats?.sources || {},
                         updated: firebaseData.data.last_updated,
                         total_available: firebaseData.data.stats?.total_matches || 0
@@ -195,19 +206,20 @@
 
                     let fixtures = firebaseData.data.fixtures || [];
                     
-                    // Apply filters
                     if (params.league) {
                         fixtures = fixtures.filter(f => 
                             f.league?.toLowerCase().includes(params.league.toLowerCase())
                         );
                     }
+                    
+                    const limit = parseInt(params.limit) || 100;
+                    fixtures = fixtures.slice(0, limit);
 
                     return {
-                        success: true,
                         endpoint: 'fixtures',
                         data: fixtures,
                         count: fixtures.length,
-                        filters: params,
+                        filters_applied: params,
                         updated: firebaseData.data.last_updated
                     };
                 } catch (error) {
@@ -233,11 +245,10 @@
                     }
 
                     return {
-                        success: true,
                         endpoint: 'leagues',
                         data: leagues,
                         count: leagues.length,
-                        filters: params,
+                        filters_applied: params,
                         updated: firebaseData.data.last_updated
                     };
                 } catch (error) {
@@ -247,7 +258,6 @@
             }
 
             async getStandings(params = {}) {
-                // Simple standings based on match results
                 try {
                     const firebaseData = await this.getFirebaseData();
                     
@@ -260,7 +270,6 @@
                         ...(firebaseData.data.fixtures || [])
                     ];
 
-                    // Calculate standings per league
                     const standings = {};
                     const league = params.league || 'Premier League';
                     
@@ -269,14 +278,22 @@
                         m.status === 'FINISHED'
                     );
 
-                    // Simple points calculation
+                    // Calculate standings
                     const teams = {};
                     leagueMatches.forEach(match => {
                         if (!teams[match.home_team]) {
-                            teams[match.home_team] = { points: 0, played: 0, gf: 0, ga: 0 };
+                            teams[match.home_team] = {
+                                team: match.home_team,
+                                played: 0, wins: 0, draws: 0, losses: 0,
+                                gf: 0, ga: 0, points: 0
+                            };
                         }
                         if (!teams[match.away_team]) {
-                            teams[match.away_team] = { points: 0, played: 0, gf: 0, ga: 0 };
+                            teams[match.away_team] = {
+                                team: match.away_team,
+                                played: 0, wins: 0, draws: 0, losses: 0,
+                                gf: 0, ga: 0, points: 0
+                            };
                         }
 
                         const homeScore = parseInt(match.home_score) || 0;
@@ -291,30 +308,34 @@
                         teams[match.away_team].ga += homeScore;
 
                         if (homeScore > awayScore) {
+                            teams[match.home_team].wins++;
                             teams[match.home_team].points += 3;
+                            teams[match.away_team].losses++;
                         } else if (homeScore < awayScore) {
+                            teams[match.away_team].wins++;
                             teams[match.away_team].points += 3;
+                            teams[match.home_team].losses++;
                         } else {
+                            teams[match.home_team].draws++;
+                            teams[match.away_team].draws++;
                             teams[match.home_team].points += 1;
                             teams[match.away_team].points += 1;
                         }
                     });
 
                     // Convert to array and sort
-                    const standingsArray = Object.entries(teams).map(([team, stats]) => ({
-                        team: team,
-                        position: 0,
-                        played: stats.played,
-                        wins: 0,
-                        draws: 0,
-                        losses: 0,
-                        goals_for: stats.gf,
-                        goals_against: stats.ga,
-                        goal_difference: stats.gf - stats.ga,
-                        points: stats.points
+                    const standingsArray = Object.values(teams).map(team => ({
+                        ...team,
+                        goal_difference: team.gf - team.ga,
+                        position: 0
                     }));
 
-                    standingsArray.sort((a, b) => b.points - a.points || b.goal_difference - a.goal_difference);
+                    standingsArray.sort((a, b) => 
+                        b.points - a.points || 
+                        b.goal_difference - a.goal_difference ||
+                        b.gf - a.gf
+                    );
+                    
                     standingsArray.forEach((team, index) => {
                         team.position = index + 1;
                     });
@@ -322,10 +343,10 @@
                     standings[league] = standingsArray;
 
                     return {
-                        success: true,
                         endpoint: 'standings',
                         data: standings,
                         league: league,
+                        match_count: leagueMatches.length,
                         updated: firebaseData.data.last_updated
                     };
                 } catch (error) {
@@ -336,8 +357,8 @@
 
             async getSourceStats(params = {}) {
                 try {
-                    const apiDataRef = collection(db, 'api_live_data');
-                    const q = query(apiDataRef, orderBy('updated_at', 'desc'), limit(1));
+                    const gamesRef = collection(db, 'games');
+                    const q = query(gamesRef, orderBy('saved_at', 'desc'), limit(1));
                     const snapshot = await getDocs(q);
                     
                     if (!snapshot.empty) {
@@ -345,24 +366,24 @@
                         const data = latestDoc.data();
                         
                         return {
-                            success: true,
                             endpoint: 'sources',
                             data: {
-                                source_stats: data.source_stats || {},
-                                sources: data.sources || [],
-                                extraction_count: data.extraction_count || 0,
-                                last_extraction: data.updated_at
+                                sources: ['espn', 'bbc', 'api-football'],
+                                stats: data.stats?.sources || {},
+                                total_extractions: data.extraction_id || 0,
+                                last_extraction: data.saved_at,
+                                last_data_update: data.last_updated
                             },
                             updated: new Date().toISOString()
                         };
                     }
                     
                     return {
-                        success: true,
                         endpoint: 'sources',
                         data: {
-                            sources: ['scorebat', 'api-football', 'espn', 'bbc'],
-                            status: 'Waiting for first extraction'
+                            sources: ['espn', 'bbc', 'api-football'],
+                            status: 'Waiting for first data extraction',
+                            note: 'Check https://xcrazybet.github.io/millioner/fot.html'
                         },
                         updated: new Date().toISOString()
                     };
@@ -370,45 +391,111 @@
                 } catch (error) {
                     console.error('Source stats error:', error);
                     return {
-                        success: false,
                         endpoint: 'sources',
-                        error: error.message
+                        error: error.message,
+                        updated: new Date().toISOString()
                     };
                 }
             }
 
-            async getWidgetData(params = {}) {
+            async getSystemStatus(params = {}) {
+                try {
+                    const gamesRef = collection(db, 'games');
+                    const q = query(gamesRef, orderBy('saved_at', 'desc'), limit(1));
+                    const snapshot = await getDocs(q);
+                    
+                    const now = new Date();
+                    let lastUpdate = null;
+                    let dataAge = null;
+                    let isOnline = false;
+                    
+                    if (!snapshot.empty) {
+                        const latestDoc = snapshot.docs[0];
+                        const data = latestDoc.data();
+                        lastUpdate = data.last_updated;
+                        
+                        if (lastUpdate) {
+                            const lastUpdateTime = new Date(lastUpdate);
+                            dataAge = Math.floor((now - lastUpdateTime) / 1000 / 60); // minutes
+                            isOnline = dataAge < 10; // Consider online if updated in last 10 minutes
+                        }
+                    }
+                    
+                    return {
+                        endpoint: 'status',
+                        data: {
+                            system: 'Football Data Hub API',
+                            status: isOnline ? 'online' : 'offline',
+                            last_update: lastUpdate,
+                            data_age_minutes: dataAge,
+                            uptime: '100%',
+                            firebase: 'connected',
+                            cache_enabled: true,
+                            cache_duration_seconds: this.cacheDuration / 1000,
+                            endpoints_available: 7
+                        },
+                        updated: now.toISOString()
+                    };
+                    
+                } catch (error) {
+                    console.error('Status error:', error);
+                    return {
+                        endpoint: 'status',
+                        data: {
+                            system: 'Football Data Hub API',
+                            status: 'error',
+                            error: error.message
+                        },
+                        updated: new Date().toISOString()
+                    };
+                }
+            }
+
+            getAPIHelp(params = {}) {
                 return {
-                    success: true,
-                    endpoint: 'widgets',
+                    endpoint: 'help',
                     data: {
-                        available_widgets: [
+                        endpoints: [
                             {
-                                name: 'Live Games',
-                                code: '<api-sports-widget data-type="games" data-tab="live"></api-sports-widget>',
-                                description: 'Live football matches'
+                                endpoint: '/live',
+                                description: 'Get live football matches',
+                                parameters: ['league', 'team', 'country', 'source', 'limit'],
+                                example: 'api.html?endpoint=live&league=premier&limit=10'
                             },
                             {
-                                name: 'Leagues',
-                                code: '<api-sports-widget data-type="leagues"></api-sports-widget>',
-                                description: 'All football leagues'
+                                endpoint: '/fixtures',
+                                description: 'Get upcoming and finished fixtures',
+                                parameters: ['league', 'limit'],
+                                example: 'api.html?endpoint=fixtures&league=la-liga'
                             },
                             {
-                                name: 'Standings',
-                                code: '<api-sports-widget data-type="league" data-league="39" data-standings="true"></api-sports-widget>',
-                                description: 'Premier League standings'
+                                endpoint: '/leagues',
+                                description: 'Get all available leagues',
+                                parameters: ['country'],
+                                example: 'api.html?endpoint=leagues&country=england'
                             },
                             {
-                                name: 'Team Info',
-                                code: '<api-sports-widget data-type="team" data-team-id="33"></api-sports-widget>',
-                                description: 'Manchester United info'
+                                endpoint: '/standings',
+                                description: 'Get league standings',
+                                parameters: ['league'],
+                                example: 'api.html?endpoint=standings&league=premier'
+                            },
+                            {
+                                endpoint: '/sources',
+                                description: 'Get data source statistics',
+                                parameters: [],
+                                example: 'api.html?endpoint=sources'
+                            },
+                            {
+                                endpoint: '/status',
+                                description: 'Get API system status',
+                                parameters: [],
+                                example: 'api.html?endpoint=status'
                             }
                         ],
-                        configuration: {
-                            api_key: '6d195f8dabdc38db3dbc6a776a7187f1',
-                            theme: 'white',
-                            language: 'en'
-                        }
+                        formats: ['json', 'jsonp'],
+                        rate_limit: '100 requests per hour',
+                        documentation: 'https://github.com/xcrazybet/millioner'
                     },
                     updated: new Date().toISOString()
                 };
@@ -418,21 +505,22 @@
 
             async getFirebaseData() {
                 try {
-                    const apiDataRef = collection(db, 'api_live_data');
-                    const q = query(apiDataRef, orderBy('updated_at', 'desc'), limit(1));
+                    const gamesRef = collection(db, 'games');
+                    const q = query(gamesRef, orderBy('saved_at', 'desc'), limit(1));
                     const snapshot = await getDocs(q);
                     
                     if (!snapshot.empty) {
                         const latestDoc = snapshot.docs[0];
                         return {
                             success: true,
-                            data: latestDoc.data().data,
-                            updated: latestDoc.data().updated_at
+                            data: latestDoc.data(),
+                            updated: latestDoc.data().last_updated
                         };
                     } else {
                         return {
                             success: false,
-                            error: 'No data in Firebase'
+                            error: 'No data in Firebase. Start the collector first.',
+                            help: 'Open https://xcrazybet.github.io/millioner/fot.html'
                         };
                     }
                 } catch (error) {
@@ -447,39 +535,22 @@
             getFallbackData(endpoint) {
                 const fallbackData = {
                     live: {
-                        success: true,
                         endpoint: 'live',
-                        data: [
-                            {
-                                id: "fb_1",
-                                home_team: "Manchester United",
-                                away_team: "Liverpool",
-                                home_score: "2",
-                                away_score: "1",
-                                score: "2-1",
-                                minute: "67",
-                                league: "Premier League",
-                                country: "England",
-                                status: "LIVE",
-                                source: "fallback",
-                                timestamp: new Date().toISOString()
-                            }
-                        ],
-                        note: 'Fallback data - Firebase data not available yet',
+                        data: [],
+                        count: 0,
+                        note: 'Fallback data - Firebase not available. Start the collector at https://xcrazybet.github.io/millioner/fot.html',
                         updated: new Date().toISOString()
                     },
                     fixtures: {
-                        success: true,
                         endpoint: 'fixtures',
                         data: [],
                         note: 'No fixture data available',
                         updated: new Date().toISOString()
                     },
                     leagues: {
-                        success: true,
                         endpoint: 'leagues',
                         data: [
-                            { name: 'Premier League', country: 'England', match_count: 1 },
+                            { name: 'Premier League', country: 'England', match_count: 0 },
                             { name: 'La Liga', country: 'Spain', match_count: 0 },
                             { name: 'Serie A', country: 'Italy', match_count: 0 }
                         ],
@@ -487,37 +558,9 @@
                         updated: new Date().toISOString()
                     },
                     standings: {
-                        success: true,
                         endpoint: 'standings',
-                        data: {
-                            'Premier League': [
-                                {
-                                    position: 1,
-                                    team: "Manchester City",
-                                    played: 20,
-                                    wins: 15,
-                                    draws: 3,
-                                    losses: 2,
-                                    goals_for: 45,
-                                    goals_against: 18,
-                                    goal_difference: 27,
-                                    points: 48
-                                },
-                                {
-                                    position: 2,
-                                    team: "Liverpool",
-                                    played: 20,
-                                    wins: 14,
-                                    draws: 4,
-                                    losses: 2,
-                                    goals_for: 42,
-                                    goals_against: 20,
-                                    goal_difference: 22,
-                                    points: 46
-                                }
-                            ]
-                        },
-                        note: 'Fallback standings data',
+                        data: {},
+                        note: 'No standings data available',
                         updated: new Date().toISOString()
                     }
                 };
@@ -528,10 +571,10 @@
             // ============ OUTPUT FUNCTIONS ============
 
             outputJSON(data) {
-                // Check if this is an API call (no .html in referrer or has format=json)
+                // Check if this is an API call or browser request
                 const isAPICall = !document.referrer || 
-                                 !document.referrer.includes('.html') ||
-                                 window.location.search.includes('format=json');
+                                 window.location.search.includes('format=json') ||
+                                 window.location.search.includes('callback=');
                 
                 if (isAPICall) {
                     // Pure JSON for API calls
@@ -580,10 +623,12 @@
                     help: 'Check https://xcrazybet.github.io/millioner/api.html for documentation'
                 };
                 
-                document.body.innerHTML = `<pre style="color: #ef4444;">${JSON.stringify(errorData, null, 2)}</pre>`;
+                if (document.body) {
+                    document.body.innerHTML = `<pre style="color: #ef4444; padding: 20px;">${JSON.stringify(errorData, null, 2)}</pre>`;
+                }
             }
 
-            // ============ UI RENDER ============
+            // ============ UI RENDER (For Browser) ============
 
             renderAPIDocumentation(data) {
                 document.body.innerHTML = '';
@@ -608,12 +653,14 @@
                 `;
                 header.innerHTML = `
                     <h1 style="font-size: 2.5rem; margin-bottom: 10px;">⚽ Football Live Scores API</h1>
-                    <p style="color: #94a3b8; font-size: 1.2rem;">Multi-Source • Real-Time • Free</p>
+                    <p style="color: #94a3b8; font-size: 1.2rem;">Multi-Source • Real-Time • JSON API</p>
                     <div style="margin-top: 20px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;">
                         <a href="?endpoint=live" style="padding: 10px 20px; background: #3b82f6; color: white; border-radius: 6px; text-decoration: none;">Live Scores</a>
                         <a href="?endpoint=fixtures" style="padding: 10px 20px; background: #8b5cf6; color: white; border-radius: 6px; text-decoration: none;">Fixtures</a>
                         <a href="?endpoint=leagues" style="padding: 10px 20px; background: #10b981; color: white; border-radius: 6px; text-decoration: none;">Leagues</a>
-                        <a href="?endpoint=widgets" style="padding: 10px 20px; background: #f59e0b; color: white; border-radius: 6px; text-decoration: none;">Widgets</a>
+                        <a href="?endpoint=standings&league=premier" style="padding: 10px 20px; background: #f59e0b; color: white; border-radius: 6px; text-decoration: none;">Standings</a>
+                        <a href="?endpoint=status" style="padding: 10px 20px; background: #ef4444; color: white; border-radius: 6px; text-decoration: none;">Status</a>
+                        <a href="?endpoint=help" style="padding: 10px 20px; background: #64748b; color: white; border-radius: 6px; text-decoration: none;">Help</a>
                     </div>
                 `;
                 
@@ -633,23 +680,27 @@
                         <div style="display: flex; flex-direction: column; gap: 10px;">
                             <a href="?endpoint=live" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
                                 <strong>GET /live</strong><br>
-                                <small>Live matches</small>
+                                <small>Live football matches</small>
                             </a>
                             <a href="?endpoint=fixtures" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
                                 <strong>GET /fixtures</strong><br>
-                                <small>Upcoming & finished</small>
+                                <small>Upcoming & finished matches</small>
                             </a>
                             <a href="?endpoint=leagues" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
                                 <strong>GET /leagues</strong><br>
-                                <small>All leagues</small>
+                                <small>All available leagues</small>
                             </a>
                             <a href="?endpoint=standings&league=premier" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
                                 <strong>GET /standings</strong><br>
-                                <small>League table</small>
+                                <small>League table standings</small>
                             </a>
                             <a href="?endpoint=sources" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
                                 <strong>GET /sources</strong><br>
-                                <small>Source stats</small>
+                                <small>Data source statistics</small>
+                            </a>
+                            <a href="?endpoint=status" style="display: block; padding: 10px; background: #e2e8f0; border-radius: 6px; color: #0f172a; text-decoration: none;">
+                                <strong>GET /status</strong><br>
+                                <small>API system status</small>
                             </a>
                         </div>
                     </div>
@@ -657,18 +708,21 @@
                     <div style="background: #0f172a; color: white; border-radius: 10px; padding: 20px;">
                         <h3 style="margin-bottom: 10px;">🚀 Quick Examples</h3>
                         <pre style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 6px; font-size: 12px; overflow-x: auto; color: #94a3b8;">
-// JavaScript
-fetch('api.html?endpoint=live')
+// JavaScript Fetch
+fetch('https://xcrazybet.github.io/millioner/api.html?endpoint=live')
   .then(res => res.json())
   .then(data => console.log(data));
 
 // With filters
-fetch('api.html?endpoint=live&league=premier&limit=5')
+fetch('https://xcrazybet.github.io/millioner/api.html?endpoint=live&league=premier&limit=5')
   .then(res => res.json())
   .then(data => console.log(data));
 
-// JSONP for cross-domain
-&lt;script src="api.html?endpoint=live&format=jsonp&callback=myCallback"&gt;&lt;/script&gt;
+// JSONP (cross-domain)
+function handleData(data) { console.log(data); }
+const script = document.createElement('script');
+script.src = 'api.html?endpoint=live&format=jsonp&callback=handleData';
+document.body.appendChild(script);
                         </pre>
                     </div>
                 `;
@@ -685,6 +739,9 @@ fetch('api.html?endpoint=live&league=premier&limit=5')
                                 </button>
                                 <button onclick="copyJSON()" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer;">
                                     📋 Copy JSON
+                                </button>
+                                <button onclick="testEndpoint()" style="padding: 8px 16px; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                                    🧪 Test API
                                 </button>
                             </div>
                         </div>
@@ -718,25 +775,9 @@ fetch('api.html?endpoint=live&league=premier&limit=5')
                     
                     ${data.endpoint === 'live' || data.endpoint === 'fixtures' ? `
                     <div style="background: white; border-radius: 10px; padding: 25px; margin-top: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
-                        <h3 style="color: #0f172a; margin-bottom: 15px;">⚽ Live Data Preview</h3>
+                        <h3 style="color: #0f172a; margin-bottom: 15px;">⚽ Data Preview</h3>
                         <div style="display: grid; gap: 10px;" id="matches-preview">
-                            ${this.renderMatchesPreview(data.data)}
-                        </div>
-                    </div>
-                    ` : ''}
-                    
-                    ${data.endpoint === 'widgets' ? `
-                    <div style="background: white; border-radius: 10px; padding: 25px; margin-top: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
-                        <h3 style="color: #0f172a; margin-bottom: 15px;">📊 Widget Preview</h3>
-                        <div style="display: grid; gap: 15px;">
-                            <div>
-                                <h4 style="color: #64748b; margin-bottom: 10px;">Live Games Widget</h4>
-                                <api-sports-widget data-type="games" data-tab="live"></api-sports-widget>
-                            </div>
-                            <div>
-                                <h4 style="color: #64748b; margin-bottom: 10px;">Leagues Widget</h4>
-                                <api-sports-widget data-type="leagues"></api-sports-widget>
-                            </div>
+                            ${this.renderMatchesPreview(data.data || [])}
                         </div>
                     </div>
                     ` : ''}
@@ -749,21 +790,34 @@ fetch('api.html?endpoint=live&league=premier&limit=5')
                 container.appendChild(content);
                 document.body.appendChild(container);
                 
-                // Add copy function
+                // Add global functions
                 window.copyJSON = () => {
                     const jsonText = JSON.stringify(data, null, 2);
                     navigator.clipboard.writeText(jsonText)
                         .then(() => alert('JSON copied to clipboard!'))
                         .catch(err => console.error('Copy failed:', err));
                 };
+                
+                window.testEndpoint = () => {
+                    const endpoint = data.endpoint || 'live';
+                    const url = `api.html?endpoint=${endpoint}&format=json`;
+                    fetch(url)
+                        .then(res => res.json())
+                        .then(testData => {
+                            alert(`✅ API Test Successful!\nEndpoint: ${endpoint}\nCount: ${testData.count || testData.data?.length || 0}`);
+                        })
+                        .catch(err => {
+                            alert(`❌ API Test Failed: ${err.message}`);
+                        });
+                };
             }
 
             renderMatchesPreview(matches) {
-                if (!matches || !Array.isArray(matches)) {
-                    return '<p style="color: #64748b; text-align: center;">No match data available</p>';
+                if (!matches || !Array.isArray(matches) || matches.length === 0) {
+                    return '<p style="color: #64748b; text-align: center; padding: 20px;">No match data available</p>';
                 }
                 
-                return matches.slice(0, 3).map(match => `
+                return matches.slice(0, 5).map(match => `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #f8fafc; border-radius: 8px; border-left: 4px solid #3b82f6;">
                         <div style="flex: 1;">
                             <div style="font-weight: bold; color: #0f172a;">${match.home_team || 'Unknown'} vs ${match.away_team || 'Unknown'}</div>
@@ -780,42 +834,40 @@ fetch('api.html?endpoint=live&league=premier&limit=5')
             }
         }
 
-        // Initialize API
+        // Initialize API when page loads
         document.addEventListener('DOMContentLoaded', () => {
             const api = new FootballAPI();
             api.handleRequest();
         });
     </script>
     
-    <!-- Fallback -->
-    <noscript>
-        <style>
-            body { font-family: sans-serif; padding: 40px; text-align: center; }
-            .error-box { max-width: 600px; margin: 0 auto; padding: 40px; background: #fee; border: 2px solid #ef4444; border-radius: 10px; }
-        </style>
-        <div class="error-box">
-            <h1>JavaScript Required</h1>
-            <p>Enable JavaScript to use the Football API.</p>
-            <p>Try direct endpoints:</p>
-            <ul style="list-style: none; padding: 0;">
-                <li><a href="?endpoint=live">/live</a></li>
-                <li><a href="?endpoint=fixtures">/fixtures</a></li>
-                <li><a href="?endpoint=leagues">/leagues</a></li>
-            </ul>
-        </div>
-    </noscript>
+    <style>
+        /* Loading animation */
+        @keyframes spin { 
+            to { transform: rotate(360deg); } 
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8fafc;
+        }
+    </style>
 </head>
 <body>
-    <!-- Loading -->
-    <div style="padding: 40px; text-align: center; color: #666;">
-        <h1>Loading Football API...</h1>
-        <p>Fetching multi-source data</p>
-        <div style="margin-top: 20px;">
-            <div style="display: inline-block; width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-        </div>
-        <style>
-            @keyframes spin { to { transform: rotate(360deg); } }
-        </style>
+    <!-- Loading state (shown briefly) -->
+    <div id="loading" style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column;">
+        <div style="width: 60px; height: 60px; border: 6px solid #e2e8f0; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <h2 style="margin-top: 20px; color: #64748b;">Loading Football API...</h2>
+        <p style="color: #94a3b8;">Fetching real-time data from Firebase</p>
     </div>
+    
+    <script>
+        // Hide loading when content is ready
+        setTimeout(() => {
+            document.getElementById('loading').style.display = 'none';
+        }, 500);
+    </script>
 </body>
 </html>
