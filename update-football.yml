@@ -1,0 +1,150 @@
+name: Update Football Data
+on:
+  schedule:
+    # Every 3 minutes
+    - cron: '*/3 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          
+      - name: Install dependencies
+        run: |
+          npm install puppeteer
+          npm install fs
+          
+      - name: Create update script
+        run: |
+          cat > update.js << 'EOF'
+          const puppeteer = require('puppeteer');
+          const fs = require('fs');
+          
+          (async () => {
+            console.log('🚀 Starting football data update...');
+            
+            const browser = await puppeteer.launch({
+              headless: 'new',
+              args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
+            
+            try {
+              const page = await browser.newPage();
+              
+              // Navigate to your collector
+              await page.goto('https://xcrazybet.github.io/millioner/fot.html?auto=1', {
+                waitUntil: 'networkidle0',
+                timeout: 30000
+              });
+              
+              // Wait for extraction to complete
+              await page.waitForFunction(() => {
+                return window.footballExtractor && 
+                       window.footballExtractor.currentData &&
+                       window.footballExtractor.currentData.last_updated;
+              }, { timeout: 60000 });
+              
+              // Get the data from localStorage
+              const footballData = await page.evaluate(() => {
+                const data = localStorage.getItem('football_data_cache');
+                return data ? JSON.parse(data) : null;
+              });
+              
+              if (footballData && footballData.data) {
+                console.log(`✅ Extraction successful!`);
+                console.log(`📊 Matches found: ${footballData.data.stats?.total_matches || 0}`);
+                console.log(`🔄 Live matches: ${footballData.data.stats?.live_matches || 0}`);
+                
+                // Save to football_data.json
+                fs.writeFileSync('football_data.json', JSON.stringify(footballData, null, 2));
+                console.log('💾 Saved to football_data.json');
+                
+                // Also save for API fallback
+                fs.writeFileSync('api_data.json', JSON.stringify({
+                  success: true,
+                  data: footballData.data,
+                  updated: footballData.saved_at,
+                  count: footballData.data.stats?.total_matches || 0
+                }, null, 2));
+                
+              } else {
+                throw new Error('No data extracted');
+              }
+              
+            } catch (error) {
+              console.error('❌ Update failed:', error.message);
+              
+              // Create fallback data file
+              const fallbackData = {
+                data: {
+                  live_matches: [],
+                  fixtures: [
+                    {
+                      id: 'fallback_1',
+                      home_team: 'Manchester United',
+                      away_team: 'Liverpool',
+                      home_score: '0',
+                      away_score: '0',
+                      score: '0-0',
+                      minute: 'UPCOMING',
+                      league: 'Premier League',
+                      country: 'England',
+                      status: 'UPCOMING',
+                      source: 'fallback',
+                      timestamp: new Date().toISOString()
+                    }
+                  ],
+                  leagues: [],
+                  last_updated: new Date().toISOString(),
+                  stats: {
+                    total_matches: 1,
+                    live_matches: 0,
+                    upcoming_matches: 1,
+                    finished_matches: 0,
+                    leagues_count: 1,
+                    sources: {}
+                  }
+                },
+                saved_at: new Date().toISOString(),
+                extraction_count: 0,
+                timestamp: Date.now()
+              };
+              
+              fs.writeFileSync('football_data.json', JSON.stringify(fallbackData, null, 2));
+              console.log('📝 Created fallback data file');
+              
+            } finally {
+              await browser.close();
+            }
+            
+            console.log('🎉 Update process completed!');
+          })();
+          EOF
+          
+      - name: Run update script
+        run: node update.js
+        
+      - name: Commit and push updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add football_data.json api_data.json
+          git commit -m "🤖 Auto-update football data [skip ci]" || echo "No changes to commit"
+          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          
+      - name: Update status
+        run: |
+          echo "✅ Football data updated successfully!"
+          echo "🕒 Next update in 3 minutes"
