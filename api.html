@@ -3,18 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>⚽ Football Live Scores API</title>
+    <title>⚽ Football Data Hub API v4.0</title>
     
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
         import { 
             getFirestore, 
-            collection,
-            query,
-            orderBy,
-            limit,
-            getDocs
+            doc, 
+            getDoc 
         } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
 
         const firebaseConfig = {
@@ -30,1058 +27,546 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // ============ COMPLETE FOOTBALL API ============
-
-        class FootballAPI {
+        class FootballAPIv4 {
             constructor() {
                 this.cache = new Map();
-                this.cacheDuration = 10000; // 10 seconds cache
+                this.cacheDuration = 30000; // 30 seconds
+                this.staticCache = null;
+                this.staticCacheTime = null;
                 this.init();
             }
 
             async init() {
-                // Pre-warm cache
-                setTimeout(() => this.warmCache(), 1000);
+                await this.handleRequest();
             }
 
-            async warmCache() {
-                try {
-                    await this.getFootballData();
-                } catch (error) {
-                    console.log('Cache warmup:', error.message);
-                }
-            }
-
-            // Main request handler
             async handleRequest() {
                 const urlParams = new URLSearchParams(window.location.search);
                 const endpoint = urlParams.get('endpoint') || 'live';
                 const format = urlParams.get('format') || 'json';
-                const league = urlParams.get('league');
-                const team = urlParams.get('team');
-                const country = urlParams.get('country');
-                const source = urlParams.get('source');
-                const limit = parseInt(urlParams.get('limit')) || 100;
-                const page = parseInt(urlParams.get('page')) || 1;
                 const callback = urlParams.get('callback');
-                const github_actions = urlParams.has('github_actions') || urlParams.has('gh');
-
-                const params = { 
-                    endpoint, league, team, country, source, 
-                    limit, page, format, callback, github_actions
-                };
-
+                const github = urlParams.has('github') || urlParams.has('gh_actions');
+                
                 try {
-                    const result = await this.getEndpointData(endpoint, params);
-                    
-                    // Add API metadata
-                    result.api = {
-                        version: '3.0.0',
-                        name: 'Football Data Hub API',
-                        documentation: 'https://github.com/xcrazybet/millioner',
-                        endpoints: [
-                            'live', 'fixtures', 'leagues', 'standings', 
-                            'sources', 'status', 'search', 'help'
-                        ],
-                        rate_limit: '100 requests/hour',
-                        cache: '10 seconds',
-                        contact: 'xcrazybet.github.io',
-                        github_actions: true
-                    };
-
-                    result.request = {
-                        endpoint: endpoint,
-                        parameters: params,
-                        timestamp: new Date().toISOString(),
-                        url: window.location.href,
-                        method: 'GET'
-                    };
-
+                    const result = await this.getEndpointData(endpoint, urlParams);
+                    result.api = this.getAPIMetadata();
+                    result.request = this.getRequestInfo(urlParams);
                     result.success = true;
 
-                    // Output based on format
-                    if (format === 'jsonp' && callback) {
-                        this.outputJSONP(result, callback);
-                    } else if (format === 'xml') {
-                        this.outputXML(result);
-                    } else if (format === 'txt' || format === 'text') {
-                        this.outputText(result);
-                    } else {
-                        this.outputJSON(result);
-                    }
+                    this.outputResult(result, format, callback, github);
                 } catch (error) {
-                    this.outputError(error);
+                    this.outputError(error, format, callback);
                 }
             }
 
-            // Get data for specific endpoint
             async getEndpointData(endpoint, params) {
-                const cacheKey = `${endpoint}_${JSON.stringify(params)}`;
+                // Try cache first
+                const cacheKey = `${endpoint}_${params.toString()}`;
                 const cached = this.cache.get(cacheKey);
                 
                 if (cached && Date.now() - cached.timestamp < this.cacheDuration) {
-                    return { 
-                        ...cached.data, 
-                        cached: true,
-                        cache_expires: new Date(Date.now() + this.cacheDuration).toISOString(),
-                        cache_hit: true
-                    };
+                    return { ...cached.data, cached: true, cache_hit: true };
                 }
 
                 let data;
                 switch(endpoint) {
-                    case 'live':
-                        data = await this.getLiveScores(params);
-                        break;
-                    case 'fixtures':
-                        data = await this.getFixtures(params);
-                        break;
-                    case 'leagues':
-                        data = await this.getLeagues(params);
-                        break;
-                    case 'standings':
-                        data = await this.getStandings(params);
-                        break;
-                    case 'sources':
-                        data = await this.getSourceStats(params);
-                        break;
-                    case 'status':
-                        data = await this.getSystemStatus(params);
-                        break;
-                    case 'search':
-                        data = await this.searchMatches(params);
-                        break;
-                    case 'help':
-                        data = this.getAPIHelp(params);
-                        break;
-                    case 'health':
-                        data = await this.getHealthCheck(params);
-                        break;
-                    case 'github':
-                        data = await this.getGitHubStatus(params);
-                        break;
-                    default:
-                        data = await this.getLiveScores(params);
+                    case 'live': data = await this.getLiveMatches(params); break;
+                    case 'fixtures': data = await this.getFixtures(params); break;
+                    case 'leagues': data = await this.getLeagues(params); break;
+                    case 'standings': data = await this.getStandings(params); break;
+                    case 'sources': data = await this.getSourceStats(params); break;
+                    case 'status': data = await this.getSystemStatus(params); break;
+                    case 'health': data = await this.getHealthCheck(params); break;
+                    case 'search': data = await this.searchMatches(params); break;
+                    case 'today': data = await this.getTodayMatches(params); break;
+                    case 'tomorrow': data = await this.getTomorrowMatches(params); break;
+                    case 'yesterday': data = await this.getYesterdayMatches(params); break;
+                    default: data = await this.getLiveMatches(params);
                 }
 
-                this.cache.set(cacheKey, { data: data, timestamp: Date.now() });
+                this.cache.set(cacheKey, { data, timestamp: Date.now() });
                 return { ...data, cached: false, cache_hit: false };
             }
 
-            // ============ UPDATED DATA FETCHING METHOD ============
-
-            async getFootballData() {
-                try {
-                    // Priority 1: Try localStorage cache first (GitHub Actions compatible)
-                    const localData = localStorage.getItem('football_data_cache');
-                    
-                    if (localData) {
-                        try {
-                            const parsed = JSON.parse(localData);
-                            const dataAge = Date.now() - parsed.timestamp;
-                            
-                            // If data is fresh (< 10 minutes), use it
-                            if (dataAge < 10 * 60 * 1000) {
-                                return {
-                                    success: true,
-                                    data: parsed.data,
-                                    updated: parsed.saved_at,
-                                    timestamp: parsed.timestamp,
-                                    source: 'localStorage_cache',
-                                    age_minutes: Math.floor(dataAge / 60000),
-                                    environment: parsed.environment || 'browser',
-                                    extraction_count: parsed.extraction_count || 0
-                                };
-                            }
-                        } catch (parseError) {
-                            console.log('LocalStorage parse error:', parseError);
-                        }
-                    }
-
-                    // Priority 2: Try GitHub Actions localStorage
-                    const githubData = localStorage.getItem('github_actions_data');
-                    if (githubData) {
-                        try {
-                            const parsed = JSON.parse(githubData);
-                            return {
-                                success: true,
-                                data: parsed.data,
-                                updated: parsed.saved_at,
-                                timestamp: parsed.timestamp,
-                                source: 'github_actions_cache',
-                                age_minutes: Math.floor((Date.now() - parsed.timestamp) / 60000),
-                                environment: 'github_actions',
-                                extraction_count: parsed.extraction_count || 0
-                            };
-                        } catch (error) {
-                            console.log('GitHub data parse error:', error);
-                        }
-                    }
-
-                    // Priority 3: Try Firebase (original method)
-                    try {
-                        const firebaseData = await this.getFirebaseData();
-                        if (firebaseData.success) {
-                            return {
-                                ...firebaseData,
-                                source: 'firebase',
-                                environment: 'firebase'
-                            };
-                        }
-                    } catch (firebaseError) {
-                        console.log('Firebase fallback failed:', firebaseError.message);
-                    }
-
-                    // Priority 4: Try to trigger data collection on fot.html directly
-                    try {
-                        console.log('Attempting to trigger data collection...');
-                        const response = await fetch('fot.html?auto=1&gh_actions=true');
-                        
-                        if (response.ok) {
-                            const html = await response.text();
-                            
-                            // Try to extract data from localStorage calls in the HTML
-                            const localStoragePattern = /localStorage\.(?:setItem|getItem)\(['"]football_data_cache['"]\s*,\s*(.*?)\)/g;
-                            const matches = [];
-                            let match;
-                            
-                            while ((match = localStoragePattern.exec(html)) !== null) {
-                                matches.push(match[1]);
-                            }
-                            
-                            // Also look for JSON in script tags
-                            const scriptPattern = /<script[^>]*>([\s\S]*?)<\/script>/gi;
-                            const scripts = [];
-                            let scriptMatch;
-                            
-                            while ((scriptMatch = scriptPattern.exec(html)) !== null) {
-                                scripts.push(scriptMatch[1]);
-                            }
-                            
-                            // Try to find JSON data
-                            for (const script of scripts) {
-                                try {
-                                    const jsonMatch = script.match(/football_data_cache.*?({[\s\S]*?})/);
-                                    if (jsonMatch) {
-                                        const jsonStr = jsonMatch[1].replace(/\\"/g, '"');
-                                        const parsed = JSON.parse(jsonStr);
-                                        
-                                        // Cache it
-                                        localStorage.setItem('football_data_cache', JSON.stringify(parsed));
-                                        
-                                        return {
-                                            success: true,
-                                            data: parsed.data,
-                                            updated: parsed.saved_at,
-                                            timestamp: parsed.timestamp,
-                                            source: 'direct_collection_trigger',
-                                            age_minutes: 0,
-                                            environment: 'triggered_collection'
-                                        };
-                                    }
-                                } catch (e) {
-                                    // Continue searching
-                                }
-                            }
-                        }
-                    } catch (fetchError) {
-                        console.log('Direct collection trigger failed:', fetchError.message);
-                    }
-
-                    // Priority 5: Try to fetch from static JSON files
-                    try {
-                        const response = await fetch('football_data.json');
-                        if (response.ok) {
-                            const data = await response.json();
-                            return {
-                                success: true,
-                                data: data.data,
-                                updated: data.saved_at,
-                                source: 'static_json_file',
-                                age_minutes: 60,
-                                environment: 'static'
-                            };
-                        }
-                    } catch (jsonError) {
-                        console.log('Static JSON fetch failed:', jsonError.message);
-                    }
-
-                    // Priority 6: Try legacy localStorage keys
-                    const legacyKeys = [
-                        'football_data_fallback',
-                        'football_data_backup',
-                        'extracted_matches',
-                        'football_extractor_data'
-                    ];
-                    
-                    for (const key of legacyKeys) {
-                        const legacyData = localStorage.getItem(key);
-                        if (legacyData) {
-                            try {
-                                const parsed = JSON.parse(legacyData);
-                                return {
-                                    success: true,
-                                    data: parsed.data || parsed,
-                                    updated: parsed.saved_at || new Date().toISOString(),
-                                    source: `legacy_${key}`,
-                                    age_minutes: 60,
-                                    environment: 'legacy'
-                                };
-                            } catch (e) {
-                                continue;
-                            }
-                        }
-                    }
-
-                    // Ultimate fallback: Create sample data
-                    return {
-                        success: true,
-                        data: this.createSampleData(),
-                        updated: new Date().toISOString(),
-                        source: 'sample_data',
-                        age_minutes: 999,
-                        environment: 'sample',
-                        note: 'No real data available. Run the collector at https://xcrazybet.github.io/millioner/fot.html'
-                    };
-                    
-                } catch (error) {
-                    console.error('Data fetch error:', error);
-                    return {
-                        success: false,
-                        error: error.message,
-                        source: 'error',
-                        help: 'Data collector needs to run first at https://xcrazybet.github.io/millioner/fot.html'
-                    };
-                }
+            async getLiveMatches(params) {
+                const data = await this.fetchFootballData();
+                const live = data.data?.live_matches || [];
+                
+                return this.filterAndPaginate(live, params, 'live');
             }
 
-            // ============ CORE DATA ENDPOINTS ============
-
-            async getLiveScores(params = {}) {
-                try {
-                    const footballData = await this.getFootballData();
-                    
-                    if (!footballData.success) {
-                        return this.getFallbackData('live');
-                    }
-
-                    let matches = footballData.data.live_matches || [];
-                    
-                    // Apply filters
-                    if (params.league) {
-                        matches = matches.filter(m => 
-                            m.league?.toLowerCase().includes(params.league.toLowerCase())
-                        );
-                    }
-                    
-                    if (params.team) {
-                        const teamLower = params.team.toLowerCase();
-                        matches = matches.filter(m => 
-                            m.home_team?.toLowerCase().includes(teamLower) ||
-                            m.away_team?.toLowerCase().includes(teamLower)
-                        );
-                    }
-                    
-                    if (params.country) {
-                        matches = matches.filter(m => 
-                            m.country?.toLowerCase().includes(params.country.toLowerCase())
-                        );
-                    }
-                    
-                    if (params.source) {
-                        matches = matches.filter(m => 
-                            m.source?.toLowerCase() === params.source.toLowerCase()
-                        );
-                    }
-                    
-                    // Pagination
-                    const start = (params.page - 1) * params.limit;
-                    const end = start + params.limit;
-                    const paginated = matches.slice(start, end);
-
-                    return {
-                        endpoint: 'live',
-                        data: paginated,
-                        count: paginated.length,
-                        total: matches.length,
-                        page: params.page,
-                        total_pages: Math.ceil(matches.length / params.limit),
-                        filters_applied: params,
-                        sources: footballData.data.stats?.sources || {},
-                        updated: footballData.data.last_updated || footballData.updated,
-                        next_update: this.getNextUpdateTime(footballData.data.last_updated || footballData.updated),
-                        data_source: footballData.source,
-                        data_age_minutes: footballData.age_minutes,
-                        environment: footballData.environment
-                    };
-                } catch (error) {
-                    console.error('Live scores error:', error);
-                    return this.getFallbackData('live');
-                }
+            async getFixtures(params) {
+                const data = await this.fetchFootballData();
+                const fixtures = data.data?.fixtures || [];
+                
+                return this.filterAndPaginate(fixtures, params, 'fixtures');
             }
 
-            async getFixtures(params = {}) {
-                try {
-                    const footballData = await this.getFootballData();
-                    
-                    if (!footballData.success) {
-                        return this.getFallbackData('fixtures');
-                    }
-
-                    let fixtures = footballData.data.fixtures || [];
-                    
-                    if (params.league) {
-                        fixtures = fixtures.filter(f => 
-                            f.league?.toLowerCase().includes(params.league.toLowerCase())
-                        );
-                    }
-                    
-                    // Pagination
-                    const start = (params.page - 1) * params.limit;
-                    const end = start + params.limit;
-                    const paginated = fixtures.slice(start, end);
-
-                    return {
-                        endpoint: 'fixtures',
-                        data: paginated,
-                        count: paginated.length,
-                        total: fixtures.length,
-                        page: params.page,
-                        total_pages: Math.ceil(fixtures.length / params.limit),
-                        filters_applied: params,
-                        updated: footballData.data.last_updated || footballData.updated,
-                        data_source: footballData.source,
-                        data_age_minutes: footballData.age_minutes,
-                        environment: footballData.environment
-                    };
-                } catch (error) {
-                    console.error('Fixtures error:', error);
-                    return this.getFallbackData('fixtures');
-                }
+            async getTodayMatches(params) {
+                const data = await this.fetchFootballData();
+                const today = new Date().toISOString().split('T')[0];
+                const allMatches = [
+                    ...(data.data?.live_matches || []),
+                    ...(data.data?.fixtures || [])
+                ];
+                
+                const todayMatches = allMatches.filter(match => {
+                    const matchDate = match.start_time?.split('T')[0];
+                    return matchDate === today;
+                });
+                
+                return this.filterAndPaginate(todayMatches, params, 'today');
             }
 
-            async getLeagues(params = {}) {
-                try {
-                    const footballData = await this.getFootballData();
-                    
-                    if (!footballData.success) {
-                        return this.getFallbackData('leagues');
-                    }
-
-                    let leagues = footballData.data.leagues || [];
-                    
-                    if (params.country) {
-                        leagues = leagues.filter(l => 
-                            l.country?.toLowerCase().includes(params.country.toLowerCase())
-                        );
-                    }
-
-                    return {
-                        endpoint: 'leagues',
-                        data: leagues,
-                        count: leagues.length,
-                        updated: footballData.data.last_updated || footballData.updated,
-                        data_source: footballData.source,
-                        data_age_minutes: footballData.age_minutes,
-                        environment: footballData.environment
-                    };
-                } catch (error) {
-                    console.error('Leagues error:', error);
-                    return this.getFallbackData('leagues');
-                }
-            }
-
-            async getStandings(params = {}) {
-                try {
-                    const footballData = await this.getFootballData();
-                    
-                    if (!footballData.success) {
-                        return this.getFallbackData('standings');
-                    }
-
-                    const allMatches = [
-                        ...(footballData.data.live_matches || []),
-                        ...(footballData.data.fixtures || [])
-                    ];
-
-                    const standings = {};
-                    const league = params.league || 'Premier League';
-                    
-                    const leagueMatches = allMatches.filter(m => 
-                        m.league?.toLowerCase().includes(league.toLowerCase()) && 
-                        m.status === 'FINISHED'
+            async getLeagues(params) {
+                const data = await this.fetchFootballData();
+                let leagues = data.data?.leagues || [];
+                
+                if (params.get('country')) {
+                    const country = params.get('country').toLowerCase();
+                    leagues = leagues.filter(league => 
+                        league.country?.toLowerCase().includes(country)
                     );
-
-                    // Calculate standings
-                    const teams = new Map();
-                    
-                    leagueMatches.forEach(match => {
-                        const homeTeam = match.home_team;
-                        const awayTeam = match.away_team;
-                        const homeScore = parseInt(match.home_score) || 0;
-                        const awayScore = parseInt(match.away_score) || 0;
-                        
-                        // Initialize teams if not exists
-                        if (!teams.has(homeTeam)) {
-                            teams.set(homeTeam, {
-                                team: homeTeam,
-                                played: 0, wins: 0, draws: 0, losses: 0,
-                                gf: 0, ga: 0, points: 0
-                            });
-                        }
-                        if (!teams.has(awayTeam)) {
-                            teams.set(awayTeam, {
-                                team: awayTeam,
-                                played: 0, wins: 0, draws: 0, losses: 0,
-                                gf: 0, ga: 0, points: 0
-                            });
-                        }
-                        
-                        const home = teams.get(homeTeam);
-                        const away = teams.get(awayTeam);
-                        
-                        // Update stats
-                        home.played++; away.played++;
-                        home.gf += homeScore; home.ga += awayScore;
-                        away.gf += awayScore; away.ga += homeScore;
-                        
-                        if (homeScore > awayScore) {
-                            home.wins++; away.losses++;
-                            home.points += 3;
-                        } else if (homeScore < awayScore) {
-                            away.wins++; home.losses++;
-                            away.points += 3;
-                        } else {
-                            home.draws++; away.draws++;
-                            home.points += 1; away.points += 1;
-                        }
-                    });
-
-                    // Convert to array and sort
-                    const standingsArray = Array.from(teams.values()).map(team => ({
-                        ...team,
-                        goal_difference: team.gf - team.ga,
-                        position: 0
-                    }));
-
-                    standingsArray.sort((a, b) => 
-                        b.points - a.points || 
-                        b.goal_difference - a.goal_difference ||
-                        b.gf - a.gf
-                    );
-                    
-                    standingsArray.forEach((team, index) => {
-                        team.position = index + 1;
-                    });
-
-                    standings[league] = standingsArray;
-
-                    return {
-                        endpoint: 'standings',
-                        data: standings,
-                        league: league,
-                        match_count: leagueMatches.length,
-                        updated: footballData.data.last_updated || footballData.updated,
-                        data_source: footballData.source,
-                        data_age_minutes: footballData.age_minutes,
-                        environment: footballData.environment
-                    };
-                } catch (error) {
-                    console.error('Standings error:', error);
-                    return this.getFallbackData('standings');
                 }
-            }
-
-            async getSourceStats(params = {}) {
-                try {
-                    const footballData = await this.getFootballData();
-                    
-                    if (!footballData.success) {
-                        return {
-                            endpoint: 'sources',
-                            data: {
-                                sources: ['espn', 'bbc', 'api-football'],
-                                status: 'Waiting for first data extraction',
-                                last_data_update: null
-                            },
-                            updated: new Date().toISOString()
-                        };
-                    }
-
-                    return {
-                        endpoint: 'sources',
-                        data: {
-                            sources: ['espn', 'bbc', 'api-football'],
-                            stats: footballData.data.stats?.sources || {},
-                            total_extractions: footballData.data.extraction_count || footballData.extraction_count || 0,
-                            total_matches_extracted: footballData.data.total_extracted || 0,
-                            last_extraction: footballData.data.saved_at,
-                            last_data_update: footballData.data.last_updated,
-                            current_source: footballData.source,
-                            environment: footballData.environment
-                        },
-                        updated: new Date().toISOString(),
-                        data_source: footballData.source,
-                        data_age_minutes: footballData.age_minutes
-                    };
-                } catch (error) {
-                    console.error('Source stats error:', error);
-                    return {
-                        endpoint: 'sources',
-                        error: error.message,
-                        updated: new Date().toISOString()
-                    };
-                }
-            }
-
-            async getSystemStatus(params = {}) {
-                try {
-                    const footballData = await this.getFootballData();
-                    
-                    const now = new Date();
-                    let lastUpdate = null;
-                    let dataAge = null;
-                    let isOnline = false;
-                    let sourceStatus = {};
-                    
-                    if (footballData.success && footballData.data) {
-                        lastUpdate = footballData.data.last_updated || footballData.updated;
-                        
-                        if (lastUpdate) {
-                            const lastUpdateTime = new Date(lastUpdate);
-                            dataAge = Math.floor((now - lastUpdateTime) / 1000 / 60);
-                            isOnline = dataAge < 10;
-                        }
-                        
-                        // Check individual source status
-                        const sources = footballData.data.stats?.sources || {};
-                        sourceStatus = Object.entries(sources).reduce((acc, [key, value]) => {
-                            acc[key] = {
-                                enabled: value.success,
-                                match_count: value.count,
-                                last_success: lastUpdate
-                            };
-                            return acc;
-                        }, {});
-                    }
-                    
-                    return {
-                        endpoint: 'status',
-                        data: {
-                            system: 'Football Data Hub API',
-                            status: isOnline ? 'online' : 'offline',
-                            last_update: lastUpdate,
-                            data_age_minutes: dataAge,
-                            uptime: '100%',
-                            firebase: footballData.source === 'firebase' ? 'connected' : 'not_used',
-                            cache_enabled: true,
-                            cache_size: this.cache.size,
-                            cache_hit_rate: this.calculateCacheHitRate(),
-                            endpoints_available: 10,
-                            source_status: sourceStatus,
-                            next_scheduled_update: this.getNextUpdateTime(lastUpdate),
-                            data_sources: {
-                                primary: footballData.source,
-                                environment: footballData.environment,
-                                github_actions: footballData.environment === 'github_actions'
-                            },
-                            storage_backends: [
-                                'localStorage',
-                                'firebase',
-                                'github_actions_cache',
-                                'static_json'
-                            ]
-                        },
-                        updated: now.toISOString()
-                    };
-                } catch (error) {
-                    return {
-                        endpoint: 'status',
-                        data: {
-                            system: 'Football Data Hub API',
-                            status: 'error',
-                            error: error.message
-                        },
-                        updated: new Date().toISOString()
-                    };
-                }
-            }
-
-            async searchMatches(params = {}) {
-                try {
-                    const footballData = await this.getFootballData();
-                    
-                    if (!footballData.success) {
-                        return {
-                            endpoint: 'search',
-                            data: [],
-                            count: 0,
-                            query: params.q || '',
-                            updated: new Date().toISOString()
-                        };
-                    }
-
-                    const allMatches = [
-                        ...(footballData.data.live_matches || []),
-                        ...(footballData.data.fixtures || [])
-                    ];
-                    
-                    const query = (params.q || '').toLowerCase();
-                    let results = [];
-                    
-                    if (query) {
-                        results = allMatches.filter(match => 
-                            match.home_team?.toLowerCase().includes(query) ||
-                            match.away_team?.toLowerCase().includes(query) ||
-                            match.league?.toLowerCase().includes(query) ||
-                            match.country?.toLowerCase().includes(query)
-                        );
-                    } else {
-                        results = allMatches.slice(0, 50);
-                    }
-                    
-                    // Apply limit
-                    results = results.slice(0, params.limit || 50);
-
-                    return {
-                        endpoint: 'search',
-                        data: results,
-                        count: results.length,
-                        query: query,
-                        updated: footballData.data.last_updated || footballData.updated,
-                        data_source: footballData.source,
-                        data_age_minutes: footballData.age_minutes,
-                        environment: footballData.environment
-                    };
-                } catch (error) {
-                    console.error('Search error:', error);
-                    return {
-                        endpoint: 'search',
-                        data: [],
-                        count: 0,
-                        query: params.q || '',
-                        error: error.message,
-                        updated: new Date().toISOString()
-                    };
-                }
-            }
-
-            async getHealthCheck(params = {}) {
-                const now = new Date();
-                const data = await this.getFootballData();
                 
                 return {
-                    endpoint: 'health',
+                    endpoint: 'leagues',
+                    data: leagues,
+                    count: leagues.length,
+                    updated: data.data?.last_updated,
+                    source: data.source
+                };
+            }
+
+            async getStandings(params) {
+                // Simplified standings calculation
+                const data = await this.fetchFootballData();
+                const league = params.get('league') || 'Premier League';
+                
+                // This is a simplified version - real implementation would need more data
+                const standings = {
+                    league: league,
+                    season: '2024/2025',
+                    table: [],
+                    last_updated: data.data?.last_updated
+                };
+                
+                return {
+                    endpoint: 'standings',
+                    data: standings,
+                    note: 'Standings calculation requires additional data sources',
+                    updated: new Date().toISOString()
+                };
+            }
+
+            async getSourceStats(params) {
+                const data = await this.fetchFootballData();
+                return {
+                    endpoint: 'sources',
                     data: {
-                        api_status: 'operational',
-                        timestamp: now.toISOString(),
-                        uptime: '100%',
-                        memory_usage: this.getMemoryUsage(),
-                        data_status: data.success ? 'available' : 'unavailable',
-                        data_source: data.source,
-                        data_age: data.age_minutes,
-                        environment: data.environment,
-                        cache_status: {
-                            enabled: true,
-                            size: this.cache.size,
-                            max_size: 100,
-                            hit_rate: this.calculateCacheHitRate()
-                        },
-                        github_actions: data.environment === 'github_actions',
-                        version: '3.0.0'
+                        sources: [
+                            'rapidapi', 'api-football', 'livescore', 
+                            'flashscore', 'sofascore', 'football-data', 'scorebat'
+                        ],
+                        stats: data.data?.stats || {},
+                        total_extractions: data.extraction_count || 0,
+                        last_extraction: data.saved_at,
+                        last_data_update: data.data?.last_updated,
+                        current_source: data.source,
+                        environment: data.environment
+                    },
+                    updated: new Date().toISOString()
+                };
+            }
+
+            async getSystemStatus(params) {
+                const data = await this.fetchFootballData();
+                const now = new Date();
+                const lastUpdate = data.data?.last_updated;
+                
+                let dataAge = null;
+                let isOnline = false;
+                
+                if (lastUpdate) {
+                    const lastUpdateTime = new Date(lastUpdate);
+                    dataAge = Math.floor((now - lastUpdateTime) / 1000 / 60);
+                    isOnline = dataAge < 30; // Consider online if data < 30 minutes old
+                }
+                
+                return {
+                    endpoint: 'status',
+                    data: {
+                        system: 'Football Data Hub API v4.0',
+                        status: isOnline ? 'online' : 'offline',
+                        last_update: lastUpdate,
+                        data_age_minutes: dataAge,
+                        data_freshness: this.getDataFreshness(dataAge),
+                        cache_enabled: true,
+                        cache_size: this.cache.size,
+                        endpoints_available: 12,
+                        next_scheduled_update: this.getNextUpdateTime(lastUpdate),
+                        data_sources: {
+                            primary: data.source,
+                            environment: data.environment,
+                            github_actions: data.environment === 'github_actions'
+                        }
                     },
                     updated: now.toISOString()
                 };
             }
 
-            async getGitHubStatus(params = {}) {
-                const githubData = localStorage.getItem('github_actions_data');
-                const hasGitHubData = !!githubData;
+            async getHealthCheck(params) {
+                const data = await this.fetchFootballData();
                 
                 return {
-                    endpoint: 'github',
+                    endpoint: 'health',
                     data: {
-                        github_actions_enabled: true,
-                        has_cached_data: hasGitHubData,
-                        data_source: 'localStorage/github_actions',
-                        endpoints_available: [
-                            '/live',
-                            '/fixtures',
-                            '/leagues',
-                            '/standings',
-                            '/status',
-                            '/health',
-                            '/github'
-                        ],
-                        automated_collection: true,
-                        trigger_url: 'https://xcrazybet.github.io/millioner/fot.html?gh_actions=true',
-                        documentation: 'https://github.com/xcrazybet/millioner',
-                        usage: 'Add to GitHub Actions workflow for automated data collection'
+                        api_status: 'operational',
+                        timestamp: new Date().toISOString(),
+                        data_status: data.success ? 'available' : 'unavailable',
+                        data_source: data.source,
+                        data_age: data.age_minutes,
+                        matches_count: data.data?.stats?.total || 0,
+                        live_matches: data.data?.live_matches?.length || 0,
+                        environment: data.environment,
+                        version: '4.0.0'
                     },
                     updated: new Date().toISOString()
                 };
             }
 
-            getAPIHelp(params = {}) {
+            async searchMatches(params) {
+                const data = await this.fetchFootballData();
+                const query = params.get('q') || '';
+                const allMatches = [
+                    ...(data.data?.live_matches || []),
+                    ...(data.data?.fixtures || [])
+                ];
+                
+                let results = [];
+                if (query) {
+                    const queryLower = query.toLowerCase();
+                    results = allMatches.filter(match => 
+                        match.home_team?.toLowerCase().includes(queryLower) ||
+                        match.away_team?.toLowerCase().includes(queryLower) ||
+                        match.league?.toLowerCase().includes(queryLower)
+                    );
+                } else {
+                    results = allMatches.slice(0, 50);
+                }
+                
                 return {
-                    endpoint: 'help',
-                    data: {
-                        endpoints: [
-                            {
-                                endpoint: '/live',
-                                description: 'Get live football matches',
-                                parameters: ['league', 'team', 'country', 'source', 'limit', 'page'],
-                                example: 'api.html?endpoint=live&league=premier&limit=10'
-                            },
-                            {
-                                endpoint: '/fixtures',
-                                description: 'Get upcoming and finished fixtures',
-                                parameters: ['league', 'limit', 'page'],
-                                example: 'api.html?endpoint=fixtures&league=la-liga&page=2'
-                            },
-                            {
-                                endpoint: '/leagues',
-                                description: 'Get all available leagues',
-                                parameters: ['country'],
-                                example: 'api.html?endpoint=leagues&country=england'
-                            },
-                            {
-                                endpoint: '/standings',
-                                description: 'Get league standings',
-                                parameters: ['league'],
-                                example: 'api.html?endpoint=standings&league=premier'
-                            },
-                            {
-                                endpoint: '/sources',
-                                description: 'Get data source statistics',
-                                example: 'api.html?endpoint=sources'
-                            },
-                            {
-                                endpoint: '/status',
-                                description: 'Get API system status',
-                                example: 'api.html?endpoint=status'
-                            },
-                            {
-                                endpoint: '/health',
-                                description: 'Get API health check',
-                                example: 'api.html?endpoint=health'
-                            },
-                            {
-                                endpoint: '/github',
-                                description: 'Get GitHub Actions status',
-                                example: 'api.html?endpoint=github'
-                            },
-                            {
-                                endpoint: '/search',
-                                description: 'Search matches by team or league',
-                                parameters: ['q', 'limit'],
-                                example: 'api.html?endpoint=search&q=manchester&limit=20'
-                            }
-                        ],
-                        formats: ['json', 'jsonp', 'xml', 'txt'],
-                        rate_limit: '100 requests per hour per IP',
-                        cache_policy: '10 seconds',
-                        authentication: 'None required',
-                        github_actions: 'Supported via localStorage cache',
-                        data_sources: [
-                            'localStorage (primary)',
-                            'Firebase (fallback)',
-                            'Static JSON (fallback)',
-                            'Sample data (ultimate fallback)'
-                        ],
-                        documentation: 'https://github.com/xcrazybet/millioner',
-                        collector_url: 'https://xcrazybet.github.io/millioner/fot.html',
-                        support: 'Open issue on GitHub'
-                    },
-                    updated: new Date().toISOString()
+                    endpoint: 'search',
+                    data: results,
+                    count: results.length,
+                    query: query,
+                    updated: data.data?.last_updated
                 };
             }
 
-            // ============ HELPER FUNCTIONS ============
+            // ============ CORE DATA FETCHING ============
 
-            async getFirebaseData() {
+            async fetchFootballData() {
+                // Priority 1: Firebase (most recent)
                 try {
-                    const footballRef = collection(db, 'football_data');
-                    const q = query(footballRef, orderBy('saved_at', 'desc'), limit(1));
-                    const snapshot = await getDocs(q);
-                    
-                    if (!snapshot.empty) {
-                        const latestDoc = snapshot.docs[0];
-                        return {
-                            success: true,
-                            data: latestDoc.data(),
-                            updated: latestDoc.data().last_updated
-                        };
-                    } else {
-                        return {
-                            success: false,
-                            error: 'No data in Firebase. Start the collector first at https://xcrazybet.github.io/millioner/fot.html',
-                            help: 'The data collector needs to run at least once to populate the database.'
-                        };
+                    const firebaseData = await this.fetchFromFirebase();
+                    if (firebaseData.success) {
+                        console.log('📡 Data source: Firebase');
+                        return firebaseData;
                     }
                 } catch (error) {
-                    console.error('Firebase fetch error:', error);
-                    return {
-                        success: false,
-                        error: error.message
-                    };
+                    console.log('Firebase fetch failed:', error.message);
+                }
+
+                // Priority 2: Static JSON (committed by GitHub Actions)
+                try {
+                    const staticData = await this.fetchFromStatic();
+                    if (staticData.success) {
+                        console.log('📡 Data source: Static JSON');
+                        return staticData;
+                    }
+                } catch (error) {
+                    console.log('Static fetch failed:', error.message);
+                }
+
+                // Priority 3: Sample data (always works)
+                console.log('📡 Data source: Sample data');
+                return this.getSampleData();
+            }
+
+            async fetchFromFirebase() {
+                try {
+                    const docRef = doc(db, 'games', 'current');
+                    const docSnap = await getDoc(docRef);
+                    
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        const age = Date.now() - new Date(data.last_updated).getTime();
+                        
+                        return {
+                            success: true,
+                            data: data,
+                            source: 'firebase',
+                            age_minutes: Math.floor(age / 60000),
+                            environment: 'firebase_live'
+                        };
+                    } else {
+                        throw new Error('No data in Firebase');
+                    }
+                } catch (error) {
+                    throw error;
                 }
             }
 
-            getFallbackData(endpoint) {
-                const now = new Date();
-                const fallbackData = {
-                    live: {
-                        endpoint: 'live',
-                        data: [
-                            {
-                                id: 'fallback_1',
-                                home_team: 'Manchester United',
-                                away_team: 'Liverpool',
-                                home_score: '2',
-                                away_score: '1',
-                                score: '2-1',
-                                minute: '67\'',
-                                league: 'Premier League',
-                                country: 'England',
-                                status: 'LIVE',
-                                source: 'fallback',
-                                timestamp: now.toISOString(),
-                                start_time: new Date(now.getTime() - 4020000).toISOString()
-                            }
-                        ],
-                        count: 1,
-                        total: 1,
-                        page: 1,
-                        total_pages: 1,
-                        note: 'Fallback data - Run the collector at https://xcrazybet.github.io/millioner/fot.html',
-                        updated: now.toISOString(),
-                        data_source: 'fallback',
-                        data_age_minutes: 999
-                    },
-                    fixtures: {
-                        endpoint: 'fixtures',
-                        data: [],
-                        count: 0,
-                        note: 'No fixture data available',
-                        updated: now.toISOString(),
-                        data_source: 'fallback',
-                        data_age_minutes: 999
-                    },
-                    leagues: {
-                        endpoint: 'leagues',
-                        data: [
-                            { name: 'Premier League', country: 'England', match_count: 1 },
-                            { name: 'La Liga', country: 'Spain', match_count: 0 },
-                            { name: 'Serie A', country: 'Italy', match_count: 0 }
-                        ],
-                        count: 3,
-                        note: 'Fallback league data',
-                        updated: now.toISOString(),
-                        data_source: 'fallback',
-                        data_age_minutes: 999
-                    },
-                    standings: {
-                        endpoint: 'standings',
-                        data: {},
-                        note: 'No standings data available',
-                        updated: now.toISOString(),
-                        data_source: 'fallback',
-                        data_age_minutes: 999
+            async fetchFromStatic() {
+                try {
+                    // Check if we have cached static data
+                    if (this.staticCache && this.staticCacheTime && 
+                        Date.now() - this.staticCacheTime < 300000) { // 5 minute cache
+                        return this.staticCache;
                     }
-                };
-
-                return fallbackData[endpoint] || fallbackData.live;
+                    
+                    const response = await fetch('matches.json');
+                    if (!response.ok) throw new Error('Static file not found');
+                    
+                    const data = await response.json();
+                    const age = Date.now() - new Date(data.saved_at).getTime();
+                    
+                    this.staticCache = {
+                        success: true,
+                        data: data.data,
+                        source: 'static_json',
+                        age_minutes: Math.floor(age / 60000),
+                        environment: 'github_actions',
+                        extraction_count: data.extraction_count,
+                        saved_at: data.saved_at
+                    };
+                    
+                    this.staticCacheTime = Date.now();
+                    return this.staticCache;
+                    
+                } catch (error) {
+                    throw error;
+                }
             }
 
-            createSampleData() {
+            getSampleData() {
                 const now = new Date();
-                const today = now.toISOString().split('T')[0];
+                return {
+                    success: true,
+                    data: {
+                        live_matches: this.createSampleMatches('LIVE'),
+                        fixtures: this.createSampleMatches('UPCOMING'),
+                        leagues: [
+                            { name: 'Premier League', country: 'England', match_count: 3 },
+                            { name: 'La Liga', country: 'Spain', match_count: 2 },
+                            { name: 'Serie A', country: 'Italy', match_count: 2 }
+                        ],
+                        last_updated: now.toISOString(),
+                        stats: {
+                            total: 7,
+                            bySource: {
+                                sample: { count: 7, success: true }
+                            }
+                        }
+                    },
+                    source: 'sample',
+                    age_minutes: 999,
+                    environment: 'sample',
+                    note: 'Using sample data. Run collector to get real matches.'
+                };
+            }
+
+            // ============ HELPER METHODS ============
+
+            filterAndPaginate(matches, params, endpoint) {
+                const league = params.get('league');
+                const team = params.get('team');
+                const country = params.get('country');
+                const source = params.get('source');
+                const status = params.get('status');
+                const limit = parseInt(params.get('limit')) || 100;
+                const page = parseInt(params.get('page')) || 1;
+                
+                let filtered = matches;
+                
+                if (league) {
+                    const leagueLower = league.toLowerCase();
+                    filtered = filtered.filter(m => 
+                        m.league?.toLowerCase().includes(leagueLower)
+                    );
+                }
+                
+                if (team) {
+                    const teamLower = team.toLowerCase();
+                    filtered = filtered.filter(m => 
+                        m.home_team?.toLowerCase().includes(teamLower) ||
+                        m.away_team?.toLowerCase().includes(teamLower)
+                    );
+                }
+                
+                if (country) {
+                    const countryLower = country.toLowerCase();
+                    filtered = filtered.filter(m => 
+                        m.country?.toLowerCase().includes(countryLower)
+                    );
+                }
+                
+                if (source) {
+                    filtered = filtered.filter(m => m.source === source);
+                }
+                
+                if (status) {
+                    filtered = filtered.filter(m => m.status === status.toUpperCase());
+                }
+                
+                // Pagination
+                const start = (page - 1) * limit;
+                const end = start + limit;
+                const paginated = filtered.slice(start, end);
                 
                 return {
-                    live_matches: [
-                        {
-                            id: 'sample_1',
-                            home_team: 'Manchester United',
-                            away_team: 'Liverpool',
-                            home_score: '2',
-                            away_score: '1',
-                            score: '2-1',
-                            minute: '67\'',
-                            league: 'Premier League',
-                            country: 'England',
-                            status: 'LIVE',
-                            source: 'sample',
-                            timestamp: now.toISOString(),
-                            start_time: new Date(now.getTime() - 4020000).toISOString()
-                        }
-                    ],
-                    fixtures: [
-                        {
-                            id: 'sample_2',
-                            home_team: 'Barcelona',
-                            away_team: 'Real Madrid',
-                            home_score: '0',
-                            away_score: '0',
-                            score: '0-0',
-                            minute: 'UPCOMING',
-                            league: 'La Liga',
-                            country: 'Spain',
-                            status: 'UPCOMING',
-                            source: 'sample',
-                            timestamp: new Date(now.getTime() + 3600000).toISOString(),
-                            start_time: new Date(now.getTime() + 3600000).toISOString()
-                        }
-                    ],
-                    leagues: [
-                        { name: 'Premier League', country: 'England', match_count: 1 },
-                        { name: 'La Liga', country: 'Spain', match_count: 1 },
-                        { name: 'Serie A', country: 'Italy', match_count: 0 }
-                    ],
-                    last_updated: now.toISOString(),
-                    stats: {
-                        total_matches: 2,
-                        live_matches: 1,
-                        upcoming_matches: 1,
-                        finished_matches: 0,
-                        leagues_count: 3,
-                        sources: {
-                            espn: { count: 0, success: false },
-                            bbc: { count: 0, success: false },
-                            api_football: { count: 0, success: false }
-                        }
-                    }
+                    endpoint: endpoint,
+                    data: paginated,
+                    count: paginated.length,
+                    total: filtered.length,
+                    page: page,
+                    total_pages: Math.ceil(filtered.length / limit),
+                    filters_applied: {
+                        league, team, country, source, status, limit, page
+                    },
+                    updated: new Date().toISOString()
                 };
+            }
+
+            createSampleMatches(status) {
+                const now = new Date();
+                const sampleMatches = [
+                    {
+                        id: 'sample_1',
+                        home_team: 'Manchester United',
+                        away_team: 'Liverpool',
+                        home_score: '2',
+                        away_score: '1',
+                        score: '2-1',
+                        minute: status === 'LIVE' ? '67\'' : 'FT',
+                        league: 'Premier League',
+                        country: 'England',
+                        status: status,
+                        source: 'sample',
+                        timestamp: now.toISOString(),
+                        start_time: new Date(now.getTime() - 4020000).toISOString()
+                    },
+                    {
+                        id: 'sample_2',
+                        home_team: 'Barcelona',
+                        away_team: 'Real Madrid',
+                        home_score: '1',
+                        away_score: '1',
+                        score: '1-1',
+                        minute: status === 'LIVE' ? '45\'' : 'FT',
+                        league: 'La Liga',
+                        country: 'Spain',
+                        status: status,
+                        source: 'sample',
+                        timestamp: now.toISOString(),
+                        start_time: new Date(now.getTime() - 2700000).toISOString()
+                    },
+                    {
+                        id: 'sample_3',
+                        home_team: 'Bayern Munich',
+                        away_team: 'Borussia Dortmund',
+                        home_score: '3',
+                        away_score: '0',
+                        score: '3-0',
+                        minute: status === 'LIVE' ? '78\'' : 'FT',
+                        league: 'Bundesliga',
+                        country: 'Germany',
+                        status: status,
+                        source: 'sample',
+                        timestamp: now.toISOString(),
+                        start_time: new Date(now.getTime() - 4680000).toISOString()
+                    }
+                ];
+                
+                if (status === 'UPCOMING') {
+                    return sampleMatches.map(match => ({
+                        ...match,
+                        home_score: '0',
+                        away_score: '0',
+                        score: '0-0',
+                        minute: 'NS',
+                        start_time: new Date(now.getTime() + 3600000).toISOString()
+                    }));
+                }
+                
+                return sampleMatches;
+            }
+
+            getDataFreshness(ageMinutes) {
+                if (ageMinutes === null) return 'unknown';
+                if (ageMinutes < 5) return 'very_fresh';
+                if (ageMinutes < 15) return 'fresh';
+                if (ageMinutes < 60) return 'acceptable';
+                if (ageMinutes < 180) return 'stale';
+                return 'very_stale';
             }
 
             getNextUpdateTime(lastUpdate) {
-                if (!lastUpdate) return 'Unknown';
+                if (!lastUpdate) return 'unknown';
                 const last = new Date(lastUpdate);
-                const next = new Date(last.getTime() + 3 * 60 * 1000); // 3 minutes
+                const next = new Date(last.getTime() + 15 * 60 * 1000);
                 return next.toISOString();
             }
 
-            calculateCacheHitRate() {
-                // Simple cache hit rate calculation
-                return '95%';
+            getAPIMetadata() {
+                return {
+                    version: '4.0.0',
+                    name: 'Football Data Hub API',
+                    documentation: 'https://github.com/xcrazybet/millioner',
+                    endpoints: [
+                        'live', 'fixtures', 'leagues', 'standings', 
+                        'sources', 'status', 'health', 'search',
+                        'today', 'tomorrow', 'yesterday'
+                    ],
+                    rate_limit: '1000 requests/hour',
+                    cache: '30 seconds',
+                    contact: 'xcrazybet.github.io',
+                    github_actions: true,
+                    multi_source: true
+                };
             }
 
-            getMemoryUsage() {
-                if (performance && performance.memory) {
-                    const memory = performance.memory;
-                    return {
-                        used_js_heap_size: Math.round(memory.usedJSHeapSize / 1024 / 1024) + 'MB',
-                        total_js_heap_size: Math.round(memory.totalJSHeapSize / 1024 / 1024) + 'MB',
-                        js_heap_size_limit: Math.round(memory.jsHeapSizeLimit / 1024 / 1024) + 'MB'
-                    };
+            getRequestInfo(params) {
+                return {
+                    endpoint: params.get('endpoint') || 'live',
+                    parameters: Object.fromEntries(params.entries()),
+                    timestamp: new Date().toISOString(),
+                    method: 'GET'
+                };
+            }
+
+            // ============ OUTPUT METHODS ============
+
+            outputResult(result, format, callback, github) {
+                const outputMethods = {
+                    'json': () => this.outputJSON(result),
+                    'jsonp': () => this.outputJSONP(result, callback),
+                    'xml': () => this.outputXML(result),
+                    'txt': () => this.outputText(result),
+                    'text': () => this.outputText(result)
+                };
+                
+                const method = outputMethods[format] || outputMethods.json;
+                method();
+                
+                // For GitHub Actions mode, also save to localStorage
+                if (github) {
+                    this.saveForGitHubActions(result);
                 }
-                return 'Not available';
             }
-
-            // ============ OUTPUT FORMATS ============
 
             outputJSON(data) {
-                // Set proper content type
                 document.head.innerHTML = `
                     <meta charset="UTF-8">
                     <title>Football API - ${data.endpoint}</title>
@@ -1095,16 +580,25 @@
                             white-space: pre-wrap; word-wrap: break-word;
                             margin: 0; line-height: 1.4;
                         }
-                        .api-info {
+                        .api-header {
                             background: rgba(59, 130, 246, 0.1);
-                            padding: 10px; border-radius: 5px;
+                            padding: 15px; border-radius: 5px;
                             margin-bottom: 15px; border-left: 3px solid #3b82f6;
                         }
-                        .data-source {
+                        .data-source-badge {
                             display: inline-block;
                             background: rgba(245, 158, 11, 0.2);
                             color: #f59e0b;
-                            padding: 2px 8px;
+                            padding: 3px 10px;
+                            border-radius: 12px;
+                            font-size: 12px;
+                            margin-left: 10px;
+                        }
+                        .cache-badge {
+                            display: inline-block;
+                            background: rgba(34, 197, 94, 0.2);
+                            color: #4ade80;
+                            padding: 3px 10px;
                             border-radius: 12px;
                             font-size: 12px;
                             margin-left: 10px;
@@ -1112,37 +606,40 @@
                     </style>
                 `;
                 
-                const sourceBadge = data.data_source ? `<span class="data-source">${data.data_source}</span>` : '';
+                const sourceBadge = data.source ? 
+                    `<span class="data-source-badge">${data.source}</span>` : '';
+                
+                const cacheBadge = data.cached ? 
+                    '<span class="cache-badge">⚡ Cached</span>' : '';
                 
                 document.body.innerHTML = `
-                    <div class="api-info">
-                        <strong>⚽ Football Data Hub API v3.0.0</strong><br>
+                    <div class="api-header">
+                        <strong>⚽ Football Data Hub API v4.0</strong><br>
                         Endpoint: ${data.endpoint} | 
                         Time: ${new Date().toLocaleTimeString()} |
-                        ${data.cached ? '⚡ Cached' : '🔄 Fresh'} 
+                        Matches: ${data.count || 0}
                         ${sourceBadge}
+                        ${cacheBadge}
                     </div>
                     <pre>${JSON.stringify(data, null, 2)}</pre>
                 `;
             }
 
             outputJSONP(data, callback) {
+                if (!callback) {
+                    this.outputJSON(data);
+                    return;
+                }
+                
                 const script = document.createElement('script');
                 script.textContent = `${callback}(${JSON.stringify(data)})`;
                 document.body.appendChild(script);
             }
 
             outputXML(data) {
-                document.head.innerHTML = `
-                    <meta charset="UTF-8">
-                    <title>Football API - ${data.endpoint}</title>
-                `;
-                
-                // Convert to XML
                 let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-                xml += `<football-api endpoint="${data.endpoint}" timestamp="${new Date().toISOString()}" version="3.0.0">\n`;
+                xml += `<football-api endpoint="${data.endpoint}" version="4.0.0">\n`;
                 
-                // Convert data to XML (simplified)
                 if (data.data && Array.isArray(data.data)) {
                     xml += '  <matches>\n';
                     data.data.forEach(item => {
@@ -1158,97 +655,70 @@
                 }
                 
                 xml += `  <count>${data.count || 0}</count>\n`;
-                xml += `  <updated>${data.updated}</updated>\n`;
-                xml += `  <data_source>${data.data_source || 'unknown'}</data_source>\n`;
-                xml += `  <environment>${data.environment || 'browser'}</environment>\n`;
+                xml += `  <updated>${data.updated || new Date().toISOString()}</updated>\n`;
+                xml += `  <source>${data.source || 'unknown'}</source>\n`;
                 xml += '</football-api>';
                 
                 document.body.innerHTML = `<pre>${this.escapeHTML(xml)}</pre>`;
             }
 
             outputText(data) {
-                document.head.innerHTML = `
-                    <meta charset="UTF-8">
-                    <title>Football API - ${data.endpoint}</title>
-                    <style>
-                        body { 
-                            margin: 0; padding: 20px; 
-                            background: #0f172a; color: #f8fafc; 
-                            font-family: monospace; font-size: 14px;
-                            white-space: pre-wrap;
-                        }
-                    </style>
-                `;
-                
-                let text = `=== FOOTBALL DATA HUB API ===\n`;
+                let text = `=== FOOTBALL DATA HUB API v4.0 ===\n`;
                 text += `Endpoint: ${data.endpoint}\n`;
                 text += `Timestamp: ${new Date().toLocaleString()}\n`;
                 text += `Status: ${data.success ? 'SUCCESS' : 'ERROR'}\n`;
-                text += `Data Source: ${data.data_source || 'unknown'}\n`;
+                text += `Data Source: ${data.source || 'unknown'}\n`;
                 text += `Environment: ${data.environment || 'browser'}\n`;
-                text += `Cached: ${data.cached ? 'Yes' : 'No'}\n\n`;
+                text += `Cached: ${data.cached ? 'Yes' : 'No'}\n`;
+                text += `Matches: ${data.count || 0}\n\n`;
                 
                 if (data.endpoint === 'live' || data.endpoint === 'fixtures') {
-                    text += `Matches (${data.count}):\n`;
-                    text += '='.repeat(50) + '\n';
+                    text += `Match List:\n`;
+                    text += '='.repeat(60) + '\n';
                     
                     data.data.forEach((match, index) => {
                         text += `${index + 1}. ${match.home_team} ${match.score} ${match.away_team}\n`;
                         text += `   League: ${match.league} | Status: ${match.status} | Minute: ${match.minute}\n`;
                         text += `   Source: ${match.source} | Country: ${match.country}\n`;
-                        text += '-'.repeat(50) + '\n';
+                        text += '-'.repeat(60) + '\n';
                     });
                 } else {
                     text += JSON.stringify(data.data, null, 2);
                 }
                 
-                document.body.innerHTML = text;
+                document.body.innerHTML = `<pre style="white-space: pre-wrap;">${text}</pre>`;
             }
 
-            outputError(error) {
+            outputError(error, format, callback) {
                 const errorData = {
                     success: false,
                     error: error.message,
-                    endpoint: new URLSearchParams(window.location.search).get('endpoint') || 'unknown',
                     timestamp: new Date().toISOString(),
                     help: 'Check https://xcrazybet.github.io/millioner/api.html for documentation',
-                    status_code: 500,
-                    data_sources_tried: [
-                        'localStorage_cache',
-                        'github_actions_cache', 
-                        'firebase',
-                        'direct_collection',
-                        'static_json',
-                        'legacy_storage'
-                    ]
+                    status_code: 500
                 };
                 
-                document.head.innerHTML = `
-                    <meta charset="UTF-8">
-                    <title>API Error</title>
-                    <style>
-                        body { 
-                            margin: 0; padding: 20px; 
-                            background: #0f172a; color: #f8fafc; 
-                            font-family: monospace;
-                        }
-                    </style>
-                `;
-                
-                document.body.innerHTML = `
-                    <div style="background: #fee; border: 2px solid #ef4444; padding: 20px; border-radius: 5px;">
-                        <h2 style="color: #ef4444; margin-top: 0;">❌ Football API Error</h2>
-                        <pre style="color: #ef4444;">${JSON.stringify(errorData, null, 2)}</pre>
-                        <p style="margin-top: 15px;">
-                            <strong>⚠️ Troubleshooting:</strong><br>
-                            1. Run the data collector first: 
-                            <a href="fot.html" style="color: #3b82f6;">fot.html</a><br>
-                            2. Check if data exists in localStorage<br>
-                            3. Try GitHub Actions mode: 
-                            <a href="fot.html?gh_actions=true" style="color: #3b82f6;">fot.html?gh_actions=true</a>
-                        </p>
-                    </div>
-                `;
+                if (format === 'jsonp' && callback) {
+                    this.outputJSONP(errorData, callback);
+                } else if (format === 'xml') {
+                    this.outputXML(errorData);
+                } else if (format === 'txt' || format === 'text') {
+                    this.outputText(errorData);
+                } else {
+                    this.outputJSON(errorData);
+                }
+            }
+
+            saveForGitHubActions(data) {
+                try {
+                    localStorage.setItem('football_api_cache', JSON.stringify({
+                        data: data,
+                        saved_at: new Date().toISOString(),
+                        endpoint: data.endpoint
+                    }));
+                } catch (e) {
+                    console.log('LocalStorage save failed:', e);
+                }
             }
 
             escapeXML(text) {
@@ -1273,12 +743,9 @@
 
         // Initialize API when page loads
         document.addEventListener('DOMContentLoaded', () => {
-            const api = new FootballAPI();
-            api.handleRequest();
+            const api = new FootballAPIv4();
+            window.FootballAPI = api; // Make available globally
         });
-
-        // Make API available globally for testing
-        window.FootballAPI = FootballAPI;
     </script>
     
     <style>
@@ -1330,37 +797,64 @@
             margin: 10px;
             border: 1px solid rgba(245, 158, 11, 0.3);
         }
+        
+        .source-badges {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+            justify-content: center;
+        }
+        
+        .source-badge {
+            background: rgba(59, 130, 246, 0.1);
+            color: #60a5fa;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
     </style>
 </head>
 <body>
     <div id="loading">
         <div class="loading-spinner"></div>
-        <h2>⚽ Football Data Hub API v3.0</h2>
-        <div class="github-badge">GitHub Actions Ready</div>
-        <p class="loading-text">Fetching real-time football data...</p>
+        <h2>⚽ Football Data Hub API v4.0</h2>
+        <div class="github-badge">Multi-Source System</div>
+        <p class="loading-text">Fetching real-time football data from 8 sources...</p>
+        
+        <div class="source-badges">
+            <span class="source-badge">RapidAPI</span>
+            <span class="source-badge">API-Football</span>
+            <span class="source-badge">LiveScore</span>
+            <span class="source-badge">FlashScore</span>
+            <span class="source-badge">SofaScore</span>
+            <span class="source-badge">Football-Data</span>
+            <span class="source-badge">ScoreBat</span>
+            <span class="source-badge">BBC RSS</span>
+        </div>
+        
         <div style="font-size: 14px; color: #64748b; margin-top: 20px; text-align: center; max-width: 600px;">
-            <p><strong>Data Sources (in priority order):</strong></p>
+            <p><strong>Data Sources Priority:</strong></p>
             <ol style="text-align: left; display: inline-block; margin: 10px auto;">
-                <li>localStorage cache (GitHub Actions compatible)</li>
-                <li>GitHub Actions storage</li>
-                <li>Firebase Database</li>
-                <li>Static JSON files</li>
-                <li>Sample data (fallback)</li>
+                <li>Firebase Live Database</li>
+                <li>Static JSON (GitHub Actions backup)</li>
+                <li>Sample Data (fallback)</li>
             </ol>
             <p style="margin-top: 15px;">
-                Collector: <a href="fot.html" style="color: #3b82f6;">fot.html</a> | 
-                Docs: <a href="fot.html" style="color: #3b82f6;">Readme</a> |
+                Collector: <a href="collector.html" style="color: #3b82f6;">collector.html</a> | 
+                Storage: <a href="bet-storage.html" style="color: #3b82f6;">Bet Storage</a> |
                 GitHub: <a href="https://github.com/xcrazybet/millioner" style="color: #3b82f6;">Repository</a>
             </p>
         </div>
     </div>
     
     <script>
-        // Hide loading after 3 seconds max
+        // Hide loading after API loads
         setTimeout(() => {
             const loading = document.getElementById('loading');
             if (loading) loading.style.display = 'none';
-        }, 3000);
+        }, 2000);
     </script>
 </body>
 </html>
