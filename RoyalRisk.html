@@ -1,0 +1,2362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🏰 ROYAL RISK MOBILE - XCrazyBet</title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <!-- Three.js for 3D Map -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls for mobile-friendly camera -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.min.js"></script>
+
+    <style>
+        :root {
+            --player-blue: #4169E1;
+            --player-dark-blue: #2A4FB3;
+            --enemy-red: #DC143C;
+            --enemy-dark-red: #B01030;
+            --neutral-grey: #708090;
+            --neutral-dark-grey: #5A6873;
+            --crown-gold: #FFD700;
+            --crown-dark-gold: #CCA300;
+            --ui-silver: #C0C0C0;
+            --bg-dark: #1B1B1B;
+            --bg-surface: #2A2A2A;
+            --bg-surface-light: #3A3A3A;
+            --text: #FFFFFF;
+            --text-dim: #AAAAAA;
+            --success: #00FF9D;
+            --danger: #FF1C1C;
+            --warning: #FFD700;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            font-family: 'MedievalSharp', 'Segoe UI', system-ui, sans-serif;
+            user-select: none;
+        }
+
+        body {
+            background: var(--bg-dark);
+            color: var(--text);
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            position: fixed;
+            touch-action: none;
+        }
+
+        /* Loading Screen */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-dark);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            transition: opacity 0.5s;
+        }
+
+        .loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-icon {
+            width: 80px;
+            height: 80px;
+            border: 4px solid var(--crown-gold);
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: var(--crown-gold);
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        /* Game Container - Vertical Mobile Layout */
+        .game-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* Header */
+        .game-header {
+            background: rgba(43, 43, 43, 0.95);
+            padding: 12px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px solid var(--crown-gold);
+            z-index: 100;
+            position: relative;
+            backdrop-filter: blur(10px);
+        }
+
+        .game-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--crown-gold);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .balance-display {
+            background: linear-gradient(45deg, #2A2A2A, #1A1A1A);
+            padding: 8px 15px;
+            border-radius: 20px;
+            border: 1px solid var(--crown-gold);
+            color: var(--crown-gold);
+            font-weight: 700;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* 3D Map Container - Top 40% */
+        .map-container {
+            flex: 4;
+            position: relative;
+            background: linear-gradient(180deg, #0A0A1A 0%, #1A1A2A 100%);
+            overflow: hidden;
+            border-bottom: 2px solid rgba(255, 215, 0, 0.3);
+        }
+
+        #game-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            outline: none;
+        }
+
+        .map-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            justify-content: space-between;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .map-info {
+            background: rgba(26, 26, 26, 0.8);
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--ui-silver);
+            backdrop-filter: blur(5px);
+            pointer-events: auto;
+        }
+
+        .turn-counter {
+            color: var(--crown-gold);
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        /* Territory Info Panel */
+        .territory-info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
+            background: rgba(26, 26, 26, 0.9);
+            padding: 15px;
+            border-radius: 15px;
+            border: 2px solid var(--player-blue);
+            display: none;
+            backdrop-filter: blur(10px);
+            z-index: 20;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .territory-info.show {
+            display: block;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .territory-name {
+            color: var(--crown-gold);
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .territory-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .territory-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+
+        .stat-label {
+            color: var(--text-dim);
+            font-size: 10px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            color: var(--text);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        /* Action Panel - Middle 35% */
+        .action-panel {
+            flex: 3.5;
+            background: rgba(26, 26, 26, 0.95);
+            padding: 15px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 10px;
+            border-bottom: 2px solid rgba(255, 215, 0, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        .action-btn {
+            background: linear-gradient(135deg, var(--bg-surface), var(--bg-surface-light));
+            border: 2px solid;
+            border-radius: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            padding: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .action-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: left 0.5s;
+        }
+
+        .action-btn:hover::before {
+            left: 100%;
+        }
+
+        .action-btn:active {
+            transform: scale(0.95);
+        }
+
+        .action-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .action-btn:disabled::before {
+            display: none;
+        }
+
+        .action-icon {
+            font-size: 24px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            margin-bottom: 5px;
+        }
+
+        .action-label {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            text-align: center;
+        }
+
+        .action-cost {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            font-size: 10px;
+            color: var(--text-dim);
+            background: rgba(0, 0, 0, 0.5);
+            padding: 2px 6px;
+            border-radius: 10px;
+        }
+
+        .btn-attack {
+            border-color: var(--enemy-red);
+            color: var(--enemy-red);
+        }
+
+        .btn-attack .action-icon {
+            background: rgba(220, 20, 60, 0.2);
+        }
+
+        .btn-fortify {
+            border-color: var(--player-blue);
+            color: var(--player-blue);
+        }
+
+        .btn-fortify .action-icon {
+            background: rgba(65, 105, 225, 0.2);
+        }
+
+        .btn-diplomacy {
+            border-color: var(--success);
+            color: var(--success);
+        }
+
+        .btn-diplomacy .action-icon {
+            background: rgba(0, 255, 157, 0.2);
+        }
+
+        .btn-spy {
+            border-color: var(--warning);
+            color: var(--warning);
+        }
+
+        .btn-spy .action-icon {
+            background: rgba(255, 215, 0, 0.2);
+        }
+
+        .btn-sabotage {
+            border-color: #FF6B6B;
+            color: #FF6B6B;
+        }
+
+        .btn-sabotage .action-icon {
+            background: rgba(255, 107, 107, 0.2);
+        }
+
+        .btn-crown {
+            border-color: var(--crown-gold);
+            color: var(--crown-gold);
+            grid-column: span 3;
+        }
+
+        .btn-crown .action-icon {
+            background: rgba(255, 215, 0, 0.2);
+        }
+
+        /* Resource HUD - Bottom 25% */
+        .resource-hud {
+            flex: 2.5;
+            background: rgba(26, 26, 26, 0.95);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .resource-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .resource-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .resource-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .resource-gold { background: var(--crown-gold); color: #000; }
+        .resource-soldiers { background: var(--player-blue); color: #fff; }
+        .resource-food { background: var(--success); color: #000; }
+        .resource-influence { background: var(--warning); color: #000; }
+
+        .resource-info {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
+
+        .resource-label {
+            color: var(--text-dim);
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+
+        .resource-value {
+            color: var(--text);
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .crown-progress {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 10px;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .progress-label {
+            color: var(--crown-gold);
+            font-size: 12px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .progress-percent {
+            color: var(--crown-gold);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--crown-gold), var(--crown-dark-gold));
+            border-radius: 5px;
+            transition: width 0.5s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            animation: progressShine 2s infinite;
+        }
+
+        @keyframes progressShine {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        /* Bet Controls Overlay */
+        .bet-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(11, 11, 11, 0.95);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .bet-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .bet-controls {
+            background: rgba(26, 26, 26, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            border: 3px solid var(--crown-gold);
+            max-width: 400px;
+            width: 90%;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 10px 40px rgba(255, 215, 0, 0.3);
+        }
+
+        .bet-title {
+            color: var(--crown-gold);
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .bet-input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .bet-input {
+            flex: 1;
+            padding: 15px;
+            background: rgba(17, 17, 17, 0.8);
+            border: 2px solid var(--crown-gold);
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 18px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .currency {
+            color: var(--crown-gold);
+            font-weight: 700;
+            font-size: 18px;
+            min-width: 20px;
+        }
+
+        .quick-bets {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .quick-bet {
+            padding: 10px 5px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: var(--text-dim);
+            font-weight: 600;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-bet:hover {
+            background: rgba(255, 215, 0, 0.1);
+            border-color: var(--crown-gold);
+            color: var(--crown-gold);
+        }
+
+        .play-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, var(--crown-gold), var(--crown-dark-gold));
+            border: none;
+            border-radius: 10px;
+            color: #000;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .play-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.4);
+        }
+
+        /* Result Overlay */
+        .result-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(11, 11, 11, 0.95);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .result-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .result-content {
+            background: rgba(26, 26, 26, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            backdrop-filter: blur(20px);
+            border: 3px solid;
+            animation: resultAppear 0.5s ease-out;
+        }
+
+        @keyframes resultAppear {
+            from {
+                opacity: 0;
+                transform: scale(0.9) translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+
+        .result-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }
+
+        .result-victory {
+            color: var(--crown-gold);
+            border-color: var(--crown-gold);
+        }
+
+        .result-defeat {
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
+        .result-details {
+            font-size: 16px;
+            margin: 15px 0;
+            color: var(--text);
+        }
+
+        .result-amount {
+            font-size: 32px;
+            font-weight: 900;
+            margin: 20px 0;
+            color: var(--crown-gold);
+        }
+
+        .result-amount.lose {
+            color: var(--danger);
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 300px;
+            width: 90%;
+        }
+
+        .toast {
+            padding: 15px;
+            background: rgba(26, 26, 26, 0.95);
+            border-radius: 10px;
+            border-left: 4px solid var(--crown-gold);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+            transform: translateY(100%);
+            opacity: 0;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+            font-size: 14px;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            border-color: var(--crown-gold);
+        }
+
+        .toast.error {
+            border-color: var(--danger);
+        }
+
+        .toast.warning {
+            border-color: var(--warning);
+        }
+
+        /* Mobile Controls */
+        .mobile-controls {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 50;
+        }
+
+        .control-btn {
+            width: 50px;
+            height: 50px;
+            background: rgba(26, 26, 26, 0.9);
+            border-radius: 50%;
+            border: 2px solid var(--crown-gold);
+            color: var(--crown-gold);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .control-btn:active {
+            transform: scale(0.9);
+            background: var(--crown-gold);
+            color: #000;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .game-header {
+                padding: 10px;
+            }
+
+            .game-title {
+                font-size: 16px;
+            }
+
+            .balance-display {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+
+            .action-panel {
+                padding: 10px;
+                gap: 8px;
+            }
+
+            .action-label {
+                font-size: 10px;
+            }
+
+            .action-icon {
+                font-size: 20px;
+                width: 32px;
+                height: 32px;
+            }
+
+            .resource-hud {
+                padding: 10px;
+            }
+
+            .resource-value {
+                font-size: 14px;
+            }
+
+            .territory-info {
+                padding: 12px;
+            }
+
+            .bet-controls {
+                padding: 20px;
+            }
+
+            .bet-title {
+                font-size: 20px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .game-title {
+                font-size: 14px;
+            }
+
+            .action-panel {
+                grid-template-columns: repeat(2, 1fr);
+                grid-template-rows: repeat(3, 1fr);
+            }
+
+            .btn-crown {
+                grid-column: span 2;
+            }
+
+            .resource-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .control-btn {
+                width: 40px;
+                height: 40px;
+                font-size: 16px;
+            }
+        }
+
+        /* Fullscreen Toggle */
+        .fullscreen-toggle {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            width: 40px;
+            height: 40px;
+            background: rgba(26, 26, 26, 0.9);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--crown-gold);
+            cursor: pointer;
+            z-index: 1001;
+            border: 1px solid var(--crown-gold);
+            transition: all 0.3s;
+        }
+
+        .fullscreen-toggle:hover {
+            background: var(--crown-gold);
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loading-screen">
+        <div class="loading-icon"></div>
+        <div class="loading-text">Loading Royal Risk...</div>
+    </div>
+
+    <!-- Fullscreen Toggle -->
+    <div class="fullscreen-toggle" id="fullscreen-toggle">
+        <i class="fas fa-expand"></i>
+    </div>
+
+    <!-- Game Container -->
+    <div class="game-container">
+        <!-- Header -->
+        <header class="game-header">
+            <div class="game-title">
+                <i class="fas fa-crown"></i>
+                ROYAL RISK MOBILE
+            </div>
+            <div class="balance-display">
+                <i class="fas fa-coins"></i>
+                $<span id="balance-val">0.00</span>
+            </div>
+        </header>
+
+        <!-- 3D Map Container -->
+        <div class="map-container">
+            <canvas id="game-canvas"></canvas>
+            <div class="map-overlay">
+                <div class="map-info">
+                    <div class="turn-counter">Turn: <span id="turn-count">1</span>/15</div>
+                </div>
+            </div>
+            <div class="territory-info" id="territory-info">
+                <div class="territory-name">
+                    <i class="fas fa-flag"></i>
+                    <span id="territory-name">Unknown Territory</span>
+                </div>
+                <div class="territory-stats">
+                    <div class="territory-stat">
+                        <div class="stat-label">Owner</div>
+                        <div class="stat-value" id="territory-owner">Neutral</div>
+                    </div>
+                    <div class="territory-stat">
+                        <div class="stat-label">Soldiers</div>
+                        <div class="stat-value" id="territory-soldiers">0</div>
+                    </div>
+                    <div class="territory-stat">
+                        <div class="stat-label">Defense</div>
+                        <div class="stat-value" id="territory-defense">0%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Panel -->
+        <div class="action-panel">
+            <button class="action-btn btn-attack" id="btn-attack">
+                <div class="action-icon">
+                    <i class="fas fa-fist-raised"></i>
+                </div>
+                <div class="action-label">Attack</div>
+                <div class="action-cost">⚔️ 50</div>
+            </button>
+            <button class="action-btn btn-fortify" id="btn-fortify">
+                <div class="action-icon">
+                    <i class="fas fa-shield-alt"></i>
+                </div>
+                <div class="action-label">Fortify</div>
+                <div class="action-cost">💰 30</div>
+            </button>
+            <button class="action-btn btn-diplomacy" id="btn-diplomacy">
+                <div class="action-icon">
+                    <i class="fas fa-handshake"></i>
+                </div>
+                <div class="action-label">Diplomacy</div>
+                <div class="action-cost">💎 20</div>
+            </button>
+            <button class="action-btn btn-spy" id="btn-spy">
+                <div class="action-icon">
+                    <i class="fas fa-eye"></i>
+                </div>
+                <div class="action-label">Spy</div>
+                <div class="action-cost">👁 15</div>
+            </button>
+            <button class="action-btn btn-sabotage" id="btn-sabotage">
+                <div class="action-icon">
+                    <i class="fas fa-bomb"></i>
+                </div>
+                <div class="action-label">Sabotage</div>
+                <div class="action-cost">💣 40</div>
+            </button>
+            <button class="action-btn btn-crown" id="btn-crown">
+                <div class="action-icon">
+                    <i class="fas fa-crown"></i>
+                </div>
+                <div class="action-label">Claim Crown</div>
+                <div class="action-cost">👑 100</div>
+            </button>
+        </div>
+
+        <!-- Resource HUD -->
+        <div class="resource-hud">
+            <div class="resource-grid">
+                <div class="resource-item">
+                    <div class="resource-icon resource-gold">
+                        <i class="fas fa-coins"></i>
+                    </div>
+                    <div class="resource-info">
+                        <div class="resource-label">Gold</div>
+                        <div class="resource-value" id="gold-val">1500</div>
+                    </div>
+                </div>
+                <div class="resource-item">
+                    <div class="resource-icon resource-soldiers">
+                        <i class="fas fa-user-shield"></i>
+                    </div>
+                    <div class="resource-info">
+                        <div class="resource-label">Soldiers</div>
+                        <div class="resource-value" id="soldiers-val">250</div>
+                    </div>
+                </div>
+                <div class="resource-item">
+                    <div class="resource-icon resource-food">
+                        <i class="fas fa-utensils"></i>
+                    </div>
+                    <div class="resource-info">
+                        <div class="resource-label">Food</div>
+                        <div class="resource-value" id="food-val">800</div>
+                    </div>
+                </div>
+                <div class="resource-item">
+                    <div class="resource-icon resource-influence">
+                        <i class="fas fa-star"></i>
+                    </div>
+                    <div class="resource-info">
+                        <div class="resource-label">Influence</div>
+                        <div class="resource-value" id="influence-val">65%</div>
+                    </div>
+                </div>
+            </div>
+            <div class="crown-progress">
+                <div class="progress-header">
+                    <div class="progress-label">
+                        <i class="fas fa-crown"></i>
+                        Crown Progress
+                    </div>
+                    <div class="progress-percent" id="crown-progress">65%</div>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill" style="width: 65%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Controls -->
+    <div class="mobile-controls">
+        <div class="control-btn" id="btn-zoom-in" title="Zoom In">
+            <i class="fas fa-plus"></i>
+        </div>
+        <div class="control-btn" id="btn-zoom-out" title="Zoom Out">
+            <i class="fas fa-minus"></i>
+        </div>
+        <div class="control-btn" id="btn-reset-camera" title="Reset Camera">
+            <i class="fas fa-crosshairs"></i>
+        </div>
+    </div>
+
+    <!-- Bet Controls Overlay -->
+    <div class="bet-overlay" id="bet-overlay">
+        <div class="bet-controls">
+            <div class="bet-title">
+                <i class="fas fa-crown"></i>
+                Start Royal Conquest
+            </div>
+            <div class="bet-input-group">
+                <div class="currency">$</div>
+                <input type="number" class="bet-input" id="bet-amount" value="5" min="1" step="1">
+                <div class="currency">USD</div>
+            </div>
+            <div class="quick-bets">
+                <div class="quick-bet" data-amount="1">$1</div>
+                <div class="quick-bet" data-amount="5">$5</div>
+                <div class="quick-bet" data-amount="10">$10</div>
+                <div class="quick-bet" data-amount="25">$25</div>
+            </div>
+            <button class="play-btn" id="start-game-btn">
+                <i class="fas fa-play"></i>
+                BEGIN CONQUEST
+            </button>
+        </div>
+    </div>
+
+    <!-- Result Overlay -->
+    <div class="result-overlay" id="result-overlay">
+        <div class="result-content" id="result-content">
+            <div class="result-title" id="result-title">VICTORY!</div>
+            <div class="result-details" id="result-details">
+                Territory conquered successfully!
+            </div>
+            <div class="result-amount" id="result-amount">+$0.00</div>
+            <button id="continue-btn" class="play-btn" style="margin-top: 20px;">
+                <i class="fas fa-redo"></i>
+                CONTINUE
+            </button>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Audio Elements -->
+    <audio id="sound-click" preload="auto"></audio>
+    <audio id="sound-battle" preload="auto"></audio>
+    <audio id="sound-victory" preload="auto"></audio>
+    <audio id="sound-defeat" preload="auto"></audio>
+    <audio id="sound-crown" preload="auto"></audio>
+
+    <script>
+        // ===== FIREBASE CONFIG =====
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // ===== GAME STATE =====
+        const gameState = {
+            currentUser: null,
+            balance: 0,
+            gameMode: 'campaign',
+            betAmount: 5,
+            maxBet: 1000,
+            isPlaying: false,
+            gameActive: false,
+            gameId: null,
+            
+            // Player Resources
+            gold: 1500,
+            soldiers: 250,
+            food: 800,
+            influence: 65,
+            turn: 1,
+            maxTurns: 15,
+            
+            // Hidden 85-90% lose rate system
+            baseWinProbability: 0.13, // 13% base win chance
+            winProbability: 0.13,
+            houseEdge: 0.87, // 87% house advantage
+            
+            // Territory Data
+            territories: [],
+            selectedTerritory: null,
+            mapSize: { width: 5, height: 4 },
+            
+            // Action Costs
+            actionCosts: {
+                attack: { gold: 50, soldiers: 0, food: 20 },
+                fortify: { gold: 30, soldiers: 10, food: 10 },
+                diplomacy: { gold: 20, soldiers: 0, food: 5 },
+                spy: { gold: 15, soldiers: 5, food: 5 },
+                sabotage: { gold: 40, soldiers: 20, food: 10 },
+                crown: { gold: 100, soldiers: 50, food: 50 }
+            },
+            
+            // Action Success Rates (displayed vs actual)
+            actionRates: {
+                attack: { displayed: 0.65, actual: 0.13 },
+                fortify: { displayed: 0.85, actual: 0.70 },
+                diplomacy: { displayed: 0.50, actual: 0.20 },
+                spy: { displayed: 0.60, actual: 0.40 },
+                sabotage: { displayed: 0.35, actual: 0.15 },
+                crown: { displayed: 0.30, actual: 0.08 }
+            },
+            
+            // Game statistics
+            territoriesConquered: 0,
+            totalBattles: 0,
+            battlesWon: 0,
+            winRate: 0,
+            currentStreak: 0,
+            
+            // Current round
+            currentRound: {
+                action: null,
+                target: null,
+                outcome: null, // 'victory', 'defeat', 'neutral'
+                payout: 0,
+                influenceChange: 0,
+                resourcesLost: { gold: 0, soldiers: 0, food: 0 }
+            },
+            
+            // 3D Scene Objects
+            scene: null,
+            camera: null,
+            renderer: null,
+            controls: null,
+            territoryMeshes: [],
+            selectionRing: null,
+            
+            // Bonus system
+            bonusSystem: {
+                turnsPlayed: 0,
+                turnsForBonus: 10,
+                bonusAmount: 5,
+                bonusEarned: false
+            }
+        };
+
+        // ===== 3D MAP SETUP =====
+        let scene, camera, renderer, controls;
+        let territoryMeshes = [];
+        let selectionRing = null;
+
+        function init3DMap() {
+            const canvas = document.getElementById('game-canvas');
+            
+            // Create scene
+            scene = new THREE.Scene();
+            scene.fog = new THREE.Fog(0x1B1B1B, 10, 50);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+            camera.position.set(0, 15, 20);
+            camera.lookAt(0, 0, 0);
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ 
+                canvas, 
+                antialias: true,
+                alpha: true,
+                powerPreference: "high-performance"
+            });
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xFFFFFF, 1);
+            directionalLight.position.set(10, 20, 10);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+            
+            // Add controls for mobile
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.maxPolarAngle = Math.PI / 2;
+            controls.minDistance = 10;
+            controls.maxDistance = 50;
+            controls.enablePan = true;
+            controls.enableZoom = true;
+            
+            // Create ground
+            createGround();
+            
+            // Create territories
+            createTerritories();
+            
+            // Create selection ring
+            createSelectionRing();
+            
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+            
+            // Start animation
+            animate();
+        }
+
+        function createGround() {
+            const groundGeometry = new THREE.PlaneGeometry(40, 32);
+            const groundMaterial = new THREE.MeshStandardMaterial({
+                color: 0x2A2A2A,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+            
+            // Add grid helper
+            const gridHelper = new THREE.GridHelper(40, 20, 0x000000, 0x000000);
+            gridHelper.position.y = 0.01;
+            scene.add(gridHelper);
+        }
+
+        function createTerritories() {
+            const territorySpacing = 6;
+            const rows = gameState.mapSize.height;
+            const cols = gameState.mapSize.width;
+            
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    const x = (col - (cols - 1) / 2) * territorySpacing;
+                    const z = (row - (rows - 1) / 2) * territorySpacing;
+                    
+                    // Determine territory type
+                    let owner, soldiers, defense;
+                    const random = Math.random();
+                    
+                    if (random < 0.3) {
+                        owner = 'player';
+                        soldiers = Math.floor(Math.random() * 50) + 50;
+                        defense = Math.floor(Math.random() * 30) + 20;
+                    } else if (random < 0.7) {
+                        owner = 'enemy';
+                        soldiers = Math.floor(Math.random() * 100) + 100;
+                        defense = Math.floor(Math.random() * 50) + 30;
+                    } else {
+                        owner = 'neutral';
+                        soldiers = Math.floor(Math.random() * 30) + 10;
+                        defense = Math.floor(Math.random() * 20) + 10;
+                    }
+                    
+                    // Create territory data
+                    const territory = {
+                        id: `territory_${row}_${col}`,
+                        name: getTerritoryName(row, col),
+                        position: { x, z },
+                        owner: owner,
+                        soldiers: soldiers,
+                        defense: defense,
+                        resources: {
+                            gold: Math.floor(Math.random() * 100) + 50,
+                            food: Math.floor(Math.random() * 200) + 100
+                        },
+                        mesh: null
+                    };
+                    
+                    gameState.territories.push(territory);
+                    
+                    // Create 3D mesh
+                    createTerritoryMesh(territory);
+                }
+            }
+        }
+
+        function getTerritoryName(row, col) {
+            const prefixes = ['Royal', 'Golden', 'Silver', 'Iron', 'Crystal', 'Emerald', 'Ruby', 'Sapphire'];
+            const suffixes = ['Keep', 'Castle', 'Fortress', 'Tower', 'Citadel', 'Stronghold', 'Bastion', 'Redoubt'];
+            return `${prefixes[col % prefixes.length]} ${suffixes[row % suffixes.length]}`;
+        }
+
+        function createTerritoryMesh(territory) {
+            // Create castle geometry
+            const baseGeometry = new THREE.CylinderGeometry(1.5, 2, 1, 8);
+            const towerGeometry = new THREE.CylinderGeometry(0.5, 0.7, 3, 6);
+            const wallGeometry = new THREE.BoxGeometry(3, 0.5, 0.5);
+            
+            // Choose color based on owner
+            let color;
+            switch(territory.owner) {
+                case 'player': color = 0x4169E1; break;
+                case 'enemy': color = 0xDC143C; break;
+                case 'neutral': color = 0x708090; break;
+            }
+            
+            const material = new THREE.MeshStandardMaterial({
+                color: color,
+                roughness: 0.7,
+                metalness: 0.3,
+                emissive: color,
+                emissiveIntensity: 0.1
+            });
+            
+            // Create base
+            const base = new THREE.Mesh(baseGeometry, material);
+            base.position.set(territory.position.x, 0.5, territory.position.z);
+            base.castShadow = true;
+            base.receiveShadow = true;
+            base.userData = { territoryId: territory.id };
+            
+            // Create towers
+            const tower1 = new THREE.Mesh(towerGeometry, material);
+            tower1.position.set(territory.position.x - 1, 2, territory.position.z - 1);
+            
+            const tower2 = new THREE.Mesh(towerGeometry, material);
+            tower2.position.set(territory.position.x + 1, 2, territory.position.z - 1);
+            
+            const tower3 = new THREE.Mesh(towerGeometry, material);
+            tower3.position.set(territory.position.x - 1, 2, territory.position.z + 1);
+            
+            const tower4 = new THREE.Mesh(towerGeometry, material);
+            tower4.position.set(territory.position.x + 1, 2, territory.position.z + 1);
+            
+            // Create group
+            const territoryGroup = new THREE.Group();
+            territoryGroup.add(base);
+            territoryGroup.add(tower1);
+            territoryGroup.add(tower2);
+            territoryGroup.add(tower3);
+            territoryGroup.add(tower4);
+            
+            // Add selection ring placeholder
+            const ringGeometry = new THREE.TorusGeometry(2.5, 0.2, 8, 24);
+            const ringMaterial = new THREE.MeshBasicMaterial({
+                color: 0xFFD700,
+                transparent: true,
+                opacity: 0
+            });
+            const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+            ring.position.set(territory.position.x, 0.1, territory.position.z);
+            ring.rotation.x = Math.PI / 2;
+            territoryGroup.add(ring);
+            territory.selectionRing = ring;
+            
+            scene.add(territoryGroup);
+            territory.mesh = territoryGroup;
+            territoryMeshes.push(territoryGroup);
+        }
+
+        function createSelectionRing() {
+            const ringGeometry = new THREE.TorusGeometry(2.8, 0.3, 8, 32);
+            const ringMaterial = new THREE.MeshBasicMaterial({
+                color: 0xFFD700,
+                transparent: true,
+                opacity: 0.8,
+                side: THREE.DoubleSide
+            });
+            
+            selectionRing = new THREE.Mesh(ringGeometry, ringMaterial);
+            selectionRing.rotation.x = Math.PI / 2;
+            selectionRing.position.y = 0.1;
+            selectionRing.visible = false;
+            scene.add(selectionRing);
+        }
+
+        function selectTerritory(territory) {
+            if (selectionRing) {
+                selectionRing.position.set(territory.position.x, 0.1, territory.position.z);
+                selectionRing.visible = true;
+                
+                // Pulse animation
+                selectionRing.scale.set(1, 1, 1);
+                animateSelectionRing();
+            }
+            
+            // Show territory info
+            showTerritoryInfo(territory);
+            
+            gameState.selectedTerritory = territory;
+            
+            // Enable/disable action buttons based on territory
+            updateActionButtons(territory);
+        }
+
+        function animateSelectionRing() {
+            let scale = 1;
+            let direction = 1;
+            
+            function pulse() {
+                if (!selectionRing || !selectionRing.visible) return;
+                
+                scale += direction * 0.02;
+                if (scale > 1.2) direction = -1;
+                if (scale < 0.8) direction = 1;
+                
+                selectionRing.scale.set(scale, scale, scale);
+                requestAnimationFrame(pulse);
+            }
+            
+            pulse();
+        }
+
+        function showTerritoryInfo(territory) {
+            document.getElementById('territory-name').textContent = territory.name;
+            document.getElementById('territory-owner').textContent = 
+                territory.owner.charAt(0).toUpperCase() + territory.owner.slice(1);
+            document.getElementById('territory-soldiers').textContent = territory.soldiers;
+            document.getElementById('territory-defense').textContent = `${territory.defense}%`;
+            
+            const infoPanel = document.getElementById('territory-info');
+            infoPanel.classList.add('show');
+            
+            // Update border color based on owner
+            let borderColor;
+            switch(territory.owner) {
+                case 'player': borderColor = 'var(--player-blue)'; break;
+                case 'enemy': borderColor = 'var(--enemy-red)'; break;
+                case 'neutral': borderColor = 'var(--neutral-grey)'; break;
+            }
+            infoPanel.style.borderColor = borderColor;
+        }
+
+        function updateActionButtons(territory) {
+            const actions = ['attack', 'fortify', 'diplomacy', 'spy', 'sabotage', 'crown'];
+            
+            actions.forEach(action => {
+                const btn = document.getElementById(`btn-${action}`);
+                const cost = gameState.actionCosts[action];
+                
+                // Check if player has enough resources
+                const canAfford = gameState.gold >= cost.gold && 
+                                  gameState.soldiers >= cost.soldiers && 
+                                  gameState.food >= cost.food;
+                
+                // Check if action is valid for this territory
+                const isValid = isActionValid(action, territory);
+                
+                btn.disabled = !canAfford || !isValid;
+                
+                if (btn.disabled) {
+                    btn.style.opacity = '0.5';
+                } else {
+                    btn.style.opacity = '1';
+                }
+            });
+        }
+
+        function isActionValid(action, territory) {
+            switch(action) {
+                case 'attack':
+                    return territory.owner === 'enemy' || territory.owner === 'neutral';
+                case 'fortify':
+                    return territory.owner === 'player';
+                case 'diplomacy':
+                    return territory.owner === 'neutral';
+                case 'spy':
+                    return territory.owner === 'enemy';
+                case 'sabotage':
+                    return territory.owner === 'enemy';
+                case 'crown':
+                    return gameState.influence >= 100;
+                default:
+                    return false;
+            }
+        }
+
+        function onWindowResize() {
+            const canvas = document.getElementById('game-canvas');
+            camera.aspect = canvas.clientWidth / canvas.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (controls) {
+                controls.update();
+            }
+            
+            // Animate territory meshes
+            territoryMeshes.forEach(mesh => {
+                mesh.children[0].position.y = 0.5 + Math.sin(Date.now() * 0.001 + mesh.position.x) * 0.1;
+            });
+            
+            renderer.render(scene, camera);
+        }
+
+        // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuth();
+            setupEventListeners();
+            setupSounds();
+            
+            // Show bet overlay first
+            setTimeout(() => {
+                document.getElementById('bet-overlay').classList.add('show');
+            }, 1000);
+        });
+
+        // ===== AUTHENTICATION =====
+        function checkAuth() {
+            auth.onAuthStateChanged(user => {
+                if (!user) {
+                    showToast('Authentication required for royal conquest', 'error');
+                    setTimeout(() => {
+                        window.location.href = 'https://xcrazybet.github.io/millioner/login.html';
+                    }, 2000);
+                    return;
+                }
+                gameState.currentUser = user;
+                loadBalance();
+                setupRealTimeListeners();
+            });
+        }
+
+        // ===== BALANCE MANAGEMENT =====
+        async function loadBalance() {
+            try {
+                const doc = await db.collection("wallets").doc(gameState.currentUser.uid).get();
+                if (doc.exists) {
+                    gameState.balance = doc.data().balance || 0;
+                    updateBalanceDisplay();
+                    updateBetLimits();
+                    
+                    // Load bonus progress
+                    const bonusDoc = await db.collection("royalrisk_bonus").doc(gameState.currentUser.uid).get();
+                    if (bonusDoc.exists) {
+                        gameState.bonusSystem = {
+                            ...gameState.bonusSystem,
+                            ...bonusDoc.data()
+                        };
+                    }
+                } else {
+                    // Create wallet if doesn't exist
+                    await db.collection("wallets").doc(gameState.currentUser.uid).set({
+                        balance: 100,
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    });
+                    gameState.balance = 100;
+                    updateBalanceDisplay();
+                    updateBetLimits();
+                }
+            } catch (error) {
+                console.error('Error loading balance:', error);
+                showToast('Failed to load royal treasury', 'error');
+            }
+        }
+
+        function updateBalanceDisplay() {
+            document.getElementById('balance-val').textContent = gameState.balance.toFixed(2);
+        }
+
+        function updateBetLimits() {
+            const betInput = document.getElementById('bet-amount');
+            const maxBet = Math.min(gameState.balance, gameState.maxBet);
+            betInput.max = maxBet;
+            
+            if (parseFloat(betInput.value) > maxBet) {
+                betInput.value = maxBet;
+                gameState.betAmount = maxBet;
+            }
+        }
+
+        function updateResources() {
+            document.getElementById('gold-val').textContent = gameState.gold;
+            document.getElementById('soldiers-val').textContent = gameState.soldiers;
+            document.getElementById('food-val').textContent = gameState.food;
+            document.getElementById('influence-val').textContent = `${gameState.influence}%`;
+            
+            // Update crown progress
+            document.getElementById('crown-progress').textContent = `${gameState.influence}%`;
+            document.getElementById('progress-fill').style.width = `${gameState.influence}%`;
+            
+            // Update turn counter
+            document.getElementById('turn-count').textContent = gameState.turn;
+        }
+
+        // ===== REAL-TIME LISTENERS =====
+        function setupRealTimeListeners() {
+            if (!gameState.currentUser) return;
+            
+            const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+            
+            walletRef.onSnapshot((doc) => {
+                if (doc.exists) {
+                    const newBalance = doc.data().balance || 0;
+                    if (newBalance !== gameState.balance) {
+                        gameState.balance = newBalance;
+                        updateBalanceDisplay();
+                        updateBetLimits();
+                    }
+                }
+            }, (error) => {
+                console.error('Balance listener error:', error);
+            });
+        }
+
+        // ===== ATOMIC TRANSACTIONS =====
+        async function processTransaction(amount, type, description) {
+            try {
+                const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+                
+                return await db.runTransaction(async (transaction) => {
+                    const walletDoc = await transaction.get(walletRef);
+                    
+                    if (!walletDoc.exists) {
+                        throw new Error("Royal treasury not found");
+                    }
+                    
+                    const currentBalance = walletDoc.data().balance || 0;
+                    const newBalance = currentBalance + amount;
+                    
+                    if (newBalance < 0) {
+                        throw new Error("Insufficient royal funds");
+                    }
+                    
+                    // Update main balance
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        updatedAt: new Date()
+                    });
+                    
+                    // Record transaction
+                    const transactionRef = walletRef.collection("transactions").doc();
+                    transaction.set(transactionRef, {
+                        type: type,
+                        amount: amount,
+                        description: description,
+                        createdAt: new Date(),
+                        gameId: gameState.gameId || 'royalrisk_game',
+                        beforeBalance: currentBalance,
+                        afterBalance: newBalance,
+                        action: gameState.currentRound.action,
+                        turn: gameState.turn
+                    });
+                    
+                    // Update local balance
+                    gameState.balance = newBalance;
+                    updateBalanceDisplay();
+                    updateBetLimits();
+                    
+                    return { success: true, newBalance };
+                    
+                });
+            } catch (error) {
+                console.error('Royal transaction failed:', error);
+                showToast('Transaction failed: ' + error.message, 'error');
+                return { success: false, error: error.message };
+            }
+        }
+
+        async function saveGameState() {
+            try {
+                await db.collection("royalrisk_state").doc(gameState.currentUser.uid).set({
+                    gold: gameState.gold,
+                    soldiers: gameState.soldiers,
+                    food: gameState.food,
+                    influence: gameState.influence,
+                    turn: gameState.turn,
+                    territoriesConquered: gameState.territoriesConquered,
+                    territories: gameState.territories.map(t => ({
+                        id: t.id,
+                        owner: t.owner,
+                        soldiers: t.soldiers,
+                        defense: t.defense
+                    })),
+                    updatedAt: new Date()
+                });
+            } catch (error) {
+                console.error('Error saving game state:', error);
+            }
+        }
+
+        // ===== GAME FUNCTIONS =====
+        function startGame() {
+            const betAmount = parseFloat(document.getElementById('bet-amount').value);
+            
+            // Validation
+            if (betAmount < 1 || betAmount > Math.min(gameState.balance, gameState.maxBet)) {
+                showToast('Invalid royal stake', 'error');
+                return;
+            }
+            
+            if (betAmount > gameState.balance) {
+                showToast('Insufficient royal funds', 'error');
+                return;
+            }
+            
+            // Start the game
+            gameState.betAmount = betAmount;
+            gameState.gameId = 'royalrisk_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            
+            // Hide bet overlay
+            document.getElementById('bet-overlay').classList.remove('show');
+            
+            // Initialize 3D map
+            init3DMap();
+            
+            // Hide loading screen
+            document.getElementById('loading-screen').classList.add('hidden');
+            
+            // Show game UI
+            showToast('Royal conquest initiated! Select a territory to begin.', 'success');
+            
+            // Process initial bet
+            processInitialBet();
+        }
+
+        async function processInitialBet() {
+            const betResult = await processTransaction(
+                -gameState.betAmount,
+                "royalrisk_bet",
+                `Royal Risk bet of $${gameState.betAmount}`
+            );
+            
+            if (!betResult.success) {
+                // Reset to bet overlay
+                document.getElementById('bet-overlay').classList.add('show');
+                return;
+            }
+            
+            gameState.isPlaying = true;
+            gameState.gameActive = true;
+            
+            updateResources();
+        }
+
+        async function executeAction(action) {
+            if (!gameState.gameActive || !gameState.selectedTerritory) {
+                showToast('Select a territory first', 'warning');
+                return;
+            }
+            
+            const territory = gameState.selectedTerritory;
+            const cost = gameState.actionCosts[action];
+            
+            // Check resources
+            if (gameState.gold < cost.gold || gameState.soldiers < cost.soldiers || gameState.food < cost.food) {
+                showToast('Insufficient resources', 'error');
+                return;
+            }
+            
+            // Set current round
+            gameState.currentRound = {
+                action: action,
+                target: territory,
+                outcome: null,
+                payout: 0,
+                influenceChange: 0,
+                resourcesLost: { gold: 0, soldiers: 0, food: 0 }
+            };
+            
+            // Deduct resources
+            gameState.gold -= cost.gold;
+            gameState.soldiers -= cost.soldiers;
+            gameState.food -= cost.food;
+            
+            updateResources();
+            
+            // Calculate outcome with hidden lose system
+            calculateActionOutcome(action, territory);
+            
+            // Update game stats
+            gameState.totalBattles++;
+            gameState.turn++;
+            
+            // Save game state
+            await saveGameState();
+            
+            // Update bonus progress
+            await updateBonusProgress();
+            
+            // Show result
+            showActionResult();
+        }
+
+        // ===== HIDDEN 85-90% LOSE SYSTEM =====
+        function calculateActionOutcome(action, territory) {
+            const displayedRate = gameState.actionRates[action].displayed;
+            const actualRate = gameState.actionRates[action].actual;
+            
+            // Adjust win probability based on various factors
+            let adjustedWinProb = actualRate;
+            
+            // Territory defense reduces win chance
+            adjustedWinProb -= (territory.defense / 200);
+            
+            // Player streak punishment
+            if (gameState.currentStreak > 2) {
+                adjustedWinProb -= (gameState.currentStreak - 2) * 0.05;
+            }
+            
+            // Low resources penalty
+            if (gameState.soldiers < 100) adjustedWinProb -= 0.1;
+            if (gameState.food < 200) adjustedWinProb -= 0.05;
+            
+            // Ensure probability stays within bounds
+            adjustedWinProb = Math.max(0.02, Math.min(0.4, adjustedWinProb));
+            
+            // Determine outcome with hidden lose system
+            const random = Math.random();
+            let outcome, influenceChange, resourcesLost, payout;
+            
+            // Check for victory
+            if (random < adjustedWinProb) {
+                // Should win, but apply hidden lose check
+                if (Math.random() < 0.88) { // 88% chance to still lose
+                    outcome = 'defeat';
+                    influenceChange = -5;
+                    resourcesLost = calculateResourcesLost(action, territory, 'defeat');
+                    payout = 0;
+                } else {
+                    outcome = 'victory';
+                    influenceChange = calculateInfluenceGain(action, territory);
+                    resourcesLost = { gold: 0, soldiers: 0, food: 0 };
+                    payout = calculatePayout(action, territory);
+                    
+                    // Update territory ownership if attack was successful
+                    if (action === 'attack') {
+                        territory.owner = 'player';
+                        territory.soldiers = Math.floor(territory.soldiers * 0.3); // Keep some defenders
+                        territory.defense = 20; // Reset defense
+                        gameState.territoriesConquered++;
+                        
+                        // Update 3D mesh color
+                        updateTerritoryMeshColor(territory);
+                    }
+                }
+            } else {
+                outcome = 'defeat';
+                influenceChange = -5;
+                resourcesLost = calculateResourcesLost(action, territory, 'defeat');
+                payout = 0;
+            }
+            
+            // Apply special crown rule
+            if (action === 'crown') {
+                if (gameState.influence >= 95 && outcome === 'victory') {
+                    payout = gameState.betAmount * 5; // Big crown bonus
+                } else if (outcome === 'defeat') {
+                    influenceChange = -20; // Big penalty for failed crown claim
+                }
+            }
+            
+            // Update game state
+            gameState.currentRound.outcome = outcome;
+            gameState.currentRound.influenceChange = influenceChange;
+            gameState.currentRound.resourcesLost = resourcesLost;
+            gameState.currentRound.payout = payout;
+            
+            // Apply changes
+            gameState.influence = Math.max(0, Math.min(100, gameState.influence + influenceChange));
+            gameState.gold = Math.max(0, gameState.gold - resourcesLost.gold);
+            gameState.soldiers = Math.max(0, gameState.soldiers - resourcesLost.soldiers);
+            gameState.food = Math.max(0, gameState.food - resourcesLost.food);
+            
+            // Update statistics
+            if (outcome === 'victory') {
+                gameState.battlesWon++;
+                gameState.currentStreak++;
+            } else {
+                gameState.currentStreak = 0;
+            }
+            
+            gameState.winRate = Math.round((gameState.battlesWon / gameState.totalBattles) * 100) || 0;
+            
+            // Check for game end
+            if (gameState.turn >= gameState.maxTurns || gameState.influence <= 0) {
+                endGame(false); // Defeat
+            } else if (gameState.influence >= 100) {
+                endGame(true); // Victory
+            }
+        }
+
+        function calculateInfluenceGain(action, territory) {
+            switch(action) {
+                case 'attack':
+                    return territory.owner === 'enemy' ? 10 : 5;
+                case 'fortify':
+                    return 3;
+                case 'diplomacy':
+                    return 8;
+                case 'spy':
+                    return 2;
+                case 'sabotage':
+                    return 6;
+                case 'crown':
+                    return 15;
+                default:
+                    return 0;
+            }
+        }
+
+        function calculateResourcesLost(action, territory, outcome) {
+            const baseLoss = {
+                attack: { gold: 30, soldiers: 40, food: 15 },
+                fortify: { gold: 10, soldiers: 5, food: 5 },
+                diplomacy: { gold: 5, soldiers: 0, food: 2 },
+                spy: { gold: 8, soldiers: 10, food: 3 },
+                sabotage: { gold: 20, soldiers: 25, food: 8 },
+                crown: { gold: 50, soldiers: 30, food: 25 }
+            };
+            
+            const loss = baseLoss[action];
+            
+            // Scale based on territory defense
+            const defenseMultiplier = 1 + (territory.defense / 100);
+            
+            return {
+                gold: Math.floor(loss.gold * defenseMultiplier),
+                soldiers: Math.floor(loss.soldiers * defenseMultiplier),
+                food: Math.floor(loss.food * defenseMultiplier)
+            };
+        }
+
+        function calculatePayout(action, territory) {
+            const baseMultiplier = {
+                attack: 1.8,
+                fortify: 1.2,
+                diplomacy: 1.5,
+                spy: 1.3,
+                sabotage: 2.0,
+                crown: 5.0
+            };
+            
+            const multiplier = baseMultiplier[action];
+            const defenseBonus = 1 - (territory.defense / 200); // Higher defense = lower bonus
+            const streakBonus = 1 + (gameState.currentStreak * 0.1);
+            
+            return gameState.betAmount * multiplier * defenseBonus * streakBonus;
+        }
+
+        function updateTerritoryMeshColor(territory) {
+            if (!territory.mesh) return;
+            
+            const color = 0x4169E1; // Player blue
+            territory.mesh.children.forEach(child => {
+                if (child.material) {
+                    child.material.color.setHex(color);
+                    child.material.emissive.setHex(color);
+                }
+            });
+        }
+
+        async function showActionResult() {
+            const round = gameState.currentRound;
+            
+            // Update result overlay
+            const resultContent = document.getElementById('result-content');
+            const resultTitle = document.getElementById('result-title');
+            const resultDetails = document.getElementById('result-details');
+            const resultAmount = document.getElementById('result-amount');
+            
+            if (round.outcome === 'victory') {
+                resultContent.className = 'result-content result-victory';
+                resultTitle.textContent = 'VICTORY!';
+                resultTitle.className = 'result-title result-victory';
+                
+                let details = '';
+                switch(round.action) {
+                    case 'attack': details = 'Territory conquered!'; break;
+                    case 'fortify': details = 'Defenses strengthened!'; break;
+                    case 'diplomacy': details = 'Alliance formed!'; break;
+                    case 'spy': details = 'Intel gathered!'; break;
+                    case 'sabotage': details = 'Enemy weakened!'; break;
+                    case 'crown': details = 'CROWN CLAIMED!'; break;
+                }
+                resultDetails.textContent = details;
+                
+                if (round.payout > 0) {
+                    resultAmount.textContent = `+$${round.payout.toFixed(2)}`;
+                    resultAmount.className = 'result-amount';
+                    
+                    // Process win transaction
+                    const winResult = await processTransaction(
+                        round.payout,
+                        "royalrisk_win",
+                        `Royal Risk ${round.action} victory of $${round.payout.toFixed(2)}`
+                    );
+                    
+                    if (winResult.success) {
+                        addGameRecord('Victory', round.action, round.payout);
+                    }
+                } else {
+                    resultAmount.textContent = '';
+                }
+                
+                playSound('victory');
+            } else {
+                resultContent.className = 'result-content result-defeat';
+                resultTitle.textContent = 'DEFEAT';
+                resultTitle.className = 'result-title result-defeat';
+                
+                let details = '';
+                switch(round.action) {
+                    case 'attack': details = 'Attack repelled!'; break;
+                    case 'fortify': details = 'Construction failed!'; break;
+                    case 'diplomacy': details = 'Negotiations failed!'; break;
+                    case 'spy': details = 'Spy captured!'; break;
+                    case 'sabotage': details = 'Sabotage discovered!'; break;
+                    case 'crown': details = 'Crown claim rejected!'; break;
+                }
+                resultDetails.textContent = details;
+                
+                resultAmount.textContent = `-$${gameState.betAmount.toFixed(2)}`;
+                resultAmount.className = 'result-amount lose';
+                
+                addGameRecord('Defeat', round.action, -gameState.betAmount);
+                playSound('defeat');
+            }
+            
+            // Show result overlay
+            document.getElementById('result-overlay').classList.add('show');
+            
+            // Update UI
+            updateResources();
+            
+            // Hide territory info
+            document.getElementById('territory-info').classList.remove('show');
+        }
+
+        async function endGame(victory) {
+            gameState.gameActive = false;
+            
+            // Calculate final payout
+            let finalPayout = 0;
+            if (victory) {
+                finalPayout = gameState.betAmount * 3; // Big win for completing game
+                showToast('ROYAL VICTORY! Crown claimed!', 'success');
+            } else {
+                showToast('Royal campaign ended', 'error');
+            }
+            
+            // Show final result
+            const resultContent = document.getElementById('result-content');
+            const resultTitle = document.getElementById('result-title');
+            const resultDetails = document.getElementById('result-details');
+            const resultAmount = document.getElementById('result-amount');
+            
+            if (victory) {
+                resultContent.className = 'result-content result-victory';
+                resultTitle.textContent = 'ROYAL VICTORY';
+                resultDetails.textContent = `You claimed the crown in ${gameState.turn} turns!`;
+                resultAmount.textContent = `+$${finalPayout.toFixed(2)}`;
+                resultAmount.className = 'result-amount';
+                
+                // Process final win
+                if (finalPayout > 0) {
+                    await processTransaction(
+                        finalPayout,
+                        "royalrisk_complete",
+                        `Royal crown victory of $${finalPayout.toFixed(2)}`
+                    );
+                }
+            } else {
+                resultContent.className = 'result-content result-defeat';
+                resultTitle.textContent = 'CAMPAIGN ENDED';
+                resultDetails.textContent = 'Your royal campaign has come to an end.';
+                resultAmount.textContent = `-$${gameState.betAmount.toFixed(2)}`;
+                resultAmount.className = 'result-amount lose';
+            }
+            
+            document.getElementById('result-overlay').classList.add('show');
+        }
+
+        // ===== BONUS SYSTEM =====
+        async function updateBonusProgress() {
+            const bonus = gameState.bonusSystem;
+            bonus.turnsPlayed++;
+            
+            // Check if bonus earned
+            if (bonus.turnsPlayed >= bonus.turnsForBonus && !bonus.bonusEarned) {
+                bonus.bonusEarned = true;
+                bonus.turnsPlayed = 0;
+                
+                // Award bonus
+                await processTransaction(
+                    bonus.bonusAmount,
+                    "royalrisk_bonus",
+                    `Royal campaign bonus of $${bonus.bonusAmount}`
+                );
+                
+                // Also award resources
+                gameState.gold += 200;
+                gameState.soldiers += 100;
+                gameState.food += 150;
+                
+                updateResources();
+                
+                showToast(`Royal Bonus: $${bonus.bonusAmount} + Resources!`, 'success');
+            }
+            
+            // Save to Firebase
+            try {
+                await db.collection("royalrisk_bonus").doc(gameState.currentUser.uid).set({
+                    turnsPlayed: bonus.turnsPlayed,
+                    turnsForBonus: bonus.turnsForBonus,
+                    bonusAmount: bonus.bonusAmount,
+                    bonusEarned: bonus.bonusEarned,
+                    updatedAt: new Date()
+                });
+            } catch (error) {
+                console.error('Error saving bonus progress:', error);
+            }
+        }
+
+        // ===== GAME RECORDS =====
+        async function addGameRecord(result, action, amount) {
+            const record = {
+                result: result,
+                action: action,
+                amount: amount,
+                turn: gameState.turn,
+                influence: gameState.influence,
+                territories: gameState.territoriesConquered,
+                timestamp: new Date()
+            };
+            
+            // Save to Firebase
+            try {
+                await db.collection("royalrisk_history").doc(gameState.currentUser.uid).collection("actions").add({
+                    userId: gameState.currentUser.uid,
+                    ...record,
+                    gameId: gameState.gameId
+                });
+            } catch (error) {
+                console.error('Error saving game record:', error);
+            }
+        }
+
+        // ===== SOUND SYSTEM =====
+        function setupSounds() {
+            // Sound URLs
+            const sounds = {
+                'click': 'https://soundbible.com/mp3/Click2.mp3',
+                'battle': 'https://soundbible.com/mp3/Sword_Clash-Sound_Explorer-2019060810.mp3',
+                'victory': 'https://soundbible.com/mp3/Trumpet_Fanfare-Mike_Koenig-105130.mp3',
+                'defeat': 'https://soundbible.com/mp3/wrong.mp3',
+                'crown': 'https://soundbible.com/mp3/cash_register.mp3'
+            };
+            
+            // Create audio elements
+            for (const [key, url] of Object.entries(sounds)) {
+                const audio = document.getElementById(`sound-${key}`);
+                audio.src = url;
+                audio.volume = 0.3;
+                audio.load();
+            }
+        }
+
+        function playSound(type) {
+            const audio = document.getElementById(`sound-${type}`);
+            if (audio) {
+                audio.currentTime = 0;
+                audio.play().catch(e => console.log('Audio play failed:', e));
+            }
+        }
+
+        // ===== EVENT LISTENERS =====
+        function setupEventListeners() {
+            // Start game button
+            document.getElementById('start-game-btn').addEventListener('click', startGame);
+            
+            // Continue button
+            document.getElementById('continue-btn').addEventListener('click', () => {
+                document.getElementById('result-overlay').classList.remove('show');
+            });
+            
+            // Action buttons
+            document.getElementById('btn-attack').addEventListener('click', () => executeAction('attack'));
+            document.getElementById('btn-fortify').addEventListener('click', () => executeAction('fortify'));
+            document.getElementById('btn-diplomacy').addEventListener('click', () => executeAction('diplomacy'));
+            document.getElementById('btn-spy').addEventListener('click', () => executeAction('spy'));
+            document.getElementById('btn-sabotage').addEventListener('click', () => executeAction('sabotage'));
+            document.getElementById('btn-crown').addEventListener('click', () => executeAction('crown'));
+            
+            // Quick bet buttons
+            document.querySelectorAll('.quick-bet').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const amount = parseFloat(btn.dataset.amount);
+                    document.getElementById('bet-amount').value = amount;
+                    gameState.betAmount = amount;
+                });
+            });
+            
+            // Bet input
+            document.getElementById('bet-amount').addEventListener('input', (e) => {
+                let value = parseFloat(e.target.value) || 1;
+                const maxBet = Math.min(gameState.balance, gameState.maxBet);
+                value = Math.max(1, Math.min(value, maxBet));
+                e.target.value = value;
+                gameState.betAmount = value;
+            });
+            
+            // Mobile controls
+            document.getElementById('btn-zoom-in').addEventListener('click', () => {
+                if (controls) controls.dollyIn(0.5);
+            });
+            
+            document.getElementById('btn-zoom-out').addEventListener('click', () => {
+                if (controls) controls.dollyOut(0.5);
+            });
+            
+            document.getElementById('btn-reset-camera').addEventListener('click', () => {
+                if (controls) {
+                    camera.position.set(0, 15, 20);
+                    camera.lookAt(0, 0, 0);
+                    controls.update();
+                }
+            });
+            
+            // Fullscreen toggle
+            document.getElementById('fullscreen-toggle').addEventListener('click', toggleFullscreen);
+            
+            // Click sound for all buttons
+            document.querySelectorAll('button').forEach(btn => {
+                btn.addEventListener('click', () => playSound('click'));
+            });
+            
+            // Territory selection (raycasting)
+            document.getElementById('game-canvas').addEventListener('click', (event) => {
+                if (!gameState.gameActive) return;
+                
+                const canvas = event.target;
+                const rect = canvas.getBoundingClientRect();
+                
+                // Calculate mouse position in normalized device coordinates
+                const mouse = new THREE.Vector2();
+                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                
+                // Raycasting
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(mouse, camera);
+                
+                // Check for territory intersections
+                const intersects = raycaster.intersectObjects(territoryMeshes);
+                
+                if (intersects.length > 0) {
+                    const territoryId = intersects[0].object.userData.territoryId;
+                    const territory = gameState.territories.find(t => t.id === territoryId);
+                    
+                    if (territory) {
+                        selectTerritory(territory);
+                        playSound('click');
+                    }
+                }
+            });
+        }
+
+        // ===== FULLSCREEN FUNCTION =====
+        function toggleFullscreen() {
+            const toggleBtn = document.getElementById('fullscreen-toggle');
+            
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+                toggleBtn.innerHTML = '<i class="fas fa-compress"></i>';
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                    toggleBtn.innerHTML = '<i class="fas fa-expand"></i>';
+                }
+            }
+        }
+
+        // ===== TOAST NOTIFICATIONS =====
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 10);
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => {
+                    if (container.contains(toast)) {
+                        container.removeChild(toast);
+                    }
+                }, 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
