@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>🎮 DOUBLE OR NOTHING - XCrazyBet</title>
+    <title>🎯 DOUBLE OR NOTHING - XCrazyBet</title>
     
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -12,19 +12,14 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-functions-compat.js"></script>
-    
-    <!-- Howler.js for Audio -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
 
     <style>
         :root {
             --primary: #00ff9d;
             --primary-dark: #00cc7a;
             --secondary: #ff9800;
-            --secondary-dark: #ff6d00;
+            --secondary-dark: #cc7a00;
             --danger: #ff5252;
-            --danger-dark: #ff1744;
             --success: #4caf50;
             --warning: #ffc107;
             --bg: #0a0f1a;
@@ -32,9 +27,11 @@
             --surface-light: #1a2332;
             --text: #ffffff;
             --text-dim: #a0a8c9;
-            --win-glow: rgba(0, 255, 157, 0.5);
-            --lose-glow: rgba(255, 82, 82, 0.5);
-            --pulse-glow: rgba(255, 152, 0, 0.3);
+            --selected-bg: linear-gradient(135deg, #00ff9d22, #ff980022);
+            --game-grid: linear-gradient(135deg, #0f2b1a 0%, #1a1a2e 100%);
+            --drawn-color: linear-gradient(135deg, #ff9800, #ff5252);
+            --selected-color: linear-gradient(135deg, #00ff9d, #00cc7a);
+            --dark-bg: #000000;
         }
 
         * {
@@ -43,34 +40,14 @@
             box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
             font-family: 'Segoe UI', 'Roboto', system-ui, -apple-system, sans-serif;
-            user-select: none;
         }
 
         body {
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
-            overflow: hidden;
+            overflow-x: hidden;
             position: relative;
-            touch-action: manipulation;
-        }
-
-        /* Full Screen Container */
-        .fullscreen-container {
-            width: 100vw;
-            height: 100vh;
-            position: fixed;
-            top: 0;
-            left: 0;
-            z-index: 1000;
-            background: var(--bg);
-            display: none;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .fullscreen-container.active {
-            display: flex;
         }
 
         /* Background Effects */
@@ -80,15 +57,15 @@
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: -1;
+            z-index: -2;
             background: 
                 radial-gradient(circle at 20% 30%, rgba(0, 255, 157, 0.08) 0%, transparent 50%),
                 radial-gradient(circle at 80% 70%, rgba(255, 152, 0, 0.08) 0%, transparent 50%),
-                linear-gradient(135deg, #000000 0%, var(--bg) 100%);
+                linear-gradient(135deg, var(--dark-bg) 0%, var(--bg) 100%);
         }
 
         /* Header */
-        .game-header {
+        .header {
             background: rgba(17, 24, 39, 0.95);
             padding: 12px 15px;
             display: flex;
@@ -96,8 +73,9 @@
             align-items: center;
             border-bottom: 2px solid var(--primary);
             backdrop-filter: blur(10px);
-            z-index: 100;
-            flex-shrink: 0;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
         }
 
         .header-left {
@@ -125,12 +103,16 @@
             transform: scale(1.1);
         }
 
-        .game-logo {
+        .logo {
             font-size: 18px;
             font-weight: 700;
             display: flex;
             align-items: center;
             gap: 8px;
+            color: var(--primary);
+        }
+
+        .logo i {
             color: var(--primary);
         }
 
@@ -149,10 +131,156 @@
             justify-content: center;
         }
 
+        /* Main Container */
+        .game-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            min-height: calc(100vh - 140px);
+        }
+
+        /* Game Area */
+        .game-area {
+            background: var(--game-grid);
+            border-radius: 20px;
+            border: 8px solid #006400;
+            padding: 20px;
+            position: relative;
+            box-shadow: 
+                0 10px 40px rgba(0, 0, 0, 0.5),
+                inset 0 0 100px rgba(0, 0, 0, 0.3);
+            min-height: 500px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Game Title */
+        .game-title {
+            text-align: center;
+            color: var(--secondary);
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px rgba(255, 152, 0, 0.5);
+        }
+
+        .game-title i {
+            color: var(--primary);
+            margin-right: 10px;
+        }
+
+        /* Round Indicator */
+        .round-indicator {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 15px;
+            padding: 15px 30px;
+            margin-bottom: 30px;
+            border: 2px solid rgba(255, 152, 0, 0.3);
+            text-align: center;
+            min-width: 300px;
+        }
+
+        .round-title {
+            font-size: 14px;
+            color: var(--text-dim);
+            margin-bottom: 5px;
+        }
+
+        .round-display {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .multiplier-display {
+            font-size: 32px;
+            font-weight: 900;
+            color: var(--secondary);
+            text-shadow: 0 0 10px rgba(255, 152, 0, 0.5);
+            margin-top: 5px;
+        }
+
+        /* Main Game Circle */
+        .game-circle {
+            width: 250px;
+            height: 250px;
+            background: radial-gradient(circle at 30% 30%, #00ff9d, #00cc7a);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            cursor: pointer;
+            box-shadow: 
+                0 0 60px rgba(0, 255, 157, 0.6),
+                0 0 100px rgba(0, 255, 157, 0.3),
+                inset 0 0 60px rgba(255, 255, 255, 0.2);
+            transition: all 0.3s;
+            margin: 30px 0;
+        }
+
+        .game-circle:active {
+            transform: scale(0.95);
+        }
+
+        .game-circle.win {
+            background: radial-gradient(circle at 30% 30%, #4caf50, #2e7d32);
+            animation: winPulse 2s infinite;
+        }
+
+        .game-circle.lose {
+            background: radial-gradient(circle at 30% 30%, #ff5252, #ff1744);
+            animation: loseShake 0.5s;
+        }
+
+        .circle-glow {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(0, 255, 157, 0.2), transparent 70%);
+            border-radius: 50%;
+            filter: blur(20px);
+            z-index: -1;
+        }
+
+        .circle-text {
+            font-size: 36px;
+            font-weight: 900;
+            color: #000;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Countdown Display */
+        .countdown-display {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 100px;
+            font-weight: 900;
+            color: var(--secondary);
+            text-shadow: 0 0 30px rgba(255, 152, 0, 0.8);
+            z-index: 10;
+            display: none;
+        }
+
+        .countdown-display.show {
+            display: block;
+            animation: countdownPop 0.5s ease-out;
+        }
+
         /* Result Banner */
         .result-banner {
             position: absolute;
-            top: 70px;
+            top: 20px;
             left: 0;
             width: 100%;
             padding: 15px;
@@ -186,284 +314,81 @@
             animation: losePulse 1s infinite;
         }
 
-        /* Game Container */
-        .game-container {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            padding: 15px;
-            gap: 15px;
-            overflow: hidden;
-        }
-
-        /* Phase Indicator */
-        .phase-indicator {
-            text-align: center;
-            padding: 12px;
-            background: rgba(17, 24, 39, 0.8);
+        /* Control Panel */
+        .control-panel {
+            background: rgba(17, 24, 39, 0.95);
             border-radius: 15px;
-            border: 2px solid rgba(255, 152, 0, 0.3);
-            backdrop-filter: blur(10px);
-            flex-shrink: 0;
-        }
-
-        .phase-title {
-            font-size: 14px;
-            color: var(--text-dim);
-            margin-bottom: 5px;
-        }
-
-        .phase-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .round-display {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--secondary);
-        }
-
-        .multiplier-display {
-            font-size: 24px;
-            font-weight: 900;
-            color: var(--primary);
-            text-shadow: 0 0 10px rgba(0, 255, 157, 0.5);
-            animation: pulse 2s infinite;
-        }
-
-        /* Main Game Area */
-        .game-visual-area {
-            flex: 1;
-            position: relative;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 20px;
-            border: 4px solid rgba(255, 152, 0, 0.2);
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 300px;
-        }
-
-        /* Canvas for WebGL/Three.js Effects */
-        #game-canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 1;
-        }
-
-        /* Energy Orb Container */
-        .orb-container {
-            position: relative;
-            z-index: 2;
-            text-align: center;
-        }
-
-        .energy-orb {
-            width: 200px;
-            height: 200px;
-            background: radial-gradient(circle at 30% 30%, #00ff9d, #00cc7a);
-            border-radius: 50%;
-            position: relative;
-            cursor: pointer;
-            box-shadow: 
-                0 0 60px rgba(0, 255, 157, 0.6),
-                0 0 100px rgba(0, 255, 157, 0.3),
-                inset 0 0 60px rgba(255, 255, 255, 0.2);
-            transition: all 0.3s;
-            animation: orbFloat 3s infinite ease-in-out;
-        }
-
-        @media (max-width: 768px) {
-            .energy-orb {
-                width: 180px;
-                height: 180px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .energy-orb {
-                width: 160px;
-                height: 160px;
-            }
-        }
-
-        .energy-orb:active {
-            transform: scale(0.95);
-        }
-
-        .orb-glow {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 250px;
-            height: 250px;
-            background: radial-gradient(circle, rgba(0, 255, 157, 0.2), transparent 70%);
-            border-radius: 50%;
-            filter: blur(20px);
-            z-index: -1;
-            animation: glowPulse 2s infinite alternate;
-        }
-
-        .orb-text {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 32px;
-            font-weight: 900;
-            color: #000;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            z-index: 3;
-        }
-
-        /* Action Button Area */
-        .action-area {
-            padding: 15px;
-            background: rgba(17, 24, 39, 0.9);
-            border-radius: 15px;
+            padding: 20px;
             border: 2px solid rgba(255, 152, 0, 0.2);
             backdrop-filter: blur(10px);
-            flex-shrink: 0;
-        }
-
-        /* Main Action Button */
-        .action-button {
-            width: 100%;
-            padding: 25px;
-            font-size: 24px;
-            font-weight: 900;
-            border: none;
-            border-radius: 15px;
-            cursor: pointer;
-            transition: all 0.3s;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
-            min-height: 70px;
-            touch-action: manipulation;
-        }
-
-        .action-button:active {
-            transform: scale(0.98);
-        }
-
-        .action-button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
-        }
-
-        .action-button.start {
-            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-            color: #000;
-            animation: buttonPulse 2s infinite;
-        }
-
-        .action-button.tap {
-            background: linear-gradient(135deg, var(--secondary), var(--secondary-dark));
-            color: #000;
-            font-size: 28px;
-        }
-
-        .action-button.double {
-            background: linear-gradient(135deg, #00ff9d, #00cc7a);
-            color: #000;
-        }
-
-        .action-button.collect {
-            background: linear-gradient(135deg, #4caf50, #2e7d32);
-            color: #000;
-        }
-
-        .action-button.play-again {
-            background: linear-gradient(135deg, var(--danger), var(--danger-dark));
-            color: #fff;
+            margin-top: 20px;
         }
 
         /* Bet Controls */
         .bet-controls {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+
+        @media (max-width: 768px) {
+            .bet-controls {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .bet-input-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .bet-input {
+            flex: 1;
             padding: 15px;
             background: rgba(10, 15, 26, 0.8);
-            border-radius: 15px;
-            border: 2px solid rgba(255, 152, 0, 0.2);
-            flex-shrink: 0;
-        }
-
-        .bet-display {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
+            border: 2px solid var(--primary);
+            border-radius: 10px;
+            color: var(--text);
             font-size: 18px;
             font-weight: 600;
+            transition: all 0.3s;
         }
 
-        .wallet-display, .bet-display-amount {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .bet-slider-container {
-            margin: 15px 0;
-        }
-
-        .bet-slider {
-            width: 100%;
-            height: 40px;
-            -webkit-appearance: none;
-            appearance: none;
-            background: linear-gradient(90deg, var(--primary-dark), var(--primary));
-            border-radius: 20px;
+        .bet-input:focus {
             outline: none;
-            padding: 0 5px;
+            border-color: var(--secondary);
+            box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.1);
         }
 
-        .bet-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 50px;
-            height: 50px;
-            background: var(--secondary);
-            border-radius: 50%;
-            cursor: pointer;
-            border: 4px solid #fff;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-            transition: all 0.2s;
+        .currency {
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 18px;
+            min-width: 20px;
         }
 
-        .bet-slider::-webkit-slider-thumb:hover {
-            transform: scale(1.1);
-            box-shadow: 0 0 15px rgba(255, 152, 0, 0.8);
-        }
-
+        /* Quick Bets */
         .quick-bets {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 10px;
-            margin-top: 15px;
+            gap: 8px;
+            margin-bottom: 20px;
         }
 
         .quick-bet {
             padding: 12px;
-            background: rgba(17, 24, 39, 0.8);
-            border: 2px solid var(--primary);
-            border-radius: 10px;
+            background: rgba(10, 15, 26, 0.8);
+            border: 1px solid var(--primary);
+            border-radius: 8px;
             color: var(--primary);
-            font-weight: 700;
+            font-weight: 600;
             text-align: center;
             cursor: pointer;
             transition: all 0.2s;
+            font-size: 14px;
         }
 
         .quick-bet:hover {
@@ -478,18 +403,163 @@
             box-shadow: 0 0 15px rgba(0, 255, 157, 0.5);
         }
 
-        /* Records Panel */
-        .records-panel {
-            background: rgba(17, 24, 39, 0.9);
-            border-radius: 15px;
-            padding: 15px;
-            border: 2px solid rgba(255, 152, 0, 0.2);
-            max-height: 150px;
-            overflow-y: auto;
-            flex-shrink: 0;
+        /* Action Buttons */
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
         }
 
-        .records-title {
+        .btn {
+            padding: 16px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: #000;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 255, 157, 0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, var(--secondary), var(--secondary-dark));
+            color: #000;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 152, 0, 0.3);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger), #ff1e1e);
+            color: #fff;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 82, 82, 0.3);
+        }
+
+        /* Game Status */
+        .game-status {
+            text-align: center;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            margin-top: 15px;
+            font-weight: 600;
+            color: var(--primary);
+            border: 1px solid rgba(0, 255, 157, 0.2);
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        /* Results Panel */
+        .results-panel {
+            background: rgba(17, 24, 39, 0.8);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            border: 2px solid rgba(255, 152, 0, 0.2);
+            display: none;
+        }
+
+        .results-panel.show {
+            display: block;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 152, 0, 0.2);
+        }
+
+        .results-title {
+            color: var(--secondary);
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .result-item {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .result-label {
+            color: var(--text-dim);
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .result-value {
+            color: var(--text);
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .result-value.win {
+            color: var(--primary);
+        }
+
+        .result-value.lose {
+            color: var(--danger);
+        }
+
+        /* Recent Winners */
+        .winners-panel {
+            background: rgba(17, 24, 39, 0.8);
+            border-radius: 15px;
+            padding: 15px;
+            margin-top: 15px;
+            border: 1px solid rgba(255, 152, 0, 0.2);
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .winners-title {
             font-size: 14px;
             color: var(--secondary);
             margin-bottom: 10px;
@@ -500,89 +570,20 @@
             border-bottom: 1px solid rgba(255, 152, 0, 0.2);
         }
 
-        .records-list {
+        .winners-list {
             display: flex;
             flex-direction: column;
-            gap: 6px;
-        }
-
-        .record-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 6px 10px;
-            background: rgba(10, 15, 26, 0.5);
-            border-radius: 8px;
-            font-size: 12px;
-            border-left: 3px solid var(--primary);
-        }
-
-        .record-item.win {
-            border-left-color: var(--primary);
-            background: rgba(0, 255, 157, 0.05);
-        }
-
-        .record-item.lose {
-            border-left-color: var(--danger);
-            background: rgba(255, 82, 82, 0.05);
-        }
-
-        .record-action {
-            color: var(--text-dim);
-        }
-
-        .record-result {
-            font-weight: 700;
-        }
-
-        .record-result.win {
-            color: var(--primary);
-        }
-
-        .record-result.lose {
-            color: var(--danger);
-        }
-
-        /* Recent Winners Feed */
-        .winners-feed {
-            background: rgba(0, 0, 0, 0.7);
-            border-radius: 10px;
-            padding: 10px;
-            margin-top: 10px;
-            border: 1px solid rgba(255, 152, 0, 0.2);
-            max-height: 80px;
-            overflow: hidden;
-            flex-shrink: 0;
-        }
-
-        .winners-title {
-            font-size: 12px;
-            color: var(--secondary);
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-
-        .winners-ticker {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            animation: tickerScroll 30s linear infinite;
+            gap: 8px;
         }
 
         .winner-item {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+            padding: 8px 12px;
+            background: rgba(10, 15, 26, 0.5);
+            border-radius: 8px;
             font-size: 12px;
-            color: var(--text);
-            padding: 4px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .winner-item:last-child {
-            border-bottom: none;
         }
 
         .winner-icon {
@@ -590,80 +591,114 @@
             font-size: 10px;
         }
 
-        /* Countdown Display */
-        .countdown-display {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 120px;
-            font-weight: 900;
+        .winner-name {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .winner-amount {
+            margin-left: auto;
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        /* Game History */
+        .history-panel {
+            background: rgba(17, 24, 39, 0.8);
+            border-radius: 15px;
+            padding: 15px;
+            margin-top: 15px;
+            border: 1px solid rgba(255, 152, 0, 0.2);
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .history-title {
+            font-size: 14px;
             color: var(--secondary);
-            text-shadow: 0 0 30px rgba(255, 152, 0, 0.8);
-            z-index: 10;
-            display: none;
-            animation: countdownPop 0.5s ease-out;
-        }
-
-        .countdown-display.show {
-            display: block;
-        }
-
-        /* Full Screen Toggle */
-        .fullscreen-toggle {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 50px;
-            height: 50px;
-            background: var(--secondary);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #000;
-            font-size: 20px;
-            cursor: pointer;
-            z-index: 1000;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-            transition: all 0.3s;
-        }
-
-        .fullscreen-toggle:hover {
-            transform: scale(1.1);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-        }
-
-        /* Return to Games Button */
-        .return-button {
-            position: fixed;
-            top: 15px;
-            right: 15px;
-            z-index: 100;
-            background: rgba(17, 24, 39, 0.9);
-            border: 2px solid var(--primary);
-            border-radius: 10px;
-            padding: 10px 15px;
+            margin-bottom: 10px;
             display: flex;
             align-items: center;
             gap: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 152, 0, 0.2);
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: rgba(10, 15, 26, 0.5);
+            border-radius: 8px;
+            font-size: 12px;
+            border-left: 3px solid var(--primary);
+        }
+
+        .history-item.win {
+            border-left-color: var(--primary);
+            background: rgba(0, 255, 157, 0.05);
+        }
+
+        .history-item.lose {
+            border-left-color: var(--danger);
+            background: rgba(255, 82, 82, 0.05);
+        }
+
+        .history-action {
+            color: var(--text-dim);
+        }
+
+        .history-result {
+            font-weight: 600;
+        }
+
+        .history-result.win {
+            color: var(--primary);
+        }
+
+        .history-result.lose {
+            color: var(--danger);
+        }
+
+        /* Return to Games Button */
+        .return-games-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(17, 24, 39, 0.95);
+            border: 2px solid var(--primary);
+            border-radius: 10px;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
             color: var(--primary);
             text-decoration: none;
             font-weight: 600;
             backdrop-filter: blur(10px);
             transition: all 0.3s;
+            z-index: 1000;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
         }
 
-        .return-button:hover {
+        .return-games-btn:hover {
             background: var(--primary);
             color: #000;
             transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
         }
 
         /* Toast Notifications */
         .toast-container {
             position: fixed;
-            bottom: 20px;
+            bottom: 80px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 10000;
@@ -704,31 +739,37 @@
             border-color: var(--secondary);
         }
 
-        /* Mute Toggle */
-        .mute-toggle {
-            position: fixed;
-            bottom: 80px;
-            right: 20px;
-            width: 50px;
-            height: 50px;
-            background: rgba(17, 24, 39, 0.9);
-            border-radius: 50%;
+        /* Bottom Navigation */
+        .bottom-nav {
             display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text);
-            font-size: 20px;
-            cursor: pointer;
-            z-index: 1000;
-            border: 2px solid var(--primary);
+            justify-content: space-around;
+            background: rgba(17, 24, 39, 0.95);
+            padding: 12px 15px;
+            border-top: 1px solid rgba(0, 255, 157, 0.2);
             backdrop-filter: blur(10px);
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-decoration: none;
+            color: var(--text-dim);
+            font-size: 11px;
+            gap: 4px;
             transition: all 0.3s;
         }
 
-        .mute-toggle:hover {
-            background: var(--primary);
-            color: #000;
-            transform: scale(1.1);
+        .nav-item i {
+            font-size: 18px;
+        }
+
+        .nav-item.active {
+            color: var(--primary);
+        }
+
+        .nav-item:hover {
+            color: var(--secondary);
         }
 
         /* Loading Overlay */
@@ -763,34 +804,27 @@
         }
 
         /* Animations */
-        @keyframes orbFloat {
-            0%, 100% { transform: translateY(0px) scale(1); }
-            50% { transform: translateY(-20px) scale(1.02); }
-        }
-
-        @keyframes glowPulse {
-            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
-            100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
-        }
-
         @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
         }
 
-        @keyframes buttonPulse {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0.7); }
-            50% { box-shadow: 0 0 0 15px rgba(0, 255, 157, 0); }
+        @keyframes winPulse {
+            0%, 100% { 
+                transform: scale(1); 
+                box-shadow: 0 0 60px rgba(0, 255, 157, 0.6);
+            }
+            50% { 
+                transform: scale(1.05); 
+                box-shadow: 0 0 100px rgba(0, 255, 157, 0.8);
+            }
         }
 
-        @keyframes winGlow {
-            0%, 100% { box-shadow: 0 0 30px var(--win-glow); }
-            50% { box-shadow: 0 0 60px var(--win-glow); }
-        }
-
-        @keyframes losePulse {
-            0%, 100% { box-shadow: 0 0 20px var(--lose-glow); }
-            50% { box-shadow: 0 0 40px var(--lose-glow); }
+        @keyframes loseShake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
         }
 
         @keyframes countdownPop {
@@ -799,24 +833,28 @@
             100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
         }
 
-        @keyframes tickerScroll {
-            0% { transform: translateY(0); }
-            100% { transform: translateY(-100%); }
+        @keyframes winGlow {
+            0%, 100% { box-shadow: 0 0 30px rgba(0, 255, 157, 0.5); }
+            50% { box-shadow: 0 0 60px rgba(0, 255, 157, 0.5); }
+        }
+
+        @keyframes losePulse {
+            0%, 100% { box-shadow: 0 0 20px rgba(255, 82, 82, 0.5); }
+            50% { box-shadow: 0 0 40px rgba(255, 82, 82, 0.5); }
+        }
+
+        @keyframes slideUp {
+            0% { transform: translateY(20px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
         }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
 
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-            20%, 40%, 60%, 80% { transform: translateX(5px); }
-        }
-
         /* Mobile Responsive */
         @media (max-width: 768px) {
-            .game-header {
+            .header {
                 flex-direction: column;
                 gap: 10px;
                 padding: 10px;
@@ -837,42 +875,37 @@
                 gap: 10px;
             }
 
-            .action-button {
-                padding: 20px;
+            .game-area {
+                padding: 15px;
+                min-height: 400px;
+            }
+
+            .game-title {
+                font-size: 22px;
+                margin-bottom: 20px;
+            }
+
+            .game-circle {
+                width: 200px;
+                height: 200px;
+                margin: 20px 0;
+            }
+
+            .circle-text {
+                font-size: 28px;
+            }
+
+            .round-indicator {
+                min-width: 250px;
+                padding: 12px 20px;
+            }
+
+            .round-display {
                 font-size: 20px;
-                min-height: 60px;
             }
 
             .multiplier-display {
-                font-size: 20px;
-            }
-
-            .quick-bets {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .return-button {
-                padding: 8px 12px;
-                font-size: 14px;
-                top: 10px;
-                right: 10px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .energy-orb {
-                width: 140px;
-                height: 140px;
-            }
-
-            .orb-text {
-                font-size: 24px;
-            }
-
-            .action-button {
-                padding: 18px;
-                font-size: 18px;
-                min-height: 56px;
+                font-size: 28px;
             }
 
             .countdown-display {
@@ -881,28 +914,67 @@
 
             .result-banner {
                 font-size: 20px;
-                top: 60px;
+                top: 10px;
+                padding: 12px;
+            }
+
+            .bet-controls {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .quick-bets {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .action-buttons {
+                grid-template-columns: 1fr;
+            }
+
+            .results-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .return-games-btn {
+                bottom: 15px;
+                right: 15px;
+                padding: 10px 15px;
+                font-size: 14px;
             }
         }
 
-        /* Landscape Mode */
-        @media (max-height: 600px) and (orientation: landscape) {
-            .game-header {
-                padding: 8px;
+        @media (max-width: 480px) {
+            .game-circle {
+                width: 180px;
+                height: 180px;
             }
 
-            .game-container {
-                padding: 8px;
-                gap: 8px;
+            .circle-text {
+                font-size: 24px;
             }
 
-            .energy-orb {
-                width: 120px;
-                height: 120px;
+            .round-indicator {
+                min-width: 200px;
             }
 
-            .records-panel {
-                max-height: 80px;
+            .countdown-display {
+                font-size: 60px;
+            }
+
+            .btn {
+                padding: 14px;
+                font-size: 14px;
+            }
+
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .return-games-btn {
+                bottom: 10px;
+                right: 10px;
+                padding: 8px 12px;
+                font-size: 12px;
             }
         }
     </style>
@@ -911,89 +983,65 @@
     <!-- Background Effects -->
     <div class="bg-effects"></div>
 
-    <!-- Main Game Container -->
-    <div class="fullscreen-container" id="game-screen">
-        <!-- Header -->
-        <header class="game-header">
-            <div class="header-left">
-                <div class="game-logo">
-                    <i class="fas fa-bolt"></i>
-                    DOUBLE OR NOTHING
-                </div>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <a href="https://xcrazybet.github.io/millioner" class="home-btn" title="Return to Home">
+                <i class="fas fa-home"></i>
+            </a>
+            <div class="logo">
+                <i class="fas fa-bolt"></i>
+                DOUBLE OR NOTHING
             </div>
-            <div class="balance-display">
-                <i class="fas fa-wallet"></i>
-                $<span id="balance-val">0.00</span>
-            </div>
-        </header>
-
-        <!-- Result Banner -->
-        <div class="result-banner" id="result-banner">
-            <div id="result-text">YOU WIN +$0.00</div>
         </div>
+        <div class="balance-display">
+            <i class="fas fa-wallet"></i>
+            $<span id="balance-val">0.00</span>
+        </div>
+    </header>
 
-        <!-- Return to Games Button -->
-        <a href="https://xcrazybet.github.io/millioner/games.html" class="return-button" id="return-button">
-            <i class="fas fa-gamepad"></i>
-            Return to Games
-        </a>
+    <!-- Main Game Container -->
+    <div class="game-container">
+        <!-- Game Area -->
+        <div class="game-area">
+            <!-- Result Banner -->
+            <div class="result-banner" id="result-banner">
+                <div id="result-text">YOU WIN +$0.00</div>
+            </div>
 
-        <!-- Game Container -->
-        <div class="game-container">
-            <!-- Phase Indicator -->
-            <div class="phase-indicator">
-                <div class="phase-title">CURRENT ROUND</div>
-                <div class="phase-content">
-                    <div class="round-display">
-                        <i class="fas fa-layer-group"></i>
-                        Round <span id="current-round">1</span>/7
-                    </div>
-                    <div class="multiplier-display">
-                        <i class="fas fa-times"></i>
-                        <span id="current-multiplier">2x</span>
-                    </div>
+            <!-- Game Title -->
+            <div class="game-title">
+                <i class="fas fa-bolt"></i>
+                DOUBLE YOUR MONEY
+            </div>
+
+            <!-- Round Indicator -->
+            <div class="round-indicator">
+                <div class="round-title">CURRENT ROUND</div>
+                <div class="round-display">Round <span id="current-round">1</span>/7</div>
+                <div class="multiplier-display">
+                    <i class="fas fa-times"></i>
+                    <span id="current-multiplier">2x</span>
                 </div>
             </div>
 
-            <!-- Game Visual Area -->
-            <div class="game-visual-area">
-                <!-- Canvas for Effects -->
-                <canvas id="game-canvas"></canvas>
-
+            <!-- Main Game Circle -->
+            <div class="game-circle" id="game-circle">
+                <div class="circle-glow"></div>
+                <div class="circle-text" id="circle-text">TAP</div>
+                
                 <!-- Countdown Display -->
                 <div class="countdown-display" id="countdown-display">5</div>
-
-                <!-- Energy Orb -->
-                <div class="orb-container">
-                    <div class="orb-glow"></div>
-                    <div class="energy-orb" id="energy-orb">
-                        <div class="orb-text" id="orb-text">TAP</div>
-                    </div>
-                </div>
             </div>
+        </div>
 
-            <!-- Action Button Area -->
-            <div class="action-area">
-                <button class="action-button start" id="action-button">
-                    <i class="fas fa-play"></i>
-                    START GAME
-                </button>
-            </div>
-
+        <!-- Control Panel -->
+        <div class="control-panel">
             <!-- Bet Controls -->
             <div class="bet-controls">
-                <div class="bet-display">
-                    <div class="wallet-display">
-                        <i class="fas fa-wallet"></i>
-                        Wallet: $<span id="wallet-amount">0.00</span>
-                    </div>
-                    <div class="bet-display-amount">
-                        <i class="fas fa-coins"></i>
-                        Bet: $<span id="bet-amount-display">5</span>
-                    </div>
-                </div>
-                <div class="bet-slider-container">
-                    <input type="range" class="bet-slider" id="bet-slider" min="1" max="100" value="5" step="1">
+                <div class="bet-input-group">
+                    <input type="number" class="bet-input" id="bet-amount" value="5" min="1" max="1000" step="1">
+                    <div class="currency">$</div>
                 </div>
                 <div class="quick-bets">
                     <div class="quick-bet" data-amount="1">$1</div>
@@ -1003,37 +1051,82 @@
                 </div>
             </div>
 
-            <!-- Records Panel -->
-            <div class="records-panel">
-                <div class="records-title">
-                    <i class="fas fa-history"></i> YOUR GAME HISTORY
-                </div>
-                <div class="records-list" id="records-list">
-                    <!-- Records will be added here -->
-                </div>
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <button id="start-btn" class="btn btn-primary">
+                    <i class="fas fa-play"></i> START GAME
+                </button>
+                <button id="double-btn" class="btn btn-secondary" disabled>
+                    <i class="fas fa-redo"></i> DOUBLE
+                </button>
+                <button id="collect-btn" class="btn btn-primary" disabled>
+                    <i class="fas fa-money-bill-wave"></i> COLLECT
+                </button>
+                <button id="play-again-btn" class="btn btn-danger" style="display: none;">
+                    <i class="fas fa-redo"></i> PLAY AGAIN
+                </button>
             </div>
 
-            <!-- Recent Winners Feed -->
-            <div class="winners-feed">
-                <div class="winners-title">
-                    <i class="fas fa-trophy"></i> RECENT WINNERS
-                </div>
-                <div class="winners-ticker" id="winners-ticker">
-                    <!-- Winner items will be added here -->
+            <!-- Game Status -->
+            <div class="game-status" id="game-status">
+                Place your bet and tap START to begin
+                <div style="font-size: 12px; color: var(--text-dim); margin-top: 5px;">
+                    <i class="fas fa-info-circle"></i> 5-second countdown before each round
                 </div>
             </div>
         </div>
 
-        <!-- Full Screen Toggle -->
-        <div class="fullscreen-toggle" id="fullscreen-toggle">
-            <i class="fas fa-expand"></i>
+        <!-- Results Panel -->
+        <div class="results-panel" id="results-panel">
+            <div class="results-header">
+                <div class="results-title">
+                    <i class="fas fa-chart-bar"></i>
+                    Game Results
+                </div>
+                <div class="result-value" id="result-total">$0.00</div>
+            </div>
+            <div class="results-grid">
+                <div class="result-item">
+                    <div class="result-label">Round Reached</div>
+                    <div class="result-value" id="result-round">0</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Multiplier</div>
+                    <div class="result-value" id="result-multiplier">0x</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Total Win</div>
+                    <div class="result-value" id="result-win">$0.00</div>
+                </div>
+            </div>
         </div>
 
-        <!-- Mute Toggle -->
-        <div class="mute-toggle" id="mute-toggle">
-            <i class="fas fa-volume-up"></i>
+        <!-- Recent Winners -->
+        <div class="winners-panel">
+            <div class="winners-title">
+                <i class="fas fa-trophy"></i> RECENT WINNERS
+            </div>
+            <div class="winners-list" id="winners-list">
+                <!-- Winner items will be added here -->
+            </div>
+        </div>
+
+        <!-- Game History -->
+        <div class="history-panel">
+            <div class="history-title">
+                <i class="fas fa-history"></i> YOUR GAME HISTORY
+            </div>
+            <div class="history-list" id="history-list">
+                <!-- History items will be added here -->
+            </div>
         </div>
     </div>
+
+    <!-- Return to Games Button -->
+    <a href="https://xcrazybet.github.io/millioner/games.html" class="return-games-btn" id="return-games-btn">
+        <i class="fas fa-gamepad"></i>
+        Return to Games
+    </a>
 
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
@@ -1044,7 +1137,7 @@
     </div>
 
     <script>
-        // ===== FIREBASE CONFIGURATION =====
+        // ===== FIREBASE CONFIG =====
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
             authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -1054,11 +1147,9 @@
             appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
         };
 
-        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
-        const functions = firebase.functions();
 
         // ===== GAME STATE =====
         const gameState = {
@@ -1067,12 +1158,12 @@
             betAmount: 5,
             currentRound: 1,
             maxRounds: 7,
-            sessionId: null,
+            totalMultiplier: 2,
             gameActive: false,
             countdownActive: false,
             canDouble: false,
             canCollect: false,
-            totalMultiplier: 1,
+            sessionId: null,
             
             // Hidden win probability (10-15% win, 85-90% lose)
             hiddenWinChance: {
@@ -1080,14 +1171,19 @@
                 max: 0.15
             },
             
-            // Records
-            gameRecords: [],
+            // Game history
+            gameHistory: [],
             
-            // Audio state
-            audioMuted: false,
+            // Current game results
+            currentGame: {
+                round: 0,
+                multiplier: 0,
+                win: false,
+                payout: 0
+            },
             
-            // Session tracking
-            currentSession: null
+            // Winners list
+            recentWinners: []
         };
 
         // ===== NICKNAME POOL (100+ names) =====
@@ -1101,152 +1197,19 @@
             "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta", "Iota", "Kappa", "Lambda", "Mu",
             "Nu", "Xi", "Omicron", "Pi", "Rho", "Sigma", "Tau", "Upsilon", "Phi", "Chi",
             "Psi", "Omega", "Nova", "Stellar", "Cosmo", "Galaxy", "Quantum", "Proton", "Neutron", "Electron",
-            "Photon", "Quark", "Atom", "Molecule", "Cell", "Gene", "DNA", "RNA", "Virus", "Bacteria",
-            "Fungus", "Plant", "Animal", "Human", "Android", "Cyborg", "Robot", "AI", "Machine", "Computer"
+            "Photon", "Quark", "Atom", "Molecule", "Cell", "Gene", "DNA", "RNA", "Virus", "Bacteria"
         ];
 
-        // ===== AUDIO SYSTEM =====
-        const audio = {
-            // Sound URLs (placeholder - replace with actual SoundBible URLs)
-            start: 'https://assets.mixkit.co/sfx/preview/mixkit-game-show-intro-331.mp3',
-            countdown: 'https://assets.mixkit.co/sfx/preview/mixkit-retro-game-emergency-alarm-1000.mp3',
-            tap: 'https://assets.mixkit.co/sfx/preview/mixkit-unlock-game-notification-253.mp3',
-            win: 'https://assets.mixkit.co/sfx/preview/mixkit-winning-chimes-2015.mp3',
-            lose: 'https://assets.mixkit.co/sfx/preview/mixkit-wrong-answer-fail-notification-946.mp3',
-            open: 'https://assets.mixkit.co/sfx/preview/mixkit-game-ball-tap-2073.mp3',
-            
-            // Howler instances
-            sounds: {},
-            
-            init: function() {
-                this.sounds = {
-                    start: new Howl({ src: [this.start], volume: 0.5 }),
-                    countdown: new Howl({ src: [this.countdown], volume: 0.4 }),
-                    tap: new Howl({ src: [this.tap], volume: 0.3 }),
-                    win: new Howl({ src: [this.win], volume: 0.6 }),
-                    lose: new Howl({ src: [this.lose], volume: 0.5 }),
-                    open: new Howl({ src: [this.open], volume: 0.4 })
-                };
-            },
-            
-            play: function(soundName) {
-                if (!this.sounds[soundName] || gameState.audioMuted) return;
-                this.sounds[soundName].play();
-            },
-            
-            toggleMute: function() {
-                gameState.audioMuted = !gameState.audioMuted;
-                Howler.mute(gameState.audioMuted);
-                return gameState.audioMuted;
-            }
-        };
-
-        // ===== CANVAS EFFECTS =====
-        const canvasEffects = {
-            canvas: null,
-            ctx: null,
-            particles: [],
-            isActive: false,
-            
-            init: function() {
-                this.canvas = document.getElementById('game-canvas');
-                this.ctx = this.canvas.getContext('2d');
-                
-                // Set canvas size
-                this.resize();
-                window.addEventListener('resize', () => this.resize());
-            },
-            
-            resize: function() {
-                const container = this.canvas.parentElement;
-                this.canvas.width = container.clientWidth;
-                this.canvas.height = container.clientHeight;
-            },
-            
-            createParticles: function(type, x, y) {
-                const colors = type === 'win' 
-                    ? ['#00ff9d', '#00cc7a', '#4caf50'] 
-                    : ['#ff5252', '#ff1744', '#ff9800'];
-                
-                for (let i = 0; i < 50; i++) {
-                    this.particles.push({
-                        x: x,
-                        y: y,
-                        size: Math.random() * 5 + 2,
-                        speedX: Math.random() * 6 - 3,
-                        speedY: Math.random() * 6 - 3,
-                        color: colors[Math.floor(Math.random() * colors.length)],
-                        life: 100
-                    });
-                }
-            },
-            
-            updateParticles: function() {
-                this.particles = this.particles.filter(particle => {
-                    particle.x += particle.speedX;
-                    particle.y += particle.speedY;
-                    particle.life -= 2;
-                    particle.size *= 0.95;
-                    return particle.life > 0;
-                });
-            },
-            
-            drawParticles: function() {
-                this.particles.forEach(particle => {
-                    this.ctx.globalAlpha = particle.life / 100;
-                    this.ctx.fillStyle = particle.color;
-                    this.ctx.beginPath();
-                    this.ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
-                    this.ctx.fill();
-                });
-                this.ctx.globalAlpha = 1;
-            },
-            
-            render: function() {
-                if (!this.isActive) return;
-                
-                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                this.updateParticles();
-                this.drawParticles();
-                
-                requestAnimationFrame(() => this.render());
-            },
-            
-            start: function() {
-                this.isActive = true;
-                this.render();
-            },
-            
-            stop: function() {
-                this.isActive = false;
-                this.particles = [];
-            }
-        };
-
-        // ===== GAME FUNCTIONS =====
-        function initGame() {
-            // Initialize systems
-            audio.init();
-            canvasEffects.init();
-            
-            // Check authentication
+        // ===== INITIALIZATION =====
+        document.addEventListener('DOMContentLoaded', () => {
             checkAuth();
-            
-            // Setup event listeners
             setupEventListeners();
-            
-            // Start canvas effects
-            canvasEffects.start();
-            
-            // Generate initial winners feed
-            generateWinnersFeed();
-            
-            // Show full screen container
-            document.getElementById('game-screen').classList.add('active');
-            
-            showToast('Welcome to Double or Nothing!', 'success');
-        }
+            updateGameStatus('Place your bet and tap START to begin');
+            generateWinnersList();
+            loadGameHistory();
+        });
 
+        // ===== AUTHENTICATION =====
         function checkAuth() {
             auth.onAuthStateChanged(user => {
                 if (!user) {
@@ -1258,11 +1221,11 @@
                 }
                 gameState.currentUser = user;
                 loadBalance();
-                setupRealtimeListeners();
-                loadGameRecords();
+                setupRealTimeListeners();
             });
         }
 
+        // ===== BALANCE MANAGEMENT =====
         async function loadBalance() {
             try {
                 const doc = await db.collection("wallets").doc(gameState.currentUser.uid).get();
@@ -1286,10 +1249,11 @@
 
         function updateBalanceDisplay() {
             document.getElementById('balance-val').textContent = gameState.balance.toFixed(2);
-            document.getElementById('wallet-amount').textContent = gameState.balance.toFixed(2);
+            updateBetLimits();
         }
 
-        function setupRealtimeListeners() {
+        // ===== REAL-TIME LISTENERS =====
+        function setupRealTimeListeners() {
             const walletRef = db.collection("wallets").doc(gameState.currentUser?.uid);
             
             walletRef.onSnapshot((doc) => {
@@ -1298,7 +1262,6 @@
                     if (newBalance !== gameState.balance) {
                         gameState.balance = newBalance;
                         updateBalanceDisplay();
-                        updateBetSlider();
                     }
                 }
             }, (error) => {
@@ -1306,106 +1269,101 @@
             });
         }
 
-        function setupEventListeners() {
-            // Action button
-            const actionButton = document.getElementById('action-button');
-            actionButton.addEventListener('click', handleActionButton);
-            
-            // Energy orb tap
-            const energyOrb = document.getElementById('energy-orb');
-            energyOrb.addEventListener('click', handleOrbTap);
-            
-            // Bet slider
-            const betSlider = document.getElementById('bet-slider');
-            betSlider.addEventListener('input', updateBetFromSlider);
-            
-            // Quick bet buttons
-            document.querySelectorAll('.quick-bet').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const amount = parseFloat(btn.dataset.amount);
-                    setBetAmount(amount);
+        // ===== ATOMIC TRANSACTIONS =====
+        async function processTransaction(amount, type, description) {
+            try {
+                const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+                
+                return await db.runTransaction(async (transaction) => {
+                    const walletDoc = await transaction.get(walletRef);
+                    
+                    if (!walletDoc.exists) {
+                        throw new Error("Wallet not found");
+                    }
+                    
+                    const currentBalance = walletDoc.data().balance || 0;
+                    const newBalance = currentBalance + amount;
+                    
+                    if (newBalance < 0) {
+                        throw new Error("Insufficient funds");
+                    }
+                    
+                    // Update main balance
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        updatedAt: new Date()
+                    });
+                    
+                    // Record transaction
+                    const transactionRef = walletRef.collection("transactions").doc();
+                    transaction.set(transactionRef, {
+                        type: type,
+                        amount: amount,
+                        description: description,
+                        createdAt: new Date(),
+                        gameId: gameState.sessionId || 'double_or_nothing',
+                        beforeBalance: currentBalance,
+                        afterBalance: newBalance
+                    });
+                    
+                    // Update local balance
+                    gameState.balance = newBalance;
+                    updateBalanceDisplay();
+                    
+                    return { success: true, newBalance };
+                    
                 });
-            });
-            
-            // Full screen toggle
-            const fullscreenToggle = document.getElementById('fullscreen-toggle');
-            fullscreenToggle.addEventListener('click', toggleFullscreen);
-            
-            // Mute toggle
-            const muteToggle = document.getElementById('mute-toggle');
-            muteToggle.addEventListener('click', toggleAudioMute);
-            
-            // Return button
-            const returnButton = document.getElementById('return-button');
-            returnButton.addEventListener('click', (e) => {
-                if (gameState.gameActive) {
-                    e.preventDefault();
-                    showToast('Cannot exit during active game!', 'warning');
-                }
-            });
-        }
-
-        function setBetAmount(amount) {
-            if (gameState.gameActive) {
-                showToast('Cannot change bet during game', 'warning');
-                return;
-            }
-            
-            gameState.betAmount = amount;
-            document.getElementById('bet-amount-display').textContent = amount;
-            document.getElementById('bet-slider').value = amount;
-            
-            // Update quick bet buttons
-            document.querySelectorAll('.quick-bet').forEach(btn => {
-                if (parseFloat(btn.dataset.amount) === amount) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
-            });
-            
-            showToast(`Bet set to $${amount}`, 'info');
-        }
-
-        function updateBetFromSlider() {
-            const slider = document.getElementById('bet-slider');
-            const amount = parseInt(slider.value);
-            setBetAmount(amount);
-        }
-
-        function updateBetSlider() {
-            const slider = document.getElementById('bet-slider');
-            const maxBet = Math.min(gameState.balance, 100);
-            slider.max = maxBet;
-            
-            if (gameState.betAmount > maxBet) {
-                setBetAmount(maxBet);
+            } catch (error) {
+                console.error('Transaction failed:', error);
+                showToast('Transaction failed: ' + error.message, 'error');
+                return { success: false, error: error.message };
             }
         }
 
-        async function handleActionButton() {
-            const actionButton = document.getElementById('action-button');
+        // ===== GAME FUNCTIONS =====
+        function updateGameStatus(message) {
+            document.getElementById('game-status').textContent = message;
+        }
+
+        function updateBetLimits() {
+            const betInput = document.getElementById('bet-amount');
+            betInput.max = Math.min(gameState.balance, 1000);
             
-            if (actionButton.classList.contains('start')) {
-                await startGame();
-            } else if (actionButton.classList.contains('double')) {
-                await continueGame();
-            } else if (actionButton.classList.contains('collect')) {
-                await cashOut();
-            } else if (actionButton.classList.contains('play-again')) {
-                resetGame();
+            if (parseFloat(betInput.value) > betInput.max) {
+                betInput.value = betInput.max;
+                gameState.betAmount = betInput.max;
             }
         }
 
+        function updateRoundIndicator() {
+            document.getElementById('current-round').textContent = gameState.currentRound;
+            document.getElementById('current-multiplier').textContent = `${gameState.totalMultiplier}x`;
+        }
+
+        // ===== HIDDEN WIN/LOSE SYSTEM =====
+        function calculateWinResult() {
+            // Generate random win chance between 10-15%
+            const winChance = gameState.hiddenWinChance.min + 
+                Math.random() * (gameState.hiddenWinChance.max - gameState.hiddenWinChance.min);
+            
+            // Random roll
+            const roll = Math.random();
+            
+            // Apply win chance (10-15% win rate)
+            if (roll <= winChance) {
+                return { win: true };
+            } else {
+                return { win: false };
+            }
+        }
+
+        // ===== GAME ACTIONS =====
         async function startGame() {
-            // Validate bet
-            if (gameState.betAmount < 1) {
-                showToast('Bet amount must be at least $1', 'error');
-                return;
-            }
+            const betAmount = parseFloat(document.getElementById('bet-amount').value);
             
-            if (gameState.betAmount > gameState.balance) {
-                showToast('Insufficient balance', 'error');
+            // Validation
+            if (betAmount < 1 || betAmount > Math.min(gameState.balance, 1000)) {
+                showToast('Invalid bet amount', 'error');
                 return;
             }
             
@@ -1414,148 +1372,123 @@
                 return;
             }
             
-            // Show loading
-            showLoading(true);
+            // Process bet transaction
+            const result = await processTransaction(
+                -betAmount,
+                "double_or_nothing_bet",
+                `Double or Nothing bet of $${betAmount}`
+            );
             
-            try {
-                // Create game session on server
-                const startGameFunction = functions.httpsCallable('startDoubleOrNothingGame');
-                const result = await startGameFunction({
-                    betAmount: gameState.betAmount
-                });
-                
-                if (result.data.success) {
-                    gameState.sessionId = result.data.sessionId;
-                    gameState.gameActive = true;
-                    gameState.currentRound = 1;
-                    gameState.totalMultiplier = 2;
-                    
-                    // Update UI
-                    updatePhaseIndicator();
-                    updateActionButton('countdown');
-                    
-                    // Start countdown
-                    startCountdown();
-                    
-                    audio.play('start');
-                    
-                    showToast('Game started! Get ready...', 'success');
-                } else {
-                    showToast('Failed to start game: ' + result.data.error, 'error');
-                }
-            } catch (error) {
-                console.error('Start game error:', error);
-                showToast('Network error. Please try again.', 'error');
-            } finally {
-                showLoading(false);
+            if (!result.success) {
+                showToast('Failed to place bet', 'error');
+                return;
             }
+            
+            // Reset game state
+            gameState.betAmount = betAmount;
+            gameState.currentRound = 1;
+            gameState.totalMultiplier = 2;
+            gameState.gameActive = true;
+            gameState.sessionId = 'double_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            gameState.currentGame = { round: 0, multiplier: 0, win: false, payout: 0 };
+            
+            // Update UI
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('double-btn').disabled = true;
+            document.getElementById('collect-btn').disabled = true;
+            updateRoundIndicator();
+            updateGameStatus('Starting countdown...');
+            
+            // Start the countdown
+            startCountdown();
         }
 
         function startCountdown() {
             gameState.countdownActive = true;
             const countdownDisplay = document.getElementById('countdown-display');
+            const gameCircle = document.getElementById('game-circle');
+            
             countdownDisplay.classList.add('show');
+            gameCircle.style.cursor = 'not-allowed';
             
             let count = 5;
             countdownDisplay.textContent = count;
             
-            audio.play('countdown');
-            
             const countdownInterval = setInterval(() => {
                 count--;
                 countdownDisplay.textContent = count;
-                audio.play('countdown');
                 
                 if (count <= 0) {
                     clearInterval(countdownInterval);
                     countdownDisplay.classList.remove('show');
                     gameState.countdownActive = false;
                     
-                    // Enable orb tapping
-                    updateOrbState('active');
-                    updateActionButton('tap');
+                    // Enable circle tapping
+                    gameCircle.style.cursor = 'pointer';
+                    document.getElementById('circle-text').textContent = 'TAP NOW';
                     
-                    showToast('Tap the orb!', 'success');
+                    updateGameStatus('Tap the circle to reveal result!');
                 }
             }, 1000);
         }
 
-        async function handleOrbTap() {
+        async function tapCircle() {
             if (!gameState.gameActive || gameState.countdownActive) return;
             
             // Show loading
             showLoading(true);
             
-            // Play tap sound
-            audio.play('tap');
+            // Hide tap text
+            document.getElementById('circle-text').textContent = '';
             
-            // Create visual effect
-            const orb = document.getElementById('energy-orb');
-            const rect = orb.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            canvasEffects.createParticles('tap', x, y);
+            // Apply hidden win/lose system
+            const result = calculateWinResult();
             
-            // Resolve round on server
-            try {
-                const resolveRoundFunction = functions.httpsCallable('resolveRound');
-                const result = await resolveRoundFunction({
-                    sessionId: gameState.sessionId
-                });
-                
-                if (result.data.success) {
-                    const roundResult = result.data.result;
-                    
-                    if (roundResult === 'win') {
-                        await handleWin();
-                    } else {
-                        await handleLoss();
-                    }
-                } else {
-                    showToast('Game error: ' + result.data.error, 'error');
-                    resetGame();
-                }
-            } catch (error) {
-                console.error('Resolve round error:', error);
-                showToast('Network error. Please try again.', 'error');
-                resetGame();
-            } finally {
-                showLoading(false);
+            // Simulate server delay
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            // Handle result
+            if (result.win) {
+                await handleWin();
+            } else {
+                await handleLoss();
             }
+            
+            showLoading(false);
         }
 
         async function handleWin() {
+            // Update game state
             gameState.currentRound++;
             gameState.totalMultiplier *= 2;
             gameState.canDouble = true;
             gameState.canCollect = true;
             
             // Update UI
-            updatePhaseIndicator();
-            updateOrbState('win');
-            updateActionButton('win');
+            const gameCircle = document.getElementById('game-circle');
+            const circleText = document.getElementById('circle-text');
+            
+            gameCircle.classList.remove('lose');
+            gameCircle.classList.add('win');
+            circleText.textContent = 'WIN!';
+            circleText.style.color = '#000';
+            
+            updateRoundIndicator();
+            updateActionButtons('win');
             
             // Show win banner
-            showResultBanner('win', gameState.betAmount * (gameState.totalMultiplier / 2));
+            const winAmount = gameState.betAmount * (gameState.totalMultiplier / 2);
+            showResultBanner('win', winAmount);
             
-            // Play win sound
-            audio.play('win');
+            // Update game status
+            updateGameStatus(`You won! Current multiplier: ${gameState.totalMultiplier}x`);
             
-            // Create win particles
-            const orb = document.getElementById('energy-orb');
-            const rect = orb.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            canvasEffects.createParticles('win', x, y);
-            
-            // Add to records
-            addGameRecord('WIN', gameState.betAmount * (gameState.totalMultiplier / 2));
-            
-            showToast(`You won! Current multiplier: ${gameState.totalMultiplier}x`, 'success');
+            // Add to history
+            addGameHistory('WIN', winAmount);
             
             // Check if max rounds reached
             if (gameState.currentRound > gameState.maxRounds) {
-                await autoCashOut();
+                await autoCollect();
             }
         }
 
@@ -1566,115 +1499,109 @@
             gameState.canCollect = false;
             
             // Update UI
-            updateOrbState('lose');
-            updateActionButton('lose');
+            const gameCircle = document.getElementById('game-circle');
+            const circleText = document.getElementById('circle-text');
+            
+            gameCircle.classList.remove('win');
+            gameCircle.classList.add('lose');
+            circleText.textContent = 'LOSE';
+            circleText.style.color = '#fff';
+            
+            updateActionButtons('lose');
             
             // Show lose banner
             showResultBanner('lose', gameState.betAmount);
             
-            // Play lose sound
-            audio.play('lose');
+            // Update game status
+            updateGameStatus('Better luck next time!');
             
-            // Create lose particles
-            const orb = document.getElementById('energy-orb');
-            const rect = orb.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            canvasEffects.createParticles('lose', x, y);
+            // Add to history
+            addGameHistory('LOSE', -gameState.betAmount);
             
-            // Add to records
-            addGameRecord('LOSE', -gameState.betAmount);
+            // Show results panel
+            showResultsPanel();
             
-            // Force lose on server
-            try {
-                const forceLoseFunction = functions.httpsCallable('forceLose');
-                await forceLoseFunction({
-                    sessionId: gameState.sessionId
-                });
-                
-                // Reload balance
-                await loadBalance();
-            } catch (error) {
-                console.error('Force lose error:', error);
-            }
-            
-            showToast('Better luck next time!', 'error');
+            // Reset game after delay
+            setTimeout(() => {
+                resetGame();
+            }, 3000);
         }
 
-        async function continueGame() {
+        async function double() {
             if (!gameState.canDouble) return;
             
             // Reset for next round
             gameState.canDouble = false;
             gameState.canCollect = false;
             
-            // Update UI for next round
-            updateOrbState('active');
-            updateActionButton('tap');
+            // Reset circle
+            const gameCircle = document.getElementById('game-circle');
+            const circleText = document.getElementById('circle-text');
             
-            showToast(`Round ${gameState.currentRound} - Tap to continue!`, 'info');
+            gameCircle.classList.remove('win', 'lose');
+            circleText.textContent = 'TAP';
+            circleText.style.color = '#000';
+            
+            // Start next round countdown
+            startCountdown();
+            
+            updateGameStatus(`Round ${gameState.currentRound} - Get ready!`);
         }
 
-        async function cashOut() {
+        async function collect() {
             if (!gameState.canCollect) return;
             
-            // Show loading
-            showLoading(true);
+            // Calculate winnings
+            const winnings = gameState.betAmount * gameState.totalMultiplier;
             
-            try {
-                const cashOutFunction = functions.httpsCallable('cashOut');
-                const result = await cashOutFunction({
-                    sessionId: gameState.sessionId
-                });
+            // Process win transaction
+            const result = await processTransaction(
+                winnings,
+                "double_or_nothing_win",
+                `Double or Nothing win of $${winnings.toFixed(2)}`
+            );
+            
+            if (result.success) {
+                // Update game state
+                gameState.gameActive = false;
+                gameState.canDouble = false;
+                gameState.canCollect = false;
                 
-                if (result.data.success) {
-                    const winnings = gameState.betAmount * gameState.totalMultiplier;
-                    
-                    // Update game state
-                    gameState.gameActive = false;
-                    gameState.canDouble = false;
-                    gameState.canCollect = false;
-                    
-                    // Update UI
-                    updateOrbState('collect');
-                    updateActionButton('play-again');
-                    
-                    // Show win banner
-                    showResultBanner('win', winnings);
-                    
-                    // Play win sound
-                    audio.play('win');
-                    
-                    // Add to records
-                    addGameRecord('CASHOUT', winnings);
-                    
-                    // Add to winners feed
-                    addToWinnersFeed(gameState.currentUser.displayName || 'Player', winnings);
-                    
-                    showToast(`Successfully cashed out $${winnings.toFixed(2)}!`, 'success');
-                    
-                    // Reload balance
-                    await loadBalance();
-                } else {
-                    showToast('Cash out failed: ' + result.data.error, 'error');
-                }
-            } catch (error) {
-                console.error('Cash out error:', error);
-                showToast('Network error during cash out', 'error');
-            } finally {
-                showLoading(false);
+                // Update UI
+                updateActionButtons('collect');
+                
+                // Show win banner
+                showResultBanner('win', winnings);
+                
+                // Add to history
+                addGameHistory('COLLECT', winnings);
+                
+                // Add to winners list
+                addToWinnersList(gameState.currentUser.displayName || 'Player', winnings);
+                
+                // Show results panel
+                showResultsPanel();
+                
+                showToast(`Successfully collected $${winnings.toFixed(2)}!`, 'success');
+                
+                // Reset game after delay
+                setTimeout(() => {
+                    resetGame();
+                }, 3000);
+            } else {
+                showToast('Failed to collect winnings', 'error');
             }
         }
 
-        async function autoCashOut() {
-            // Automatic cash out at max rounds
+        async function autoCollect() {
+            // Automatic collect at max rounds
             gameState.canDouble = false;
             gameState.canCollect = true;
             
-            // Force cash out
-            await cashOut();
+            // Force collect
+            await collect();
             
-            showToast('Maximum rounds reached! Auto-cashing out...', 'warning');
+            showToast('Maximum rounds reached! Auto-collecting...', 'warning');
         }
 
         function resetGame() {
@@ -1688,94 +1615,59 @@
             gameState.sessionId = null;
             
             // Reset UI
-            updatePhaseIndicator();
-            updateOrbState('idle');
-            updateActionButton('start');
+            const gameCircle = document.getElementById('game-circle');
+            const circleText = document.getElementById('circle-text');
+            
+            gameCircle.classList.remove('win', 'lose');
+            circleText.textContent = 'TAP';
+            circleText.style.color = '#000';
+            
+            updateRoundIndicator();
+            updateActionButtons('start');
+            updateGameStatus('Place your bet and tap START to begin');
             hideResultBanner();
             
-            // Reset orb text
-            document.getElementById('orb-text').textContent = 'TAP';
+            // Hide results panel
+            document.getElementById('results-panel').classList.remove('show');
             
-            showToast('Game reset. Place your bet!', 'info');
+            // Enable start button
+            document.getElementById('start-btn').disabled = false;
         }
 
-        // ===== UI UPDATE FUNCTIONS =====
-        function updatePhaseIndicator() {
-            document.getElementById('current-round').textContent = gameState.currentRound;
-            document.getElementById('current-multiplier').textContent = `${gameState.totalMultiplier}x`;
-        }
-
-        function updateOrbState(state) {
-            const orb = document.getElementById('energy-orb');
-            const orbText = document.getElementById('orb-text');
-            
-            orb.classList.remove('win', 'lose', 'collect');
-            orbText.classList.remove('win', 'lose', 'collect');
-            
-            switch(state) {
-                case 'idle':
-                    orb.style.background = 'radial-gradient(circle at 30% 30%, #00ff9d, #00cc7a)';
-                    orbText.textContent = 'TAP';
-                    break;
-                case 'active':
-                    orb.style.background = 'radial-gradient(circle at 30% 30%, #ff9800, #ff6d00)';
-                    orbText.textContent = 'TAP NOW';
-                    break;
-                case 'win':
-                    orb.classList.add('win');
-                    orbText.classList.add('win');
-                    orb.style.background = 'radial-gradient(circle at 30% 30%, #00ff9d, #4caf50)';
-                    orbText.textContent = 'WIN!';
-                    break;
-                case 'lose':
-                    orb.classList.add('lose');
-                    orbText.classList.add('lose');
-                    orb.style.background = 'radial-gradient(circle at 30% 30%, #ff5252, #ff1744)';
-                    orbText.textContent = 'LOSE';
-                    break;
-                case 'collect':
-                    orb.classList.add('collect');
-                    orbText.classList.add('collect');
-                    orb.style.background = 'radial-gradient(circle at 30% 30%, #4caf50, #2e7d32)';
-                    orbText.textContent = 'COLLECT';
-                    break;
-            }
-        }
-
-        function updateActionButton(state) {
-            const button = document.getElementById('action-button');
-            const icon = button.querySelector('i');
-            
-            // Remove all classes
-            button.className = 'action-button';
-            button.disabled = false;
+        function updateActionButtons(state) {
+            const startBtn = document.getElementById('start-btn');
+            const doubleBtn = document.getElementById('double-btn');
+            const collectBtn = document.getElementById('collect-btn');
+            const playAgainBtn = document.getElementById('play-again-btn');
             
             switch(state) {
                 case 'start':
-                    button.classList.add('start');
-                    icon.className = 'fas fa-play';
-                    button.innerHTML = '<i class="fas fa-play"></i> START GAME';
-                    break;
-                case 'countdown':
-                    button.classList.add('start');
-                    button.disabled = true;
-                    icon.className = 'fas fa-clock';
-                    button.innerHTML = '<i class="fas fa-clock"></i> COUNTDOWN...';
-                    break;
-                case 'tap':
-                    button.classList.add('tap');
-                    icon.className = 'fas fa-hand-pointer';
-                    button.innerHTML = '<i class="fas fa-hand-pointer"></i> TAP THE ORB';
+                    startBtn.style.display = 'flex';
+                    doubleBtn.style.display = 'none';
+                    collectBtn.style.display = 'none';
+                    playAgainBtn.style.display = 'none';
+                    doubleBtn.disabled = true;
+                    collectBtn.disabled = true;
                     break;
                 case 'win':
-                    button.classList.add('double');
-                    icon.className = 'fas fa-redo';
-                    button.innerHTML = '<i class="fas fa-redo"></i> DOUBLE';
+                    startBtn.style.display = 'none';
+                    doubleBtn.style.display = 'flex';
+                    collectBtn.style.display = 'flex';
+                    playAgainBtn.style.display = 'none';
+                    doubleBtn.disabled = false;
+                    collectBtn.disabled = false;
                     break;
                 case 'lose':
-                    button.classList.add('play-again');
-                    icon.className = 'fas fa-redo';
-                    button.innerHTML = '<i class="fas fa-redo"></i> PLAY AGAIN';
+                    startBtn.style.display = 'none';
+                    doubleBtn.style.display = 'none';
+                    collectBtn.style.display = 'none';
+                    playAgainBtn.style.display = 'flex';
+                    break;
+                case 'collect':
+                    startBtn.style.display = 'none';
+                    doubleBtn.style.display = 'none';
+                    collectBtn.style.display = 'none';
+                    playAgainBtn.style.display = 'flex';
                     break;
             }
         }
@@ -1803,101 +1695,36 @@
             banner.classList.remove('show');
         }
 
-        // ===== RECORDS SYSTEM =====
-        function addGameRecord(action, amount) {
-            const record = {
-                action: action,
-                amount: amount,
-                timestamp: new Date(),
-                round: gameState.currentRound,
-                multiplier: gameState.totalMultiplier
-            };
+        function showResultsPanel() {
+            const panel = document.getElementById('results-panel');
             
-            gameState.gameRecords.unshift(record);
-            if (gameState.gameRecords.length > 10) {
-                gameState.gameRecords.pop();
-            }
+            document.getElementById('result-round').textContent = gameState.currentRound - 1;
+            document.getElementById('result-multiplier').textContent = `${gameState.totalMultiplier}x`;
             
-            updateRecordsDisplay();
-            saveRecordToFirebase(record);
+            const winAmount = gameState.currentGame.win ? 
+                gameState.betAmount * gameState.totalMultiplier : 
+                -gameState.betAmount;
+            
+            document.getElementById('result-win').textContent = 
+                winAmount > 0 ? `+$${winAmount.toFixed(2)}` : `-$${Math.abs(winAmount).toFixed(2)}`;
+            document.getElementById('result-win').className = 
+                winAmount > 0 ? 'result-value win' : 'result-value lose';
+            
+            document.getElementById('result-total').textContent = 
+                winAmount > 0 ? `+$${winAmount.toFixed(2)}` : `-$${Math.abs(winAmount).toFixed(2)}`;
+            document.getElementById('result-total').className = 
+                winAmount > 0 ? 'result-value win' : 'result-value lose';
+            
+            panel.classList.add('show');
         }
 
-        function updateRecordsDisplay() {
-            const recordsList = document.getElementById('records-list');
-            recordsList.innerHTML = '';
+        // ===== WINNERS LIST =====
+        function generateWinnersList() {
+            const winnersList = document.getElementById('winners-list');
+            winnersList.innerHTML = '';
             
-            gameState.gameRecords.forEach(record => {
-                const recordItem = document.createElement('div');
-                recordItem.className = `record-item ${record.action.toLowerCase()}`;
-                
-                const time = record.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                const amountText = record.amount > 0 ? `+$${record.amount.toFixed(2)}` : `-$${Math.abs(record.amount).toFixed(2)}`;
-                
-                recordItem.innerHTML = `
-                    <div class="record-action">
-                        ${time} - Round ${record.round}
-                    </div>
-                    <div class="record-result ${record.action.toLowerCase()}">
-                        ${amountText}
-                    </div>
-                `;
-                
-                recordsList.appendChild(recordItem);
-            });
-        }
-
-        async function saveRecordToFirebase(record) {
-            try {
-                await db.collection("double_or_nothing_records")
-                    .doc(gameState.currentUser.uid)
-                    .collection("games")
-                    .add({
-                        userId: gameState.currentUser.uid,
-                        action: record.action,
-                        amount: record.amount,
-                        round: record.round,
-                        multiplier: record.multiplier,
-                        betAmount: gameState.betAmount,
-                        timestamp: new Date()
-                    });
-            } catch (error) {
-                console.error('Error saving record:', error);
-            }
-        }
-
-        async function loadGameRecords() {
-            try {
-                const snapshot = await db.collection("double_or_nothing_records")
-                    .doc(gameState.currentUser?.uid)
-                    .collection("games")
-                    .orderBy('timestamp', 'desc')
-                    .limit(10)
-                    .get();
-                
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    gameState.gameRecords.push({
-                        action: data.action,
-                        amount: data.amount,
-                        timestamp: data.timestamp.toDate(),
-                        round: data.round,
-                        multiplier: data.multiplier
-                    });
-                });
-                
-                updateRecordsDisplay();
-            } catch (error) {
-                console.error('Error loading records:', error);
-            }
-        }
-
-        // ===== WINNERS FEED =====
-        function generateWinnersFeed() {
-            const winnersTicker = document.getElementById('winners-ticker');
-            winnersTicker.innerHTML = '';
-            
-            // Generate 20 random winners
-            for (let i = 0; i < 20; i++) {
+            // Generate 10 random winners
+            for (let i = 0; i < 10; i++) {
                 const randomName = nicknamePool[Math.floor(Math.random() * nicknamePool.length)];
                 const randomAmount = Math.floor(Math.random() * 500) + 50;
                 
@@ -1906,92 +1733,215 @@
                 winnerItem.innerHTML = `
                     <span class="winner-icon">🎉</span>
                     <span class="winner-name">${randomName}</span>
-                    won $${randomAmount}
+                    <span class="winner-amount">$${randomAmount}</span>
                 `;
                 
-                winnersTicker.appendChild(winnerItem);
+                winnersList.appendChild(winnerItem);
+                gameState.recentWinners.push({ name: randomName, amount: randomAmount });
             }
             
-            // Duplicate for seamless scrolling
-            const clone = winnersTicker.cloneNode(true);
-            winnersTicker.parentNode.appendChild(clone);
+            // Start auto-update
+            setInterval(updateWinnersList, 5000);
         }
 
-        function addToWinnersFeed(name, amount) {
-            const winnersTicker = document.getElementById('winners-ticker');
+        function updateWinnersList() {
+            const winnersList = document.getElementById('winners-list');
+            
+            // Remove oldest winner
+            if (winnersList.children.length > 10) {
+                winnersList.removeChild(winnersList.lastChild);
+            }
+            
+            // Add new random winner
+            const randomName = nicknamePool[Math.floor(Math.random() * nicknamePool.length)];
+            const randomAmount = Math.floor(Math.random() * 500) + 50;
+            
+            const winnerItem = document.createElement('div');
+            winnerItem.className = 'winner-item';
+            winnerItem.innerHTML = `
+                <span class="winner-icon">🎉</span>
+                <span class="winner-name">${randomName}</span>
+                <span class="winner-amount">$${randomAmount}</span>
+            `;
+            
+            winnersList.insertBefore(winnerItem, winnersList.firstChild);
+            gameState.recentWinners.unshift({ name: randomName, amount: randomAmount });
+            
+            if (gameState.recentWinners.length > 20) {
+                gameState.recentWinners.pop();
+            }
+        }
+
+        function addToWinnersList(name, amount) {
+            const winnersList = document.getElementById('winners-list');
             
             const winnerItem = document.createElement('div');
             winnerItem.className = 'winner-item';
             winnerItem.innerHTML = `
                 <span class="winner-icon">🎉</span>
                 <span class="winner-name">${name}</span>
-                won $${amount.toFixed(2)}
+                <span class="winner-amount">$${amount.toFixed(2)}</span>
             `;
             
-            winnersTicker.insertBefore(winnerItem, winnersTicker.firstChild);
+            winnersList.insertBefore(winnerItem, winnersList.firstChild);
+            gameState.recentWinners.unshift({ name, amount });
             
-            // Keep only 20 items
-            while (winnersTicker.children.length > 20) {
-                winnersTicker.removeChild(winnersTicker.lastChild);
+            // Keep only 10 items visible
+            while (winnersList.children.length > 10) {
+                winnersList.removeChild(winnersList.lastChild);
+            }
+            
+            // Keep only 20 items in memory
+            if (gameState.recentWinners.length > 20) {
+                gameState.recentWinners.pop();
             }
         }
 
-        // ===== FULLSCREEN FUNCTIONS =====
-        function toggleFullscreen() {
-            const container = document.getElementById('game-screen');
+        // ===== GAME HISTORY =====
+        function addGameHistory(action, amount) {
+            const historyItem = {
+                action: action,
+                amount: amount,
+                timestamp: new Date(),
+                betAmount: gameState.betAmount,
+                round: gameState.currentRound - 1,
+                multiplier: gameState.totalMultiplier
+            };
             
-            if (!document.fullscreenElement) {
-                if (container.requestFullscreen) {
-                    container.requestFullscreen();
-                } else if (container.webkitRequestFullscreen) {
-                    container.webkitRequestFullscreen();
-                } else if (container.msRequestFullscreen) {
-                    container.msRequestFullscreen();
-                }
+            gameState.gameHistory.unshift(historyItem);
+            if (gameState.gameHistory.length > 10) {
+                gameState.gameHistory.pop();
+            }
+            
+            updateHistoryDisplay();
+            saveGameHistoryToFirebase(historyItem);
+        }
+
+        function updateHistoryDisplay() {
+            const historyList = document.getElementById('history-list');
+            historyList.innerHTML = '';
+            
+            gameState.gameHistory.forEach(item => {
+                const historyItem = document.createElement('div');
+                historyItem.className = `history-item ${item.action.toLowerCase()}`;
                 
-                document.getElementById('fullscreen-toggle').innerHTML = '<i class="fas fa-compress"></i>';
-                showToast('Entered full screen mode', 'info');
-            } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                } else if (document.webkitExitFullscreen) {
-                    document.webkitExitFullscreen();
-                } else if (document.msExitFullscreen) {
-                    document.msExitFullscreen();
-                }
+                const time = new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                const amountText = item.amount > 0 ? `+$${item.amount.toFixed(2)}` : `-$${Math.abs(item.amount).toFixed(2)}`;
                 
-                document.getElementById('fullscreen-toggle').innerHTML = '<i class="fas fa-expand"></i>';
-                showToast('Exited full screen mode', 'info');
+                historyItem.innerHTML = `
+                    <div class="history-action">
+                        ${time} - Round ${item.round}
+                    </div>
+                    <div class="history-result ${item.action.toLowerCase()}">
+                        ${amountText}
+                    </div>
+                `;
+                
+                historyList.appendChild(historyItem);
+            });
+        }
+
+        async function saveGameHistoryToFirebase(historyItem) {
+            try {
+                await db.collection("double_or_nothing_history")
+                    .doc(gameState.currentUser.uid)
+                    .collection("games")
+                    .add({
+                        userId: gameState.currentUser.uid,
+                        ...historyItem,
+                        gameId: gameState.sessionId
+                    });
+            } catch (error) {
+                console.error('Error saving game history:', error);
             }
         }
 
-        // Handle fullscreen change
-        document.addEventListener('fullscreenchange', handleFullscreenChange);
-        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-        document.addEventListener('msfullscreenchange', handleFullscreenChange);
-
-        function handleFullscreenChange() {
-            const toggle = document.getElementById('fullscreen-toggle');
-            if (!document.fullscreenElement) {
-                toggle.innerHTML = '<i class="fas fa-expand"></i>';
+        async function loadGameHistory() {
+            try {
+                const snapshot = await db.collection("double_or_nothing_history")
+                    .doc(gameState.currentUser?.uid)
+                    .collection("games")
+                    .orderBy('timestamp', 'desc')
+                    .limit(10)
+                    .get();
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    gameState.gameHistory.push({
+                        action: data.action,
+                        amount: data.amount,
+                        timestamp: data.timestamp.toDate(),
+                        betAmount: data.betAmount,
+                        round: data.round,
+                        multiplier: data.multiplier
+                    });
+                });
+                
+                updateHistoryDisplay();
+            } catch (error) {
+                console.error('Error loading game history:', error);
             }
         }
 
-        // ===== AUDIO FUNCTIONS =====
-        function toggleAudioMute() {
-            const isMuted = audio.toggleMute();
-            const muteToggle = document.getElementById('mute-toggle');
+        // ===== EVENT LISTENERS =====
+        function setupEventListeners() {
+            // Start button
+            document.getElementById('start-btn').addEventListener('click', startGame);
             
-            if (isMuted) {
-                muteToggle.innerHTML = '<i class="fas fa-volume-mute"></i>';
-                showToast('Sound muted', 'info');
-            } else {
-                muteToggle.innerHTML = '<i class="fas fa-volume-up"></i>';
-                showToast('Sound enabled', 'success');
-            }
+            // Double button
+            document.getElementById('double-btn').addEventListener('click', double);
+            
+            // Collect button
+            document.getElementById('collect-btn').addEventListener('click', collect);
+            
+            // Play again button
+            document.getElementById('play-again-btn').addEventListener('click', resetGame);
+            
+            // Game circle tap
+            document.getElementById('game-circle').addEventListener('click', tapCircle);
+            
+            // Quick bet buttons
+            document.querySelectorAll('.quick-bet').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const amount = parseFloat(btn.dataset.amount);
+                    document.getElementById('bet-amount').value = amount;
+                    gameState.betAmount = amount;
+                    
+                    // Update active state
+                    document.querySelectorAll('.quick-bet').forEach(b => {
+                        b.classList.remove('active');
+                    });
+                    btn.classList.add('active');
+                });
+            });
+            
+            // Bet input
+            document.getElementById('bet-amount').addEventListener('input', (e) => {
+                let value = parseFloat(e.target.value) || 1;
+                value = Math.max(1, Math.min(value, Math.min(gameState.balance, 1000)));
+                e.target.value = value;
+                gameState.betAmount = value;
+                
+                // Update quick bet active state
+                document.querySelectorAll('.quick-bet').forEach(btn => {
+                    if (parseFloat(btn.dataset.amount) === value) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                });
+            });
+            
+            // Return to games button - prevent during active game
+            document.getElementById('return-games-btn').addEventListener('click', (e) => {
+                if (gameState.gameActive) {
+                    e.preventDefault();
+                    showToast('Cannot exit during active game!', 'warning');
+                }
+            });
         }
 
-        // ===== UTILITY FUNCTIONS =====
+        // ===== TOAST NOTIFICATIONS =====
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
@@ -2022,15 +1972,6 @@
                 overlay.classList.remove('show');
             }
         }
-
-        // ===== INITIALIZATION =====
-        document.addEventListener('DOMContentLoaded', () => {
-            // Set initial bet
-            setBetAmount(5);
-            
-            // Initialize game
-            setTimeout(initGame, 500);
-        });
 
         // ===== SECURITY MEASURES =====
         // Prevent context menu
