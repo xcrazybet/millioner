@@ -1,167 +1,94 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live Market Prices with Buy/Sell</title>
-<style>
-    body {
-        font-family: Arial, sans-serif;
-        background-color: #f5f5f5;
-        margin: 0;
-        padding: 20px;
+  <meta charset="UTF-8">
+  <title>Real‑Time Market Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f3f3f3; padding:20px; }
+    h1 { text-align:center; }
+    .section { margin:25px 0; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:15px; }
+    .card {
+      background:#fff; border-radius:8px; padding:12px;
+      box-shadow:0 2px 4px rgba(0,0,0,0.1);
+      text-align:center;
     }
-    h1, h2 {
-        text-align: center;
-        color: #333;
-    }
-    .category-container {
-        margin-top: 30px;
-    }
-    .market-container {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 15px;
-        margin-top: 15px;
-    }
-    .market-card {
-        background-color: #fff;
-        padding: 12px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        text-align: center;
-        transition: transform 0.2s;
-    }
-    .market-card:hover { transform: translateY(-5px); }
-    .market-card img { width: 40px; height: 40px; margin-bottom: 8px; }
-    .market-name { font-weight: bold; font-size: 16px; margin-bottom: 4px; }
-    .market-price { font-size: 18px; margin-bottom: 4px; }
-    .market-bid, .market-ask { font-size: 14px; margin-top: 2px; }
-    .market-change { font-size: 14px; margin-top: 3px; }
-    .up { color: green; }
-    .down { color: red; }
-</style>
+    .symbol { font-weight:bold; font-size:18px; margin-bottom:4px; }
+    .price, .bid, .ask, .chg { margin:2px 0; }
+    .up { color:green; }
+    .down { color:red; }
+  </style>
 </head>
 <body>
 
-<h1>Live Market Prices with Buy/Sell (Real-Time)</h1>
+<h1>Real‑Time Market Prices</h1>
 
-<div class="category-container">
-    <h2>Stocks</h2>
-    <div class="market-container" id="stocksContainer"></div>
-</div>
-
-<div class="category-container">
-    <h2>Forex</h2>
-    <div class="market-container" id="forexContainer"></div>
-</div>
-
-<div class="category-container">
-    <h2>Commodities</h2>
-    <div class="market-container" id="commoditiesContainer"></div>
-</div>
-
-<div class="category-container">
-    <h2>Bonds</h2>
-    <div class="market-container" id="bondsContainer"></div>
+<div class="section">
+  <h2>Streaming Quotes</h2>
+  <div class="grid" id="marketGrid"></div>
 </div>
 
 <script>
-// Assets data (example with 10+ per category, you can expand to 100+)
-const marketData = {
-    stocks: [
-        { symbol: 'AAPL', name: 'Apple', icon: 'https://cdn-icons-png.flaticon.com/512/732/732200.png' },
-        { symbol: 'GOOGL', name: 'Alphabet', icon: 'https://cdn-icons-png.flaticon.com/512/732/732221.png' },
-        { symbol: 'MSFT', name: 'Microsoft', icon: 'https://cdn-icons-png.flaticon.com/512/732/732212.png' }
-    ],
-    forex: [
-        { symbol: 'EURUSD=X', name: 'EUR/USD', icon: 'https://cdn-icons-png.flaticon.com/512/555/555417.png' },
-        { symbol: 'USDJPY=X', name: 'USD/JPY', icon: 'https://cdn-icons-png.flaticon.com/512/555/555417.png' }
-    ],
-    commodities: [
-        { symbol: 'GC=F', name: 'Gold', icon: 'https://cdn-icons-png.flaticon.com/512/616/616408.png' },
-        { symbol: 'CL=F', name: 'Crude Oil', icon: 'https://cdn-icons-png.flaticon.com/512/942/942748.png' }
-    ],
-    bonds: [
-        { symbol: 'US10Y', name: 'US 10Y Treasury', icon: 'https://cdn-icons-png.flaticon.com/512/188/188987.png' }
-    ]
+
+const API_KEY = "demo"; // Replace with your API key
+const WS_BASE = "wss://ws.eodhistoricaldata.com/ws/forex?api_token=" + API_KEY;
+
+// Example assets (Forex & Stocks). Extend to 100+.
+const symbols = [
+  "EURUSD","USDJPY","GBPUSD","AUDUSD","USDCAD","USDCHF","NZDUSD",
+  "AAPL.US","MSFT.US","GOOGL.US","AMZN.US","TSLA.US","META.US",
+  "NVDA.US","WMT.US","PG.US","JNJ.US","V.US","MA.US","BAC.US",
+  "USDTRY","EURGBP","EURJPY","GBPJPY","AUDCAD","AUDJPY","CHFJPY",
+  "CL=F","GC=F","SI=F"
+];
+
+// Build grid of cards
+const grid = document.getElementById("marketGrid");
+const cards = {};
+symbols.forEach(sym => {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `
+    <div class="symbol">${sym}</div>
+    <div class="price">Last: <span>–</span></div>
+    <div class="bid">Bid: <span>–</span></div>
+    <div class="ask">Ask: <span>–</span></div>
+    <div class="chg">Change:% <span>–</span></div>
+  `;
+  grid.appendChild(card);
+  cards[sym] = card;
+});
+
+// Open WebSocket
+const ws = new WebSocket(WS_BASE);
+
+ws.onopen = () => {
+  console.log("Connected to real‑time feed");
+  // Subscribe in one block (50 symbols max per connection)
+  ws.send(JSON.stringify({ action: "subscribe", symbols: symbols.join(",") }));
 };
 
-// Store DOM references
-const containers = {
-    stocksContainer: {},
-    forexContainer: {},
-    commoditiesContainer: {},
-    bondsContainer: {}
+ws.onmessage = evt => {
+  // Real‑time data arrives as JSON
+  const data = JSON.parse(evt.data);
+  if (data.symbol && cards[data.symbol]) {
+    const c = cards[data.symbol];
+    c.querySelector(".price span").textContent = data.price ?? "–";
+    c.querySelector(".bid span").textContent = data.bid ?? "–";
+    c.querySelector(".ask span").textContent = data.ask ?? "–";
+    const chgElem = c.querySelector(".chg span");
+    chgElem.textContent = (data.change_pct ?? "0") + "%";
+    chgElem.className = data.change_pct >= 0 ? "up" : "down";
+  }
 };
 
-// Create card
-function createCard(item) {
-    const card = document.createElement('div');
-    card.className = 'market-card';
-    card.innerHTML = `
-        <img src="${item.icon}" alt="${item.name}">
-        <div class="market-name">${item.name}</div>
-        <div class="market-price">Price: $0.00</div>
-        <div class="market-bid">Buy (Bid): $0.00</div>
-        <div class="market-ask">Sell (Ask): $0.00</div>
-        <div class="market-change up">0.00%</div>
-    `;
-    return card;
-}
+ws.onerror = err => {
+  console.error("WebSocket error", err);
+};
 
-// Initialize category
-function initCategory(categoryArray, containerId) {
-    const container = document.getElementById(containerId);
-    categoryArray.forEach(item => {
-        const card = createCard(item);
-        container.appendChild(card);
-        containers[containerId][item.symbol] = card;
-    });
-}
-
-// Initialize all categories
-initCategory(marketData.stocks, 'stocksContainer');
-initCategory(marketData.forex, 'forexContainer');
-initCategory(marketData.commodities, 'commoditiesContainer');
-initCategory(marketData.bonds, 'bondsContainer');
-
-// Update price for each asset
-async function updatePrice(item, containerId) {
-    try {
-        const response = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${item.symbol}`);
-        const data = await response.json();
-        const quote = data.quoteResponse.result[0];
-        if (!quote) return;
-
-        const card = containers[containerId][item.symbol];
-        const price = quote.regularMarketPrice ?? 0;
-        const bid = quote.bid ?? 0;
-        const ask = quote.ask ?? 0;
-        const change = quote.regularMarketChangePercent?.toFixed(2) ?? 0;
-
-        card.querySelector('.market-price').innerText = `Price: $${price}`;
-        card.querySelector('.market-bid').innerText = `Buy (Bid): $${bid}`;
-        card.querySelector('.market-ask').innerText = `Sell (Ask): $${ask}`;
-        const changeElem = card.querySelector('.market-change');
-        changeElem.innerText = `${change}%`;
-        changeElem.className = `market-change ${change >= 0 ? 'up' : 'down'}`;
-    } catch (err) {
-        console.error('Error fetching price:', item.symbol);
-    }
-}
-
-// Update all assets
-async function updateAll() {
-    for (const [category, array] of Object.entries(marketData)) {
-        const containerId = category + 'Container';
-        array.forEach(item => updatePrice(item, containerId));
-    }
-}
-
-// Start real-time updates every second
-setInterval(updateAll, 1000);
-updateAll();
+ws.onclose = () => {
+  console.warn("WebSocket connection closed");
+};
 </script>
 
 </body>
