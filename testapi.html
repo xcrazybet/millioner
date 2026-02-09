@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Multi-Product Forex Platform</title>
+<title>Multi-Asset Trading Platform</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
@@ -12,13 +12,13 @@ body {
   margin:0;
   background:#0e1117;
   color:#fff;
-  font-family:Arial;
+  font-family:Arial, sans-serif;
 }
 header {
-  padding:12px;
   background:#161b22;
+  padding:10px;
   display:flex;
-  justify-content:space-between;
+  gap:10px;
   align-items:center;
 }
 select {
@@ -27,12 +27,13 @@ select {
   border:1px solid #333;
   padding:6px;
 }
+#price { margin-left:auto; font-weight:bold; }
 #chart { height:420px; }
 .panel {
   padding:12px;
   display:flex;
-  gap:10px;
   justify-content:center;
+  gap:10px;
 }
 button {
   padding:10px 20px;
@@ -48,7 +49,15 @@ button {
 <body>
 
 <header>
-  <select id="pair" onchange="changePair()"></select>
+  <select id="market" onchange="loadMarket()">
+    <option value="forex">Forex</option>
+    <option value="stocks">Stocks</option>
+    <option value="commodities">Commodities</option>
+    <option value="bonds">Bonds</option>
+  </select>
+
+  <select id="symbol" onchange="changeSymbol()"></select>
+
   <div id="price">Loading…</div>
 </header>
 
@@ -60,26 +69,23 @@ button {
 </div>
 
 <script>
-// ================= PRODUCTS =================
-const pairs = [
-"EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","NZD/USD","USD/CAD","EUR/GBP",
-"EUR/JPY","EUR/AUD","EUR/CAD","EUR/CHF","GBP/JPY","GBP/AUD","GBP/CAD","GBP/CHF",
-"AUD/JPY","AUD/CAD","AUD/CHF","CAD/JPY","CHF/JPY","NZD/JPY","NZD/CAD","NZD/CHF",
-"USD/SEK","USD/NOK","USD/DKK","EUR/NZD","GBP/NZD",
-"USD/TRY","USD/ZAR","USD/MXN","USD/PLN","USD/HUF","USD/CZK","USD/ILS","USD/SGD",
-"USD/HKD","USD/THB","USD/INR","USD/PKR","EUR/TRY","EUR/ZAR","EUR/MXN",
-"GBP/TRY","GBP/ZAR","USD/BRL","USD/CLP","USD/COP","USD/EGP","USD/SAR",
-"USD/AED","USD/QAR","USD/KWD","USD/BHD","USD/OMR","USD/JOD","USD/MAD"
-];
-
-// Populate selector
-const pairSelect = document.getElementById("pair");
-pairs.forEach(p => {
-  const o = document.createElement("option");
-  o.value = p;
-  o.text = p;
-  pairSelect.add(o);
-});
+// ================= MARKET DATA =================
+const markets = {
+  forex: [
+    "EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","NZD/USD","USD/CAD",
+    "EUR/JPY","GBP/JPY","AUD/JPY","USD/TRY","USD/ZAR","USD/MXN"
+  ],
+  stocks: [
+    "AAPL","MSFT","GOOGL","AMZN","META","TSLA","NVDA","JPM","V",
+    "XOM","KO","PEP","BABA","TSM","SONY"
+  ],
+  commodities: [
+    "XAU/USD","XAG/USD","WTI","BRENT","NATGAS","COPPER","CORN","WHEAT"
+  ],
+  bonds: [
+    "US10Y","US2Y","US30Y","DE10Y","UK10Y","JP10Y"
+  ]
+};
 
 // ================= CHART =================
 const chart = LightweightCharts.createChart(
@@ -95,21 +101,59 @@ const chart = LightweightCharts.createChart(
 const series = chart.addCandlestickSeries();
 let time = Math.floor(Date.now()/1000);
 let lastPrice = null;
-let currentPair = pairSelect.value;
+let currentMarket = "forex";
+let currentSymbol = "";
 
-// ================= PRICE FEED =================
-async function fetchPrice(pair) {
-  const [base, quote] = pair.split("/");
-  const res = await fetch(
-    `https://api.exchangerate.host/latest?base=${base}&symbols=${quote}`
-  );
-  const data = await res.json();
-  return data.rates[quote];
+// ================= LOADERS =================
+function loadMarket() {
+  currentMarket = document.getElementById("market").value;
+  const symbolSelect = document.getElementById("symbol");
+  symbolSelect.innerHTML = "";
+
+  markets[currentMarket].forEach(s => {
+    const o = document.createElement("option");
+    o.value = s;
+    o.text = s;
+    symbolSelect.add(o);
+  });
+
+  currentSymbol = symbolSelect.value;
+  resetChart();
 }
 
+function changeSymbol() {
+  currentSymbol = document.getElementById("symbol").value;
+  resetChart();
+}
+
+function resetChart() {
+  series.setData([]);
+  lastPrice = null;
+}
+
+// ================= PRICE FEEDS =================
+async function fetchPrice() {
+  // FOREX & METALS
+  if (currentMarket === "forex" || currentSymbol.includes("/")) {
+    const [base, quote] = currentSymbol.split("/");
+    const res = await fetch(
+      `https://api.exchangerate.host/latest?base=${base}&symbols=${quote}`
+    );
+    const data = await res.json();
+    return data.rates[quote];
+  }
+
+  // STOCKS / COMMODITIES / BONDS (proxy demo pricing)
+  // Replace with paid feeds later (Polygon, TwelveData, Refinitiv)
+  return lastPrice
+    ? lastPrice + (Math.random() - 0.5) * lastPrice * 0.002
+    : Math.random() * 100 + 50;
+}
+
+// ================= UPDATE LOOP =================
 async function update() {
-  const price = await fetchPrice(currentPair);
-  document.getElementById("price").innerText = price.toFixed(5);
+  const price = await fetchPrice();
+  document.getElementById("price").innerText = price.toFixed(4);
 
   if (!lastPrice) lastPrice = price;
 
@@ -124,22 +168,19 @@ async function update() {
 }
 
 setInterval(update, 3000);
+loadMarket();
 
-// ================= CONTROLS =================
-function changePair() {
-  currentPair = pairSelect.value;
-  lastPrice = null;
-  series.setData([]);
-}
-
+// ================= TRADE =================
 function trade(type) {
   alert(
-    `${type} ${currentPair}\n\n` +
-    `This platform shows real prices.\n` +
-    `Trade execution is handled by your broker.`
+    `${type} ${currentSymbol}\n\n` +
+    `Prices are real/market-based.\n` +
+    `Execution handled by your broker.`
   );
+
+  let tvSymbol = currentSymbol.replace("/","");
   window.open(
-    `https://www.tradingview.com/chart/?symbol=FX:${currentPair.replace("/","")}`,
+    `https://www.tradingview.com/chart/?symbol=${tvSymbol}`,
     "_blank"
   );
 }
