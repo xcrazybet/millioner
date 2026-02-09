@@ -1,94 +1,103 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Real‑Time Market Dashboard</title>
-  <style>
-    body { font-family: Arial, sans-serif; background:#f3f3f3; padding:20px; }
-    h1 { text-align:center; }
-    .section { margin:25px 0; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:15px; }
-    .card {
-      background:#fff; border-radius:8px; padding:12px;
-      box-shadow:0 2px 4px rgba(0,0,0,0.1);
-      text-align:center;
-    }
-    .symbol { font-weight:bold; font-size:18px; margin-bottom:4px; }
-    .price, .bid, .ask, .chg { margin:2px 0; }
-    .up { color:green; }
-    .down { color:red; }
-  </style>
+    <meta charset="UTF-8">
+    <title>Real‑Time Market Prices Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f0f0f0; padding: 20px; }
+        h1, h2 { text-align: center; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+        .card {
+            background: #fff; padding:12px; border-radius:8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1); text-align:center;
+        }
+        .symbol { font-weight: bold; margin-bottom: 8px; }
+        .last, .bid, .ask, .chg { margin: 4px 0; }
+        .up { color: green; }
+        .down { color: red; }
+    </style>
 </head>
 <body>
 
-<h1>Real‑Time Market Prices</h1>
+<h1>Real‑Time Live Prices</h1>
+<h2>(Bid / Ask / Last) Streaming Dashboard</h2>
 
-<div class="section">
-  <h2>Streaming Quotes</h2>
-  <div class="grid" id="marketGrid"></div>
-</div>
+<div class="grid" id="marketGrid"></div>
 
 <script>
+// ============================
+// 1) Configuration
+// ============================
+const API_KEY = "YOUR_REAL_API_KEY"; // 👈 Replace this with your EODHD real-time API key
+// WebSocket endpoints for real-time streams
+const WS_FOREX = `wss://ws.eodhistoricaldata.com/ws/forex?api_token=${API_KEY}`;
+const WS_STOCKS_QUOTE = `wss://ws.eodhistoricaldata.com/ws/us-quote?api_token=${API_KEY}`;
 
-const API_KEY = "demo"; // Replace with your API key
-const WS_BASE = "wss://ws.eodhistoricaldata.com/ws/forex?api_token=" + API_KEY;
+// List of symbols you want (sample; expand to 100+ if your plan supports it)
+const forexSymbols = ["EURUSD","GBPUSD","AUDUSD","USDJPY"];
+const stockSymbols = ["AAPL","MSFT","TSLA","NVDA","GOOGL"];
 
-// Example assets (Forex & Stocks). Extend to 100+.
-const symbols = [
-  "EURUSD","USDJPY","GBPUSD","AUDUSD","USDCAD","USDCHF","NZDUSD",
-  "AAPL.US","MSFT.US","GOOGL.US","AMZN.US","TSLA.US","META.US",
-  "NVDA.US","WMT.US","PG.US","JNJ.US","V.US","MA.US","BAC.US",
-  "USDTRY","EURGBP","EURJPY","GBPJPY","AUDCAD","AUDJPY","CHFJPY",
-  "CL=F","GC=F","SI=F"
-];
-
-// Build grid of cards
+// ============================
+// 2) UI Setup
+// ============================
 const grid = document.getElementById("marketGrid");
 const cards = {};
-symbols.forEach(sym => {
-  const card = document.createElement("div");
-  card.className = "card";
-  card.innerHTML = `
-    <div class="symbol">${sym}</div>
-    <div class="price">Last: <span>–</span></div>
-    <div class="bid">Bid: <span>–</span></div>
-    <div class="ask">Ask: <span>–</span></div>
-    <div class="chg">Change:% <span>–</span></div>
-  `;
-  grid.appendChild(card);
-  cards[sym] = card;
-});
 
-// Open WebSocket
-const ws = new WebSocket(WS_BASE);
+function createCard(sym) {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+        <div class="symbol">${sym}</div>
+        <div class="last">Last: <span>–</span></div>
+        <div class="bid">Bid: <span>–</span></div>
+        <div class="ask">Ask: <span>–</span></div>
+        <div class="chg">Change: <span>–%</span></div>
+    `;
+    grid.appendChild(card);
+    cards[sym] = card;
+}
 
-ws.onopen = () => {
-  console.log("Connected to real‑time feed");
-  // Subscribe in one block (50 symbols max per connection)
-  ws.send(JSON.stringify({ action: "subscribe", symbols: symbols.join(",") }));
+forexSymbols.concat(stockSymbols).forEach(createCard);
+
+// ============================
+// 3) WebSocket Setup
+// ============================
+
+// Forex WebSocket
+const wsForex = new WebSocket(WS_FOREX);
+wsForex.onopen = () => {
+    console.log("Forex WS connected");
+    wsForex.send(JSON.stringify({ action: "subscribe", symbols: forexSymbols.join(",") }));
+};
+wsForex.onmessage = evt => {
+    const data = JSON.parse(evt.data);
+    if (data.s && cards[data.s]) {
+        const card = cards[data.s];
+        card.querySelector(".last span").innerText = data?.lp ?? "–";
+        card.querySelector(".bid span").innerText = data?.b ?? "–";
+        card.querySelector(".ask span").innerText = data?.a ?? "–";
+        const chg = (data?.dc ?? 0).toFixed(2);
+        const elem = card.querySelector(".chg span");
+        elem.innerText = `${chg}%`;
+        elem.className = data.dc >= 0 ? "up" : "down";
+    }
 };
 
-ws.onmessage = evt => {
-  // Real‑time data arrives as JSON
-  const data = JSON.parse(evt.data);
-  if (data.symbol && cards[data.symbol]) {
-    const c = cards[data.symbol];
-    c.querySelector(".price span").textContent = data.price ?? "–";
-    c.querySelector(".bid span").textContent = data.bid ?? "–";
-    c.querySelector(".ask span").textContent = data.ask ?? "–";
-    const chgElem = c.querySelector(".chg span");
-    chgElem.textContent = (data.change_pct ?? "0") + "%";
-    chgElem.className = data.change_pct >= 0 ? "up" : "down";
-  }
+// Stocks Quotes WebSocket
+const wsStocks = new WebSocket(WS_STOCKS_QUOTE);
+wsStocks.onopen = () => {
+    console.log("Stocks WS connected");
+    wsStocks.send(JSON.stringify({ action: "subscribe", symbols: stockSymbols.join(",") }));
+};
+wsStocks.onmessage = evt => {
+    const data = JSON.parse(evt.data);
+    if (data.s && cards[data.s]) {
+        const card = cards[data.s];
+        card.querySelector(".bid span").innerText = data?.bp ?? "–";
+        card.querySelector(".ask span").innerText = data?.ap ?? "–";
+    }
 };
 
-ws.onerror = err => {
-  console.error("WebSocket error", err);
-};
-
-ws.onclose = () => {
-  console.warn("WebSocket connection closed");
-};
 </script>
 
 </body>
