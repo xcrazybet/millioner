@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Forex Platform</title>
+<title>Multi-Product Forex Platform</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 
 <style>
@@ -18,16 +19,23 @@ header {
   background:#161b22;
   display:flex;
   justify-content:space-between;
+  align-items:center;
+}
+select {
+  background:#0e1117;
+  color:#fff;
+  border:1px solid #333;
+  padding:6px;
 }
 #chart { height:420px; }
 .panel {
-  padding:15px;
+  padding:12px;
   display:flex;
   gap:10px;
   justify-content:center;
 }
 button {
-  padding:12px 20px;
+  padding:10px 20px;
   border:none;
   font-size:16px;
   cursor:pointer;
@@ -40,8 +48,8 @@ button {
 <body>
 
 <header>
-  <div>EUR / USD</div>
-  <div id="price">Loading...</div>
+  <select id="pair" onchange="changePair()"></select>
+  <div id="price">Loading…</div>
 </header>
 
 <div id="chart"></div>
@@ -52,6 +60,28 @@ button {
 </div>
 
 <script>
+// ================= PRODUCTS =================
+const pairs = [
+"EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","NZD/USD","USD/CAD","EUR/GBP",
+"EUR/JPY","EUR/AUD","EUR/CAD","EUR/CHF","GBP/JPY","GBP/AUD","GBP/CAD","GBP/CHF",
+"AUD/JPY","AUD/CAD","AUD/CHF","CAD/JPY","CHF/JPY","NZD/JPY","NZD/CAD","NZD/CHF",
+"USD/SEK","USD/NOK","USD/DKK","EUR/NZD","GBP/NZD",
+"USD/TRY","USD/ZAR","USD/MXN","USD/PLN","USD/HUF","USD/CZK","USD/ILS","USD/SGD",
+"USD/HKD","USD/THB","USD/INR","USD/PKR","EUR/TRY","EUR/ZAR","EUR/MXN",
+"GBP/TRY","GBP/ZAR","USD/BRL","USD/CLP","USD/COP","USD/EGP","USD/SAR",
+"USD/AED","USD/QAR","USD/KWD","USD/BHD","USD/OMR","USD/JOD","USD/MAD"
+];
+
+// Populate selector
+const pairSelect = document.getElementById("pair");
+pairs.forEach(p => {
+  const o = document.createElement("option");
+  o.value = p;
+  o.text = p;
+  pairSelect.add(o);
+});
+
+// ================= CHART =================
 const chart = LightweightCharts.createChart(
   document.getElementById('chart'),
   {
@@ -64,20 +94,21 @@ const chart = LightweightCharts.createChart(
 
 const series = chart.addCandlestickSeries();
 let time = Math.floor(Date.now()/1000);
+let lastPrice = null;
+let currentPair = pairSelect.value;
 
-// REAL price feed (public forex rate)
-async function fetchPrice() {
+// ================= PRICE FEED =================
+async function fetchPrice(pair) {
+  const [base, quote] = pair.split("/");
   const res = await fetch(
-    "https://api.exchangerate.host/latest?base=EUR&symbols=USD"
+    `https://api.exchangerate.host/latest?base=${base}&symbols=${quote}`
   );
   const data = await res.json();
-  return data.rates.USD;
+  return data.rates[quote];
 }
 
-let lastPrice = null;
-
-async function updateChart() {
-  const price = await fetchPrice();
+async function update() {
+  const price = await fetchPrice(currentPair);
   document.getElementById("price").innerText = price.toFixed(5);
 
   if (!lastPrice) lastPrice = price;
@@ -89,23 +120,26 @@ async function updateChart() {
 
   time += 60;
   series.update({ time, open, high, low, close });
-
   lastPrice = price;
 }
 
-setInterval(updateChart, 3000);
+setInterval(update, 3000);
 
-// LEGAL trade handling (redirect to broker)
+// ================= CONTROLS =================
+function changePair() {
+  currentPair = pairSelect.value;
+  lastPrice = null;
+  series.setData([]);
+}
+
 function trade(type) {
   alert(
-    type +
-    " order will be sent to your broker.\n" +
-    "This platform does not execute trades."
+    `${type} ${currentPair}\n\n` +
+    `This platform shows real prices.\n` +
+    `Trade execution is handled by your broker.`
   );
-
-  // Example broker redirect (replace with real broker)
   window.open(
-    "https://www.tradingview.com/chart/?symbol=FX:EURUSD",
+    `https://www.tradingview.com/chart/?symbol=FX:${currentPair.replace("/","")}`,
     "_blank"
   );
 }
