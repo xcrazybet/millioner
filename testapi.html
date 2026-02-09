@@ -1,95 +1,142 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Real-Time Crypto Prices (75+)</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f9f9f9;
-            padding: 20px;
-        }
-        h1 { text-align: center; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: center;
-        }
-        th {
-            background: #222;
-            color: #fff;
-        }
-        td.price {
-            font-weight: bold;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>75+ Crypto Live Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background: #111;
+    color: white;
+}
+h1 {
+    text-align: center;
+}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 15px;
+}
+.card {
+    background: #1e1e1e;
+    padding: 10px;
+    border-radius: 10px;
+}
+.price {
+    font-size: 18px;
+    margin-bottom: 5px;
+}
+canvas {
+    background: #222;
+}
+</style>
 </head>
 <body>
 
-<h1>Real-Time Crypto Prices (75+)</h1>
+<h1>🚀 Live Crypto Dashboard (75+)</h1>
 
-<table id="priceTable">
-    <thead>
-        <tr>
-            <th>Symbol</th>
-            <th>Price (USDT)</th>
-        </tr>
-    </thead>
-    <tbody></tbody>
-</table>
+<div class="grid" id="container"></div>
 
 <script>
-    const symbols = [
-        "btcusdt","ethusdt","bnbusdt","adausdt","solusdt","xrpusdt","dogeusdt","dotusdt","maticusdt","avaxusdt",
-        "shibusdt","tronusdt","ltcusdt","atomusdt","linkusdt","bchusdt","etcusdt","filusdt","vetusdt",
-        "axsusdt","uniusdt","nearusdt","cakeusdt","fttusdt","gtousdt","eosusdt","hntusdt","thetausdt","manausdt",
-        "sandusdt","chzusdt","axsbusdt","enjusdt","qntusdt","algoUSDT".toLowerCase(),
-        "xtzusdt","icpusdt","ftmusdt","hbarusdt","egldusdt","axsbusdt","roseusdt","klayusdt","galausdt","radusdt",
-        "lrcusdt","ankrusdt","kimiusdt","dfususdt","klvusdt","zecusdt","bnbbusd","ethbusd","btcbusd",
-        "bnbbtc","ethbtc","adaeth","solbtc","avaxeth","doteth","linketh","maticeth","dogeeth","shibeth",
-        "trxeth","ltceth","xrpeth","bchbtc","etceth","filbtc","vetbtc","axsbtc","manaeth","sandeth",
-        "qnteth","algoeth","eoseth","hnteth","thetaeth","roseeth","galaeth","klayeth","ankreth","dfusdt"
-    ];
 
-    const tableBody = document.querySelector("#priceTable tbody");
+// ====== 75+ SYMBOLS ======
+const symbols = [
+"btcusdt","ethusdt","bnbusdt","adausdt","solusdt","xrpusdt","dogeusdt","dotusdt","maticusdt","avaxusdt",
+"shibusdt","trxusdt","ltcusdt","atomusdt","linkusdt","bchusdt","etcusdt","filusdt","vetusdt",
+"axsbusdt","uniusdt","nearusdt","cakeusdt","eosusdt","thetausdt","manausdt",
+"sandusdt","chzusdt","enjusdt","qntusdt","algousdt",
+"xtzusdt","icpusdt","ftmusdt","hbarusdt","egldusdt","roseusdt","galausdt",
+"lrcusdt","ankrusdt","zecusdt","dashusdt","wavesusdt","compusdt","snxusdt",
+"yfiusdt","crvusdt","1inchusdt","aaveusdt","grtusdt","renusdt","storjusdt",
+"omgusdt","zilusdt","kavausdt","ksmusdt","lptusdt","btcusdc","ethusdc",
+"bnbbtc","ethbtc","adabtc","solbtc","avaxbtc","dotbtc","linkbtc",
+"maticbtc","dogebtc","shibbtc","trxbtc","ltcbtc","xrpbtc",
+"bchbtc","etcbtc","filbtc","vetbtc","manabtc","sandbtc",
+"qntbtc","algobtc","eosbtc","thetabtc","rosebtc","galabtc"
+];
 
-    // Create table rows
-    symbols.forEach(sym => {
-        const row = document.createElement("tr");
-        row.id = sym;
-        row.innerHTML = `
-            <td>${sym.toUpperCase()}</td>
-            <td class="price">—</td>
-        `;
-        tableBody.appendChild(row);
+// ====== CONTAINER ======
+const container = document.getElementById("container");
+
+// ====== STORE CHARTS ======
+const charts = {};
+const priceData = {};
+
+// ====== CREATE CARDS ======
+symbols.forEach(symbol => {
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+        <div class="price" id="price-${symbol}">${symbol.toUpperCase()} : Connecting...</div>
+        <canvas id="chart-${symbol}" height="120"></canvas>
+    `;
+    container.appendChild(card);
+
+    const ctx = document.getElementById(`chart-${symbol}`).getContext("2d");
+
+    charts[symbol] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                data: [],
+                borderWidth: 1,
+                tension: 0.3,
+                pointRadius: 0
+            }]
+        },
+        options: {
+            animation: false,
+            plugins: { legend: { display: false }},
+            scales: {
+                x: { display: false },
+                y: { display: false }
+            }
+        }
     });
 
-    // Build the combined stream URL
-    const streams = symbols.map(s => `${s}@trade`).join("/");
-    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+    priceData[symbol] = [];
+});
 
-    ws.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
-        const stream = data.stream;
-        const payload = data.data;
+// ====== WEBSOCKET ======
+const streams = symbols.map(s => `${s}@trade`).join("/");
+const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
 
-        const symbol = payload.s.toLowerCase();
-        const price = parseFloat(payload.p).toFixed(6);
+ws.onmessage = (msg) => {
+    const data = JSON.parse(msg.data);
+    const payload = data.data;
 
-        const row = document.getElementById(symbol);
-        if (row) {
-            row.querySelector(".price").innerText = price;
-        }
-    };
+    const symbol = payload.s.toLowerCase();
+    const price = parseFloat(payload.p);
 
-    ws.onopen = () => console.log("WebSocket connected 🚀");
-    ws.onclose = () => console.log("WebSocket disconnected 😢");
-    ws.onerror = (err) => console.error("WebSocket error", err);
+    document.getElementById(`price-${symbol}`).innerText =
+        `${symbol.toUpperCase()} : ${price}`;
+
+    // Update price history (max 30 points)
+    priceData[symbol].push(price);
+    if (priceData[symbol].length > 30) {
+        priceData[symbol].shift();
+    }
+};
+
+// ====== UPDATE CHARTS EVERY SECOND ======
+setInterval(() => {
+    symbols.forEach(symbol => {
+        const chart = charts[symbol];
+        chart.data.labels = priceData[symbol].map((_, i) => i);
+        chart.data.datasets[0].data = priceData[symbol];
+        chart.update();
+    });
+}, 1000);
+
+ws.onopen = () => console.log("Connected 🚀");
+ws.onerror = err => console.error("Error:", err);
+ws.onclose = () => console.log("Disconnected");
+
 </script>
 
 </body>
