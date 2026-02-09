@@ -2,140 +2,162 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>75+ Crypto Live Dashboard</title>
+<title>Professional Crypto Dashboard</title>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 
 <style>
 body {
-    font-family: Arial, sans-serif;
-    background: #111;
-    color: white;
+    margin:0;
+    font-family: Arial;
+    background:#0f0f0f;
+    color:white;
 }
-h1 {
-    text-align: center;
+
+header {
+    padding:15px;
+    background:#181818;
+    display:flex;
+    justify-content:space-between;
 }
-.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 15px;
+
+#coins {
+    width:300px;
+    height:90vh;
+    overflow-y:auto;
+    background:#141414;
+    padding:10px;
 }
-.card {
-    background: #1e1e1e;
-    padding: 10px;
-    border-radius: 10px;
+
+.coin {
+    padding:8px;
+    cursor:pointer;
+    border-bottom:1px solid #222;
 }
-.price {
-    font-size: 18px;
-    margin-bottom: 5px;
+
+.coin:hover {
+    background:#222;
 }
-canvas {
-    background: #222;
+
+#main {
+    flex:1;
+    padding:20px;
+}
+
+.container {
+    display:flex;
+}
+
+#chart {
+    height:500px;
+}
+
+.stats {
+    margin-top:10px;
+    display:flex;
+    gap:20px;
 }
 </style>
 </head>
 <body>
 
-<h1>🚀 Live Crypto Dashboard (75+)</h1>
+<header>
+<h2 id="selectedSymbol">BTCUSDT</h2>
+<div id="livePrice">Loading...</div>
+</header>
 
-<div class="grid" id="container"></div>
+<div class="container">
+<div id="coins"></div>
+
+<div id="main">
+<div id="chart"></div>
+
+<div class="stats">
+<div>24h High: <span id="high"></span></div>
+<div>24h Low: <span id="low"></span></div>
+<div>24h Volume: <span id="volume"></span></div>
+</div>
+
+</div>
+</div>
 
 <script>
 
-// ====== 75+ SYMBOLS ======
+// 75+ Symbols
 const symbols = [
 "btcusdt","ethusdt","bnbusdt","adausdt","solusdt","xrpusdt","dogeusdt","dotusdt","maticusdt","avaxusdt",
 "shibusdt","trxusdt","ltcusdt","atomusdt","linkusdt","bchusdt","etcusdt","filusdt","vetusdt",
-"axsbusdt","uniusdt","nearusdt","cakeusdt","eosusdt","thetausdt","manausdt",
+"uniusdt","nearusdt","cakeusdt","eosusdt","thetausdt","manausdt",
 "sandusdt","chzusdt","enjusdt","qntusdt","algousdt",
 "xtzusdt","icpusdt","ftmusdt","hbarusdt","egldusdt","roseusdt","galausdt",
 "lrcusdt","ankrusdt","zecusdt","dashusdt","wavesusdt","compusdt","snxusdt",
 "yfiusdt","crvusdt","1inchusdt","aaveusdt","grtusdt","renusdt","storjusdt",
-"omgusdt","zilusdt","kavausdt","ksmusdt","lptusdt","btcusdc","ethusdc",
-"bnbbtc","ethbtc","adabtc","solbtc","avaxbtc","dotbtc","linkbtc",
-"maticbtc","dogebtc","shibbtc","trxbtc","ltcbtc","xrpbtc",
+"omgusdt","zilusdt","kavausdt","ksmusdt","lptusdt",
+"btcusdc","ethusdc","bnbbtc","ethbtc","adabtc","solbtc","avaxbtc",
+"dotbtc","linkbtc","maticbtc","dogebtc","shibbtc","trxbtc","ltcbtc","xrpbtc",
 "bchbtc","etcbtc","filbtc","vetbtc","manabtc","sandbtc",
 "qntbtc","algobtc","eosbtc","thetabtc","rosebtc","galabtc"
 ];
 
-// ====== CONTAINER ======
-const container = document.getElementById("container");
+const coinsDiv = document.getElementById("coins");
 
-// ====== STORE CHARTS ======
-const charts = {};
-const priceData = {};
-
-// ====== CREATE CARDS ======
-symbols.forEach(symbol => {
-
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `
-        <div class="price" id="price-${symbol}">${symbol.toUpperCase()} : Connecting...</div>
-        <canvas id="chart-${symbol}" height="120"></canvas>
-    `;
-    container.appendChild(card);
-
-    const ctx = document.getElementById(`chart-${symbol}`).getContext("2d");
-
-    charts[symbol] = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [{
-                data: [],
-                borderWidth: 1,
-                tension: 0.3,
-                pointRadius: 0
-            }]
-        },
-        options: {
-            animation: false,
-            plugins: { legend: { display: false }},
-            scales: {
-                x: { display: false },
-                y: { display: false }
-            }
-        }
-    });
-
-    priceData[symbol] = [];
+symbols.forEach(sym => {
+    const div = document.createElement("div");
+    div.className="coin";
+    div.innerText=sym.toUpperCase();
+    div.onclick=()=>loadSymbol(sym);
+    coinsDiv.appendChild(div);
 });
 
-// ====== WEBSOCKET ======
-const streams = symbols.map(s => `${s}@trade`).join("/");
-const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+let currentSymbol="btcusdt";
+let ws;
 
-ws.onmessage = (msg) => {
-    const data = JSON.parse(msg.data);
-    const payload = data.data;
+// Create Chart
+const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+    layout: { background: { color: '#0f0f0f' }, textColor: '#DDD' },
+    grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } }
+});
 
-    const symbol = payload.s.toLowerCase();
-    const price = parseFloat(payload.p);
+const candleSeries = chart.addCandlestickSeries();
 
-    document.getElementById(`price-${symbol}`).innerText =
-        `${symbol.toUpperCase()} : ${price}`;
+async function loadSymbol(symbol){
+    currentSymbol = symbol;
+    document.getElementById("selectedSymbol").innerText=symbol.toUpperCase();
 
-    // Update price history (max 30 points)
-    priceData[symbol].push(price);
-    if (priceData[symbol].length > 30) {
-        priceData[symbol].shift();
-    }
-};
+    if(ws) ws.close();
 
-// ====== UPDATE CHARTS EVERY SECOND ======
-setInterval(() => {
-    symbols.forEach(symbol => {
-        const chart = charts[symbol];
-        chart.data.labels = priceData[symbol].map((_, i) => i);
-        chart.data.datasets[0].data = priceData[symbol];
-        chart.update();
-    });
-}, 1000);
+    // Load candles
+    const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=1m&limit=100`);
+    const data = await res.json();
 
-ws.onopen = () => console.log("Connected 🚀");
-ws.onerror = err => console.error("Error:", err);
-ws.onclose = () => console.log("Disconnected");
+    const candles = data.map(d => ({
+        time: d[0]/1000,
+        open: parseFloat(d[1]),
+        high: parseFloat(d[2]),
+        low: parseFloat(d[3]),
+        close: parseFloat(d[4])
+    }));
+
+    candleSeries.setData(candles);
+
+    // 24h stats
+    const statsRes = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol.toUpperCase()}`);
+    const stats = await statsRes.json();
+
+    document.getElementById("high").innerText=stats.highPrice;
+    document.getElementById("low").innerText=stats.lowPrice;
+    document.getElementById("volume").innerText=stats.volume;
+
+    // Live price stream
+    ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol}@trade`);
+
+    ws.onmessage = msg => {
+        const trade = JSON.parse(msg.data);
+        document.getElementById("livePrice").innerText = "Live: " + trade.p;
+    };
+}
+
+loadSymbol("btcusdt");
 
 </script>
 
