@@ -2,178 +2,129 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Multi-Asset Trading Platform</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<title>Live Forex Prices</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
 body {
-  margin: 0;
-  background: #0e1117;
-  color: #ffffff;
-  font-family: Arial, sans-serif;
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #0f172a;
+    color: #e5e7eb;
 }
-
 header {
-  background: #161b22;
-  padding: 10px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
+    background: #020617;
+    padding: 15px;
+    text-align: center;
+    font-size: 20px;
+    font-weight: bold;
 }
-
-select {
-  background: #0e1117;
-  color: white;
-  border: 1px solid #333;
-  padding: 6px;
+.container {
+    padding: 20px;
 }
-
-#price {
-  margin-left: auto;
-  font-size: 18px;
-  font-weight: bold;
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #020617;
 }
-
-#chart {
-  height: 450px;
+th, td {
+    padding: 12px;
+    border-bottom: 1px solid #1e293b;
+    text-align: center;
 }
-.panel {
-  padding: 12px;
-  display: flex;
-  justify-content: center;
-  gap: 12px;
+th {
+    background: #020617;
+    color: #38bdf8;
 }
-button {
-  padding: 10px 24px;
-  font-size: 16px;
-  border: none;
-  cursor: pointer;
+.price-up {
+    color: #22c55e;
 }
-.buy { background: #00c853; }
-.sell { background: #d50000; }
+.price-down {
+    color: #ef4444;
+}
+footer {
+    text-align: center;
+    padding: 10px;
+    font-size: 12px;
+    color: #64748b;
+}
 </style>
 </head>
 
 <body>
 
-<header>
-  <select id="market">
-    <option value="forex">Forex</option>
-    <option value="stocks">Stocks</option>
-    <option value="commodities">Commodities</option>
-    <option value="bonds">Bonds</option>
-  </select>
+<header>🌍 Live Forex Market (Real Prices)</header>
 
-  <select id="symbol"></select>
-
-  <div id="price">---</div>
-</header>
-
-<div id="chart"></div>
-
-<div class="panel">
-  <button class="buy" onclick="trade('BUY')">BUY</button>
-  <button class="sell" onclick="trade('SELL')">SELL</button>
+<div class="container">
+<table id="priceTable">
+<thead>
+<tr>
+<th>Pair</th>
+<th>Price</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
 </div>
 
+<footer>Auto-updating every 5 seconds</footer>
+
 <script>
-// ================== MARKETS ==================
-const data = {
-  forex: ["EUR/USD","GBP/USD","USD/JPY","USD/CAD","AUD/USD"],
-  stocks: ["AAPL","MSFT","TSLA","AMZN","GOOGL"],
-  commodities: ["XAU/USD","XAG/USD","OIL","GAS"],
-  bonds: ["US10Y","US2Y","US30Y"]
-};
+const pairs = [
+    "EURUSD","GBPUSD","USDJPY","USDCHF","AUDUSD",
+    "USDCAD","NZDUSD","EURGBP","EURJPY","GBPJPY",
+    "EURCHF","AUDJPY","CADJPY","CHFJPY","AUDCAD"
+];
 
-const marketEl = document.getElementById("market");
-const symbolEl = document.getElementById("symbol");
+let lastPrices = {};
 
-// ================== CHART ==================
-const chart = LightweightCharts.createChart(
-  document.getElementById("chart"),
-  {
-    layout: { background: { color: "#0e1117" }, textColor: "#ccc" },
-    grid: { vertLines: { color: "#222" }, horzLines: { color: "#222" } },
-    width: window.innerWidth,
-    height: 450
-  }
-);
+async function loadPrices() {
+    try {
+        const res = await fetch(
+            "https://api.exchangerate.host/latest?base=USD"
+        );
+        const data = await res.json();
 
-const series = chart.addCandlestickSeries();
+        const tbody = document.querySelector("#priceTable tbody");
+        tbody.innerHTML = "";
 
-// ================== STATE ==================
-let lastPrice = 1.1000;
-let time = Math.floor(Date.now() / 1000);
+        pairs.forEach(pair => {
+            const base = pair.substring(0,3);
+            const quote = pair.substring(3,6);
 
-// ================== LOAD SYMBOLS ==================
-function loadSymbols() {
-  symbolEl.innerHTML = "";
-  data[marketEl.value].forEach(s => {
-    const o = document.createElement("option");
-    o.value = s;
-    o.text = s;
-    symbolEl.appendChild(o);
-  });
-  resetChart();
-}
+            let price;
+            if (base === "USD") {
+                price = data.rates[quote];
+            } else if (quote === "USD") {
+                price = 1 / data.rates[base];
+            } else {
+                price = data.rates[quote] / data.rates[base];
+            }
 
-marketEl.onchange = loadSymbols;
-symbolEl.onchange = resetChart;
+            const prev = lastPrices[pair] || price;
+            const diff = price - prev;
 
-// ================== PRICE ENGINE ==================
-async function getPrice() {
-  try {
-    if (symbolEl.value.includes("/")) {
-      const [base, quote] = symbolEl.value.split("/");
-      const res = await fetch(
-        `https://api.exchangerate.host/latest?base=${base}&symbols=${quote}`
-      );
-      const json = await res.json();
-      return json.rates[quote];
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td>${pair}</td>
+                <td>${price.toFixed(5)}</td>
+                <td class="${diff >= 0 ? 'price-up' : 'price-down'}">
+                    ${diff >= 0 ? '▲' : '▼'} ${diff.toFixed(5)}
+                </td>
+            `;
+
+            tbody.appendChild(tr);
+            lastPrices[pair] = price;
+        });
+
+    } catch (e) {
+        console.error("Price load error", e);
     }
-  } catch (e) {}
-
-  // Fallback price generator (always works)
-  return lastPrice + (Math.random() - 0.5) * lastPrice * 0.002;
 }
 
-// ================== UPDATE LOOP ==================
-async function update() {
-  const price = await getPrice();
-  document.getElementById("price").innerText = price.toFixed(5);
-
-  const open = lastPrice;
-  const close = price;
-  const high = Math.max(open, close) * 1.001;
-  const low = Math.min(open, close) * 0.999;
-
-  time += 60;
-  series.update({ time, open, high, low, close });
-
-  lastPrice = price;
-}
-
-// ================== RESET ==================
-function resetChart() {
-  series.setData([]);
-  lastPrice = 1 + Math.random();
-  time = Math.floor(Date.now() / 1000);
-}
-
-// ================== TRADE ==================
-function trade(type) {
-  alert(
-    `${type} ${symbolEl.value}\n\n` +
-    `This platform shows real market prices.\n` +
-    `Execution handled by your broker.`
-  );
-}
-
-// ================== START ==================
-loadSymbols();
-setInterval(update, 1000);
+loadPrices();
+setInterval(loadPrices, 5000);
 </script>
 
 </body>
