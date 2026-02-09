@@ -1,0 +1,237 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Crypto Pro Hub</title>
+
+<style>
+body{
+    margin:0;
+    font-family:Arial, Helvetica, sans-serif;
+    background:#0f0f0f;
+    color:white;
+}
+
+header{
+    background:#151515;
+    padding:15px 25px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    border-bottom:1px solid #222;
+}
+
+h1{
+    margin:0;
+    font-size:20px;
+}
+
+#search{
+    padding:6px 10px;
+    background:#1e1e1e;
+    border:none;
+    color:white;
+    border-radius:4px;
+}
+
+.controls{
+    display:flex;
+    gap:10px;
+}
+
+button{
+    background:#222;
+    border:none;
+    color:white;
+    padding:6px 10px;
+    cursor:pointer;
+    border-radius:4px;
+}
+
+button:hover{
+    background:#333;
+}
+
+.grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+    gap:15px;
+    padding:20px;
+}
+
+.card{
+    background:#181818;
+    padding:15px;
+    border-radius:8px;
+    border:1px solid #222;
+    transition:0.2s;
+}
+
+.card:hover{
+    border:1px solid #444;
+}
+
+.symbol{
+    font-weight:bold;
+    font-size:16px;
+}
+
+.price{
+    font-size:18px;
+    margin-top:5px;
+}
+
+.change{
+    margin-top:4px;
+    font-size:14px;
+}
+
+.green{color:#00c853;}
+.red{color:#ff1744;}
+
+.flash-green{background:#003300;}
+.flash-red{background:#330000;}
+
+</style>
+</head>
+<body>
+
+<header>
+<h1>🚀 Crypto Professional Hub</h1>
+
+<div class="controls">
+<input type="text" id="search" placeholder="Search coin...">
+<button onclick="sortByPrice()">Sort Price</button>
+<button onclick="sortByChange()">Sort %</button>
+</div>
+</header>
+
+<div class="grid" id="market"></div>
+
+<script>
+
+const symbols = [
+"btcusdt","ethusdt","bnbusdt","adausdt","solusdt","xrpusdt","dogeusdt","dotusdt","maticusdt","avaxusdt",
+"shibusdt","trxusdt","ltcusdt","atomusdt","linkusdt","bchusdt","etcusdt","filusdt","vetusdt",
+"uniusdt","nearusdt","cakeusdt","eosusdt","thetausdt","manausdt",
+"sandusdt","chzusdt","enjusdt","qntusdt","algousdt",
+"xtzusdt","icpusdt","ftmusdt","hbarusdt","egldusdt","roseusdt","galausdt",
+"lrcusdt","ankrusdt","zecusdt","dashusdt","wavesusdt","compusdt","snxusdt",
+"yfiusdt","crvusdt","1inchusdt","aaveusdt","grtusdt","renusdt","storjusdt",
+"omgusdt","zilusdt","kavausdt","ksmusdt","lptusdt"
+];
+
+const market = document.getElementById("market");
+const searchInput = document.getElementById("search");
+
+let marketData = {};
+
+// Create Cards
+symbols.forEach(sym=>{
+    const card=document.createElement("div");
+    card.className="card";
+    card.id=sym;
+    card.innerHTML=`
+        <div class="symbol">${sym.toUpperCase()}</div>
+        <div class="price">Loading...</div>
+        <div class="change">--</div>
+    `;
+    market.appendChild(card);
+});
+
+// Load 24h Stats
+async function loadStats(){
+    const res = await fetch("https://api.binance.com/api/v3/ticker/24hr");
+    const data = await res.json();
+
+    data.forEach(item=>{
+        const symbol=item.symbol.toLowerCase();
+        if(symbols.includes(symbol)){
+            marketData[symbol]={
+                price:parseFloat(item.lastPrice),
+                change:parseFloat(item.priceChangePercent)
+            };
+            updateCard(symbol);
+        }
+    });
+}
+
+function updateCard(symbol){
+    const card=document.getElementById(symbol);
+    if(!card) return;
+
+    const priceEl=card.querySelector(".price");
+    const changeEl=card.querySelector(".change");
+
+    const price=marketData[symbol].price;
+    const change=marketData[symbol].change;
+
+    priceEl.innerText=price.toFixed(6);
+
+    changeEl.innerText=change.toFixed(2)+"%";
+    changeEl.className="change "+(change>=0?"green":"red");
+}
+
+// Live WebSocket
+const streams = symbols.map(s=>`${s}@trade`).join("/");
+const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+
+ws.onmessage = (msg)=>{
+    const data = JSON.parse(msg.data);
+    const payload = data.data;
+
+    const symbol = payload.s.toLowerCase();
+    const newPrice = parseFloat(payload.p);
+
+    if(!marketData[symbol]) return;
+
+    const oldPrice = marketData[symbol].price;
+    marketData[symbol].price=newPrice;
+
+    const card=document.getElementById(symbol);
+    const priceEl=card.querySelector(".price");
+
+    priceEl.innerText=newPrice.toFixed(6);
+
+    // Flash effect
+    card.classList.remove("flash-green","flash-red");
+    if(newPrice>oldPrice){
+        card.classList.add("flash-green");
+    } else {
+        card.classList.add("flash-red");
+    }
+    setTimeout(()=>card.classList.remove("flash-green","flash-red"),200);
+};
+
+function sortByPrice(){
+    const sorted=[...symbols].sort((a,b)=>marketData[b].price-marketData[a].price);
+    redraw(sorted);
+}
+
+function sortByChange(){
+    const sorted=[...symbols].sort((a,b)=>marketData[b].change-marketData[a].change);
+    redraw(sorted);
+}
+
+function redraw(sortedList){
+    market.innerHTML="";
+    sortedList.forEach(sym=>{
+        market.appendChild(document.getElementById(sym));
+    });
+}
+
+searchInput.oninput=()=>{
+    const val=searchInput.value.toLowerCase();
+    symbols.forEach(sym=>{
+        const card=document.getElementById(sym);
+        card.style.display=sym.includes(val)?"block":"none";
+    });
+};
+
+loadStats();
+
+</script>
+
+</body>
+</html>
