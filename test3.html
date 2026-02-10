@@ -3,564 +3,175 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Professional Market Terminal - FX/Stocks/Bonds/Commodities</title>
+    <title>Millionaire Live Hub | Real-Time Terminal</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Inter:wght@400;900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #05070a; color: #94a3b8; }
+        body { font-family: 'Inter', sans-serif; background: #020617; color: #94a3b8; overflow-x: hidden; }
         .mono { font-family: 'JetBrains Mono', monospace; }
-        .price-up { color: #22c55e; background: rgba(34, 197, 94, 0.15); transition: all 0.3s; }
-        .price-down { color: #ef4444; background: rgba(239, 68, 68, 0.15); transition: all 0.3s; }
-        .pulse { animation: pulse 0.5s; }
-        @keyframes pulse { 0% { opacity: 0.5; } 100% { opacity: 1; } }
-        .table-wrap { height: calc(100vh - 220px); overflow-y: auto; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
-        .tag { font-size: 9px; padding: 2px 6px; border-radius: 3px; font-weight: 900; }
-        .forex { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-        .stocks { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
-        .commodity { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-        .bonds { background: rgba(20, 184, 166, 0.15); color: #5eead4; border: 1px solid rgba(20, 184, 166, 0.3); }
-        .blink { animation: blink 1s infinite; }
-        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .price-up { color: #22c55e; animation: flash-green 0.8s; }
+        .price-down { color: #ef4444; animation: flash-red 0.8s; }
+        @keyframes flash-green { from { background: rgba(34, 197, 94, 0.2); } to { background: transparent; } }
+        @keyframes flash-red { from { background: rgba(239, 68, 68, 0.2); } to { background: transparent; } }
+        
+        /* Smooth scrolling ticker */
+        .ticker-container { background: #0f172a; border-bottom: 1px solid #1e293b; overflow: hidden; white-space: nowrap; }
+        .ticker-content { display: inline-block; animation: ticker-move 40s linear infinite; }
+        @keyframes ticker-move { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
     </style>
 </head>
-<body class="p-4">
-    <div class="max-w-[1600px] mx-auto">
-        <!-- Header -->
-        <div class="flex flex-col md:flex-row justify-between items-center mb-6 border-b border-slate-800 pb-4">
-            <div>
-                <h1 class="text-2xl font-black text-white tracking-tighter uppercase">Multi<span class="text-blue-500">Asset</span>.Pro</h1>
-                <p class="text-[10px] font-bold text-slate-500 tracking-[0.2em] uppercase">Global FX • Equities • Bonds • Commodities</p>
-            </div>
-            <div class="flex items-center gap-6 mt-4 md:mt-0">
-                <div class="text-right">
-                    <p class="text-[10px] uppercase text-slate-500 font-bold">Market Status</p>
-                    <div class="flex items-center gap-2 justify-end">
-                        <span id="status-text" class="text-xs text-green-500 font-bold uppercase blink">Live</span>
-                        <div class="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></div>
-                    </div>
-                </div>
-                <div class="text-right border-l border-slate-800 pl-6">
-                    <p class="text-[10px] uppercase text-slate-500 font-bold">Last Update</p>
-                    <p class="text-xs text-blue-400 font-bold mono" id="last-update">00:00:00 UTC</p>
-                </div>
-            </div>
-        </div>
+<body x-data="millionaireSystem()" x-init="initSystem()">
 
-        <!-- Asset Class Filter -->
-        <div class="flex gap-2 mb-6 overflow-x-auto pb-2">
-            <button onclick="filterAssets('ALL')" class="bg-slate-800 text-white text-[10px] px-4 py-1 rounded font-bold uppercase hover:bg-blue-600 transition">All Markets</button>
-            <button onclick="filterAssets('FOREX')" class="bg-slate-900 text-slate-400 text-[10px] px-4 py-1 rounded font-bold uppercase hover:bg-slate-700 transition">Forex (24)</button>
-            <button onclick="filterAssets('STOCKS')" class="bg-slate-900 text-slate-400 text-[10px] px-4 py-1 rounded font-bold uppercase hover:bg-slate-700 transition">Stocks (18)</button>
-            <button onclick="filterAssets('COMMODITY')" class="bg-slate-900 text-slate-400 text-[10px] px-4 py-1 rounded font-bold uppercase hover:bg-slate-700 transition">Commodities (12)</button>
-            <button onclick="filterAssets('BONDS')" class="bg-slate-900 text-slate-400 text-[10px] px-4 py-1 rounded font-bold uppercase hover:bg-slate-700 transition">Bonds (8)</button>
-        </div>
-
-        <!-- Market Overview Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <!-- Forex Major -->
-            <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="text-white font-bold text-sm">EUR/USD</h3>
-                    <span class="tag forex">FOREX</span>
-                </div>
-                <div class="text-2xl font-black text-white mono mb-1" id="eurusd-price">1.0850</div>
-                <div class="text-xs" id="eurusd-change">+0.12%</div>
-                <div class="text-[10px] text-slate-600 mt-2">Refreshing...</div>
-            </div>
-
-            <!-- US Stock Index -->
-            <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="text-white font-bold text-sm">S&P 500</h3>
-                    <span class="tag stocks">INDEX</span>
-                </div>
-                <div class="text-2xl font-black text-white mono mb-1" id="sp500-price">5,100.25</div>
-                <div class="text-xs" id="sp500-change">+0.45%</div>
-                <div class="text-[10px] text-slate-600 mt-2">NYSE Composite</div>
-            </div>
-
-            <!-- Gold -->
-            <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="text-white font-bold text-sm">Gold (XAU)</h3>
-                    <span class="tag commodity">COMMODITY</span>
-                </div>
-                <div class="text-2xl font-black text-white mono mb-1" id="gold-price">2,150.80</div>
-                <div class="text-xs" id="gold-change">-0.25%</div>
-                <div class="text-[10px] text-slate-600 mt-2">Spot • USD/t oz</div>
-            </div>
-
-            <!-- US 10Y Bond -->
-            <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="text-white font-bold text-sm">US 10Y Yield</h3>
-                    <span class="tag bonds">BOND</span>
-                </div>
-                <div class="text-2xl font-black text-white mono mb-1" id="us10y-price">4.25%</div>
-                <div class="text-xs" id="us10y-change">+2.1bps</div>
-                <div class="text-[10px] text-slate-600 mt-2">Treasury Note</div>
-            </div>
-        </div>
-
-        <!-- Main Terminal Table -->
-        <div class="bg-[#080a0f] border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
-            <div class="p-4 border-b border-slate-800 bg-[#0f172a]">
-                <div class="flex justify-between items-center">
-                    <h2 class="text-white font-bold">Real-Time Market Monitor</h2>
-                    <p class="text-xs text-slate-500">Updated: <span id="table-update">--:--:--</span> UTC</p>
-                </div>
-            </div>
-            
-            <div class="table-wrap">
-                <table class="w-full text-left border-collapse">
-                    <thead class="bg-[#0f172a] text-slate-400 text-[9px] uppercase tracking-widest border-b border-slate-800 sticky top-0 z-10">
-                        <tr>
-                            <th class="p-3 pl-4">Symbol</th>
-                            <th class="p-3">Asset Class</th>
-                            <th class="p-3">Bid</th>
-                            <th class="p-3">Ask</th>
-                            <th class="p-3">Change</th>
-                            <th class="p-3">Day High</th>
-                            <th class="p-3">Day Low</th>
-                            <th class="p-3 text-right">Last Update</th>
-                        </tr>
-                    </thead>
-                    <tbody id="terminal-body" class="mono text-slate-200 text-sm">
-                        <!-- Data loads here -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Data Source Info -->
-        <div class="mt-6 p-4 bg-slate-900/30 rounded-lg border border-slate-800">
-            <p class="text-sm text-slate-400">
-                📊 <span class="text-white font-bold">Real Data Sources:</span> 
-                <span class="text-blue-400">Alpha Vantage</span> (FX/Stocks) • 
-                <span class="text-yellow-400">Commodities-API</span> • 
-                <span class="text-teal-400">Treasury.gov</span> (Bonds) •
-                <span class="text-purple-400">Yahoo Finance</span> (Indices)
-            </p>
-            <p class="text-xs text-slate-500 mt-2">
-                Note: Free tier APIs may have delays (5-15 min). Professional data requires subscription.
-            </p>
+    <div class="ticker-container py-2 text-[10px] font-bold uppercase tracking-tighter">
+        <div class="ticker-content">
+            <template x-for="w in winners">
+                <span class="mx-6">
+                    🏆 <span class="text-white" x-text="w.name"></span> WON 
+                    <span class="text-yellow-400" x-text="'$' + w.amount"></span> IN 
+                    <span class="text-blue-400" x-text="w.game"></span>
+                </span>
+            </template>
         </div>
     </div>
 
+    <header class="sticky top-0 z-50 bg-[#020617]/80 backdrop-blur-md border-b border-slate-800 px-4 py-3">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <div class="bg-blue-600 p-1.5 rounded-lg"><i class="fas fa-crown text-white text-xs"></i></div>
+                <h1 class="text-lg font-black text-white tracking-tighter">OMNI<span class="text-blue-500">HUB</span></h1>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <div class="text-right">
+                    <p class="text-[8px] font-black text-slate-500 uppercase">Live Wallet</p>
+                    <p class="text-lg font-black text-yellow-400 mono">$<span x-text="wallet.toFixed(2)"></span></p>
+                </div>
+                <button @click="toggleMenu()" class="text-white text-xl">
+                    <i class="fas fa-bars-staggered"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div x-show="menuOpen" class="bg-slate-900 border-t border-slate-800 p-4 space-y-4 font-bold text-xs uppercase">
+            <a href="#" class="block text-white"><i class="fas fa-home mr-2 text-blue-500"></i> Home</a>
+            <a href="#" class="block"><i class="fas fa-chart-pie mr-2 text-blue-500"></i> Dashboard</a>
+            <a href="#" class="block"><i class="fas fa-wallet mr-2 text-blue-500"></i> Deposits</a>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto p-4">
+        
+        <section class="mb-10 bg-slate-900/50 rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="bg-slate-800/50 p-3 flex justify-between items-center border-b border-slate-800">
+                <h2 class="text-[10px] font-black uppercase tracking-widest text-white">Live Global Liquidity</h2>
+                <span class="text-[9px] text-green-500 font-bold animate-pulse">● LIVE DATA</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="text-[9px] uppercase text-slate-500">
+                        <tr>
+                            <th class="p-4">Asset</th>
+                            <th class="p-4">Sell (Bid)</th>
+                            <th class="p-4">Buy (Ask)</th>
+                            <th class="p-4">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="mono text-xs">
+                        <template x-for="asset in assets" :key="asset.symbol">
+                            <tr class="border-b border-slate-800/50">
+                                <td class="p-4 font-bold text-white" x-text="asset.symbol"></td>
+                                <td class="p-4" :class="asset.trend === 'up' ? 'price-up' : 'price-down'" x-text="asset.bid"></td>
+                                <td class="p-4" :class="asset.trend === 'up' ? 'price-up' : 'price-down'" x-text="asset.ask"></td>
+                                <td class="p-4">
+                                    <button @click="trade()" class="bg-blue-600/20 text-blue-400 px-3 py-1 rounded font-black text-[9px] hover:bg-blue-600 hover:text-white transition">TRADE</button>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <template x-for="i in 8" :key="i">
+                <div @click="goToGame()" class="group cursor-pointer bg-slate-900 border border-slate-800 p-4 rounded-2xl hover:border-yellow-500 transition-all">
+                    <div class="h-24 bg-slate-800 rounded-xl mb-3 flex items-center justify-center relative overflow-hidden">
+                        <i class="fas fa-dice text-2xl text-slate-700 group-hover:text-yellow-500 transition"></i>
+                        <div class="absolute bottom-0 w-full bg-blue-600 text-[8px] text-center font-bold py-1">PLAY NOW</div>
+                    </div>
+                    <h3 class="text-white text-[10px] font-black uppercase">Millionaire Slot <span x-text="i"></span></h3>
+                </div>
+            </template>
+        </div>
+    </main>
+
+    <audio id="waterDrop" src="https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3"></audio>
+
     <script>
-        // ==================== REAL MARKET DATA ENGINE ====================
-        class ProfessionalMarketData {
-            constructor() {
-                this.assets = [
-                    // FOREX (24 pairs)
-                    { symbol: 'EUR/USD', name: 'Euro vs US Dollar', type: 'FOREX', source: 'AlphaVantage' },
-                    { symbol: 'GBP/USD', name: 'British Pound vs USD', type: 'FOREX', source: 'AlphaVantage' },
-                    { symbol: 'USD/JPY', name: 'US Dollar vs Yen', type: 'FOREX', source: 'AlphaVantage' },
-                    { symbol: 'USD/CHF', name: 'US Dollar vs Swiss Franc', type: 'FOREX', source: 'AlphaVantage' },
-                    { symbol: 'AUD/USD', name: 'Australian Dollar vs USD', type: 'FOREX', source: 'AlphaVantage' },
-                    { symbol: 'USD/CAD', name: 'US Dollar vs Canadian', type: 'FOREX', source: 'AlphaVantage' },
-                    { symbol: 'NZD/USD', name: 'New Zealand Dollar vs USD', type: 'FOREX', source: 'AlphaVantage' },
-                    { symbol: 'EUR/GBP', name: 'Euro vs British Pound', type: 'FOREX', source: 'AlphaVantage' },
-                    { symbol: 'EUR/JPY', name: 'Euro vs Yen', type: 'FOREX', source: 'AlphaVantage' },
-                    { symbol: 'GBP/JPY', name: 'British Pound vs Yen', type: 'FOREX', source: 'AlphaVantage' },
-                    
-                    // STOCKS & INDICES (18)
-                    { symbol: 'AAPL', name: 'Apple Inc', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: 'MSFT', name: 'Microsoft Corp', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: 'GOOGL', name: 'Alphabet Inc', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: 'AMZN', name: 'Amazon.com Inc', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: 'TSLA', name: 'Tesla Inc', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: 'NVDA', name: 'NVIDIA Corp', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: 'META', name: 'Meta Platforms', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: 'JPM', name: 'JPMorgan Chase', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: 'V', name: 'Visa Inc', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: '^GSPC', name: 'S&P 500 Index', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: '^DJI', name: 'Dow Jones Industrial', type: 'STOCKS', source: 'YahooFinance' },
-                    { symbol: '^IXIC', name: 'NASDAQ Composite', type: 'STOCKS', source: 'YahooFinance' },
-                    
-                    // COMMODITIES (12)
-                    { symbol: 'XAU/USD', name: 'Gold Spot', type: 'COMMODITY', source: 'MetalsAPI' },
-                    { symbol: 'XAG/USD', name: 'Silver Spot', type: 'COMMODITY', source: 'MetalsAPI' },
-                    { symbol: 'XPT/USD', name: 'Platinum Spot', type: 'COMMODITY', source: 'MetalsAPI' },
-                    { symbol: 'XPD/USD', name: 'Palladium Spot', type: 'COMMODITY', source: 'MetalsAPI' },
-                    { symbol: 'CL=F', name: 'Crude Oil WTI', type: 'COMMODITY', source: 'YahooFinance' },
-                    { symbol: 'BZ=F', name: 'Brent Crude Oil', type: 'COMMODITY', source: 'YahooFinance' },
-                    { symbol: 'NG=F', name: 'Natural Gas', type: 'COMMODITY', source: 'YahooFinance' },
-                    { symbol: 'HG=F', name: 'Copper', type: 'COMMODITY', source: 'YahooFinance' },
-                    { symbol: 'ZC=F', name: 'Corn Futures', type: 'COMMODITY', source: 'YahooFinance' },
-                    { symbol: 'ZS=F', name: 'Soybean Futures', type: 'COMMODITY', source: 'YahooFinance' },
-                    { symbol: 'ZW=F', name: 'Wheat Futures', type: 'COMMODITY', source: 'YahooFinance' },
-                    
-                    // BONDS (8)
-                    { symbol: 'US2Y', name: 'US 2-Year Yield', type: 'BONDS', source: 'Treasury' },
-                    { symbol: 'US5Y', name: 'US 5-Year Yield', type: 'BONDS', source: 'Treasury' },
-                    { symbol: 'US10Y', name: 'US 10-Year Yield', type: 'BONDS', source: 'Treasury' },
-                    { symbol: 'US30Y', name: 'US 30-Year Yield', type: 'BONDS', source: 'Treasury' },
-                    { symbol: 'DE10Y', name: 'Germany 10Y Bund', type: 'BONDS', source: 'Investing' },
-                    { symbol: 'UK10Y', name: 'UK 10Y Gilt', type: 'BONDS', source: 'Investing' },
-                    { symbol: 'JP10Y', name: 'Japan 10Y JGB', type: 'BONDS', source: 'Investing' },
-                    { symbol: 'IT10Y', name: 'Italy 10Y BTP', type: 'BONDS', source: 'Investing' }
-                ];
-                
-                this.prices = {};
-                this.initializePrices();
-            }
-            
-            initializePrices() {
-                this.assets.forEach(asset => {
-                    this.prices[asset.symbol] = {
-                        bid: null,
-                        ask: null,
-                        change: null,
-                        high: null,
-                        low: null,
-                        lastUpdate: '--:--:--',
-                        previousPrice: null
-                    };
-                });
-            }
-            
-            // ==================== FOREX DATA ====================
-            async fetchForexData() {
-                // Using Alpha Vantage (free tier)
-                const forexPairs = this.assets.filter(a => a.type === 'FOREX').slice(0, 5);
-                
-                for (const pair of forexPairs) {
+        function millionaireSystem() {
+            return {
+                wallet: 25000.00,
+                menuOpen: false,
+                assets: [
+                    { symbol: 'EUR/USD', bid: '0.0000', ask: '0.0000', dec: 4, trend: 'neutral' },
+                    { symbol: 'GBP/USD', bid: '0.0000', ask: '0.0000', dec: 4, trend: 'neutral' },
+                    { symbol: 'USD/JPY', bid: '000.00', ask: '000.00', dec: 2, trend: 'neutral' },
+                    { symbol: 'XAU/USD', bid: '0000.00', ask: '0000.00', dec: 2, trend: 'neutral' },
+                    { symbol: 'BTC/USD', bid: '00000', ask: '00000', dec: 0, trend: 'neutral' }
+                ],
+                winners: [
+                    { name: 'X_Trader', amount: 450, game: 'Crash' },
+                    { name: 'Boss77', amount: 1200, game: 'Slots' },
+                    { name: 'King_Ace', amount: 80, game: 'Dice' }
+                ],
+
+                async initSystem() {
+                    this.fetchLivePrices();
+                    setInterval(() => this.fetchLivePrices(), 10000); // Live update every 10s
+                },
+
+                async fetchLivePrices() {
                     try {
-                        // For demo, using simulated data. Replace with real API:
-                        // const apiKey = 'YOUR_ALPHA_VANTAGE_KEY'; // Get free from alphavantage.co
-                        // const url = `https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=${pair.symbol.split('/')[0]}&to_currency=${pair.symbol.split('/')[1]}&apikey=${apiKey}`;
-                        
-                        // Simulated forex data (replace with actual API call)
-                        const bid = 1.0850 + (Math.random() * 0.002 - 0.001);
-                        const ask = bid + 0.0002;
-                        const change = (Math.random() * 0.2 - 0.1).toFixed(2);
-                        const high = bid + 0.0015;
-                        const low = bid - 0.0015;
-                        
-                        this.updateAssetPrice(pair.symbol, bid, ask, change, high, low);
-                        
-                        // Update EUR/USD card
-                        if (pair.symbol === 'EUR/USD') {
-                            this.updateCard('eurusd', bid, change);
-                        }
-                        
-                    } catch (error) {
-                        console.error(`Forex error for ${pair.symbol}:`, error);
-                    }
-                }
-            }
-            
-            // ==================== STOCK DATA ====================
-            async fetchStockData() {
-                const stocks = this.assets.filter(a => a.type === 'STOCKS').slice(0, 8);
-                
-                for (const stock of stocks) {
-                    try {
-                        // Yahoo Finance API (free, no key needed)
-                        if (stock.symbol.startsWith('^')) {
-                            // For indices
-                            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${stock.symbol}?interval=1m`;
-                            const response = await fetch(url);
-                            const data = await response.json();
-                            
-                            if (data.chart?.result?.[0]?.meta) {
-                                const meta = data.chart.result[0].meta;
-                                const price = meta.regularMarketPrice;
-                                const previousClose = meta.previousClose;
-                                const changePercent = ((price - previousClose) / previousClose * 100).toFixed(2);
-                                const dayHigh = meta.regularMarketDayHigh || price * 1.002;
-                                const dayLow = meta.regularMarketDayLow || price * 0.998;
-                                
-                                this.updateAssetPrice(stock.symbol, price, price + 0.01, changePercent, dayHigh, dayLow);
-                                
-                                // Update S&P 500 card
-                                if (stock.symbol === '^GSPC') {
-                                    this.updateCard('sp500', price, changePercent);
-                                }
-                            }
-                        } else {
-                            // For individual stocks - simulated for demo
-                            const price = 100 + Math.random() * 500;
-                            const change = (Math.random() * 3 - 1.5).toFixed(2);
-                            const spread = price * 0.001;
-                            const bid = price - spread/2;
-                            const ask = price + spread/2;
-                            const high = price * (1 + Math.random() * 0.02);
-                            const low = price * (1 - Math.random() * 0.015);
-                            
-                            this.updateAssetPrice(stock.symbol, bid, ask, change, high, low);
-                        }
-                    } catch (error) {
-                        console.error(`Stock error for ${stock.symbol}:`, error);
-                    }
-                }
-            }
-            
-            // ==================== COMMODITY DATA ====================
-            async fetchCommodityData() {
-                const commodities = this.assets.filter(a => a.type === 'COMMODITY');
-                
-                for (const cmd of commodities) {
-                    try {
-                        // Metals API (free tier) - get key from metals-api.com
-                        if (cmd.symbol.includes('XAU') || cmd.symbol.includes('XAG')) {
-                            // For precious metals
-                            const metal = cmd.symbol.split('/')[0];
-                            // const apiKey = 'YOUR_METALS_API_KEY';
-                            // const url = `https://api.metals.live/v1/spot/${metal.toLowerCase()}`;
-                            
-                            // Simulated data
+                        // 1. Fetch Forex from Frankfurter
+                        const fxRes = await fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,JPY');
+                        const fxData = await fxRes.json();
+
+                        // 2. Fetch Crypto/Gold from CoinGecko
+                        const cryptoRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,pax-gold&vs_currencies=usd');
+                        const cryptoData = await cryptoRes.json();
+
+                        const spread = 0.0005; // Standard 5-pip spread
+
+                        this.assets.forEach(asset => {
                             let price;
-                            if (cmd.symbol === 'XAU/USD') {
-                                price = 2150 + Math.random() * 20 - 10;
-                                this.updateCard('gold', price, (Math.random() * 0.5 - 0.25).toFixed(2));
-                            } else if (cmd.symbol === 'XAG/USD') {
-                                price = 24.5 + Math.random() * 0.5 - 0.25;
-                            } else {
-                                price = 1000 + Math.random() * 200 - 100;
-                            }
-                            
-                            const change = (Math.random() * 1 - 0.5).toFixed(2);
-                            const spread = price * 0.001;
-                            
-                            this.updateAssetPrice(cmd.symbol, price - spread/2, price + spread/2, change, 
-                                price * 1.005, price * 0.995);
-                                
-                        } else {
-                            // For energy/agri commodities - Yahoo Finance
-                            // Simulated data
-                            const price = cmd.symbol === 'CL=F' ? 75 + Math.random() * 5 - 2.5 :
-                                         cmd.symbol === 'BZ=F' ? 80 + Math.random() * 5 - 2.5 :
-                                         cmd.symbol === 'NG=F' ? 2.5 + Math.random() * 0.3 - 0.15 :
-                                         cmd.symbol === 'HG=F' ? 4.2 + Math.random() * 0.2 - 0.1 : 500;
-                            
-                            const change = (Math.random() * 2 - 1).toFixed(2);
-                            const spread = price * 0.002;
-                            
-                            this.updateAssetPrice(cmd.symbol, price - spread/2, price + spread/2, change,
-                                price * 1.01, price * 0.99);
-                        }
-                    } catch (error) {
-                        console.error(`Commodity error for ${cmd.symbol}:`, error);
+                            const oldBid = asset.bid;
+
+                            if (asset.symbol === 'EUR/USD') price = 1 / fxData.rates.EUR;
+                            if (asset.symbol === 'GBP/USD') price = 1 / fxData.rates.GBP;
+                            if (asset.symbol === 'USD/JPY') price = fxData.rates.JPY;
+                            if (asset.symbol === 'BTC/USD') price = cryptoData.bitcoin.usd;
+                            if (asset.symbol === 'XAU/USD') price = cryptoData['pax-gold'].usd;
+
+                            asset.bid = (price * (1 - spread)).toFixed(asset.dec);
+                            asset.ask = (price * (1 + spread)).toFixed(asset.dec);
+                            asset.trend = asset.bid > oldBid ? 'up' : 'down';
+                        });
+                    } catch (e) {
+                        console.log("API limit reached, simulating...");
                     }
-                }
-            }
-            
-            // ==================== BOND DATA ====================
-            async fetchBondData() {
-                const bonds = this.assets.filter(a => a.type === 'BONDS');
-                
-                for (const bond of bonds) {
-                    try {
-                        // US Treasury data (free)
-                        if (bond.symbol.startsWith('US')) {
-                            // Can fetch from Treasury.gov
-                            // const url = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates';
-                            
-                            // Simulated yield data
-                            let yieldValue;
-                            if (bond.symbol === 'US2Y') yieldValue = 4.65 + Math.random() * 0.1 - 0.05;
-                            else if (bond.symbol === 'US5Y') yieldValue = 4.35 + Math.random() * 0.1 - 0.05;
-                            else if (bond.symbol === 'US10Y') {
-                                yieldValue = 4.25 + Math.random() * 0.08 - 0.04;
-                                this.updateCard('us10y', yieldValue, (Math.random() * 0.05).toFixed(2));
-                            }
-                            else if (bond.symbol === 'US30Y') yieldValue = 4.45 + Math.random() * 0.1 - 0.05;
-                            
-                            const change = (Math.random() * 0.03).toFixed(2);
-                            
-                            // For bonds, bid/ask are yield spreads
-                            this.updateAssetPrice(bond.symbol, yieldValue, yieldValue + 0.01, change,
-                                yieldValue + 0.02, yieldValue - 0.02);
-                                
-                        } else {
-                            // International bonds - simulated
-                            const yields = {
-                                'DE10Y': 2.45,
-                                'UK10Y': 4.15,
-                                'JP10Y': 0.95,
-                                'IT10Y': 3.85
-                            };
-                            
-                            const baseYield = yields[bond.symbol] || 3.0;
-                            const yieldValue = baseYield + (Math.random() * 0.1 - 0.05);
-                            const change = (Math.random() * 0.04 - 0.02).toFixed(2);
-                            
-                            this.updateAssetPrice(bond.symbol, yieldValue, yieldValue + 0.015, change,
-                                yieldValue + 0.025, yieldValue - 0.025);
-                        }
-                    } catch (error) {
-                        console.error(`Bond error for ${bond.symbol}:`, error);
-                    }
-                }
-            }
-            
-            // ==================== UPDATE FUNCTIONS ====================
-            updateAssetPrice(symbol, bid, ask, change, high, low) {
-                const now = new Date();
-                const timeString = now.toLocaleTimeString('en-GB');
-                
-                this.prices[symbol] = {
-                    bid: parseFloat(bid.toFixed(4)),
-                    ask: parseFloat(ask.toFixed(4)),
-                    change: parseFloat(change),
-                    high: parseFloat(high.toFixed(4)),
-                    low: parseFloat(low.toFixed(4)),
-                    lastUpdate: timeString,
-                    previousPrice: this.prices[symbol]?.bid || null
-                };
-                
-                this.updateTableRow(symbol);
-                this.updateLastUpdate();
-            }
-            
-            updateCard(cardId, price, change) {
-                const priceElement = document.getElementById(`${cardId}-price`);
-                const changeElement = document.getElementById(`${cardId}-change`);
-                
-                if (priceElement && changeElement) {
-                    const oldPrice = parseFloat(priceElement.textContent.replace(/[^0-9.-]+/g, "")) || 0;
-                    
-                    // Animation
-                    priceElement.classList.remove('price-up', 'price-down', 'pulse');
-                    if (oldPrice && price > oldPrice) {
-                        priceElement.classList.add('price-up', 'pulse');
-                    } else if (oldPrice && price < oldPrice) {
-                        priceElement.classList.add('price-down', 'pulse');
-                    }
-                    
-                    // Format based on asset type
-                    let formattedPrice;
-                    if (cardId === 'eurusd') formattedPrice = price.toFixed(4);
-                    else if (cardId === 'sp500') formattedPrice = price.toFixed(2);
-                    else if (cardId === 'gold') formattedPrice = price.toFixed(2);
-                    else if (cardId === 'us10y') formattedPrice = price.toFixed(2) + '%';
-                    else formattedPrice = price.toFixed(2);
-                    
-                    priceElement.textContent = formattedPrice;
-                    
-                    const changeSign = change >= 0 ? '+' : '';
-                    changeElement.textContent = `${changeSign}${change}${cardId === 'us10y' ? 'bps' : '%'}`;
-                    changeElement.className = `text-xs ${change >= 0 ? 'text-green-500' : 'text-red-500'}`;
-                }
-            }
-            
-            updateTableRow(symbol) {
-                const priceData = this.prices[symbol];
-                const asset = this.assets.find(a => a.symbol === symbol);
-                if (!priceData || !priceData.bid || !asset) return;
-                
-                const rowId = `row-${symbol.replace(/[^a-zA-Z0-9]/g, '-')}`;
-                let row = document.getElementById(rowId);
-                
-                const changeColor = priceData.change >= 0 ? 'text-green-500' : 'text-red-500';
-                const changeSign = priceData.change >= 0 ? '+' : '';
-                
-                const typeClass = {
-                    'FOREX': 'forex',
-                    'STOCKS': 'stocks',
-                    'COMMODITY': 'commodity',
-                    'BONDS': 'bonds'
-                }[asset.type];
-                
-                if (!row) {
-                    row = document.createElement('tr');
-                    row.id = rowId;
-                    row.className = 'border-b border-slate-800 hover:bg-slate-800/50';
-                    row.setAttribute('data-type', asset.type);
-                    row.innerHTML = `
-                        <td class="p-3 pl-4">
-                            <div class="font-bold text-white">${asset.symbol}</div>
-                            <div class="text-[10px] text-slate-500">${asset.name}</div>
-                        </td>
-                        <td class="p-3">
-                            <span class="tag ${typeClass}">${asset.type}</span>
-                        </td>
-                        <td class="p-3 font-bold mono">${priceData.bid.toLocaleString()}</td>
-                        <td class="p-3 mono">${priceData.ask.toLocaleString()}</td>
-                        <td class="p-3 font-bold ${changeColor}">${changeSign}${priceData.change}%</td>
-                        <td class="p-3 mono text-slate-400">${priceData.high.toLocaleString()}</td>
-                        <td class="p-3 mono text-slate-400">${priceData.low.toLocaleString()}</td>
-                        <td class="p-3 text-right text-[10px] text-slate-600">${priceData.lastUpdate}</td>
-                    `;
-                    document.getElementById('terminal-body').appendChild(row);
-                } else {
-                    const cells = row.getElementsByTagName('td');
-                    cells[2].textContent = priceData.bid.toLocaleString();
-                    cells[3].textContent = priceData.ask.toLocaleString();
-                    cells[4].textContent = `${changeSign}${priceData.change}%`;
-                    cells[4].className = `p-3 font-bold ${changeColor}`;
-                    cells[5].textContent = priceData.high.toLocaleString();
-                    cells[6].textContent = priceData.low.toLocaleString();
-                    cells[7].textContent = priceData.lastUpdate;
-                }
-            }
-            
-            updateLastUpdate() {
-                const now = new Date();
-                const timeString = now.toLocaleTimeString('en-GB');
-                document.getElementById('last-update').textContent = timeString;
-                document.getElementById('table-update').textContent = timeString;
-            }
-            
-            // ==================== START DATA STREAMS ====================
-            async start() {
-                console.log('🚀 Starting Professional Market Terminal...');
-                
-                // Initial render
-                this.assets.forEach(asset => this.updateTableRow(asset.symbol));
-                
-                // Start data streams
-                this.fetchForexData();
-                this.fetchStockData();
-                this.fetchCommodityData();
-                this.fetchBondData();
-                
-                // Update cycles
-                setInterval(() => this.fetchForexData(), 10000); // Every 10s
-                setInterval(() => this.fetchStockData(), 15000); // Every 15s
-                setInterval(() => this.fetchCommodityData(), 20000); // Every 20s
-                setInterval(() => this.fetchBondData(), 30000); // Every 30s
-                
-                // Auto-refresh UI
-                setInterval(() => this.updateLastUpdate(), 1000);
+                },
+
+                toggleMenu() { this.menuOpen = !this.menuOpen; this.playEffect(); },
+                playEffect() { 
+                    const sfx = document.getElementById('waterDrop');
+                    sfx.currentTime = 0; sfx.play(); 
+                },
+                trade() { this.playEffect(); alert('Order Executed!'); },
+                goToGame() { this.playEffect(); setTimeout(() => { alert('Redirecting to Game...'); }, 300); }
             }
         }
-        
-        // ==================== FILTER FUNCTION ====================
-        function filterAssets(type) {
-            const rows = document.querySelectorAll('tr[data-type]');
-            rows.forEach(row => {
-                if (type === 'ALL' || row.getAttribute('data-type') === type) {
-                    row.style.display = 'table-row';
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-            
-            // Update button styles
-            document.querySelectorAll('button').forEach(btn => {
-                btn.classList.remove('bg-slate-800', 'text-white');
-                btn.classList.add('bg-slate-900', 'text-slate-400');
-            });
-            
-            event.target.classList.remove('bg-slate-900', 'text-slate-400');
-            event.target.classList.add('bg-slate-800', 'text-white');
-        }
-        
-        // ==================== INITIALIZE ====================
-        document.addEventListener('DOMContentLoaded', () => {
-            const market = new ProfessionalMarketData();
-            market.start();
-            
-            // Auto-refresh every 10 minutes
-            setTimeout(() => {
-                window.location.reload();
-            }, 600000);
-        });
     </script>
 </body>
 </html>
