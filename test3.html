@@ -10,7 +10,7 @@ body{
     color:white;
     padding:20px;
 }
-h1{
+h1,h2{
     text-align:center;
 }
 table{
@@ -32,55 +32,101 @@ tr{
 .red{ color:#ff4d4d; }
 .loading{
     text-align:center;
-    margin-top:40px;
-    font-size:18px;
+    margin-top:10px;
+    font-size:16px;
 }
 </style>
 </head>
 <body>
 
 <h1>Live Market Prices (USD)</h1>
-<div class="loading" id="loading">Loading live prices...</div>
 
-<table id="marketTable" style="display:none;">
+<h2>Stocks</h2>
+<div class="loading" id="loading-stocks">Loading stocks...</div>
+<table id="stocksTable" style="display:none;">
 <thead>
 <tr>
-<th>Symbol</th>
-<th>Name</th>
-<th>Price (USD)</th>
-<th>Change</th>
-<th>% Change</th>
+<th>Symbol</th><th>Name</th><th>Price (USD)</th><th>Change</th><th>% Change</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<h2>Forex</h2>
+<div class="loading" id="loading-forex">Loading forex...</div>
+<table id="forexTable" style="display:none;">
+<thead>
+<tr>
+<th>Symbol</th><th>Name</th><th>Price (USD)</th><th>Change</th><th>% Change</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<h2>Commodities</h2>
+<div class="loading" id="loading-commodities">Loading commodities...</div>
+<table id="commoditiesTable" style="display:none;">
+<thead>
+<tr>
+<th>Symbol</th><th>Name</th><th>Price (USD)</th><th>Change</th><th>% Change</th>
 </tr>
 </thead>
 <tbody></tbody>
 </table>
 
 <script>
+// --- SYMBOLS ---
+const stocks = ["AAPL","MSFT","GOOGL","AMZN","TSLA","META","NVDA","NFLX","JPM","V"];
+const forex = ["EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X"];
+const commodities = ["GC=F","SI=F","CL=F","NG=F","HG=F"];
 
-const symbols = [
-"AAPL","MSFT","GOOGL","AMZN","TSLA",
-"META","NVDA","NFLX","JPM","V",
-"EURUSD=X","GBPUSD=X","USDJPY=X","AUDUSD=X","USDCAD=X",
-"GC=F","SI=F","CL=F","NG=F","HG=F"
-];
+// --- CORS Proxy ---
+const proxy = "https://api.allorigins.win/raw?url=";
 
-async function fetchPrices(){
+// --- FETCH FUNCTION ---
+async function fetchPrices(symbolArray, tableId, loadingId){
     try{
-
         const baseURL = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=";
-        const proxy = "https://api.allorigins.win/raw?url=";
-
-        const response = await fetch(proxy + encodeURIComponent(baseURL + symbols.join(",")));
+        const response = await fetch(proxy + encodeURIComponent(baseURL + symbolArray.join(",")));
         const data = await response.json();
-
         const results = data.quoteResponse.result;
 
-        const tbody = document.querySelector("#marketTable tbody");
+        const tbody = document.querySelector(`#${tableId} tbody`);
         tbody.innerHTML = "";
 
         results.forEach(asset=>{
             const row = document.createElement("tr");
-
             const changeClass = asset.regularMarketChange >= 0 ? "green" : "red";
 
-            ro
+            row.innerHTML = `
+                <td>${asset.symbol}</td>
+                <td>${asset.shortName || asset.longName || "-"}</td>
+                <td>$${asset.regularMarketPrice ? asset.regularMarketPrice.toFixed(4) : "-"}</td>
+                <td class="${changeClass}">${asset.regularMarketChange ? asset.regularMarketChange.toFixed(4) : "-"}</td>
+                <td class="${changeClass}">${asset.regularMarketChangePercent ? asset.regularMarketChangePercent.toFixed(2) : "-"}%</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        document.getElementById(loadingId).style.display="none";
+        document.getElementById(tableId).style.display="table";
+
+    }catch(err){
+        document.getElementById(loadingId).innerText="Error loading data.";
+        console.error(err);
+    }
+}
+
+// --- INITIAL LOAD ---
+fetchPrices(stocks, "stocksTable", "loading-stocks");
+fetchPrices(forex, "forexTable", "loading-forex");
+fetchPrices(commodities, "commoditiesTable", "loading-commodities");
+
+// --- AUTO REFRESH EVERY 10 SECONDS ---
+setInterval(()=>fetchPrices(stocks, "stocksTable", "loading-stocks"), 10000);
+setInterval(()=>fetchPrices(forex, "forexTable", "loading-forex"), 10000);
+setInterval(()=>fetchPrices(commodities, "commoditiesTable", "loading-commodities"), 10000);
+
+</script>
+</body>
+</html>
