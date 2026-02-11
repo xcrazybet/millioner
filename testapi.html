@@ -1,22 +1,18 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Live Markets Dashboard - Fast</title>
+    <title>Live EUR/USD Price</title>
     <style>
         body {
             font-family: Arial;
             background: #111;
             color: white;
             text-align: center;
+            margin-top: 100px;
         }
-        h2 { margin-top: 20px; }
-        .asset-box {
-            margin: 10px auto;
-            padding: 10px 15px;
-            width: 300px;
-            border: 1px solid #444;
-            border-radius: 8px;
-            font-size: 18px;
+        #price {
+            font-size: 50px;
+            font-weight: bold;
         }
         .up { color: #00ff88; }
         .down { color: #ff4444; }
@@ -24,136 +20,34 @@
 </head>
 <body>
 
-<h1>Live Markets Dashboard - Fast</h1>
-
-<div id="stocks">
-    <h2>Stocks</h2>
-    <div id="stock1" class="asset-box">Loading...</div>
-    <div id="stock2" class="asset-box">Loading...</div>
-    <div id="stock3" class="asset-box">Loading...</div>
-    <div id="stock4" class="asset-box">Loading...</div>
-    <div id="stock5" class="asset-box">Loading...</div>
-</div>
-
-<div id="currencies">
-    <h2>Currencies (Forex)</h2>
-    <div id="fx1" class="asset-box">Loading...</div>
-    <div id="fx2" class="asset-box">Loading...</div>
-    <div id="fx3" class="asset-box">Loading...</div>
-    <div id="fx4" class="asset-box">Loading...</div>
-    <div id="fx5" class="asset-box">Loading...</div>
-</div>
-
-<div id="bonds">
-    <h2>Bonds (Yields)</h2>
-    <div id="bond1" class="asset-box">Loading...</div>
-    <div id="bond2" class="asset-box">Loading...</div>
-    <div id="bond3" class="asset-box">Loading...</div>
-    <div id="bond4" class="asset-box">Loading...</div>
-    <div id="bond5" class="asset-box">Loading...</div>
-</div>
-
-<div id="commodities">
-    <h2>Commodities</h2>
-    <div id="comm1" class="asset-box">Loading...</div>
-    <div id="comm2" class="asset-box">Loading...</div>
-    <div id="comm3" class="asset-box">Loading...</div>
-    <div id="comm4" class="asset-box">Loading...</div>
-    <div id="comm5" class="asset-box">Loading...</div>
-</div>
+<h1>Live EUR/USD Price</h1>
+<div id="price">Loading...</div>
 
 <script>
-const lastData = {};
+let lastPrice = null;
 
-// ------------------------
-// FAST FETCH FUNCTIONS
-// ------------------------
-
-// 1️⃣ Stocks - Financial Modeling Prep (5 stocks in 1 request)
-async function updateStocks() {
-    const url = "https://financialmodelingprep.com/api/v3/quote-short/AAPL,TSLA,MSFT,AMZN,GOOGL?apikey=demo"; // replace demo with your key if needed
-    const data = await fetchJSON(url);
-    if (!data) return;
-
-    const symbols = ["AAPL","TSLA","MSFT","AMZN","GOOGL"];
-    symbols.forEach((sym, i) => {
-        const price = parseFloat(data[i].price);
-        showData(price, `stock${i+1}`, sym);
-    });
-}
-
-// 2️⃣ Currencies - exchangerate.host (5 forex pairs in 1 request)
-async function updateCurrencies() {
-    const pairs = ["USD/EUR","USD/JPY","GBP/USD","AUD/USD","USD/CHF"];
-    const symbols = pairs.map(p => p.split("/")[1]).join(",");
-    const base = "USD";
-    const url = `https://api.exchangerate.host/latest?base=${base}&symbols=${symbols}`;
-    const data = await fetchJSON(url);
-    if (!data || !data.rates) return;
-
-    pairs.forEach((p, i) => {
-        const target = p.split("/")[1];
-        const price = parseFloat(data.rates[target]);
-        showData(price, `fx${i+1}`, p);
-    });
-}
-
-// 3️⃣ Bonds + Commodities - Alpha Vantage (5 bonds + 5 commodities in 1 batch)
-async function updateBondsAndComms() {
-    const symbols = ["^TNX","^IRX","^TYX","^FVX","^VIX","GC=F","CL=F","SI=F","NG=F","HG=F"];
-    // Alpha Vantage allows separate request per symbol; combine all in Promise.all
-    const promises = symbols.map(sym =>
-        fetchJSON(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${sym}&apikey=YOUR_ALPHAVANTAGE_API_KEY`)
-    );
-    const results = await Promise.all(promises);
-
-    results.forEach((res, i) => {
-        if (!res || !res["Global Quote"]) return;
-        const price = parseFloat(res["Global Quote"]["05. price"]);
-        if (i < 5) showData(price, `bond${i+1}`, symbols[i]);   // bonds
-        else showData(price, `comm${i-4}`, symbols[i]);         // commodities
-    });
-}
-
-// ------------------------
-// HELPER FUNCTIONS
-// ------------------------
-async function fetchJSON(url){
+async function updatePrice() {
     try {
-        const res = await fetch(url);
-        return await res.json();
-    } catch(e){
-        console.error("Fetch error:", e);
-        return null;
+        const res = await fetch("https://api.exchangerate.host/latest?base=EUR&symbols=USD");
+        const data = await res.json();
+        const price = parseFloat(data.rates.USD);
+
+        const el = document.getElementById("price");
+        if (lastPrice !== null) {
+            el.className = price > lastPrice ? "up" : price < lastPrice ? "down" : "";
+        }
+
+        el.textContent = price.toFixed(5);
+        lastPrice = price;
+
+    } catch (e) {
+        console.error("Error fetching price:", e);
     }
 }
 
-function showData(price, elementId, label) {
-    const el = document.getElementById(elementId);
-    if (lastData[elementId] !== undefined) {
-        el.className = price > lastData[elementId] ? "asset-box up" : "asset-box down";
-    }
-    el.innerHTML = `<b>${label}</b>: ${price.toFixed(4)}`;
-    lastData[elementId] = price;
-}
-
-// ------------------------
-// RUN UPDATES
-// ------------------------
-async function updateAll() {
-    await Promise.all([
-        updateStocks(),
-        updateCurrencies(),
-        updateBondsAndComms()
-    ]);
-}
-
-// initial load
-updateAll();
-
-// refresh every 15 seconds
-setInterval(updateAll, 15000);
-
+// Update every 1 second
+updatePrice();
+setInterval(updatePrice, 1000);
 </script>
 
 </body>
