@@ -3,195 +3,109 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XQuantum Elite | Institutional Forex Terminal</title>
+    <title>XQuantum Market Monitor | LIVE</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
         :root {
-            --neon-blue: #00d2ff;
-            --terminal-dark: #020617;
-            --bullish: #10b981;
-            --bearish: #ef4444;
+            --bg-deep: #020617;
+            --panel-bg: #0f172a;
+            --neon-cyan: #22d3ee;
+            --up: #10b981;
+            --down: #ef4444;
         }
 
         body {
-            background-color: var(--terminal-dark);
-            color: #f1f5f9;
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            overflow-x: hidden;
+            background-color: var(--bg-deep);
+            color: #cbd5e1;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
         }
 
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.8);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
+        .terminal-border { border: 1px solid rgba(255, 255, 255, 0.05); }
+        .glass { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(10px); }
 
-        .price-flash-up { animation: flashGreen 1s ease-out; }
-        .price-flash-down { animation: flashRed 1s ease-out; }
+        /* Price Tick Animations */
+        @keyframes tickUp { 0% { background: rgba(16, 185, 129, 0.2); } 100% { background: transparent; } }
+        @keyframes tickDown { 0% { background: rgba(239, 68, 68, 0.2); } 100% { background: transparent; } }
+        .tick-up { animation: tickUp 0.6s ease-out; }
+        .tick-down { animation: tickDown 0.6s ease-out; }
 
-        @keyframes flashGreen {
-            0% { background: rgba(16, 185, 129, 0.3); }
-            100% { background: transparent; }
-        }
+        .active-pair { border-left: 4px solid var(--neon-cyan) !important; background: #1e293b !important; }
+        
+        .scroll-custom::-webkit-scrollbar { width: 4px; }
+        .scroll-custom::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
 
-        @keyframes flashRed {
-            0% { background: rgba(239, 68, 68, 0.3); }
-            100% { background: transparent; }
-        }
-
-        /* Scrollbar Styling */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-
-        .tab-active { border-bottom: 2px solid var(--neon-blue); color: var(--neon-blue); }
+        #mainChart { height: 100% !important; width: 100% !important; }
     </style>
 </head>
-<body class="min-h-screen">
+<body class="h-screen flex flex-col">
 
-    <nav class="h-16 border-b border-slate-800 flex items-center justify-between px-6 glass-panel sticky top-0 z-50">
-        <div class="flex items-center gap-4">
-            <div class="text-2xl font-black tracking-tighter text-white">
-                X<span class="text-cyan-400">QUANTUM</span>
-            </div>
-            <div class="hidden md:flex items-center gap-6 text-xs font-bold text-slate-400 ml-10">
-                <a href="#" class="hover:text-white transition">DASHBOARD</a>
-                <a href="#" class="hover:text-white transition">EXCHANGE</a>
-                <a href="#" class="hover:text-white transition">PORTFOLIO</a>
-                <a href="#" class="hover:text-white transition">ACADEMY</a>
-            </div>
-        </div>
-
+    <header class="h-14 border-b border-slate-800 flex items-center justify-between px-6 glass shrink-0">
         <div class="flex items-center gap-6">
-            <div class="text-right">
-                <div class="text-[10px] text-slate-500 font-bold uppercase">Real Balance</div>
-                <div id="balance-display" class="text-emerald-400 font-mono text-lg">$0.00</div>
+            <div class="text-xl font-black tracking-tighter text-white">
+                X<span class="text-cyan-400">QUANTUM</span> <span class="text-xs font-normal text-slate-500 ml-2 italic">MARKET MONITOR V2.0</span>
             </div>
-            <button class="bg-cyan-600 hover:bg-cyan-500 px-6 py-2 rounded-lg font-bold text-sm transition shadow-lg shadow-cyan-900/20">
-                DEPOSIT
-            </button>
+            <div id="connection-status" class="flex items-center gap-2 text-[10px] font-bold text-emerald-400 uppercase tracking-widest">
+                <span class="relative flex h-2 w-2">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                Live Data Stream Active
+            </div>
         </div>
-    </nav>
+        <div class="flex items-center gap-4 font-mono text-xs text-slate-400">
+            <span id="server-time">00:00:00 UTC</span>
+            <div class="h-4 w-[1px] bg-slate-700"></div>
+            <span>API: Twelve Data</span>
+        </div>
+    </header>
 
-    <main class="p-4 grid grid-cols-12 gap-4">
+    <main class="flex-1 flex overflow-hidden">
         
-        <section class="col-span-12 lg:col-span-3 space-y-4">
-            <div class="glass-panel rounded-2xl p-4 border border-slate-800">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-sm text-slate-400">MARKET WATCH</h3>
-                    <i class="fas fa-search text-slate-600 cursor-pointer"></i>
+        <aside class="w-80 border-r border-slate-800 flex flex-col shrink-0">
+            <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+                <span class="text-[10px] font-black uppercase tracking-tighter text-slate-500">Global Watchlist</span>
+                <i class="fas fa-plus text-xs text-slate-600 hover:text-cyan-400 cursor-pointer transition"></i>
+            </div>
+            <div id="watchlist-container" class="flex-1 overflow-y-auto scroll-custom p-2 space-y-1">
                 </div>
-                
-                <div id="market-list" class="space-y-2 max-h-[600px] overflow-y-auto pr-2">
-                    <div class="animate-pulse flex space-x-4">
-                        <div class="flex-1 space-y-6 py-1">
-                            <div class="h-2 bg-slate-700 rounded"></div>
-                        </div>
+        </aside>
+
+        <section class="flex-1 flex flex-col min-w-0">
+            <div class="h-24 border-b border-slate-800 p-6 flex justify-between items-center bg-slate-900/20">
+                <div class="flex items-end gap-4">
+                    <div id="display-symbol" class="text-3xl font-bold text-white tracking-tight">---/---</div>
+                    <div id="display-price" class="text-3xl font-mono text-cyan-400 mb-[2px]">0.00000</div>
+                    <div id="display-change" class="text-sm font-bold pb-2 text-emerald-400">+0.00%</div>
+                </div>
+                <div class="flex gap-4 items-center">
+                    <div class="text-right pr-4 border-r border-slate-800">
+                        <div class="text-[10px] text-slate-500 font-bold uppercase">24h High</div>
+                        <div id="display-high" class="text-sm font-mono text-white">0.00</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-[10px] text-slate-500 font-bold uppercase">24h Low</div>
+                        <div id="display-low" class="text-sm font-mono text-white">0.00</div>
                     </div>
                 </div>
             </div>
-        </section>
 
-        <section class="col-span-12 lg:col-span-6 space-y-4">
-            <div class="glass-panel rounded-2xl p-6 border border-slate-800 h-[500px] flex flex-col">
-                <div class="flex justify-between items-center mb-6">
-                    <div>
-                        <h2 id="active-pair-name" class="text-2xl font-bold">---/---</h2>
-                        <div id="active-pair-price" class="text-3xl font-mono text-cyan-400">0.0000</div>
-                    </div>
-                    <div class="flex gap-2">
-                        <button class="px-3 py-1 bg-slate-800 rounded text-xs hover:bg-slate-700">1M</button>
-                        <button class="px-3 py-1 bg-slate-800 rounded text-xs hover:bg-slate-700">5M</button>
-                        <button class="px-3 py-1 bg-cyan-600 rounded text-xs">15M</button>
-                        <button class="px-3 py-1 bg-slate-800 rounded text-xs hover:bg-slate-700">1H</button>
-                    </div>
+            <div class="flex-1 p-6 relative bg-slate-950/50">
+                <div class="absolute top-4 left-6 z-10 flex gap-2">
+                    <button class="px-3 py-1 bg-slate-800 rounded text-[10px] hover:bg-cyan-600 transition">LINE</button>
+                    <button class="px-3 py-1 bg-slate-900 text-slate-500 rounded text-[10px] border border-slate-800">CANDLE</button>
                 </div>
-                <div class="flex-1 relative">
-                    <canvas id="mainChart"></canvas>
-                </div>
+                <canvas id="mainChart"></canvas>
             </div>
 
-            <div class="glass-panel rounded-2xl border border-slate-800 overflow-hidden">
-                <div class="flex border-b border-slate-800">
-                    <button class="px-6 py-3 text-sm font-bold tab-active">OPEN ORDERS</button>
-                    <button class="px-6 py-3 text-sm font-bold text-slate-500">HISTORY</button>
-                </div>
-                <div class="p-0">
-                    <table class="w-full text-left text-xs">
-                        <thead class="bg-slate-900/50 text-slate-500 uppercase">
-                            <tr>
-                                <th class="p-4">Ticket</th>
-                                <th class="p-4">Pair</th>
-                                <th class="p-4">Side</th>
-                                <th class="p-4">Entry</th>
-                                <th class="p-4">PL ($)</th>
-                                <th class="p-4">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="orders-body">
-                            </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
-        <section class="col-span-12 lg:col-span-3">
-            <div class="glass-panel rounded-2xl p-6 border border-slate-800 sticky top-20">
-                <h3 class="font-bold text-slate-400 mb-6 uppercase text-xs tracking-widest">Execution Terminal</h3>
-                
-                <div class="space-y-6">
-                    <div>
-                        <label class="block text-[10px] text-slate-500 font-bold mb-2 uppercase">Order Type</label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <button class="py-2 bg-slate-800 rounded-lg text-xs font-bold border border-cyan-500/30">MARKET</button>
-                            <button class="py-2 bg-slate-900 text-slate-500 rounded-lg text-xs font-bold">LIMIT</button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] text-slate-500 font-bold mb-2 uppercase">Trade Size (USD)</label>
-                        <div class="relative">
-                            <span class="absolute left-4 top-3 text-slate-500">$</span>
-                            <input id="trade-amount" type="number" value="100" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 pl-8 text-white font-mono focus:ring-2 focus:ring-cyan-500 outline-none">
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="block text-[10px] text-slate-500 font-bold mb-2 uppercase">Leverage</label>
-                        <select id="leverage" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-cyan-500 outline-none appearance-none">
-                            <option value="1">1x (Spot)</option>
-                            <option value="10">10x (Standard)</option>
-                            <option value="50">50x (Pro)</option>
-                            <option value="100" selected>100x (Institutional)</option>
-                        </select>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4 pt-4">
-                        <button onclick="placeTrade('BUY')" class="bg-emerald-600 hover:bg-emerald-500 py-4 rounded-xl font-bold transition-all transform active:scale-95 shadow-lg shadow-emerald-900/20">
-                            BUY / LONG
-                        </button>
-                        <button onclick="placeTrade('SELL')" class="bg-rose-600 hover:bg-rose-500 py-4 rounded-xl font-bold transition-all transform active:scale-95 shadow-lg shadow-rose-900/20">
-                            SELL / SHORT
-                        </button>
-                    </div>
-
-                    <div class="p-4 bg-slate-900/50 rounded-xl border border-dashed border-slate-700">
-                        <div class="flex justify-between text-xs mb-2">
-                            <span class="text-slate-500">Margin Required</span>
-                            <span id="margin-calc">$1.00</span>
-                        </div>
-                        <div class="flex justify-between text-xs">
-                            <span class="text-slate-500">Est. Liquidation</span>
-                            <span class="text-rose-400">---</span>
-                        </div>
-                    </div>
+            <div class="h-10 border-t border-slate-800 glass flex items-center px-4 gap-4 overflow-hidden shrink-0">
+                <span class="bg-cyan-600 text-[9px] font-black px-2 py-0.5 rounded text-white shrink-0">BREAKING</span>
+                <div class="text-[11px] text-slate-400 whitespace-nowrap animate-marquee">
+                    FEDERAL RESERVE SIGNALS INTEREST RATE STABILITY • EUR/USD HITS 3-MONTH HIGH AMID DOLLAR WEAKNESS • BTC BREAKS CRITICAL RESISTANCE AT $65K • JAPANESE YEN INTERVENTION RUMORS CIRCULATE
                 </div>
             </div>
         </section>
@@ -199,249 +113,161 @@
 
     <script>
         /**
-         * XQUANTUM CORE ENGINE v4.2
-         * Module 1: Firebase Auth & Data
-         * Module 2: Real-time API Bridge
-         * Module 3: Virtual/Real Balance Sync
-         * Module 4: Trade Execution Manager
+         * XQUANTUM CORE v3.0
+         * MODULES:
+         * 1. Market Data Fetcher (Twelve Data API)
+         * 2. High-Frequency UI Updater
+         * 3. Chart.js Visualization Logic
          */
 
-        // ---------------------------------------------------------
-        // PART 1: CONFIGURATION
-        // ---------------------------------------------------------
-        const API_KEY = "PASTE_YOUR_TWELVE_DATA_KEY_HERE"; 
+        // --- USER CONFIGURATION ---
+        const API_KEY = "YOUR_API_KEY_HERE"; // Get your free key from twelvedata.com
+        const REFRESH_RATE = 15000; // 15 seconds for Free Tier safety
         
-        // Placeholder Config - Replace with your actual Firebase project settings
-        const firebaseConfig = {
-            apiKey: "AIzaSy...",
-            authDomain: "your-project.firebaseapp.com",
-            projectId: "your-project",
-            storageBucket: "your-project.appspot.com",
-            messagingSenderId: "123456",
-            appId: "1:123456:web:abcd"
-        };
-
-        // ---------------------------------------------------------
-        // PART 2: GLOBAL STATE
-        // ---------------------------------------------------------
-        let userProfile = { balance: 10000, uid: 'guest' };
-        let activePair = 'EUR/USD';
-        let marketData = [
-            { symbol: 'EUR/USD', price: 1.0845, prev: 1.0840, change: 0.05, digits: 4 },
-            { symbol: 'GBP/USD', price: 1.2630, prev: 1.2640, change: -0.08, digits: 4 },
-            { symbol: 'USD/JPY', price: 150.22, prev: 150.10, change: 0.12, digits: 2 },
-            { symbol: 'AUD/USD', price: 0.6540, prev: 0.6540, change: 0.00, digits: 4 },
-            { symbol: 'BTC/USD', price: 63240.50, prev: 62800.00, change: 0.70, digits: 2 }
+        let activeSymbol = 'EUR/USD';
+        let mainChart = null;
+        
+        const watchlist = [
+            { symbol: 'EUR/USD', digits: 5, category: 'Forex' },
+            { symbol: 'GBP/USD', digits: 5, category: 'Forex' },
+            { symbol: 'USD/JPY', digits: 3, category: 'Forex' },
+            { symbol: 'AUD/USD', digits: 5, category: 'Forex' },
+            { symbol: 'BTC/USD', digits: 2, category: 'Crypto' },
+            { symbol: 'ETH/USD', digits: 2, category: 'Crypto' },
+            { symbol: 'XAU/USD', digits: 2, category: 'Commodity' }
         ];
-        let openTrades = [];
-        let mainChart;
 
-        // ---------------------------------------------------------
-        // PART 3: SYSTEM INITIALIZATION
-        // ---------------------------------------------------------
+        // --- SYSTEM ENGINE ---
+
         window.onload = () => {
             initChart();
-            renderMarketList();
-            updateBalanceUI();
+            renderWatchlist();
+            updateAllPrices();
             
-            // Start Real Data Feed (Updates every 10 seconds for free tier safety)
-            fetchLivePrices();
-            setInterval(fetchLivePrices, 10000);
+            // Interval loops
+            setInterval(updateAllPrices, REFRESH_RATE);
+            setInterval(updateClock, 1000);
             
-            // Start Internal Simulation (For smooth UI pips movement)
-            setInterval(simulateMicroMovements, 1000);
+            // Micro-ticks for smooth visuals (Simulated movements between API calls)
+            setInterval(simulatePips, 2000);
         };
 
-        // ---------------------------------------------------------
-        // PART 4: MARKET DATA ENGINE
-        // ---------------------------------------------------------
-        async function fetchLivePrices() {
-            try {
-                const symbols = marketData.map(d => d.symbol).join(',');
-                const response = await fetch(`https://api.twelvedata.com/price?symbol=${symbols}&apikey=${API_KEY}`);
-                const data = await response.json();
-
-                marketData.forEach(pair => {
-                    if (data[pair.symbol]) {
-                        const newPrice = parseFloat(data[pair.symbol].price);
-                        pair.prev = pair.price;
-                        pair.price = newPrice;
-                        updateMarketUI(pair);
-                    }
-                });
-            } catch (error) {
-                console.warn("API limit or missing key - running on internal high-fidelity simulation.");
-            }
-        }
-
-        function simulateMicroMovements() {
-            marketData.forEach(pair => {
-                const volatility = pair.price * 0.0001;
-                const movement = (Math.random() - 0.5) * volatility;
-                pair.prev = pair.price;
-                pair.price += movement;
-                updateMarketUI(pair);
-            });
-            updateActiveDisplay();
-            updateOpenOrdersPL();
-        }
-
-        // ---------------------------------------------------------
-        // PART 5: USER INTERFACE METHODS
-        // ---------------------------------------------------------
-        function renderMarketList() {
-            const list = document.getElementById('market-list');
-            list.innerHTML = marketData.map(pair => `
-                <div onclick="setActivePair('${pair.symbol}')" class="p-4 bg-slate-900/50 border border-slate-800 rounded-xl cursor-pointer hover:border-cyan-500/50 transition-all group">
-                    <div class="flex justify-between items-center">
-                        <span class="font-bold text-sm">${pair.symbol}</span>
-                        <span id="price-${pair.symbol.replace('/','')}" class="font-mono text-sm">${pair.price.toFixed(pair.digits)}</span>
+        function renderWatchlist() {
+            const container = document.getElementById('watchlist-container');
+            container.innerHTML = watchlist.map(item => `
+                <div id="row-${item.symbol.replace('/','')}" onclick="switchPair('${item.symbol}')" 
+                     class="p-4 rounded-lg border border-transparent hover:border-slate-700 cursor-pointer transition-all flex justify-between items-center group">
+                    <div>
+                        <div class="text-xs font-bold text-slate-200">${item.symbol}</div>
+                        <div class="text-[9px] text-slate-500 uppercase">${item.category}</div>
                     </div>
-                    <div class="flex justify-between mt-1">
-                        <span class="text-[10px] text-slate-500">VOL: 2.4B</span>
-                        <span class="text-[10px] ${pair.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${pair.change}%</span>
+                    <div class="text-right">
+                        <div id="list-price-${item.symbol.replace('/','')}" class="font-mono text-sm text-slate-400">0.0000</div>
+                        <div id="list-change-${item.symbol.replace('/','')}" class="text-[10px] text-emerald-400">0.00%</div>
                     </div>
                 </div>
             `).join('');
+            
+            document.getElementById(`row-${activeSymbol.replace('/','')}`).classList.add('active-pair');
         }
 
-        function updateMarketUI(pair) {
-            const el = document.getElementById(`price-${pair.symbol.replace('/','')}`);
-            if(!el) return;
-            
-            el.innerText = pair.price.toFixed(pair.digits);
-            if(pair.price > pair.prev) {
-                el.classList.add('text-emerald-400', 'price-flash-up');
-                setTimeout(() => el.classList.remove('price-flash-up'), 1000);
-            } else if (pair.price < pair.prev) {
-                el.classList.add('text-rose-400', 'price-flash-down');
-                setTimeout(() => el.classList.remove('price-flash-down'), 1000);
+        async function updateAllPrices() {
+            try {
+                const symbols = watchlist.map(i => i.symbol).join(',');
+                const res = await fetch(`https://api.twelvedata.com/price?symbol=${symbols}&apikey=${API_KEY}`);
+                const data = await res.json();
+
+                watchlist.forEach(item => {
+                    if (data[item.symbol]) {
+                        const price = parseFloat(data[item.symbol].price);
+                        updatePairState(item.symbol, price);
+                    }
+                });
+            } catch (e) {
+                console.warn("API limit or offline - simulating data.");
             }
         }
 
-        function setActivePair(symbol) {
-            activePair = symbol;
-            const data = marketData.find(d => d.symbol === symbol);
-            document.getElementById('active-pair-name').innerText = symbol;
+        function updatePairState(symbol, newPrice) {
+            const item = watchlist.find(i => i.symbol === symbol);
+            const oldPrice = item.price || 0;
+            item.price = newPrice;
+
+            // Update List UI
+            const priceEl = document.getElementById(`list-price-${symbol.replace('/','')}`);
+            const rowEl = document.getElementById(`row-${symbol.replace('/','')}`);
             
-            // Visual Update
-            document.getElementById('orders-body').innerHTML = ""; // Simulating filter
-            renderOrders();
-            
-            // Reset Chart
-            mainChart.data.datasets[0].label = symbol;
-            mainChart.update();
-        }
-
-        function updateActiveDisplay() {
-            const data = marketData.find(d => d.symbol === activePair);
-            document.getElementById('active-pair-price').innerText = data.price.toFixed(data.digits);
-            document.getElementById('term-price').innerText = data.price.toFixed(data.digits);
-            
-            // Update Margin Calc
-            const amount = document.getElementById('trade-amount').value;
-            const lev = document.getElementById('leverage').value;
-            document.getElementById('margin-calc').innerText = "$" + (amount / lev).toFixed(2);
-        }
-
-        // ---------------------------------------------------------
-        // PART 6: TRADE EXECUTION MODULE
-        // ---------------------------------------------------------
-        function placeTrade(side) {
-            const amount = parseFloat(document.getElementById('trade-amount').value);
-            const lev = parseInt(document.getElementById('leverage').value);
-            const currentPair = marketData.find(d => d.symbol === activePair);
-            
-            if(amount > userProfile.balance) {
-                alert("Insufficient funds for this trade.");
-                return;
-            }
-
-            const ticket = "XQ" + Math.floor(100000 + Math.random() * 900000);
-            const newTrade = {
-                ticket: ticket,
-                pair: activePair,
-                side: side,
-                entry: currentPair.price,
-                amount: amount,
-                leverage: lev,
-                pl: 0,
-                status: 'OPEN',
-                time: new Date().toLocaleTimeString()
-            };
-
-            openTrades.unshift(newTrade);
-            renderOrders();
-            showToast(`Order Executed: ${side} ${activePair} at ${currentPair.price.toFixed(4)}`);
-        }
-
-        function updateOpenOrdersPL() {
-            openTrades.forEach(trade => {
-                const currentPrice = marketData.find(d => d.symbol === trade.pair).price;
-                let diff = 0;
-                
-                if(trade.side === 'BUY') diff = currentPrice - trade.entry;
-                else diff = trade.entry - currentPrice;
-                
-                // PL Calculation: (Diff / Entry) * Amount * Leverage
-                trade.pl = (diff / trade.entry) * trade.amount * trade.leverage;
-                
-                const plEl = document.getElementById(`pl-${trade.ticket}`);
-                if(plEl) {
-                    plEl.innerText = (trade.pl >= 0 ? "+" : "") + trade.pl.toFixed(2);
-                    plEl.className = trade.pl >= 0 ? "p-4 text-emerald-400 font-bold" : "p-4 text-rose-400 font-bold";
+            if(priceEl) {
+                priceEl.innerText = newPrice.toFixed(item.digits);
+                if(oldPrice !== 0 && newPrice > oldPrice) {
+                    priceEl.className = "font-mono text-sm text-emerald-400";
+                    rowEl.classList.add('tick-up');
+                    setTimeout(() => rowEl.classList.remove('tick-up'), 600);
+                } else if(oldPrice !== 0 && newPrice < oldPrice) {
+                    priceEl.className = "font-mono text-sm text-rose-400";
+                    rowEl.classList.add('tick-down');
+                    setTimeout(() => rowEl.classList.remove('tick-down'), 600);
                 }
+            }
+
+            if(symbol === activeSymbol) updateMainDisplay(item);
+        }
+
+        function updateMainDisplay(item) {
+            document.getElementById('display-symbol').innerText = item.symbol;
+            document.getElementById('display-price').innerText = item.price.toFixed(item.digits);
+            document.getElementById('display-high').innerText = (item.price * 1.002).toFixed(item.digits);
+            document.getElementById('display-low').innerText = (item.price * 0.998).toFixed(item.digits);
+            
+            // Add to chart
+            const chartData = mainChart.data.datasets[0].data;
+            chartData.shift();
+            chartData.push(item.price);
+            mainChart.update('none');
+        }
+
+        function switchPair(symbol) {
+            document.querySelectorAll('.active-pair').forEach(el => el.classList.remove('active-pair'));
+            document.getElementById(`row-${symbol.replace('/','')}`).classList.add('active-pair');
+            
+            activeSymbol = symbol;
+            const item = watchlist.find(i => i.symbol === symbol);
+            
+            // Reset Chart for new pair
+            mainChart.data.datasets[0].label = symbol;
+            mainChart.data.datasets[0].data = Array(50).fill(0).map(() => item.price);
+            mainChart.update();
+            
+            updateMainDisplay(item);
+        }
+
+        function simulatePips() {
+            watchlist.forEach(item => {
+                if(!item.price) return;
+                const movement = (Math.random() - 0.5) * (item.price * 0.0001);
+                updatePairState(item.symbol, item.price + movement);
             });
         }
 
-        function renderOrders() {
-            const body = document.getElementById('orders-body');
-            body.innerHTML = openTrades.map(t => `
-                <tr class="border-b border-slate-800/50 hover:bg-white/5 transition">
-                    <td class="p-4 text-slate-400 font-mono">${t.ticket}</td>
-                    <td class="p-4 font-bold">${t.pair}</td>
-                    <td class="p-4"><span class="${t.side === 'BUY' ? 'text-emerald-400' : 'text-rose-400'}">${t.side}</span></td>
-                    <td class="p-4 font-mono">${t.entry.toFixed(4)}</td>
-                    <td id="pl-${t.ticket}" class="p-4 font-bold text-emerald-400">0.00</td>
-                    <td class="p-4">
-                        <button onclick="closeTrade('${t.ticket}')" class="text-rose-400 hover:underline">CLOSE</button>
-                    </td>
-                </tr>
-            `).join('');
-        }
-
-        function closeTrade(ticket) {
-            const index = openTrades.findIndex(t => t.ticket === ticket);
-            if(index > -1) {
-                userProfile.balance += openTrades[index].pl;
-                openTrades.splice(index, 1);
-                updateBalanceUI();
-                renderOrders();
-            }
-        }
-
-        // ---------------------------------------------------------
-        // PART 7: CHARTING SYSTEM
-        // ---------------------------------------------------------
         function initChart() {
             const ctx = document.getElementById('mainChart').getContext('2d');
             const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-            gradient.addColorStop(0, 'rgba(0, 210, 255, 0.2)');
-            gradient.addColorStop(1, 'rgba(0, 210, 255, 0)');
+            gradient.addColorStop(0, 'rgba(34, 211, 238, 0.2)');
+            gradient.addColorStop(1, 'rgba(34, 211, 238, 0)');
 
             mainChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: Array(20).fill(''),
+                    labels: Array(50).fill(''),
                     datasets: [{
                         label: 'EUR/USD',
-                        data: Array(20).fill(0).map(() => 1.08 + Math.random() * 0.01),
-                        borderColor: '#00d2ff',
+                        data: Array(50).fill(1.0850),
+                        borderColor: '#22d3ee',
                         borderWidth: 2,
-                        tension: 0.4,
+                        tension: 0.3,
+                        pointRadius: 0,
                         fill: true,
-                        backgroundColor: gradient,
-                        pointRadius: 0
+                        backgroundColor: gradient
                     }]
                 },
                 options: {
@@ -451,33 +277,16 @@
                     scales: {
                         x: { display: false },
                         y: { 
-                            grid: { color: 'rgba(255,255,255,0.05)' },
-                            ticks: { color: '#475569', font: { size: 10, family: 'JetBrains Mono' } }
+                            grid: { color: 'rgba(255,255,255,0.03)' },
+                            ticks: { color: '#475569', font: { family: 'monospace', size: 10 } }
                         }
                     }
                 }
             });
-
-            // Update Chart Data
-            setInterval(() => {
-                const data = mainChart.data.datasets[0].data;
-                const currentPrice = marketData.find(d => d.symbol === activePair).price;
-                data.shift();
-                data.push(currentPrice);
-                mainChart.update('none');
-            }, 2000);
         }
 
-        // ---------------------------------------------------------
-        // PART 8: UTILITIES
-        // ---------------------------------------------------------
-        function updateBalanceUI() {
-            document.getElementById('balance-display').innerText = "$" + userProfile.balance.toFixed(2);
-        }
-
-        function showToast(msg) {
-            // Simple logic for trade confirmation
-            console.log("SYS_LOG:", msg);
+        function updateClock() {
+            document.getElementById('server-time').innerText = new Date().toLocaleTimeString('en-GB', { timeZone: 'UTC' }) + " UTC";
         }
     </script>
 </body>
