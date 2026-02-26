@@ -3,150 +3,626 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XQuantum Terminal | Live TradingView Feed</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>Football API · working data loader</title>
     <style>
-        body { background-color: #020617; color: #f1f5f9; font-family: 'Inter', sans-serif; }
-        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
-        .tradingview-widget-container { height: 100% !important; width: 100% !important; }
+        * {
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+        }
+        body {
+            background: #f4f7fc;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            max-width: 1100px;
+            width: 100%;
+            background: white;
+            border-radius: 32px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+            overflow: hidden;
+            border: 1px solid rgba(0,20,40,0.08);
+        }
+        .header {
+            background: linear-gradient(145deg, #0b1e33, #0d2b45);
+            color: white;
+            padding: 1.5rem 2rem;
+        }
+        .header h1 {
+            margin: 0;
+            font-weight: 500;
+            font-size: 1.8rem;
+            letter-spacing: -0.01em;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header h1 span {
+            background: #ffb81c;
+            color: #0b1e33;
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 4px 14px;
+            border-radius: 40px;
+            text-transform: uppercase;
+        }
+        .sub {
+            margin-top: 8px;
+            color: #b7cdff;
+            word-break: break-all;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.9rem;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .api-key-badge {
+            background: rgba(255,255,255,0.12);
+            padding: 6px 14px;
+            border-radius: 60px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            border: 1px solid rgba(255,200,100,0.2);
+        }
+        .toolbar {
+            background: #f0f4fa;
+            padding: 0.9rem 2rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            border-bottom: 1px solid #d9e2ef;
+        }
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        button {
+            background: white;
+            border: 1px solid #cbd5e1;
+            border-radius: 60px;
+            padding: 10px 22px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: #1e293b;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: 0.15s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        }
+        button i { font-style: normal; font-size: 1.2rem; }
+        button:hover {
+            background: #f0f4fe;
+            border-color: #6b8fc8;
+            box-shadow: 0 8px 18px rgba(0,50,100,0.08);
+        }
+        button.primary {
+            background: #0b1e33;
+            border-color: #0b1e33;
+            color: white;
+        }
+        button.primary:hover {
+            background: #153e5a;
+            border-color: #153e5a;
+        }
+        .status-badge {
+            margin-left: auto;
+            background: #e6edf8;
+            border-radius: 60px;
+            padding: 8px 18px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid #c9d9ec;
+        }
+        .status-badge .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 20px;
+            background: #94a3b8;
+        }
+        .status-badge .dot.loading { background: #f59e0b; animation: pulse 1.2s infinite; }
+        .status-badge .dot.success { background: #10b981; }
+        .status-badge .dot.error { background: #ef4444; }
+        .status-badge .dot.warning { background: #f97316; }
+
+        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+
+        .data-container {
+            padding: 2rem;
+            background: #ffffff;
+        }
+        .loading-skeleton {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 10px;
+        }
+        .skeleton-line {
+            height: 28px;
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 12px;
+        }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+        .response-meta {
+            background: #f8fafd;
+            border-radius: 18px;
+            padding: 1.5rem;
+            border: 1px solid #e2eaf2;
+            margin-bottom: 20px;
+        }
+        .meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px 30px;
+            font-size: 0.95rem;
+            align-items: center;
+        }
+        .meta-label {
+            color: #4a5f7a;
+            font-weight: 400;
+        }
+        .meta-value {
+            font-weight: 600;
+            color: #0b1e33;
+            background: #eef4ff;
+            padding: 2px 12px;
+            border-radius: 40px;
+        }
+        .cors-warning {
+            background: #fff3cd;
+            border: 1px solid #ffe69c;
+            border-radius: 16px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            color: #856404;
+        }
+        .cors-warning h4 {
+            margin: 0 0 8px 0;
+            color: #533f03;
+        }
+        .cors-warning code {
+            background: #fff1c1;
+            padding: 3px 8px;
+            border-radius: 20px;
+        }
+        pre {
+            background: #1a2634;
+            color: #e4f0fb;
+            padding: 1.8rem;
+            border-radius: 24px;
+            overflow: auto;
+            font-size: 0.85rem;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            line-height: 1.5;
+            box-shadow: inset 0 0 0 1px #304562;
+            max-height: 500px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .footnote {
+            margin-top: 22px;
+            color: #68788c;
+            font-size: 0.9rem;
+            border-top: 1px dashed #c9d6e8;
+            padding-top: 18px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .footnote code {
+            background: #e9f0fa;
+            padding: 4px 10px;
+            border-radius: 40px;
+            color: #144272;
+        }
+        .empty-state {
+            background: #f1f5f9;
+            border-radius: 40px;
+            padding: 3rem 2rem;
+            text-align: center;
+            color: #4d627a;
+            font-size: 1.1rem;
+            border: 2px dashed #b9ceec;
+        }
+        .proxy-note {
+            background: #e7f5ff;
+            border-radius: 16px;
+            padding: 12px 16px;
+            margin-top: 16px;
+            border-left: 4px solid #0b5e8a;
+        }
     </style>
 </head>
-<body class="h-screen flex flex-col p-4 gap-4">
-
-    <header class="h-16 glass rounded-2xl flex items-center justify-between px-8">
-        <div class="flex items-center gap-3">
-            <div class="w-10 h-10 bg-cyan-500 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/20">
-                <i class="fas fa-chart-line text-white"></i>
+<body>
+    <div class="card">
+        <div class="header">
+            <h1>
+                ⚽ Football data loader
+                <span>real API</span>
+            </h1>
+            <div class="sub">
+                <span class="api-key-badge">🔑 API key: 2396236d9d5cd07468ce280da8390ad5</span>
+                <span>🌐 api.football-data.org/v4</span>
             </div>
-            <h1 class="text-xl font-black tracking-tighter">X<span class="text-cyan-400">QUANTUM</span> LIVE</h1>
         </div>
-        <div class="flex items-center gap-6">
-            <div class="hidden md:block text-right">
-                <p class="text-[10px] text-slate-500 font-bold uppercase">Data Source</p>
-                <p class="text-xs font-mono text-cyan-400">TradingView Real-Time</p>
-            </div>
-            <div class="h-8 w-[1px] bg-slate-800"></div>
-            <p id="live-clock" class="font-mono text-sm text-slate-400">00:00:00</p>
-        </div>
-    </header>
 
-    <main class="flex-1 grid grid-cols-12 gap-4 overflow-hidden">
-        
-        <aside class="col-span-12 lg:col-span-4 flex flex-col gap-4 overflow-y-auto pr-2">
-            
-            <div class="glass rounded-2xl p-1 h-32 overflow-hidden border border-slate-800 hover:border-cyan-500/50 transition">
-                <div class="tradingview-widget-container">
-                    <div class="tradingview-widget-container__widget"></div>
-                    <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
-                    {
-                    "symbol": "FX:EURUSD",
-                    "width": "100%",
-                    "height": "100%",
-                    "locale": "en",
-                    "dateRange": "12M",
-                    "colorTheme": "dark",
-                    "isTransparent": true,
-                    "autosize": true,
-                    "largeChartUrl": ""
-                    }
-                    </script>
+        <div class="toolbar">
+            <div class="btn-group">
+                <button id="fetchPremierLeague" class="primary">
+                    <i>🏴󠁧󠁢󠁥󠁮󠁧󠁿</i> Premier League
+                </button>
+                <button id="fetchLaLiga">
+                    <i>🇪🇸</i> La Liga
+                </button>
+                <button id="fetchSerieA">
+                    <i>🇮🇹</i> Serie A
+                </button>
+            </div>
+            <button id="checkCORSBtn" title="Test if CORS is the issue">
+                <i>🔍</i> Test CORS
+            </button>
+            <button id="clearBtn">
+                <i>🗑️</i> Clear
+            </button>
+            <div class="status-badge" id="statusBadge">
+                <span class="dot" id="statusDot"></span>
+                <span id="statusText">Ready</span>
+            </div>
+        </div>
+
+        <div class="data-container" id="dataContainer">
+            <!-- CORS warning / solution panel (visible by default) -->
+            <div class="cors-warning" id="corsWarning">
+                <h4>⚠️ Data not loading? Here's why and how to fix it:</h4>
+                <p><strong>Problem:</strong> You're opening this file directly (<code>file://</code> protocol). Browsers block API requests from local files due to <strong>CORS policy</strong>.</p>
+                <p><strong>3 Solutions that work with your real API:</strong></p>
+                <ol style="margin-bottom: 0;">
+                    <li><strong>Use a local server:</strong> Run <code>npx http-server</code> or Python <code>http.server</code> in this folder</li>
+                    <li><strong>Use a CORS proxy:</strong> Click "Test CORS" button below to try with a proxy</li>
+                    <li><strong>Install CORS extension:</strong> Add "CORS Unblock" extension to your browser temporarily</li>
+                </ol>
+            </div>
+
+            <!-- Proxy indicator (hidden by default) -->
+            <div id="proxyIndicator" style="display: none; background: #e3f2fd; border-radius: 12px; padding: 10px 15px; margin-bottom: 15px;">
+                🔄 Using CORS proxy: <span id="proxyStatus">enabled</span>
+            </div>
+
+            <div id="metaPanel" style="display: none;">
+                <div class="response-meta">
+                    <div class="meta-row" id="metaContent"></div>
                 </div>
             </div>
 
-            <div class="glass rounded-2xl p-1 h-32 overflow-hidden border border-slate-800 hover:border-cyan-500/50 transition">
-                <div class="tradingview-widget-container">
-                    <div class="tradingview-widget-container__widget"></div>
-                    <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
-                    {
-                    "symbol": "BITSTAMP:BTCUSD",
-                    "width": "100%",
-                    "height": "100%",
-                    "locale": "en",
-                    "dateRange": "12M",
-                    "colorTheme": "dark",
-                    "isTransparent": true,
-                    "autosize": true,
-                    "largeChartUrl": ""
-                    }
-                    </script>
+            <div id="responsePreArea">
+                <div class="empty-state" id="emptyState">
+                    ⚡ Click any league button to load real data<br/>
+                    <span style="font-size:0.9rem; opacity:0.7;">If you see CORS errors, use the solutions above</span>
                 </div>
             </div>
 
-            <div class="glass rounded-2xl p-1 h-32 overflow-hidden border border-slate-800 hover:border-cyan-500/50 transition">
-                <div class="tradingview-widget-container">
-                    <div class="tradingview-widget-container__widget"></div>
-                    <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
-                    {
-                    "symbol": "OANDA:XAUUSD",
-                    "width": "100%",
-                    "height": "100%",
-                    "locale": "en",
-                    "dateRange": "12M",
-                    "colorTheme": "dark",
-                    "isTransparent": true,
-                    "autosize": true,
-                    "largeChartUrl": ""
-                    }
-                    </script>
-                </div>
+            <div class="footnote">
+                <span><code>🔑 real API key</code> 2396236d9d5cd07468ce280da8390ad5</span>
+                <span><code>🌍 football-data.org</code> v4 endpoint</span>
+                <span><code>🔄 loading state</code> shows real network activity</span>
             </div>
-
-        </aside>
-
-        <section class="col-span-12 lg:col-span-8 glass rounded-2xl overflow-hidden border border-slate-800 relative">
-            <div class="tradingview-widget-container">
-                <div id="tradingview_adv"></div>
-                <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-                <script type="text/javascript">
-                new TradingView.widget({
-                    "autosize": true,
-                    "symbol": "FX:EURUSD",
-                    "interval": "15",
-                    "timezone": "Etc/UTC",
-                    "theme": "dark",
-                    "style": "1",
-                    "locale": "en",
-                    "toolbar_bg": "#0f172a",
-                    "enable_publishing": false,
-                    "hide_top_toolbar": false,
-                    "hide_legend": false,
-                    "save_image": false,
-                    "container_id": "tradingview_adv"
-                });
-                </script>
-            </div>
-        </section>
-
-    </main>
-
-    <footer class="h-10 glass rounded-xl flex items-center px-4 overflow-hidden shrink-0 border border-slate-800">
-        <div class="tradingview-widget-container">
-            <div class="tradingview-widget-container__widget"></div>
-            <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
-            {
-            "symbols": [
-                {"proName": "FOREXCOM:SPX500", "title": "S&P 500"},
-                {"proName": "FOREXCOM:NSX100", "title": "Nasdaq 100"},
-                {"fx_symbol": "FX_IDC:EURUSD", "title": "EUR/USD"},
-                {"fx_symbol": "FX_IDC:GBPUSD", "title": "GBP/USD"},
-                {"fx_symbol": "FX_IDC:USDJPY", "title": "USD/JPY"}
-            ],
-            "showSymbolLogo": true,
-            "colorTheme": "dark",
-            "isTransparent": true,
-            "displayMode": "adaptive",
-            "locale": "en"
-            }
-            </script>
         </div>
-    </footer>
+    </div>
 
     <script>
-        // System Utilities
-        setInterval(() => {
-            document.getElementById('live-clock').innerText = new Date().toLocaleTimeString('en-GB');
-        }, 1000);
+        (function() {
+            // Your actual API key
+            const API_KEY = '2396236d9d5cd07468ce280da8390ad5';
+            const BASE_URL = 'https://api.football-data.org/v4';
+            
+            // CORS proxy options (uncomment to use a proxy)
+            const USE_CORS_PROXY = false; // Set to true to enable proxy
+            const CORS_PROXY = 'https://cors-anywhere.herokuapp.com/'; // Free proxy (rate limited)
+            // Alternative: https://corsproxy.io/? or https://api.allorigins.win/raw?url=
+
+            // DOM elements
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const metaPanel = document.getElementById('metaPanel');
+            const metaContent = document.getElementById('metaContent');
+            const responsePreArea = document.getElementById('responsePreArea');
+            const emptyState = document.getElementById('emptyState');
+            const corsWarning = document.getElementById('corsWarning');
+            const proxyIndicator = document.getElementById('proxyIndicator');
+            
+            // Buttons
+            const btnPL = document.getElementById('fetchPremierLeague');
+            const btnLL = document.getElementById('fetchLaLiga');
+            const btnSA = document.getElementById('fetchSerieA');
+            const btnCheckCORS = document.getElementById('checkCORSBtn');
+            const clearBtn = document.getElementById('clearBtn');
+
+            // State
+            let useProxy = false;
+
+            // Helper to update status
+            function setStatus(state, message = null) {
+                const dot = statusDot;
+                dot.classList.remove('loading', 'success', 'error', 'warning');
+                
+                switch(state) {
+                    case 'loading':
+                        dot.classList.add('loading');
+                        statusText.innerText = message || '⏳ loading data ...';
+                        break;
+                    case 'success':
+                        dot.classList.add('success');
+                        statusText.innerText = message || '✔ data loaded';
+                        break;
+                    case 'error':
+                        dot.classList.add('error');
+                        statusText.innerText = message || '✘ request failed';
+                        break;
+                    case 'warning':
+                        dot.classList.add('warning');
+                        statusText.innerText = message || '⚠️ CORS issue detected';
+                        break;
+                    default:
+                        statusText.innerText = 'Ready';
+                        dot.className = 'dot';
+                }
+            }
+
+            // Show skeleton loader
+            function showSkeleton() {
+                if (emptyState) emptyState.style.display = 'none';
+                responsePreArea.innerHTML = `
+                    <div class="loading-skeleton" id="skeletonLoader">
+                        <div class="skeleton-line" style="width: 90%;"></div>
+                        <div class="skeleton-line" style="width: 75%;"></div>
+                        <div class="skeleton-line" style="width: 85%;"></div>
+                        <div class="skeleton-line" style="width: 60%;"></div>
+                        <div class="skeleton-line" style="width: 95%;"></div>
+                        <div class="skeleton-line" style="width: 70%;"></div>
+                        <div style="margin-top:20px; text-align:center;">
+                            <span style="background:#234; color:#89b6ff; padding:8px 20px; border-radius:30px;">
+                                ⬇️ contacting football-data.org ...
+                            </span>
+                        </div>
+                    </div>
+                `;
+                metaPanel.style.display = 'none';
+            }
+
+            // Reset to empty state
+            function resetToEmpty() {
+                setStatus('idle');
+                metaPanel.style.display = 'none';
+                responsePreArea.innerHTML = `
+                    <div class="empty-state" id="emptyState">
+                        ⚡ Click any league button to load real data<br/>
+                        <span style="font-size:0.9rem; opacity:0.7;">Using your API key: 2396236d9d5cd07468ce280da8390ad5</span>
+                    </div>
+                `;
+            }
+
+            // Check CORS by making a simple HEAD request
+            async function testCORS() {
+                setStatus('loading', 'Testing CORS...');
+                showSkeleton();
+                
+                try {
+                    // Try a simple request to see if CORS is the issue
+                    const testUrl = `${BASE_URL}/competitions`;
+                    
+                    const response = await fetch(testUrl, {
+                        method: 'HEAD',
+                        headers: { 'X-Auth-Token': API_KEY }
+                    });
+                    
+                    // If we get here, CORS might be working
+                    setStatus('success', 'CORS test passed!');
+                    responsePreArea.innerHTML = `
+                        <pre style="background:#1e293b; color:#a3f0bf; border:1px solid #2a6e47;">
+✅ CORS TEST SUCCESSFUL!
+
+Your browser can reach the API directly.
+Status: ${response.status} ${response.statusText}
+
+Try loading actual data now.
+                        </pre>
+                    `;
+                } catch (error) {
+                    // This is likely a CORS error
+                    setStatus('warning', 'CORS error detected');
+                    
+                    responsePreArea.innerHTML = `
+                        <div style="background:#2d1e1e; border-radius:24px; padding:20px; color:#ffb3b3; border:1px solid #8b3a3a;">
+                            <h3 style="margin-top:0;">🚫 CORS ERROR DETECTED</h3>
+                            <p><strong>Error:</strong> ${error.message}</p>
+                            <p>This confirms you're hitting the CORS policy.</p>
+                            <hr style="border-color:#5a3a3a;">
+                            <h4>✅ Quick fixes that work:</h4>
+                            <ol>
+                                <li><strong>Use a local server:</strong> 
+                                    <code style="background:#3a2a2a;">npx http-server</code> or 
+                                    <code style="background:#3a2a2a;">python -m http.server 8000</code>
+                                </li>
+                                <li><strong>Enable CORS proxy:</strong> Click "Use Proxy" below</li>
+                                <li><strong>Install CORS extension:</strong> "CORS Unblock" for Chrome</li>
+                            </ol>
+                            <button id="enableProxyBtn" style="background:#0b5e8a; color:white; border:none; padding:12px 24px; border-radius:40px; cursor:pointer; margin-top:10px;">
+                                🔄 Enable CORS Proxy & Retry
+                            </button>
+                        </div>
+                    `;
+                    
+                    // Add event listener to the new button
+                    document.getElementById('enableProxyBtn')?.addEventListener('click', () => {
+                        useProxy = true;
+                        proxyIndicator.style.display = 'block';
+                        proxyIndicator.innerHTML = '🔄 Using CORS proxy: <span id="proxyStatus">enabled (click league to retry)</span>';
+                        setStatus('idle');
+                        responsePreArea.innerHTML = `<div class="empty-state">Proxy enabled. Click a league button to try again.</div>`;
+                    });
+                }
+            }
+
+            // Main fetch function with proxy option
+            async function fetchLeagueData(competitionCode, leagueName) {
+                setStatus('loading', `⏳ fetching ${leagueName} ...`);
+                showSkeleton();
+                
+                // Construct URL (with optional proxy)
+                let url = `${BASE_URL}/competitions/${competitionCode}/matches`;
+                if (useProxy) {
+                    url = `https://cors-anywhere.herokuapp.com/${url}`;
+                }
+                
+                const startTime = performance.now();
+                
+                try {
+                    const response = await fetch(url, {
+                        headers: {
+                            'X-Auth-Token': API_KEY
+                        }
+                    });
+                    
+                    const endTime = performance.now();
+                    const responseTimeMs = Math.round(endTime - startTime);
+                    
+                    // Get headers
+                    const responseHeaders = {};
+                    response.headers.forEach((value, key) => {
+                        responseHeaders[key] = value;
+                    });
+                    
+                    // Parse JSON
+                    let responseData;
+                    let jsonError = false;
+                    try {
+                        responseData = await response.json();
+                    } catch (e) {
+                        jsonError = true;
+                        responseData = { error: 'Failed to parse JSON', details: e.message };
+                    }
+                    
+                    // Update meta panel
+                    metaContent.innerHTML = `
+                        <span class="meta-label">competition:</span>
+                        <span class="meta-value">${leagueName} (${competitionCode})</span>
+                        <span class="meta-label">status:</span>
+                        <span class="meta-value" style="background:${response.ok ? '#10b98120' : '#ef444420'}; color:${response.ok ? '#0b5e42' : '#b91c1c'}">
+                            ${response.status} ${response.statusText}
+                        </span>
+                        <span class="meta-label">time:</span>
+                        <span class="meta-value">${responseTimeMs}ms</span>
+                        <span class="meta-label">proxy:</span>
+                        <span class="meta-value">${useProxy ? '✅ enabled' : '❌ disabled'}</span>
+                    `;
+                    metaPanel.style.display = 'block';
+                    
+                    // Format output
+                    const headerPretty = JSON.stringify(responseHeaders, null, 2);
+                    const jsonPretty = JSON.stringify(responseData, null, 2);
+                    
+                    responsePreArea.innerHTML = `
+                        <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <span style="background: #ddf0ff; border-radius:30px; padding:4px 18px;">📊 API Response</span>
+                            <span style="font-size:0.8rem; color:#4f6f8f;">${useProxy ? 'via CORS proxy' : 'direct connection'}</span>
+                        </div>
+                        <pre style="background:#1e293b;">HTTP ${response.status} (${responseTimeMs}ms)
+                        
+———  RESPONSE HEADERS  ———
+${headerPretty}
+
+———  RESPONSE BODY ———
+${jsonPretty}</pre>
+                    `;
+                    
+                    setStatus(response.ok ? 'success' : 'error', 
+                            response.ok ? `✅ ${leagueName} loaded` : `⚠️ ${leagueName} (${response.status})`);
+                    
+                    // If successful and we used proxy, hide the CORS warning
+                    if (response.ok && useProxy) {
+                        corsWarning.style.display = 'none';
+                    }
+                    
+                } catch (error) {
+                    const endTime = performance.now();
+                    const responseTimeMs = Math.round(endTime - startTime);
+                    
+                    // Show detailed error
+                    metaContent.innerHTML = `
+                        <span class="meta-label">competition:</span>
+                        <span class="meta-value">${leagueName}</span>
+                        <span class="meta-label">status:</span>
+                        <span class="meta-value" style="background:#ef444420; color:#b91c1c;">NETWORK ERROR</span>
+                        <span class="meta-label">time:</span>
+                        <span class="meta-value">${responseTimeMs}ms</span>
+                    `;
+                    metaPanel.style.display = 'block';
+                    
+                    // Check if it's a CORS error
+                    const isCorsError = error.message.includes('CORS') || error.message.includes('Failed to fetch');
+                    
+                    responsePreArea.innerHTML = `
+                        <div style="background: #2d1e1e; border-radius: 24px; padding: 20px; color: #ffb3b3; border: 1px solid #8b3a3a;">
+                            <h3 style="margin-top:0;">❌ Request Failed</h3>
+                            <p><strong>Error:</strong> ${error.message}</p>
+                            ${isCorsError ? `
+                                <hr style="border-color:#5a3a3a;">
+                                <h4>🚨 CORS ERROR DETECTED</h4>
+                                <p>This is a browser security restriction when opening files locally.</p>
+                                <button id="retryWithProxy" style="background:#0b5e8a; color:white; border:none; padding:12px 24px; border-radius:40px; cursor:pointer; margin:10px 0;">
+                                    🔄 Retry with CORS proxy
+                                </button>
+                                <p><small>Or run a local server: <code style="background:#3a2a2a;">npx http-server</code></small></p>
+                            ` : ''}
+                        </div>
+                    `;
+                    
+                    // Add retry button listener
+                    document.getElementById('retryWithProxy')?.addEventListener('click', () => {
+                        useProxy = true;
+                        proxyIndicator.style.display = 'block';
+                        fetchLeagueData(competitionCode, leagueName);
+                    });
+                    
+                    setStatus('error', `❌ ${leagueName} failed`);
+                }
+            }
+
+            // Event listeners
+            btnPL.addEventListener('click', () => fetchLeagueData('PL', 'Premier League'));
+            btnLL.addEventListener('click', () => fetchLeagueData('PD', 'La Liga'));
+            btnSA.addEventListener('click', () => fetchLeagueData('SA', 'Serie A'));
+            
+            btnCheckCORS.addEventListener('click', testCORS);
+            
+            clearBtn.addEventListener('click', () => {
+                resetToEmpty();
+                corsWarning.style.display = 'block';
+                proxyIndicator.style.display = 'none';
+                useProxy = false;
+            });
+
+            // Initial setup
+            resetToEmpty();
+            
+            // Check if running from file:// protocol
+            if (window.location.protocol === 'file:') {
+                setStatus('warning', 'file:// protocol detected');
+            }
+        })();
     </script>
 </body>
 </html>
