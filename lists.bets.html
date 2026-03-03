@@ -1,366 +1,738 @@
-// ===== ADD THIS AT THE TOP OF YOUR SCRIPT SECTION =====
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>📋 My Bets - XCrazyBet</title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 
-// ===== BET SETTLEMENT SERVICE =====
-// This runs every 60 seconds to check and settle bets
-function startBetSettlementService() {
-    setInterval(async () => {
-        if (!auth.currentUser) return;
-        
-        try {
-            // Get all pending bets
-            const snapshot = await db.collection("football_bets")
-                .where("status", "==", "pending")
-                .get();
-            
-            for (const doc of snapshot.docs) {
-                const bet = doc.data();
-                
-                // Check if all matches are finished
-                const allFinished = await checkMatchesFinished(bet.selections);
-                
-                if (allFinished) {
-                    await settleBet(bet, doc.id);
-                }
-            }
-        } catch (error) {
-            console.error('Error in bet settlement:', error);
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
         }
-    }, 60000); // Check every minute
-}
 
-// Check if all matches in a bet are finished
-async function checkMatchesFinished(selections) {
-    try {
-        // Get unique match IDs
-        const matchIds = [...new Set(selections.map(s => s.matchId))];
-        
-        // Fetch match statuses from API
-        for (const matchId of matchIds) {
-            const response = await fetch(`${BASE_URL}/fixtures?id=${matchId}`, {
-                headers: { 'x-apisports-key': API_KEY }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                const match = data.response[0];
-                
-                if (!match || !['FT', 'AET', 'PEN'].includes(match.fixture.status.short)) {
-                    return false;
-                }
-            }
+        :root {
+            --primary: #00ff9d;
+            --primary-dark: #00cc7a;
+            --secondary: #ff9800;
+            --danger: #ff4757;
+            --success: #4caf50;
+            --warning: #ffc107;
+            --bg: #0a0f1a;
+            --surface: #111827;
+            --surface-light: #1a2332;
+            --text: #ffffff;
+            --text-dim: #a0a8c9;
+            --border: #333;
         }
-        
-        return true;
-    } catch (error) {
-        console.error('Error checking matches:', error);
-        return false;
-    }
-}
 
-// Settle a single bet
-async function settleBet(bet, betId) {
-    try {
-        // Check if bet wins
-        const won = await checkBetWins(bet.selections);
-        
-        let winAmount = 0;
-        let status = 'lost';
-        
-        if (won) {
-            winAmount = bet.stake * bet.totalOdds;
-            status = 'won';
-            
-            // Credit winnings to user
-            await processTransaction(
-                winAmount,
-                "football_win",
-                `Win #${bet.ticketNumber}`,
-                bet.userId
-            );
+        body {
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding-bottom: 70px;
         }
-        
-        // Update bet status
-        await db.collection("football_bets").doc(betId).update({
-            status: status,
-            return: won ? winAmount : 0,
-            settledAt: new Date(),
-            result: won ? 'win' : 'loss'
-        });
-        
-        // Notify if current user
-        if (bet.userId === auth.currentUser?.uid) {
-            showToast(
-                won ? `🎉 Bet won! +$${winAmount.toFixed(2)}` : '😞 Bet lost',
-                won ? 'success' : 'error'
-            );
-        }
-        
-        console.log(`Bet ${bet.ticketNumber} settled as ${status}`);
-        
-    } catch (error) {
-        console.error('Error settling bet:', error);
-    }
-}
 
-// Check if selections win
-async function checkBetWins(selections) {
-    for (const selection of selections) {
-        try {
-            // Fetch match result
-            const response = await fetch(`${BASE_URL}/fixtures?id=${selection.matchId}`, {
-                headers: { 'x-apisports-key': API_KEY }
-            });
-            
-            if (!response.ok) return false;
-            
-            const data = await response.json();
-            const match = data.response[0];
-            
-            if (!match) return false;
-            
-            const homeGoals = match.goals.home;
-            const awayGoals = match.goals.away;
-            const totalGoals = homeGoals + awayGoals;
-            
-            // Check if selection wins
-            let selectionWon = false;
-            
-            switch(selection.market) {
-                case 'Match Winner':
-                    if (selection.selection === '1') selectionWon = homeGoals > awayGoals;
-                    else if (selection.selection === 'X') selectionWon = homeGoals === awayGoals;
-                    else if (selection.selection === '2') selectionWon = awayGoals > homeGoals;
-                    break;
-                    
-                case 'Total Goals':
-                    const threshold = parseFloat(selection.display.split(' ')[1]);
-                    if (selection.selection.includes('Over')) selectionWon = totalGoals > threshold;
-                    else if (selection.selection.includes('Under')) selectionWon = totalGoals < threshold;
-                    break;
-                    
-                case 'BTTS':
-                    const bothScored = homeGoals > 0 && awayGoals > 0;
-                    selectionWon = bothScored === (selection.selection === 'Yes');
-                    break;
-            }
-            
-            if (!selectionWon) return false;
-            
-        } catch (error) {
-            console.error('Error checking selection:', error);
-            return false;
+        /* Header */
+        .header {
+            background: var(--surface);
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--primary);
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
-    }
-    
-    return true;
-}
 
-// Enhanced transaction processor with user ID
-async function processTransaction(amount, type, description, userId) {
-    try {
-        const walletRef = db.collection("wallets").doc(userId);
-        
-        return await db.runTransaction(async (transaction) => {
-            const walletDoc = await transaction.get(walletRef);
-            
-            if (!walletDoc.exists) {
-                throw new Error("Wallet not found");
-            }
-            
-            const currentBalance = walletDoc.data().balance || 0;
-            const newBalance = currentBalance + amount;
-            
-            if (newBalance < 0) {
-                throw new Error("Insufficient funds");
-            }
-            
-            transaction.update(walletRef, {
-                balance: newBalance,
-                updatedAt: new Date()
-            });
-            
-            const transactionRef = walletRef.collection("transactions").doc();
-            transaction.set(transactionRef, {
-                type: type,
-                amount: amount,
-                description: description,
-                createdAt: new Date(),
-                beforeBalance: currentBalance,
-                afterBalance: newBalance
-            });
-            
-            return { success: true, newBalance };
-            
-        });
-    } catch (error) {
-        console.error('Transaction failed:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-// Update the placeBet function to ensure proper Firebase storage
-async function placeBet() {
-    const betAmount = parseFloat(document.getElementById('bet-amount').value);
-    
-    // Validation
-    if (gameState.selectedBets.length === 0) {
-        showToast('Select at least one bet', 'error');
-        return;
-    }
-    
-    if (betAmount < BETTING_RULES.minBet || betAmount > BETTING_RULES.maxBet) {
-        showToast(`Bet must be between $${BETTING_RULES.minBet} and $${BETTING_RULES.maxBet}`, 'error');
-        return;
-    }
-    
-    if (betAmount > gameState.balance) {
-        showToast('Insufficient funds', 'error');
-        return;
-    }
-    
-    if (gameState.userLimits.todayWagered + betAmount > gameState.userLimits.dailyMax) {
-        showToast('Daily limit exceeded', 'error');
-        return;
-    }
-    
-    if (gameState.isPlacingBet) return;
-    
-    gameState.isPlacingBet = true;
-    document.getElementById('place-bet-btn').disabled = true;
-    
-    const totalOdds = gameState.selectedBets.reduce((acc, bet) => acc * bet.odds, 1);
-    const potentialWin = betAmount * totalOdds;
-    const ticketNumber = generateTicketNumber();
-    
-    try {
-        // Process bet transaction
-        const result = await processTransaction(
-            -betAmount,
-            "football_bet",
-            `Bet #${ticketNumber} - ${gameState.selectedBets.length} selections @ ${totalOdds.toFixed(2)}`,
-            gameState.currentUser.uid
-        );
-        
-        if (!result.success) {
-            throw new Error(result.error);
+        .logo {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        
-        // Create bet object with proper structure
-        const bet = {
-            ticketNumber,
-            userId: gameState.currentUser.uid,
-            selections: gameState.selectedBets.map(s => ({
-                matchId: s.matchId,
-                matchName: s.matchName,
-                market: s.market,
-                selection: s.selection,
-                display: s.display,
-                odds: s.odds
-            })),
-            stake: betAmount,
-            totalOdds,
-            potentialWin,
-            betType: gameState.betType,
-            systemType: gameState.betType === 'system' ? gameState.systemType : null,
-            eachWay: gameState.eachWay,
-            status: 'pending',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+
+        .back-btn {
+            background: var(--surface-light);
+            border: none;
+            color: var(--text);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .balance-badge {
+            background: var(--surface-light);
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            padding: 16px;
+            background: var(--surface);
+            margin-bottom: 12px;
+        }
+
+        .stat-card {
+            background: var(--surface-light);
+            border-radius: 10px;
+            padding: 10px 5px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-top: 3px;
+        }
+
+        /* Filter Tabs */
+        .filter-tabs {
+            display: flex;
+            gap: 8px;
+            padding: 12px 16px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            background: var(--surface);
+            margin-bottom: 12px;
+        }
+
+        .filter-tabs::-webkit-scrollbar {
+            display: none;
+        }
+
+        .filter-btn {
+            padding: 8px 16px;
+            background: var(--surface-light);
+            border: 1px solid var(--border);
+            border-radius: 25px;
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #000;
+        }
+
+        /* Bets List */
+        .bets-list {
+            padding: 0 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .bet-card {
+            background: var(--surface);
+            border-radius: 12px;
+            padding: 14px;
+            border-left: 4px solid;
+            position: relative;
+        }
+
+        .bet-card.pending { border-left-color: var(--secondary); }
+        .bet-card.won { border-left-color: var(--success); }
+        .bet-card.lost { border-left-color: var(--danger); }
+        .bet-card.cashed_out { border-left-color: var(--warning); }
+
+        .bet-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .ticket-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ticket-number {
+            font-size: 12px;
+            color: var(--text-dim);
+            background: var(--surface-light);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .bet-status {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .bet-status.pending { background: var(--secondary); color: #000; }
+        .bet-status.won { background: var(--success); color: #000; }
+        .bet-status.lost { background: var(--danger); color: #fff; }
+        .bet-status.cashed_out { background: var(--warning); color: #000; }
+
+        .bet-date {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .selections {
+            margin: 12px 0;
+        }
+
+        .selection-item {
+            background: var(--surface-light);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+
+        .selection-match {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .selection-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+
+        .selection-market {
+            color: var(--text-dim);
+        }
+
+        .selection-odds {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .bet-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .bet-stats {
+            display: flex;
+            gap: 16px;
+        }
+
+        .stat {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat small {
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        .stat strong {
+            font-size: 14px;
+        }
+
+        .bet-return {
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .bet-return.won { color: var(--success); }
+        .bet-return.lost { color: var(--danger); }
+        .bet-return.pending { color: var(--secondary); }
+
+        .cashout-btn {
+            background: var(--warning);
+            border: none;
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-dim);
+        }
+
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading-spinner {
+            border: 3px solid var(--surface-light);
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Bottom Navigation */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: var(--surface);
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 12px;
+            border-top: 2px solid var(--primary);
+            z-index: 100;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-decoration: none;
+            color: var(--text-dim);
+            font-size: 11px;
+            gap: 4px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .nav-item i { 
+            font-size: 20px; 
+        }
+
+        .nav-item.active { 
+            color: var(--primary);
+            background: var(--surface-light);
+        }
+
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 80px;
+            left: 16px;
+            right: 16px;
+            z-index: 1000;
+        }
+
+        .toast {
+            padding: 12px 16px;
+            background: var(--surface);
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+            color: white;
+            margin-top: 8px;
+            font-size: 13px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .toast.success { border-left-color: var(--success); }
+        .toast.error { border-left-color: var(--danger); }
+        .toast.warning { border-left-color: var(--warning); }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <button class="back-btn" onclick="goBack()">
+            <i class="fas fa-arrow-left"></i>
+        </button>
+        <div class="logo">
+            <i class="fas fa-ticket-alt"></i>
+            My Bets
+        </div>
+        <div class="balance-badge" id="balance-display">
+            <i class="fas fa-wallet"></i>
+            $<span id="balance-val">0.00</span>
+        </div>
+    </header>
+
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value" id="total-bets">0</div>
+            <div class="stat-label">Total</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="won-bets">0</div>
+            <div class="stat-label">Won</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="lost-bets">0</div>
+            <div class="stat-label">Lost</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="win-rate">0%</div>
+            <div class="stat-label">Win Rate</div>
+        </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="filter-tabs">
+        <button class="filter-btn active" data-filter="all">ALL</button>
+        <button class="filter-btn" data-filter="pending">PENDING</button>
+        <button class="filter-btn" data-filter="won">WON</button>
+        <button class="filter-btn" data-filter="lost">LOST</button>
+        <button class="filter-btn" data-filter="cashed_out">CASHED OUT</button>
+    </div>
+
+    <!-- Bets List -->
+    <div class="bets-list" id="bets-list">
+        <!-- Bets loaded here -->
+    </div>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+        <a href="football.html" class="nav-item">
+            <i class="fas fa-futbol"></i>
+            Football
+        </a>
+        <a href="#" class="nav-item active">
+            <i class="fas fa-ticket-alt"></i>
+            My Bets
+        </a>
+        <a href="#" class="nav-item">
+            <i class="fas fa-chart-line"></i>
+            Stats
+        </a>
+        <a href="#" class="nav-item">
+            <i class="fas fa-wallet"></i>
+            Wallet
+        </a>
+    </nav>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        // Firebase Config
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
         };
-        
-        // Save to Firebase with ticket number as document ID
-        await db.collection("football_bets").doc(ticketNumber).set(bet);
-        
-        // Update local state
-        gameState.balance = result.newBalance;
-        updateBalanceDisplay();
-        gameState.userLimits.todayWagered += betAmount;
-        gameState.stats.totalBets++;
-        gameState.stats.totalStaked += betAmount;
-        
-        showToast(`Bet placed! Ticket #${ticketNumber}`, 'success');
-        
-        // Clear bet slip
-        gameState.selectedBets = [];
-        updateBetSlip();
-        
-        // Refresh open bets
-        await loadOpenBets();
-        
-    } catch (error) {
-        console.error('Error placing bet:', error);
-        showToast('Failed to place bet: ' + error.message, 'error');
-    } finally {
-        gameState.isPlacingBet = false;
-        document.getElementById('place-bet-btn').disabled = false;
-    }
-}
 
-// Update loadOpenBets to use proper ordering
-async function loadOpenBets() {
-    try {
-        const snapshot = await db.collection("football_bets")
-            .where("userId", "==", gameState.currentUser.uid)
-            .where("status", "==", "pending")
-            .orderBy("createdAt", "desc")
-            .get();
-        
-        gameState.openBets = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            gameState.openBets.push({
-                ...data,
-                id: doc.id,
-                createdAt: data.createdAt?.toDate() || new Date()
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // State
+        let currentUser = null;
+        let allBets = [];
+        let balance = 0;
+
+        // Check Auth
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                currentUser = user;
+                loadBalance();
+                loadBets();
+                setupRealtimeListener();
+            } else {
+                window.location.href = 'login.html';
+            }
+        });
+
+        // Load Balance
+        async function loadBalance() {
+            try {
+                const doc = await db.collection("wallets").doc(auth.currentUser.uid).get();
+                if (doc.exists) {
+                    balance = doc.data().balance || 0;
+                    document.getElementById('balance-val').textContent = balance.toFixed(2);
+                }
+            } catch (error) {
+                console.error('Error loading balance:', error);
+            }
+        }
+
+        // Real-time Balance Listener
+        function setupRealtimeListener() {
+            db.collection("wallets").doc(auth.currentUser.uid).onSnapshot((doc) => {
+                if (doc.exists) {
+                    balance = doc.data().balance || 0;
+                    document.getElementById('balance-val').textContent = balance.toFixed(2);
+                }
+            });
+        }
+
+        // Load Bets
+        async function loadBets() {
+            try {
+                const snapshot = await db.collection("football_bets")
+                    .where("userId", "==", auth.currentUser.uid)
+                    .orderBy("createdAt", "desc")
+                    .get();
+
+                allBets = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    allBets.push({
+                        ...data,
+                        id: doc.id,
+                        createdAt: data.createdAt?.toDate() || new Date()
+                    });
+                });
+
+                updateStats();
+                displayBets('all');
+            } catch (error) {
+                console.error('Error loading bets:', error);
+                showToast('Error loading bets', 'error');
+            }
+        }
+
+        // Update Stats
+        function updateStats() {
+            const total = allBets.length;
+            const won = allBets.filter(b => b.status === 'won').length;
+            const lost = allBets.filter(b => b.status === 'lost').length;
+            const winRate = total > 0 ? ((won / total) * 100).toFixed(1) : 0;
+
+            document.getElementById('total-bets').textContent = total;
+            document.getElementById('won-bets').textContent = won;
+            document.getElementById('lost-bets').textContent = lost;
+            document.getElementById('win-rate').textContent = winRate + '%';
+        }
+
+        // Display Bets
+        function displayBets(filter = 'all') {
+            const container = document.getElementById('bets-list');
+            
+            let filtered = allBets;
+            if (filter !== 'all') {
+                filtered = allBets.filter(b => b.status === filter);
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-ticket-alt"></i>
+                        <h3>No bets found</h3>
+                        <p style="color: var(--text-dim); margin-top: 8px;">Go to Football page to place your first bet!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            filtered.forEach(bet => {
+                const date = bet.createdAt.toLocaleDateString();
+                const time = bet.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                
+                const returnAmount = bet.return || (bet.status === 'won' ? bet.stake * bet.totalOdds : 0);
+                const returnClass = bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : 'pending';
+
+                let selectionsHTML = '';
+                bet.selections.forEach(sel => {
+                    selectionsHTML += `
+                        <div class="selection-item">
+                            <div class="selection-match">${sel.matchName}</div>
+                            <div class="selection-details">
+                                <span class="selection-market">${sel.market} - ${sel.display}</span>
+                                <span class="selection-odds">${sel.odds.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                    <div class="bet-card ${bet.status}">
+                        <div class="bet-header">
+                            <div class="ticket-info">
+                                <span class="ticket-number">#${bet.ticketNumber}</span>
+                                <span class="bet-status ${bet.status}">${bet.status.toUpperCase()}</span>
+                            </div>
+                            <div class="bet-date">${date} ${time}</div>
+                        </div>
+
+                        <div class="selections">
+                            ${selectionsHTML}
+                        </div>
+
+                        <div class="bet-footer">
+                            <div class="bet-stats">
+                                <div class="stat">
+                                    <small>Stake</small>
+                                    <strong>$${bet.stake.toFixed(2)}</strong>
+                                </div>
+                                <div class="stat">
+                                    <small>Odds</small>
+                                    <strong>${bet.totalOdds.toFixed(2)}</strong>
+                                </div>
+                                <div class="stat">
+                                    <small>Type</small>
+                                    <strong>${bet.betType || 'single'}</strong>
+                                </div>
+                            </div>
+                            <div class="bet-return ${returnClass}">
+                                ${bet.status === 'pending' ? 'Pending' : (returnAmount > 0 ? '+' : '') + '$' + returnAmount.toFixed(2)}
+                            </div>
+                        </div>
+
+                        ${bet.status === 'pending' ? `
+                            <button class="cashout-btn" onclick="cashOut('${bet.ticketNumber}')">
+                                CASH OUT ($${(bet.stake * 0.7).toFixed(2)})
+                            </button>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        // Cash Out
+        window.cashOut = async function(ticketNumber) {
+            const bet = allBets.find(b => b.ticketNumber === ticketNumber);
+            if (!bet) return;
+
+            const cashoutValue = bet.stake * 0.7;
+            
+            if (!confirm(`Cash out for $${cashoutValue.toFixed(2)}?`)) return;
+
+            try {
+                // Process cashout transaction
+                await processTransaction(cashoutValue, 'football_cashout', `Cash out #${ticketNumber}`);
+
+                // Update bet status
+                await db.collection("football_bets").doc(ticketNumber).update({
+                    status: 'cashed_out',
+                    return: cashoutValue,
+                    cashedOutAt: new Date()
+                });
+
+                showToast(`Cashed out $${cashoutValue.toFixed(2)}`, 'success');
+                
+                // Reload bets
+                await loadBets();
+                
+            } catch (error) {
+                console.error('Cashout failed:', error);
+                showToast('Cashout failed', 'error');
+            }
+        };
+
+        // Process Transaction
+        async function processTransaction(amount, type, description) {
+            const walletRef = db.collection("wallets").doc(auth.currentUser.uid);
+            
+            return await db.runTransaction(async (transaction) => {
+                const walletDoc = await transaction.get(walletRef);
+                
+                if (!walletDoc.exists) {
+                    throw new Error("Wallet not found");
+                }
+                
+                const currentBalance = walletDoc.data().balance || 0;
+                const newBalance = currentBalance + amount;
+                
+                if (newBalance < 0) {
+                    throw new Error("Insufficient funds");
+                }
+                
+                transaction.update(walletRef, {
+                    balance: newBalance,
+                    updatedAt: new Date()
+                });
+                
+                const transactionRef = walletRef.collection("transactions").doc();
+                transaction.set(transactionRef, {
+                    type: type,
+                    amount: amount,
+                    description: description,
+                    createdAt: new Date(),
+                    beforeBalance: currentBalance,
+                    afterBalance: newBalance
+                });
+            });
+        }
+
+        // Filter Event Listeners
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                displayBets(btn.dataset.filter);
             });
         });
-        
-        displayOpenBets();
-    } catch (error) {
-        console.error('Error loading open bets:', error);
-    }
-}
 
-// Update loadBetHistory with proper ordering
-async function loadBetHistory() {
-    try {
-        const snapshot = await db.collection("football_bets")
-            .where("userId", "==", gameState.currentUser.uid)
-            .orderBy("createdAt", "desc")
-            .limit(50)
-            .get();
-        
-        gameState.betHistory = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            gameState.betHistory.push({
-                ...data,
-                id: doc.id,
-                timestamp: data.createdAt?.toDate() || new Date()
-            });
-        });
-        
-        displayHistory();
-        updateStats();
-    } catch (error) {
-        console.error('Error loading history:', error);
-    }
-}
+        // Go Back
+        window.goBack = function() {
+            window.location.href = 'football.html';
+        };
 
-// Start the bet settlement service after auth
-auth.onAuthStateChanged((user) => {
-    if (user) {
-        gameState.currentUser = user;
-        loadBalance();
-        loadMatches();
-        loadOpenBets();
-        loadBetHistory();
-        loadUserLimits();
-        setupRealTimeListeners();
-        startBetSettlementService(); // Start the settlement service
-    } else {
-        showToast('Please login to continue', 'error');
-        setTimeout(() => {
-            window.location.href = 'login.html';
-        }, 2000);
-    }
-});
+        // Toast
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
