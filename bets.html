@@ -113,6 +113,7 @@
             font-size: 13px;
             white-space: nowrap;
             cursor: pointer;
+            transition: all 0.2s;
         }
 
         .filter-btn.active {
@@ -143,6 +144,11 @@
             padding: 14px;
             margin-bottom: 10px;
             border-left: 4px solid;
+            transition: transform 0.2s;
+        }
+
+        .bet-card:hover {
+            transform: translateX(5px);
         }
 
         .bet-card.pending { border-left-color: var(--secondary); }
@@ -247,6 +253,11 @@
             text-decoration: none;
             font-weight: 600;
             margin-top: 16px;
+            transition: transform 0.2s;
+        }
+
+        .browse-btn:hover {
+            transform: scale(1.05);
         }
 
         .loading {
@@ -291,10 +302,12 @@
             gap: 4px;
             padding: 4px 12px;
             border-radius: 30px;
+            transition: color 0.2s;
         }
 
         .nav-item i { font-size: 20px; }
         .nav-item.active { color: var(--primary); }
+        .nav-item:hover { color: var(--primary); }
 
         .toast-container {
             position: fixed;
@@ -310,6 +323,18 @@
             border-radius: 30px;
             border-left: 4px solid var(--primary);
             margin-bottom: 8px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
         }
     </style>
 </head>
@@ -388,10 +413,12 @@
         // Check Auth
         auth.onAuthStateChanged(async (user) => {
             if (user) {
+                console.log('User logged in:', user.uid);
                 await loadBalance();
                 await loadAllBets();
                 setupRealtimeListener();
             } else {
+                console.log('No user, redirecting...');
                 window.location.href = 'https://xcrazybet.github.io/millioner/login.html';
             }
         });
@@ -402,21 +429,25 @@
                 const doc = await db.collection("wallets").doc(auth.currentUser.uid).get();
                 if (doc.exists) {
                     document.getElementById('balance').textContent = doc.data().balance.toFixed(2);
+                } else {
+                    // Create wallet if doesn't exist
+                    await db.collection("wallets").doc(auth.currentUser.uid).set({ balance: 100 });
+                    document.getElementById('balance').textContent = '100.00';
                 }
             } catch (error) {
                 console.error('Balance error:', error);
             }
         }
 
-        // Load All Bets
+        // Load All Bets - FIXED: Removed orderBy to avoid index requirement
         async function loadAllBets() {
             const container = document.getElementById('betsContainer');
             container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading your bets...</p></div>';
 
             try {
+                // Removed .orderBy() to avoid needing composite index
                 const snapshot = await db.collection("football_bets")
                     .where("userId", "==", auth.currentUser.uid)
-                    .orderBy("createdAt", "desc")
                     .limit(100)
                     .get();
 
@@ -424,36 +455,58 @@
                 
                 snapshot.forEach(doc => {
                     const data = doc.data();
+                    // Parse date properly
+                    let createdAtDate;
+                    if (data.createdAtDate) {
+                        createdAtDate = new Date(data.createdAtDate);
+                    } else if (data.createdAt && data.createdAt.toDate) {
+                        createdAtDate = data.createdAt.toDate();
+                    } else {
+                        createdAtDate = new Date();
+                    }
+                    
                     allBets.push({
                         id: doc.id,
                         ...data,
-                        createdAtDate: data.createdAtDate || (data.createdAt ? new Date(data.createdAt.toDate()) : new Date())
+                        createdAtDate: createdAtDate
                     });
                 });
-
+                
+                // Sort on client side instead of server side
+                allBets.sort((a, b) => b.createdAtDate - a.createdAtDate);
+                
+                console.log('Loaded bets:', allBets.length);
                 updateStats();
                 filterBets(currentFilter);
                 
             } catch (error) {
                 console.error('Load bets error:', error);
+                let errorMessage = error.message;
+                // Provide helpful message for index error
+                if (errorMessage.includes('index')) {
+                    errorMessage = 'Database index is being created. Please wait a moment and refresh the page.';
+                }
                 container.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-exclamation-circle"></i>
                         <h3>Error Loading Bets</h3>
-                        <p>${error.message}</p>
+                        <p>${errorMessage}</p>
                         <button onclick="location.reload()" class="browse-btn">RETRY</button>
                     </div>
                 `;
             }
         }
 
-        // Setup Real-time Listener
+        // Setup Real-time Listener - FIXED: Removed orderBy
         function setupRealtimeListener() {
             db.collection("football_bets")
                 .where("userId", "==", auth.currentUser.uid)
-                .onSnapshot(() => {
-                    loadAllBets();
+                .onSnapshot((snapshot) => {
+                    console.log('Real-time update received');
+                    loadAllBets(); // Reload all bets on any change
                     loadBalance();
+                }, (error) => {
+                    console.error('Snapshot error:', error);
                 });
         }
 
@@ -463,6 +516,7 @@
             const won = allBets.filter(b => b.status === 'won').length;
             const lost = allBets.filter(b => b.status === 'lost').length;
             const pending = allBets.filter(b => b.status === 'pending').length;
+            const cashedOut = allBets.filter(b => b.status === 'cashed_out').length;
             
             document.getElementById('totalBets').textContent = total;
             document.getElementById('wonBets').textContent = won;
@@ -507,43 +561,43 @@
             });
 
             let html = '';
-            Object.keys(groups).forEach(date => {
+            Object.keys(groups).sort((a, b) => new Date(b) - new Date(a)).forEach(date => {
                 html += `<div class="date-group">`;
                 html += `<div class="date-header">${date}</div>`;
                 
                 groups[date].forEach(bet => {
-                    const selectionsHtml = bet.selections.map(s => `
+                    const selectionsHtml = bet.selections && bet.selections.length ? bet.selections.map(s => `
                         <div class="selection-item">
                             <div>
-                                <strong>${s.matchName}</strong><br>
-                                <span style="font-size: 11px; color: var(--text-dim);">${s.market} - ${s.display}</span>
+                                <strong>${s.matchName || 'Unknown Match'}</strong><br>
+                                <span style="font-size: 11px; color: var(--text-dim);">${s.market || 'Market'} - ${s.display || s.selection || 'Selection'}</span>
                             </div>
-                            <div style="color: var(--primary); font-weight: 600;">${s.odds.toFixed(2)}</div>
+                            <div style="color: var(--primary); font-weight: 600;">${(s.odds || 0).toFixed(2)}</div>
                         </div>
-                    `).join('');
+                    `).join('') : '<div class="selection-item">No selections data</div>';
                     
-                    const returnAmount = bet.return || (bet.status === 'won' ? bet.stake * bet.totalOdds : 0);
+                    const returnAmount = bet.return || (bet.status === 'won' ? (bet.stake || 0) * (bet.totalOdds || 1) : 0);
                     const returnClass = bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : 'pending';
                     
                     html += `
-                        <div class="bet-card ${bet.status}">
+                        <div class="bet-card ${bet.status || 'pending'}">
                             <div class="bet-header">
-                                <span class="bet-ticket">#${bet.id}</span>
-                                <span class="bet-status ${bet.status}">${bet.status.toUpperCase()}</span>
+                                <span class="bet-ticket">#${bet.id.substring(0, 15)}</span>
+                                <span class="bet-status ${bet.status || 'pending'}">${(bet.status || 'PENDING').toUpperCase()}</span>
                             </div>
                             <div class="bet-time">
-                                <i class="far fa-clock"></i> ${new Date(bet.createdAtDate).toLocaleTimeString()}
+                                <i class="far fa-clock"></i> ${new Date(bet.createdAtDate).toLocaleString()}
                             </div>
                             <div class="selections">
                                 ${selectionsHtml}
                             </div>
                             <div style="text-align: right; font-size: 12px; margin: 8px 0;">
-                                Total Odds: ${bet.totalOdds.toFixed(2)}
+                                Total Odds: ${(bet.totalOdds || 1).toFixed(2)}
                             </div>
                             <div class="bet-footer">
                                 <div>
                                     <div style="font-size: 11px; color: var(--text-dim);">Stake</div>
-                                    <div class="stake-value">$${bet.stake.toFixed(2)}</div>
+                                    <div class="stake-value">$${(bet.stake || 0).toFixed(2)}</div>
                                 </div>
                                 <div style="text-align: right;">
                                     <div style="font-size: 11px; color: var(--text-dim);">Return</div>
@@ -568,7 +622,7 @@
             const toast = document.createElement('div');
             toast.className = 'toast';
             toast.style.borderLeftColor = type === 'success' ? 'var(--success)' : type === 'error' ? 'var(--danger)' : 'var(--primary)';
-            toast.textContent = message;
+            toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-triangle' : 'fa-info-circle'}"></i> ${message}`;
             container.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
         }
