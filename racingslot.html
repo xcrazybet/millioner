@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🏎️ XCrazyRace - 3D Racing Game</title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js"
+            }
+        }
+    </script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        :root {
+            --primary: #ff3366;
+            --primary-dark: #cc2952;
+            --secondary: #ff6b35;
+            --danger: #ff3366;
+            --success: #00ff9d;
+            --warning: #ffcc00;
+            --bg: #0a0a0a;
+            --surface: #111111;
+            --surface-light: #1a1a1a;
+            --text: #ffffff;
+            --text-dim: #888888;
+            --neon-glow: 0 0 20px rgba(255, 51, 102, 0.5);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            overflow: hidden;
+            font-family: 'Segoe UI', 'Roboto', system-ui, sans-serif;
+        }
+
+        /* Canvas 3D */
+        #game-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* UI Overlay */
+        .ui-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        /* Header */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(10px);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--primary);
+            z-index: 100;
+            pointer-events: auto;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .home-btn {
+            width: 40px;
+            height: 40px;
+            background: var(--primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            color: #000;
+            font-size: 20px;
+            transition: all 0.3s;
+        }
+
+        .home-btn:hover {
+            transform: scale(1.1);
+            box-shadow: var(--neon-glow);
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .balance-display {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 8px 20px;
+            border-radius: 30px;
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            backdrop-filter: blur(5px);
+        }
+
+        /* Speedometer */
+        .speedometer {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 120px;
+            height: 120px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 50%;
+            border: 3px solid var(--primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            pointer-events: auto;
+            backdrop-filter: blur(5px);
+        }
+
+        .speed-value {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--primary);
+            font-family: monospace;
+        }
+
+        .speed-label {
+            font-size: 12px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        /* Bet Panel */
+        .bet-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 15px;
+            border: 1px solid var(--primary);
+            z-index: 100;
+            pointer-events: auto;
+            max-width: 400px;
+        }
+
+        @media (min-width: 768px) {
+            .bet-panel {
+                left: 20px;
+                right: auto;
+                width: 320px;
+            }
+        }
+
+        .bet-title {
+            font-size: 14px;
+            color: var(--text-dim);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .bet-input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .bet-input {
+            flex: 1;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid var(--primary);
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 18px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .bet-input:focus {
+            outline: none;
+            box-shadow: var(--neon-glow);
+        }
+
+        .quick-bets {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .quick-bet {
+            padding: 10px;
+            background: rgba(255, 51, 102, 0.2);
+            border: 1px solid var(--primary);
+            border-radius: 8px;
+            color: var(--primary);
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+        }
+
+        .quick-bet:hover {
+            background: var(--primary);
+            color: #000;
+            transform: translateY(-2px);
+        }
+
+        .race-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 18px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .race-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .race-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: var(--neon-glow);
+        }
+
+        /* Stats Panel */
+        .stats-panel {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 12px;
+            border: 1px solid var(--secondary);
+            z-index: 100;
+            pointer-events: auto;
+            min-width: 150px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            font-size: 12px;
+        }
+
+        .stat-label {
+            color: var(--text-dim);
+        }
+
+        .stat-value {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        /* Result Overlay */
+        .result-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+            pointer-events: auto;
+        }
+
+        .result-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .result-content {
+            background: linear-gradient(135deg, #1a1a1a, #000);
+            padding: 40px;
+            border-radius: 30px;
+            border: 3px solid var(--primary);
+            text-align: center;
+            max-width: 350px;
+            width: 90%;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        .result-title {
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 20px;
+        }
+
+        .result-win {
+            color: var(--success);
+        }
+
+        .result-lose {
+            color: var(--danger);
+        }
+
+        .result-amount {
+            font-size: 48px;
+            font-weight: 800;
+            margin: 20px 0;
+        }
+
+        .play-again-btn {
+            padding: 12px 30px;
+            background: var(--primary);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 300;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 300px;
+            width: 90%;
+            pointer-events: none;
+        }
+
+        .toast {
+            padding: 12px 20px;
+            background: rgba(0, 0, 0, 0.9);
+            border-left: 4px solid var(--primary);
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            font-size: 14px;
+            transform: translateY(100%);
+            opacity: 0;
+            transition: all 0.3s;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* Bonus Display */
+        .bonus-display {
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 10px 15px;
+            border: 1px solid var(--warning);
+            z-index: 100;
+            pointer-events: auto;
+            font-size: 12px;
+        }
+
+        /* Animations */
+        @keyframes slideUp {
+            from {
+                transform: translateY(50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes nitroFlash {
+            0%, 100% { text-shadow: 0 0 5px var(--primary); }
+            50% { text-shadow: 0 0 20px var(--primary), 0 0 30px var(--secondary); }
+        }
+
+        .nitro-active {
+            animation: nitroFlash 0.1s infinite;
+        }
+
+        @media (max-width: 768px) {
+            .speedometer {
+                width: 80px;
+                height: 80px;
+                bottom: 10px;
+                right: 10px;
+            }
+            .speed-value {
+                font-size: 24px;
+            }
+            .bet-panel {
+                bottom: 10px;
+                left: 10px;
+                right: 10px;
+                padding: 10px;
+            }
+            .stats-panel {
+                top: 70px;
+                right: 10px;
+                padding: 8px;
+                min-width: 120px;
+            }
+            .bonus-display {
+                top: 70px;
+                left: 10px;
+                font-size: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-canvas"></div>
+
+    <div class="ui-overlay">
+        <div class="header">
+            <div class="header-left">
+                <a href="https://xcrazybet.github.io/millioner" class="home-btn">
+                    <i class="fas fa-home"></i>
+                </a>
+                <div class="logo">
+                    <i class="fas fa-car"></i>
+                    XCrazyRace
+                </div>
+            </div>
+            <div class="balance-display">
+                <i class="fas fa-wallet"></i>
+                $<span id="balance-val">0.00</span>
+            </div>
+        </div>
+
+        <div class="speedometer">
+            <div class="speed-value" id="speed-value">0</div>
+            <div class="speed-label">KM/H</div>
+        </div>
+
+        <div class="bonus-display" id="bonus-display">
+            <i class="fas fa-gift"></i>
+            <span id="bonus-text">Races: 0/25</span>
+        </div>
+
+        <div class="stats-panel">
+            <div class="stat-item">
+                <span class="stat-label">🏆 Wins</span>
+                <span class="stat-value" id="wins-count">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">💀 Losses</span>
+                <span class="stat-value" id="losses-count">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">📊 Win Rate</span>
+                <span class="stat-value" id="winrate">0%</span>
+            </div>
+        </div>
+
+        <div class="bet-panel">
+            <div class="bet-title">
+                <i class="fas fa-ticket-alt"></i> PLACE YOUR BET
+            </div>
+            <div class="bet-input-group">
+                <input type="number" id="bet-amount" class="bet-input" value="10" min="1" max="1000" step="1">
+                <span style="color: var(--primary); font-size: 20px;">$</span>
+            </div>
+            <div class="quick-bets">
+                <div class="quick-bet" data-amount="5">$5</div>
+                <div class="quick-bet" data-amount="10">$10</div>
+                <div class="quick-bet" data-amount="25">$25</div>
+                <div class="quick-bet" data-amount="50">$50</div>
+            </div>
+            <button id="race-btn" class="race-btn">
+                <i class="fas fa-flag-checkered"></i> START RACE
+            </button>
+        </div>
+    </div>
+
+    <div class="result-overlay" id="result-overlay">
+        <div class="result-content">
+            <div class="result-title" id="result-title">YOU WIN!</div>
+            <div class="result-amount" id="result-amount">+$0.00</div>
+            <div id="result-bonus" style="color: var(--warning); margin: 10px 0;"></div>
+            <button id="play-again-btn" class="play-again-btn">
+                <i class="fas fa-redo"></i> RACE AGAIN
+            </button>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
+
+        // ===== FIREBASE CONFIG =====
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // ===== GAME STATE =====
+        const gameState = {
+            currentUser: null,
+            balance: 0,
+            betAmount: 10,
+            isRacing: false,
+            gameId: null,
+            speed: 0,
+            maxSpeed: 280,
+            
+            // Stats
+            wins: 0,
+            losses: 0,
+            
+            // Hidden 90% lose rate system
+            winProbability: 0.10,
+            
+            // Bonus system
+            bonusSystem: {
+                racesPlayed: 0,
+                racesForBonus: 25,
+                bonusAmount: 5,
+                bonusEarned: false
+            },
+            
+            // Race result
+            currentRace: {
+                win: false,
+                payout: 0,
+                position: 0
+            }
+        };
+
+        // ===== THREE.JS SETUP =====
+        let scene, camera, renderer;
+        let track, car;
+        let roadLines = [];
+        let trees = [];
+        let particles = [];
+        let animationId;
+        
+        function init3D() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x050510);
+            scene.fog = new THREE.FogExp2(0x050510, 0.002);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 2, 5);
+            camera.lookAt(0, 0, -10);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, canvas: document.getElementById('game-canvas') });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 10, 7);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+            
+            const backLight = new THREE.PointLight(0xff3366, 0.5);
+            backLight.position.set(0, 2, -5);
+            scene.add(backLight);
+            
+            // Track
+            const trackGeometry = new THREE.PlaneGeometry(8, 200);
+            const trackMaterial = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4, metalness: 0.7 });
+            track = new THREE.Mesh(trackGeometry, trackMaterial);
+            track.rotation.x = -Math.PI / 2;
+            track.position.z = -50;
+            track.receiveShadow = true;
+            scene.add(track);
+            
+            // Road lines
+            for (let i = -90; i <= 10; i += 5) {
+                const lineGeometry = new THREE.BoxGeometry(0.2, 0.1, 3);
+                const lineMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+                const line = new THREE.Mesh(lineGeometry, lineMaterial);
+                line.position.set(0, 0.05, i);
+                line.castShadow = true;
+                scene.add(line);
+                roadLines.push(line);
+            }
+            
+            // Side lines
+            for (let i = -90; i <= 10; i += 2) {
+                const leftLine = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1), new THREE.MeshStandardMaterial({ color: 0xff3366 }));
+                leftLine.position.set(-3.8, 0.05, i);
+                scene.add(leftLine);
+                
+                const rightLine = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 1), new THREE.MeshStandardMaterial({ color: 0xff3366 }));
+                rightLine.position.set(3.8, 0.05, i);
+                scene.add(rightLine);
+            }
+            
+            // Car
+            const carGroup = new THREE.Group();
+            
+            // Body
+            const bodyGeo = new THREE.BoxGeometry(0.8, 0.3, 1.5);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff3366, metalness: 0.8, roughness: 0.2 });
+            const carBody = new THREE.Mesh(bodyGeo, bodyMat);
+            carBody.castShadow = true;
+            carBody.receiveShadow = true;
+            carGroup.add(carBody);
+            
+            // Roof
+            const roofGeo = new THREE.BoxGeometry(0.6, 0.25, 0.8);
+            const roofMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const roof = new THREE.Mesh(roofGeo, roofMat);
+            roof.position.y = 0.25;
+            roof.castShadow = true;
+            carGroup.add(roof);
+            
+            // Wheels
+            const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.5 });
+            const positions = [[-0.5, -0.15, -0.6], [0.5, -0.15, -0.6], [-0.5, -0.15, 0.6], [0.5, -0.15, 0.6]];
+            positions.forEach(pos => {
+                const wheelGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.2, 16);
+                const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+                wheel.rotation.z = Math.PI / 2;
+                wheel.position.set(pos[0], pos[1], pos[2]);
+                wheel.castShadow = true;
+                carGroup.add(wheel);
+            });
+            
+            // Neon underglow
+            const glowMat = new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0xff3366, emissiveIntensity: 0.5 });
+            const underglow = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 1.6), glowMat);
+            underglow.position.y = -0.2;
+            carGroup.add(underglow);
+            
+            carGroup.position.y = 0.1;
+            car = carGroup;
+            scene.add(car);
+            
+            // Trees
+            const treeMat = new THREE.MeshStandardMaterial({ color: 0x2c5e2e });
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x8B5A2B });
+            
+            for (let i = -80; i <= 20; i += 8) {
+                [-5, 5].forEach(side => {
+                    const treeGroup = new THREE.Group();
+                    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 0.8, 6), trunkMat);
+                    trunk.position.y = 0.4;
+                    treeGroup.add(trunk);
+                    
+                    const foliage1 = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.8, 8), treeMat);
+                    foliage1.position.y = 0.9;
+                    treeGroup.add(foliage1);
+                    
+                    const foliage2 = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.6, 8), treeMat);
+                    foliage2.position.y = 1.3;
+                    treeGroup.add(foliage2);
+                    
+                    treeGroup.position.set(side * 1.5, 0, i);
+                    treeGroup.castShadow = true;
+                    scene.add(treeGroup);
+                    trees.push(treeGroup);
+                });
+            }
+            
+            // Stars background
+            const starGeometry = new THREE.BufferGeometry();
+            const starCount = 1000;
+            const starPositions = new Float32Array(starCount * 3);
+            for (let i = 0; i < starCount; i++) {
+                starPositions[i*3] = (Math.random() - 0.5) * 200;
+                starPositions[i*3+1] = (Math.random() - 0.5) * 100 + 20;
+                starPositions[i*3+2] = (Math.random() - 0.5) * 100 - 50;
+            }
+            starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+            const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.2 });
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+        }
+        
+        function animateRace(speed) {
+            if (!gameState.isRacing) return;
+            
+            const speedFactor = speed / gameState.maxSpeed;
+            
+            // Move road lines
+            roadLines.forEach(line => {
+                line.position.z += speedFactor * 0.5;
+                if (line.position.z > 10) {
+                    line.position.z = -90;
+                }
+            });
+            
+            // Move trees
+            trees.forEach(tree => {
+                tree.position.z += speedFactor * 0.5;
+                if (tree.position.z > 20) {
+                    tree.position.z = -80;
+                }
+            });
+            
+            // Car tilt based on speed
+            car.rotation.z = Math.sin(Date.now() * 0.01) * 0.05 * speedFactor;
+            car.position.x = Math.sin(Date.now() * 0.02) * 0.2 * speedFactor;
+            
+            // Camera shake at high speed
+            if (speed > 200) {
+                camera.position.x = Math.sin(Date.now() * 0.05) * 0.1;
+                camera.position.y = 2 + Math.sin(Date.now() * 0.1) * 0.05;
+            } else {
+                camera.position.x = 0;
+                camera.position.y = 2;
+            }
+            
+            // Particles
+            if (speed > 100 && Math.random() < 0.3) {
+                const particleGeo = new THREE.SphereGeometry(0.05, 4, 4);
+                const particleMat = new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0xff3366 });
+                const particle = new THREE.Mesh(particleGeo, particleMat);
+                particle.position.set((Math.random() - 0.5) * 2, -0.5, 4);
+                scene.add(particle);
+                particles.push(particle);
+                
+                setTimeout(() => {
+                    if (particle.parent) scene.remove(particle);
+                    particles = particles.filter(p => p !== particle);
+                }, 500);
+            }
+            
+            // Update speedometer
+            document.getElementById('speed-value').textContent = Math.floor(speed);
+            
+            renderer.render(scene, camera);
+            animationId = requestAnimationFrame(() => animateRace(speed));
+        }
+        
+        function stopAnimation() {
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+        }
+        
+        // ===== RACE SIMULATION =====
+        async function startRace() {
+            const betAmount = parseFloat(document.getElementById('bet-amount').value);
+            
+            if (betAmount < 1 || betAmount > Math.min(gameState.balance, 1000)) {
+                showToast('Invalid bet amount', 'error');
+                return;
+            }
+            
+            if (gameState.isRacing) {
+                showToast('Race in progress!', 'warning');
+                return;
+            }
+            
+            if (gameState.balance < betAmount) {
+                showToast('Insufficient balance!', 'error');
+                return;
+            }
+            
+            // Process bet
+            const result = await processTransaction(-betAmount, "race_bet", `Race bet of $${betAmount}`);
+            if (!result.success) {
+                showToast('Failed to place bet', 'error');
+                return;
+            }
+            
+            gameState.betAmount = betAmount;
+            gameState.isRacing = true;
+            gameState.gameId = 'race_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            
+            document.getElementById('race-btn').disabled = true;
+            document.getElementById('race-btn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> RACING...';
+            
+            // Animate race
+            let speed = 0;
+            const raceDuration = 3000;
+            const startTime = Date.now();
+            
+            const raceInterval = setInterval(() => {
+                if (!gameState.isRacing) {
+                    clearInterval(raceInterval);
+                    return;
+                }
+                
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / raceDuration, 1);
+                
+                // Speed curve
+                if (progress < 0.7) {
+                    speed = gameState.maxSpeed * (progress / 0.7);
+                } else {
+                    speed = gameState.maxSpeed * (1 - (progress - 0.7) / 0.3);
+                }
+                
+                gameState.speed = speed;
+                
+                if (progress >= 1) {
+                    clearInterval(raceInterval);
+                    determineRaceResult();
+                }
+            }, 50);
+            
+            // Start 3D animation
+            init3D();
+            animateRace(0);
+            
+            // Store interval to clear later
+            gameState.raceInterval = raceInterval;
+        }
+        
+        function determineRaceResult() {
+            // 90% LOSE RATE - ONLY 10% WIN RATE
+            const random = Math.random();
+            const isWin = random <= gameState.winProbability; // 10% chance to win
+            
+            let payout = 0;
+            let position = 0;
+            
+            if (isWin) {
+                // Win - but controlled payout
+                const multiplier = Math.random() * 1.5 + 0.5; // 0.5x to 2x
+                payout = gameState.betAmount * multiplier;
+                position = Math.floor(Math.random() * 3) + 1; // 1st to 3rd place
+                gameState.wins++;
+                
+                showToast(`🎉 YOU WON! +$${payout.toFixed(2)}`, 'success');
+            } else {
+                // Loss - 90% chance
+                payout = 0;
+                position = Math.floor(Math.random() * 7) + 4; // 4th to 10th place
+                gameState.losses++;
+                
+                showToast(`💀 You finished ${position}th place!`, 'error');
+            }
+            
+            gameState.currentRace = {
+                win: isWin,
+                payout: payout,
+                position: position
+            };
+            
+            // Process win transaction
+            if (isWin && payout > 0) {
+                processTransaction(payout, "race_win", `Race win of $${payout.toFixed(2)}`);
+            }
+            
+            // Update bonus progress
+            updateBonusProgress();
+            
+            // Update stats display
+            updateStatsDisplay();
+            
+            // Stop race animation
+            setTimeout(() => {
+                gameState.isRacing = false;
+                stopAnimation();
+                
+                document.getElementById('race-btn').disabled = false;
+                document.getElementById('race-btn').innerHTML = '<i class="fas fa-flag-checkered"></i> START RACE';
+                
+                // Show result overlay
+                showResultOverlay();
+            }, 500);
+        }
+        
+        function showResultOverlay() {
+            const race = gameState.currentRace;
+            
+            if (race.win) {
+                document.getElementById('result-title').textContent = '🏆 YOU WON! 🏆';
+                document.getElementById('result-title').className = 'result-title result-win';
+                document.getElementById('result-amount').textContent = `+$${race.payout.toFixed(2)}`;
+                document.getElementById('result-amount').style.color = 'var(--success)';
+            } else {
+                document.getElementById('result-title').textContent = '💀 YOU LOST 💀';
+                document.getElementById('result-title').className = 'result-title result-lose';
+                document.getElementById('result-amount').textContent = `-$${gameState.betAmount.toFixed(2)}`;
+                document.getElementById('result-amount').style.color = 'var(--danger)';
+            }
+            
+            document.getElementById('result-overlay').classList.add('show');
+        }
+        
+        // ===== AUTH & BALANCE =====
+        function checkAuth() {
+            auth.onAuthStateChanged(user => {
+                if (!user) {
+                    showToast('Please login to play', 'error');
+                    setTimeout(() => {
+                        window.location.href = 'https://xcrazybet.github.io/millioner/login.html';
+                    }, 2000);
+                    return;
+                }
+                gameState.currentUser = user;
+                loadBalance();
+                loadStats();
+                setupRealTimeListeners();
+            });
+        }
+        
+        async function loadBalance() {
+            try {
+                const doc = await db.collection("wallets").doc(gameState.currentUser.uid).get();
+                if (doc.exists) {
+                    gameState.balance = doc.data().balance || 0;
+                    updateBalanceDisplay();
+                    
+                    // Load bonus
+                    const bonusDoc = await db.collection("race_bonus").doc(gameState.currentUser.uid).get();
+                    if (bonusDoc.exists) {
+                        gameState.bonusSystem = { ...gameState.bonusSystem, ...bonusDoc.data() };
+                        updateBonusDisplay();
+                    }
+                } else {
+                    await db.collection("wallets").doc(gameState.currentUser.uid).set({
+                        balance: 100,
+                        createdAt: new Date()
+                    });
+                    gameState.balance = 100;
+                    updateBalanceDisplay();
+                }
+            } catch (error) {
+                console.error('Error loading balance:', error);
+            }
+        }
+        
+        async function loadStats() {
+            try {
+                const doc = await db.collection("race_stats").doc(gameState.currentUser.uid).get();
+                if (doc.exists) {
+                    gameState.wins = doc.data().wins || 0;
+                    gameState.losses = doc.data().losses || 0;
+                    updateStatsDisplay();
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+        
+        async function updateStatsDisplay() {
+            const total = gameState.wins + gameState.losses;
+            const winRate = total > 0 ? ((gameState.wins / total) * 100).toFixed(1) : 0;
+            
+            document.getElementById('wins-count').textContent = gameState.wins;
+            document.getElementById('losses-count').textContent = gameState.losses;
+            document.getElementById('winrate').textContent = `${winRate}%`;
+            
+            // Save stats
+            if (gameState.currentUser) {
+                await db.collection("race_stats").doc(gameState.currentUser.uid).set({
+                    wins: gameState.wins,
+                    losses: gameState.losses,
+                    updatedAt: new Date()
+                });
+            }
+        }
+        
+        async function processTransaction(amount, type, description) {
+            try {
+                const walletRef = db.collection("wallets").doc(gameState.currentUser.uid);
+                
+                return await db.runTransaction(async (transaction) => {
+                    const walletDoc = await transaction.get(walletRef);
+                    if (!walletDoc.exists) throw new Error("Wallet not found");
+                    
+                    const currentBalance = walletDoc.data().balance || 0;
+                    const newBalance = currentBalance + amount;
+                    
+                    if (newBalance < 0) throw new Error("Insufficient funds");
+                    
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        updatedAt: new Date()
+                    });
+                    
+                    gameState.balance = newBalance;
+                    updateBalanceDisplay();
+                    
+                    return { success: true, newBalance };
+                });
+            } catch (error) {
+                showToast(error.message, 'error');
+                return { success: false };
+            }
+        }
+        
+        function updateBalanceDisplay() {
+            document.getElementById('balance-val').textContent = gameState.balance.toFixed(2);
+        }
+        
+        function setupRealTimeListeners() {
+            const walletRef = db.collection("wallets").doc(gameState.currentUser?.uid);
+            walletRef.onSnapshot((doc) => {
+                if (doc.exists) {
+                    gameState.balance = doc.data().balance || 0;
+                    updateBalanceDisplay();
+                }
+            });
+        }
+        
+        // ===== BONUS SYSTEM =====
+        async function updateBonusProgress() {
+            gameState.bonusSystem.racesPlayed++;
+            
+            if (gameState.bonusSystem.racesPlayed >= gameState.bonusSystem.racesForBonus && !gameState.bonusSystem.bonusEarned) {
+                gameState.bonusSystem.bonusEarned = true;
+                gameState.bonusSystem.racesPlayed = 0;
+                
+                await processTransaction(gameState.bonusSystem.bonusAmount, "race_bonus", `Race bonus $${gameState.bonusSystem.bonusAmount}`);
+                showToast(`🎁 Bonus earned! +$${gameState.bonusSystem.bonusAmount}`, 'success');
+                document.getElementById('result-bonus').textContent = `Bonus: +$${gameState.bonusSystem.bonusAmount}`;
+            }
+            
+            updateBonusDisplay();
+            
+            // Save to Firebase
+            await db.collection("race_bonus").doc(gameState.currentUser.uid).set(gameState.bonusSystem);
+        }
+        
+        function updateBonusDisplay() {
+            const left = gameState.bonusSystem.racesForBonus - gameState.bonusSystem.racesPlayed;
+            document.getElementById('bonus-text').innerHTML = `<i class="fas fa-gift"></i> ${left} races to bonus!`;
+        }
+        
+        // ===== UI =====
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast show ${type}`;
+            toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i> ${message}`;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+        
+        function resetGame() {
+            document.getElementById('result-overlay').classList.remove('show');
+            document.getElementById('result-bonus').textContent = '';
+        }
+        
+        // ===== EVENT LISTENERS =====
+        function setupEventListeners() {
+            document.getElementById('race-btn').addEventListener('click', startRace);
+            document.getElementById('play-again-btn').addEventListener('click', resetGame);
+            
+            document.querySelectorAll('.quick-bet').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const amount = parseFloat(btn.dataset.amount);
+                    document.getElementById('bet-amount').value = amount;
+                });
+            });
+            
+            document.getElementById('bet-amount').addEventListener('input', (e) => {
+                let value = parseFloat(e.target.value) || 1;
+                value = Math.max(1, Math.min(value, 1000));
+                e.target.value = value;
+            });
+        }
+        
+        // ===== INIT =====
+        checkAuth();
+        setupEventListeners();
+        
+        // Start with simple background
+        init3D();
+        animateRace(0);
+    </script>
+</body>
+</html>
