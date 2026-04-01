@@ -2,627 +2,1019 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Football API · working data loader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>⚽ Xlodon Bet - Live Football Betting</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
     <style>
         * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
-            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
+
+        :root {
+            --primary: #00ff9d;
+            --secondary: #ff9800;
+            --danger: #ff4757;
+            --success: #4caf50;
+            --warning: #ffc107;
+            --bg: #0a0f1a;
+            --surface: #111827;
+            --surface-light: #1a2332;
+            --text: #ffffff;
+            --text-dim: #94a3b8;
+            --border: #1e293b;
+        }
+
         body {
-            background: #f4f7fc;
-            margin: 0;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            padding: 20px;
+            padding-bottom: 70px;
         }
-        .card {
-            max-width: 1100px;
-            width: 100%;
-            background: white;
-            border-radius: 32px;
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-            overflow: hidden;
-            border: 1px solid rgba(0,20,40,0.08);
-        }
+
         .header {
-            background: linear-gradient(145deg, #0b1e33, #0d2b45);
-            color: white;
-            padding: 1.5rem 2rem;
-        }
-        .header h1 {
-            margin: 0;
-            font-weight: 500;
-            font-size: 1.8rem;
-            letter-spacing: -0.01em;
+            background: var(--surface);
+            padding: 12px 16px;
             display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .header h1 span {
-            background: #ffb81c;
-            color: #0b1e33;
-            font-size: 0.9rem;
-            font-weight: 600;
-            padding: 4px 14px;
-            border-radius: 40px;
-            text-transform: uppercase;
-        }
-        .sub {
-            margin-top: 8px;
-            color: #b7cdff;
-            word-break: break-all;
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 0.9rem;
-            display: flex;
-            flex-wrap: wrap;
             justify-content: space-between;
             align-items: center;
+            border-bottom: 2px solid var(--primary);
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
-        .api-key-badge {
-            background: rgba(255,255,255,0.12);
-            padding: 6px 14px;
-            border-radius: 60px;
-            font-family: monospace;
-            font-size: 0.9rem;
-            border: 1px solid rgba(255,200,100,0.2);
+
+        .logo {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary);
         }
-        .toolbar {
-            background: #f0f4fa;
-            padding: 0.9rem 2rem;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            align-items: center;
-            border-bottom: 1px solid #d9e2ef;
+
+        .logo a {
+            color: var(--primary);
+            text-decoration: none;
         }
-        .btn-group {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-        button {
-            background: white;
-            border: 1px solid #cbd5e1;
-            border-radius: 60px;
-            padding: 10px 22px;
-            font-size: 0.95rem;
-            font-weight: 500;
-            color: #1e293b;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: 0.15s;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.02);
-        }
-        button i { font-style: normal; font-size: 1.2rem; }
-        button:hover {
-            background: #f0f4fe;
-            border-color: #6b8fc8;
-            box-shadow: 0 8px 18px rgba(0,50,100,0.08);
-        }
-        button.primary {
-            background: #0b1e33;
-            border-color: #0b1e33;
-            color: white;
-        }
-        button.primary:hover {
-            background: #153e5a;
-            border-color: #153e5a;
-        }
-        .status-badge {
-            margin-left: auto;
-            background: #e6edf8;
-            border-radius: 60px;
-            padding: 8px 18px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            border: 1px solid #c9d9ec;
-        }
-        .status-badge .dot {
-            width: 12px;
-            height: 12px;
+
+        .balance-display {
+            background: var(--surface-light);
+            padding: 6px 12px;
             border-radius: 20px;
-            background: #94a3b8;
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            font-weight: 600;
         }
-        .status-badge .dot.loading { background: #f59e0b; animation: pulse 1.2s infinite; }
-        .status-badge .dot.success { background: #10b981; }
-        .status-badge .dot.error { background: #ef4444; }
-        .status-badge .dot.warning { background: #f97316; }
 
-        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
-
-        .data-container {
-            padding: 2rem;
-            background: #ffffff;
+        .last-update {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-align: center;
+            padding: 5px;
         }
-        .loading-skeleton {
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 16px;
+            max-width: 1400px;
+            margin: 16px auto;
+            padding: 0 16px;
+        }
+
+        .market-tabs {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .tabs-header, .league-filter {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 12px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .tab-btn, .league-btn {
+            padding: 8px 16px;
+            background: var(--surface-light);
+            border: 1px solid var(--border);
+            border-radius: 30px;
+            color: var(--text);
+            font-size: 13px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active, .league-btn.active {
+            background: var(--primary);
+            color: #000;
+            border-color: var(--primary);
+        }
+
+        .refresh-btn {
+            background: var(--surface-light);
+            border: 1px solid var(--primary);
+            border-radius: 30px;
+            padding: 6px 12px;
+            color: var(--primary);
+            cursor: pointer;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .refresh-btn:hover {
+            background: var(--primary);
+            color: #000;
+        }
+
+        .matches-grid {
             display: flex;
             flex-direction: column;
             gap: 12px;
-            margin-top: 10px;
+            max-height: 550px;
+            overflow-y: auto;
         }
-        .skeleton-line {
-            height: 28px;
-            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 12px;
-        }
-        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
-        .response-meta {
-            background: #f8fafd;
-            border-radius: 18px;
-            padding: 1.5rem;
-            border: 1px solid #e2eaf2;
-            margin-bottom: 20px;
+        .match-card {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            transition: transform 0.2s;
         }
-        .meta-row {
+
+        .match-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+        }
+
+        .match-header {
             display: flex;
-            flex-wrap: wrap;
-            gap: 20px 30px;
-            font-size: 0.95rem;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .teams {
+            display: flex;
+            justify-content: space-between;
             align-items: center;
+            margin-bottom: 12px;
         }
-        .meta-label {
-            color: #4a5f7a;
-            font-weight: 400;
-        }
-        .meta-value {
+
+        .team-name {
             font-weight: 600;
-            color: #0b1e33;
-            background: #eef4ff;
-            padding: 2px 12px;
-            border-radius: 40px;
+            font-size: 14px;
         }
-        .cors-warning {
-            background: #fff3cd;
-            border: 1px solid #ffe69c;
-            border-radius: 16px;
-            padding: 16px 20px;
-            margin-bottom: 20px;
-            color: #856404;
+
+        .score {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary);
         }
-        .cors-warning h4 {
-            margin: 0 0 8px 0;
-            color: #533f03;
-        }
-        .cors-warning code {
-            background: #fff1c1;
-            padding: 3px 8px;
+
+        .live-badge {
+            background: var(--danger);
+            padding: 2px 8px;
             border-radius: 20px;
+            font-size: 10px;
+            animation: pulse 1s infinite;
         }
-        pre {
-            background: #1a2634;
-            color: #e4f0fb;
-            padding: 1.8rem;
-            border-radius: 24px;
-            overflow: auto;
-            font-size: 0.85rem;
-            font-family: 'JetBrains Mono', 'Fira Code', monospace;
-            line-height: 1.5;
-            box-shadow: inset 0 0 0 1px #304562;
-            max-height: 500px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
-        .footnote {
-            margin-top: 22px;
-            color: #68788c;
-            font-size: 0.9rem;
-            border-top: 1px dashed #c9d6e8;
-            padding-top: 18px;
-            display: flex;
-            gap: 20px;
-            flex-wrap: wrap;
+
+        .market-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-top: 8px;
         }
-        .footnote code {
-            background: #e9f0fa;
-            padding: 4px 10px;
-            border-radius: 40px;
-            color: #144272;
-        }
-        .empty-state {
-            background: #f1f5f9;
-            border-radius: 40px;
-            padding: 3rem 2rem;
+
+        .market-btn {
+            padding: 8px;
+            background: var(--surface-light);
+            border: 1px solid var(--border);
+            border-radius: 8px;
             text-align: center;
-            color: #4d627a;
-            font-size: 1.1rem;
-            border: 2px dashed #b9ceec;
+            cursor: pointer;
+            transition: all 0.2s;
         }
-        .proxy-note {
-            background: #e7f5ff;
+
+        .market-btn:hover {
+            background: var(--primary);
+            transform: scale(1.05);
+        }
+
+        .market-btn:hover .market-odds {
+            color: #000;
+        }
+
+        .market-name {
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        .market-odds {
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .betslip-section {
+            background: var(--surface);
+            border-radius: 20px;
+            padding: 16px;
+            border: 2px solid var(--primary);
+            position: sticky;
+            top: 80px;
+        }
+
+        .betslip-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .betslip-tab {
+            flex: 1;
+            padding: 10px;
+            background: var(--surface-light);
+            border: none;
+            border-radius: 30px;
+            color: var(--text);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .betslip-tab.active {
+            background: var(--primary);
+            color: #000;
+        }
+
+        .betslip-items {
+            max-height: 250px;
+            overflow-y: auto;
+            margin-bottom: 12px;
+        }
+
+        .betslip-item {
+            background: var(--surface-light);
+            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+
+        .betslip-item-header {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .remove-bet {
+            color: var(--danger);
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .bet-input-group {
+            display: flex;
+            background: var(--surface-light);
+            border-radius: 30px;
+            padding: 0 16px;
+            margin: 12px 0;
+        }
+
+        .bet-input {
+            flex: 1;
+            padding: 14px 0;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-size: 16px;
+            outline: none;
+        }
+
+        .place-bet-btn {
+            width: 100%;
+            padding: 16px;
+            background: var(--primary);
+            border: none;
+            border-radius: 30px;
+            color: #000;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .place-bet-btn:hover:not(:disabled) {
+            transform: scale(1.02);
+        }
+
+        .place-bet-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .open-bets-section, .history-section {
+            background: var(--surface);
             border-radius: 16px;
-            padding: 12px 16px;
+            padding: 16px;
             margin-top: 16px;
-            border-left: 4px solid #0b5e8a;
+        }
+
+        .bet-card {
+            background: var(--surface-light);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-left: 4px solid var(--secondary);
+        }
+
+        .bet-card-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .cashout-btn {
+            padding: 4px 12px;
+            background: var(--warning);
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--surface);
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 16px;
+            border-top: 2px solid var(--primary);
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-decoration: none;
+            color: var(--text-dim);
+            font-size: 11px;
+            gap: 4px;
+            transition: color 0.2s;
+        }
+
+        .nav-item i { font-size: 20px; }
+        .nav-item.active { color: var(--primary); }
+        .nav-item:hover { color: var(--primary); }
+
+        .toast-container {
+            position: fixed;
+            bottom: 80px;
+            left: 16px;
+            right: 16px;
+            z-index: 1000;
+        }
+
+        .toast {
+            padding: 12px 16px;
+            background: var(--surface);
+            border-radius: 30px;
+            border-left: 4px solid var(--primary);
+            margin-bottom: 8px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: var(--text-dim);
+        }
+
+        .loading-spinner {
+            border: 3px solid var(--surface-light);
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 900px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .api-warning {
+            background: rgba(255, 100, 0, 0.2);
+            border-left: 3px solid var(--warning);
+            padding: 8px 12px;
+            font-size: 12px;
+            margin-bottom: 12px;
+            border-radius: 8px;
         }
     </style>
 </head>
 <body>
-    <div class="card">
-        <div class="header">
-            <h1>
-                ⚽ Football data loader
-                <span>real API</span>
-            </h1>
-            <div class="sub">
-                <span class="api-key-badge">🔑 API key: 2396236d9d5cd07468ce280da8390ad5</span>
-                <span>🌐 api.football-data.org/v4</span>
+    <header class="header">
+        <div class="logo">
+            <a href="#">⚽ Xlodon Bet</a>
+        </div>
+        <div class="balance-display">
+            <i class="fas fa-wallet"></i> $<span id="balance">0.00</span>
+        </div>
+    </header>
+
+    <div class="main-layout">
+        <div class="left-column">
+            <div class="market-tabs">
+                <div class="tabs-header">
+                    <button class="tab-btn active" data-market="all">📋 All Matches</button>
+                    <button class="tab-btn" data-market="live">🔴 Live</button>
+                    <button class="tab-btn" data-market="upcoming">📅 Upcoming</button>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="league-filter" id="leagueFilter">
+                        <button class="league-btn active" data-league="all">🌍 ALL</button>
+                        <button class="league-btn" data-league="39">🏴 PREMIER</button>
+                        <button class="league-btn" data-league="140">🇪🇸 LA LIGA</button>
+                        <button class="league-btn" data-league="78">🇩🇪 BUNDES</button>
+                        <button class="league-btn" data-league="135">🇮🇹 SERIE A</button>
+                        <button class="league-btn" data-league="61">🇫🇷 LIGUE 1</button>
+                    </div>
+                    <button class="refresh-btn" onclick="window.refreshMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
+                </div>
+                <div id="matchesContainer" class="matches-grid"><div class="loading-spinner"></div></div>
+                <div class="last-update" id="lastUpdate"></div>
+            </div>
+
+            <div class="open-bets-section">
+                <h3><i class="fas fa-ticket-alt"></i> MY OPEN BETS</h3>
+                <div id="openBetsContainer"><div class="loading-spinner"></div></div>
             </div>
         </div>
 
-        <div class="toolbar">
-            <div class="btn-group">
-                <button id="fetchPremierLeague" class="primary">
-                    <i>🏴󠁧󠁢󠁥󠁮󠁧󠁿</i> Premier League
-                </button>
-                <button id="fetchLaLiga">
-                    <i>🇪🇸</i> La Liga
-                </button>
-                <button id="fetchSerieA">
-                    <i>🇮🇹</i> Serie A
-                </button>
+        <div class="betslip-section">
+            <div class="betslip-tabs">
+                <button class="betslip-tab active" data-type="single">🎯 SINGLE</button>
+                <button class="betslip-tab" data-type="accumulator">📈 ACCUMULATOR</button>
             </div>
-            <button id="checkCORSBtn" title="Test if CORS is the issue">
-                <i>🔍</i> Test CORS
-            </button>
-            <button id="clearBtn">
-                <i>🗑️</i> Clear
-            </button>
-            <div class="status-badge" id="statusBadge">
-                <span class="dot" id="statusDot"></span>
-                <span id="statusText">Ready</span>
+            <div class="betslip-header" style="display: flex; justify-content: space-between;">
+                <h4>BET SLIP</h4>
+                <button id="clearSlip" style="background: none; border: none; color: var(--danger); cursor: pointer;">🗑️ CLEAR</button>
             </div>
-        </div>
-
-        <div class="data-container" id="dataContainer">
-            <!-- CORS warning / solution panel (visible by default) -->
-            <div class="cors-warning" id="corsWarning">
-                <h4>⚠️ Data not loading? Here's why and how to fix it:</h4>
-                <p><strong>Problem:</strong> You're opening this file directly (<code>file://</code> protocol). Browsers block API requests from local files due to <strong>CORS policy</strong>.</p>
-                <p><strong>3 Solutions that work with your real API:</strong></p>
-                <ol style="margin-bottom: 0;">
-                    <li><strong>Use a local server:</strong> Run <code>npx http-server</code> or Python <code>http.server</code> in this folder</li>
-                    <li><strong>Use a CORS proxy:</strong> Click "Test CORS" button below to try with a proxy</li>
-                    <li><strong>Install CORS extension:</strong> Add "CORS Unblock" extension to your browser temporarily</li>
-                </ol>
+            <div id="betslipItems" class="betslip-items">
+                <div class="empty-state">➕ Click odds to add bets</div>
             </div>
-
-            <!-- Proxy indicator (hidden by default) -->
-            <div id="proxyIndicator" style="display: none; background: #e3f2fd; border-radius: 12px; padding: 10px 15px; margin-bottom: 15px;">
-                🔄 Using CORS proxy: <span id="proxyStatus">enabled</span>
+            <div class="bet-input-group">
+                <input type="number" id="betAmount" class="bet-input" value="10" min="1" step="1">
+                <span>$</span>
             </div>
-
-            <div id="metaPanel" style="display: none;">
-                <div class="response-meta">
-                    <div class="meta-row" id="metaContent"></div>
-                </div>
+            <div style="display: flex; justify-content: space-between; margin: 12px 0;">
+                <span>⚡ Total Odds:</span>
+                <span id="totalOdds" style="color: var(--primary); font-size: 20px; font-weight: bold;">0.00</span>
             </div>
-
-            <div id="responsePreArea">
-                <div class="empty-state" id="emptyState">
-                    ⚡ Click any league button to load real data<br/>
-                    <span style="font-size:0.9rem; opacity:0.7;">If you see CORS errors, use the solutions above</span>
-                </div>
+            <div style="margin: 12px 0;">
+                <span>💰 Potential Return:</span>
+                <span id="potentialReturn" style="float: right; font-weight: bold;">$0.00</span>
             </div>
-
-            <div class="footnote">
-                <span><code>🔑 real API key</code> 2396236d9d5cd07468ce280da8390ad5</span>
-                <span><code>🌍 football-data.org</code> v4 endpoint</span>
-                <span><code>🔄 loading state</code> shows real network activity</span>
-            </div>
+            <button id="placeBetBtn" class="place-bet-btn" disabled>🚀 PLACE BET</button>
         </div>
     </div>
 
+    <div class="history-section">
+        <h3><i class="fas fa-history"></i> BETTING HISTORY</h3>
+        <div id="historyContainer"><div class="loading-spinner"></div></div>
+    </div>
+
+    <nav class="bottom-nav">
+        <a href="#" class="nav-item active" data-page="football"><i class="fas fa-futbol"></i><span>Football</span></a>
+        <a href="#" class="nav-item" data-page="bets"><i class="fas fa-ticket-alt"></i><span>My Bets</span></a>
+        <a href="#" class="nav-item" data-page="home"><i class="fas fa-home"></i><span>Home</span></a>
+        <a href="#" class="nav-item" data-page="stats"><i class="fas fa-chart-line"></i><span>Stats</span></a>
+        <a href="#" class="nav-item" data-page="wallet"><i class="fas fa-wallet"></i><span>Wallet</span></a>
+    </nav>
+
+    <div id="toastContainer" class="toast-container"></div>
+
     <script>
-        (function() {
-            // Your actual API key
-            const API_KEY = '2396236d9d5cd07468ce280da8390ad5';
-            const BASE_URL = 'https://api.football-data.org/v4';
+        // ==================== FIREBASE CONFIG ====================
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        // ==================== NEW API INTEGRATION ====================
+        // Provided API key: 27bea6481a1ddf16b65e949eddc2f579f27b8a78c122c0d71d8c183fe87079e0
+        const FOOTBALL_API_KEY = "27bea6481a1ddf16b65e949eddc2f579f27b8a78c122c0d71d8c183fe87079e0";
+        // Using reliable API endpoint for football data (API-Football from rapidapi style but we use direct fetch with the key as 'apiKey' parameter)
+        const API_URL = "https://v3.football.api-sports.io/fixtures";
+        
+        // Enhanced fallback mock data with better odds and league IDs
+        const MOCK_MATCHES = [
+            { id: "1", leagueId: "39", leagueName: "Premier League", homeTeam: "Manchester United", awayTeam: "Arsenal", homeScore: 1, awayScore: 1, status: "2H", time: "LIVE", isLive: true, odds: { home: 2.10, draw: 3.40, away: 3.20, over25: 1.85, under25: 1.95 } },
+            { id: "2", leagueId: "140", leagueName: "La Liga", homeTeam: "Barcelona", awayTeam: "Real Madrid", homeScore: 0, awayScore: 0, status: "1H", time: "LIVE", isLive: true, odds: { home: 2.30, draw: 3.30, away: 2.90, over25: 1.80, under25: 2.00 } },
+            { id: "3", leagueId: "78", leagueName: "Bundesliga", homeTeam: "Bayern Munich", awayTeam: "Borussia Dortmund", homeScore: null, awayScore: null, status: "NS", time: "20:30", isLive: false, odds: { home: 1.65, draw: 4.00, away: 4.50, over25: 1.70, under25: 2.10 } },
+            { id: "4", leagueId: "135", leagueName: "Serie A", homeTeam: "AC Milan", awayTeam: "Inter Milan", homeScore: null, awayScore: null, status: "NS", time: "21:00", isLive: false, odds: { home: 2.60, draw: 3.20, away: 2.70, over25: 1.90, under25: 1.90 } },
+            { id: "5", leagueId: "61", leagueName: "Ligue 1", homeTeam: "PSG", awayTeam: "Marseille", homeScore: 2, awayScore: 0, status: "2H", time: "LIVE", isLive: true, odds: { home: 1.45, draw: 4.50, away: 6.00, over25: 1.60, under25: 2.25 } },
+            { id: "6", leagueId: "39", leagueName: "Premier League", homeTeam: "Liverpool", awayTeam: "Chelsea", homeScore: null, awayScore: null, status: "NS", time: "18:30", isLive: false, odds: { home: 1.85, draw: 3.60, away: 3.90, over25: 1.75, under25: 2.05 } }
+        ];
+
+        // ==================== APP STATE ====================
+        let currentUser = null;
+        let balance = 0;
+        let selectedBets = [];
+        let betType = 'single';
+        let matches = [];
+        let currentLeague = 'all';
+        let currentMarket = 'all';
+        let autoRefreshInterval = null;
+        let usingMockData = false;
+
+        // Auth check
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                currentUser = user;
+                console.log('User logged in:', user.uid);
+                await loadBalance();
+                await fetchLiveMatches();
+                await loadOpenBets();
+                await loadHistory();
+                setupListeners();
+                startAutoRefresh();
+                showToast('Welcome to Xlodon Bet! Live odds ready.', 'success');
+            } else {
+                showToast('Please login to continue', 'error');
+                setTimeout(() => {
+                    window.location.href = 'https://xcrazybet.github.io/millioner/login.html';
+                }, 2000);
+            }
+        });
+
+        // FETCH MATCHES FROM API-FOOTBALL (using provided key)
+        async function fetchLiveMatches() {
+            const container = document.getElementById('matchesContainer');
+            container.innerHTML = '<div class="loading-spinner"></div><p style="text-align:center;">Fetching live matches...</p>';
             
-            // CORS proxy options (uncomment to use a proxy)
-            const USE_CORS_PROXY = false; // Set to true to enable proxy
-            const CORS_PROXY = 'https://cors-anywhere.herokuapp.com/'; // Free proxy (rate limited)
-            // Alternative: https://corsproxy.io/? or https://api.allorigins.win/raw?url=
-
-            // DOM elements
-            const statusDot = document.getElementById('statusDot');
-            const statusText = document.getElementById('statusText');
-            const metaPanel = document.getElementById('metaPanel');
-            const metaContent = document.getElementById('metaContent');
-            const responsePreArea = document.getElementById('responsePreArea');
-            const emptyState = document.getElementById('emptyState');
-            const corsWarning = document.getElementById('corsWarning');
-            const proxyIndicator = document.getElementById('proxyIndicator');
+            let apiSuccess = false;
             
-            // Buttons
-            const btnPL = document.getElementById('fetchPremierLeague');
-            const btnLL = document.getElementById('fetchLaLiga');
-            const btnSA = document.getElementById('fetchSerieA');
-            const btnCheckCORS = document.getElementById('checkCORSBtn');
-            const clearBtn = document.getElementById('clearBtn');
-
-            // State
-            let useProxy = false;
-
-            // Helper to update status
-            function setStatus(state, message = null) {
-                const dot = statusDot;
-                dot.classList.remove('loading', 'success', 'error', 'warning');
+            try {
+                // Using API-Football v3 - we fetch fixtures from today and live matches
+                // Set date parameter to current date to get today's fixtures
+                const today = new Date().toISOString().split('T')[0];
+                // Fetch both live and upcoming: we get fixtures from today and also live status
+                const url = `${API_URL}?date=${today}&timezone=UTC`;
+                console.log("Fetching football data from API-Football with key:", FOOTBALL_API_KEY.substring(0,8)+"...");
                 
-                switch(state) {
-                    case 'loading':
-                        dot.classList.add('loading');
-                        statusText.innerText = message || '⏳ loading data ...';
-                        break;
-                    case 'success':
-                        dot.classList.add('success');
-                        statusText.innerText = message || '✔ data loaded';
-                        break;
-                    case 'error':
-                        dot.classList.add('error');
-                        statusText.innerText = message || '✘ request failed';
-                        break;
-                    case 'warning':
-                        dot.classList.add('warning');
-                        statusText.innerText = message || '⚠️ CORS issue detected';
-                        break;
-                    default:
-                        statusText.innerText = 'Ready';
-                        dot.className = 'dot';
-                }
-            }
-
-            // Show skeleton loader
-            function showSkeleton() {
-                if (emptyState) emptyState.style.display = 'none';
-                responsePreArea.innerHTML = `
-                    <div class="loading-skeleton" id="skeletonLoader">
-                        <div class="skeleton-line" style="width: 90%;"></div>
-                        <div class="skeleton-line" style="width: 75%;"></div>
-                        <div class="skeleton-line" style="width: 85%;"></div>
-                        <div class="skeleton-line" style="width: 60%;"></div>
-                        <div class="skeleton-line" style="width: 95%;"></div>
-                        <div class="skeleton-line" style="width: 70%;"></div>
-                        <div style="margin-top:20px; text-align:center;">
-                            <span style="background:#234; color:#89b6ff; padding:8px 20px; border-radius:30px;">
-                                ⬇️ contacting football-data.org ...
-                            </span>
-                        </div>
-                    </div>
-                `;
-                metaPanel.style.display = 'none';
-            }
-
-            // Reset to empty state
-            function resetToEmpty() {
-                setStatus('idle');
-                metaPanel.style.display = 'none';
-                responsePreArea.innerHTML = `
-                    <div class="empty-state" id="emptyState">
-                        ⚡ Click any league button to load real data<br/>
-                        <span style="font-size:0.9rem; opacity:0.7;">Using your API key: 2396236d9d5cd07468ce280da8390ad5</span>
-                    </div>
-                `;
-            }
-
-            // Check CORS by making a simple HEAD request
-            async function testCORS() {
-                setStatus('loading', 'Testing CORS...');
-                showSkeleton();
-                
-                try {
-                    // Try a simple request to see if CORS is the issue
-                    const testUrl = `${BASE_URL}/competitions`;
-                    
-                    const response = await fetch(testUrl, {
-                        method: 'HEAD',
-                        headers: { 'X-Auth-Token': API_KEY }
-                    });
-                    
-                    // If we get here, CORS might be working
-                    setStatus('success', 'CORS test passed!');
-                    responsePreArea.innerHTML = `
-                        <pre style="background:#1e293b; color:#a3f0bf; border:1px solid #2a6e47;">
-✅ CORS TEST SUCCESSFUL!
-
-Your browser can reach the API directly.
-Status: ${response.status} ${response.statusText}
-
-Try loading actual data now.
-                        </pre>
-                    `;
-                } catch (error) {
-                    // This is likely a CORS error
-                    setStatus('warning', 'CORS error detected');
-                    
-                    responsePreArea.innerHTML = `
-                        <div style="background:#2d1e1e; border-radius:24px; padding:20px; color:#ffb3b3; border:1px solid #8b3a3a;">
-                            <h3 style="margin-top:0;">🚫 CORS ERROR DETECTED</h3>
-                            <p><strong>Error:</strong> ${error.message}</p>
-                            <p>This confirms you're hitting the CORS policy.</p>
-                            <hr style="border-color:#5a3a3a;">
-                            <h4>✅ Quick fixes that work:</h4>
-                            <ol>
-                                <li><strong>Use a local server:</strong> 
-                                    <code style="background:#3a2a2a;">npx http-server</code> or 
-                                    <code style="background:#3a2a2a;">python -m http.server 8000</code>
-                                </li>
-                                <li><strong>Enable CORS proxy:</strong> Click "Use Proxy" below</li>
-                                <li><strong>Install CORS extension:</strong> "CORS Unblock" for Chrome</li>
-                            </ol>
-                            <button id="enableProxyBtn" style="background:#0b5e8a; color:white; border:none; padding:12px 24px; border-radius:40px; cursor:pointer; margin-top:10px;">
-                                🔄 Enable CORS Proxy & Retry
-                            </button>
-                        </div>
-                    `;
-                    
-                    // Add event listener to the new button
-                    document.getElementById('enableProxyBtn')?.addEventListener('click', () => {
-                        useProxy = true;
-                        proxyIndicator.style.display = 'block';
-                        proxyIndicator.innerHTML = '🔄 Using CORS proxy: <span id="proxyStatus">enabled (click league to retry)</span>';
-                        setStatus('idle');
-                        responsePreArea.innerHTML = `<div class="empty-state">Proxy enabled. Click a league button to try again.</div>`;
-                    });
-                }
-            }
-
-            // Main fetch function with proxy option
-            async function fetchLeagueData(competitionCode, leagueName) {
-                setStatus('loading', `⏳ fetching ${leagueName} ...`);
-                showSkeleton();
-                
-                // Construct URL (with optional proxy)
-                let url = `${BASE_URL}/competitions/${competitionCode}/matches`;
-                if (useProxy) {
-                    url = `https://cors-anywhere.herokuapp.com/${url}`;
-                }
-                
-                const startTime = performance.now();
-                
-                try {
-                    const response = await fetch(url, {
-                        headers: {
-                            'X-Auth-Token': API_KEY
-                        }
-                    });
-                    
-                    const endTime = performance.now();
-                    const responseTimeMs = Math.round(endTime - startTime);
-                    
-                    // Get headers
-                    const responseHeaders = {};
-                    response.headers.forEach((value, key) => {
-                        responseHeaders[key] = value;
-                    });
-                    
-                    // Parse JSON
-                    let responseData;
-                    let jsonError = false;
-                    try {
-                        responseData = await response.json();
-                    } catch (e) {
-                        jsonError = true;
-                        responseData = { error: 'Failed to parse JSON', details: e.message };
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'x-apisports-key': FOOTBALL_API_KEY,
+                        'x-rapidapi-host': 'v3.football.api-sports.io'
                     }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log("API-Football Response:", data);
                     
-                    // Update meta panel
-                    metaContent.innerHTML = `
-                        <span class="meta-label">competition:</span>
-                        <span class="meta-value">${leagueName} (${competitionCode})</span>
-                        <span class="meta-label">status:</span>
-                        <span class="meta-value" style="background:${response.ok ? '#10b98120' : '#ef444420'}; color:${response.ok ? '#0b5e42' : '#b91c1c'}">
-                            ${response.status} ${response.statusText}
-                        </span>
-                        <span class="meta-label">time:</span>
-                        <span class="meta-value">${responseTimeMs}ms</span>
-                        <span class="meta-label">proxy:</span>
-                        <span class="meta-value">${useProxy ? '✅ enabled' : '❌ disabled'}</span>
-                    `;
-                    metaPanel.style.display = 'block';
-                    
-                    // Format output
-                    const headerPretty = JSON.stringify(responseHeaders, null, 2);
-                    const jsonPretty = JSON.stringify(responseData, null, 2);
-                    
-                    responsePreArea.innerHTML = `
-                        <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                            <span style="background: #ddf0ff; border-radius:30px; padding:4px 18px;">📊 API Response</span>
-                            <span style="font-size:0.8rem; color:#4f6f8f;">${useProxy ? 'via CORS proxy' : 'direct connection'}</span>
-                        </div>
-                        <pre style="background:#1e293b;">HTTP ${response.status} (${responseTimeMs}ms)
-                        
-———  RESPONSE HEADERS  ———
-${headerPretty}
-
-———  RESPONSE BODY ———
-${jsonPretty}</pre>
-                    `;
-                    
-                    setStatus(response.ok ? 'success' : 'error', 
-                            response.ok ? `✅ ${leagueName} loaded` : `⚠️ ${leagueName} (${response.status})`);
-                    
-                    // If successful and we used proxy, hide the CORS warning
-                    if (response.ok && useProxy) {
-                        corsWarning.style.display = 'none';
+                    if (data && data.response && data.response.length > 0) {
+                        apiSuccess = true;
+                        usingMockData = false;
+                        parseFootballApiResponse(data.response);
+                        document.getElementById('lastUpdate').innerHTML = `✅ Live data | ${new Date().toLocaleTimeString()} - ${matches.length} matches`;
+                        showToast(`Loaded ${matches.length} matches from API`, 'success');
+                    } else {
+                        throw new Error("No fixtures data from API");
                     }
-                    
-                } catch (error) {
-                    const endTime = performance.now();
-                    const responseTimeMs = Math.round(endTime - startTime);
-                    
-                    // Show detailed error
-                    metaContent.innerHTML = `
-                        <span class="meta-label">competition:</span>
-                        <span class="meta-value">${leagueName}</span>
-                        <span class="meta-label">status:</span>
-                        <span class="meta-value" style="background:#ef444420; color:#b91c1c;">NETWORK ERROR</span>
-                        <span class="meta-label">time:</span>
-                        <span class="meta-value">${responseTimeMs}ms</span>
-                    `;
-                    metaPanel.style.display = 'block';
-                    
-                    // Check if it's a CORS error
-                    const isCorsError = error.message.includes('CORS') || error.message.includes('Failed to fetch');
-                    
-                    responsePreArea.innerHTML = `
-                        <div style="background: #2d1e1e; border-radius: 24px; padding: 20px; color: #ffb3b3; border: 1px solid #8b3a3a;">
-                            <h3 style="margin-top:0;">❌ Request Failed</h3>
-                            <p><strong>Error:</strong> ${error.message}</p>
-                            ${isCorsError ? `
-                                <hr style="border-color:#5a3a3a;">
-                                <h4>🚨 CORS ERROR DETECTED</h4>
-                                <p>This is a browser security restriction when opening files locally.</p>
-                                <button id="retryWithProxy" style="background:#0b5e8a; color:white; border:none; padding:12px 24px; border-radius:40px; cursor:pointer; margin:10px 0;">
-                                    🔄 Retry with CORS proxy
-                                </button>
-                                <p><small>Or run a local server: <code style="background:#3a2a2a;">npx http-server</code></small></p>
-                            ` : ''}
-                        </div>
-                    `;
-                    
-                    // Add retry button listener
-                    document.getElementById('retryWithProxy')?.addEventListener('click', () => {
-                        useProxy = true;
-                        proxyIndicator.style.display = 'block';
-                        fetchLeagueData(competitionCode, leagueName);
-                    });
-                    
-                    setStatus('error', `❌ ${leagueName} failed`);
+                } else {
+                    throw new Error(`API returned ${response.status}`);
                 }
+            } catch (error) {
+                console.error("API Fetch error:", error);
+                apiSuccess = false;
             }
-
-            // Event listeners
-            btnPL.addEventListener('click', () => fetchLeagueData('PL', 'Premier League'));
-            btnLL.addEventListener('click', () => fetchLeagueData('PD', 'La Liga'));
-            btnSA.addEventListener('click', () => fetchLeagueData('SA', 'Serie A'));
             
-            btnCheckCORS.addEventListener('click', testCORS);
+            // Fallback to mock if API fails
+            if (!apiSuccess) {
+                console.log("Using enhanced mock data fallback");
+                usingMockData = true;
+                matches = JSON.parse(JSON.stringify(MOCK_MATCHES));
+                document.getElementById('lastUpdate').innerHTML = `<span style="color: var(--warning);">⚠️ Demo mode (API unavailable)</span> - ${new Date().toLocaleTimeString()}`;
+                showToast('Using demo matches. Live API unavailable.', 'warning');
+            }
             
-            clearBtn.addEventListener('click', () => {
-                resetToEmpty();
-                corsWarning.style.display = 'block';
-                proxyIndicator.style.display = 'none';
-                useProxy = false;
+            displayMatches(currentLeague, currentMarket);
+        }
+        
+        function parseFootballApiResponse(fixtures) {
+            // Transform API-Football response to our match structure
+            const transformed = fixtures.slice(0, 40).map(fixture => {
+                const isLive = (fixture.fixture.status.short === '1H' || 
+                                fixture.fixture.status.short === '2H' || 
+                                fixture.fixture.status.short === 'HT' ||
+                                fixture.fixture.status.short === 'LIVE');
+                
+                // Extract league info
+                const leagueId = fixture.league?.id?.toString() || "0";
+                const leagueName = fixture.league?.name || "Football";
+                
+                // Scores
+                let homeScore = null, awayScore = null;
+                if (fixture.goals) {
+                    homeScore = fixture.goals.home !== null ? fixture.goals.home : null;
+                    awayScore = fixture.goals.away !== null ? fixture.goals.away : null;
+                }
+                
+                // Generate realistic odds based on league/teams (since API doesn't provide odds directly in free tier)
+                // We'll create dynamic odds that are plausible
+                const homeStrength = Math.random() * 0.5 + 1.8;
+                const awayStrength = Math.random() * 0.5 + 2.2;
+                const drawOdds = (homeStrength + awayStrength) / 1.8;
+                
+                const odds = {
+                    home: parseFloat((homeStrength).toFixed(2)),
+                    draw: parseFloat((drawOdds).toFixed(2)),
+                    away: parseFloat((awayStrength).toFixed(2)),
+                    over25: parseFloat((Math.random() * 0.4 + 1.7).toFixed(2)),
+                    under25: parseFloat((Math.random() * 0.4 + 1.8).toFixed(2))
+                };
+                
+                return {
+                    id: fixture.fixture.id.toString(),
+                    leagueId: leagueId,
+                    leagueName: leagueName,
+                    homeTeam: fixture.teams.home.name,
+                    awayTeam: fixture.teams.away.name,
+                    homeScore: homeScore,
+                    awayScore: awayScore,
+                    status: fixture.fixture.status.short || (isLive ? "LIVE" : "NS"),
+                    time: isLive ? "LIVE" : (fixture.fixture.date ? new Date(fixture.fixture.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "Scheduled"),
+                    isLive: isLive,
+                    odds: odds
+                };
             });
-
-            // Initial setup
-            resetToEmpty();
             
-            // Check if running from file:// protocol
-            if (window.location.protocol === 'file:') {
-                setStatus('warning', 'file:// protocol detected');
+            // If we got no matches, fallback to mock
+            if (transformed.length === 0) {
+                matches = JSON.parse(JSON.stringify(MOCK_MATCHES));
+                usingMockData = true;
+            } else {
+                matches = transformed;
             }
-        })();
+        }
+
+        window.refreshMatches = function() {
+            fetchLiveMatches();
+        };
+
+        function displayMatches(leagueFilter, marketFilter) {
+            const container = document.getElementById('matchesContainer');
+            let filtered = leagueFilter === 'all' ? matches : matches.filter(m => m.leagueId === leagueFilter);
+            
+            if (marketFilter === 'live') {
+                filtered = filtered.filter(m => m.isLive === true);
+            } else if (marketFilter === 'upcoming') {
+                filtered = filtered.filter(m => !m.isLive && (m.homeScore === null || m.homeScore === undefined));
+            }
+            
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="empty-state"><i class="fas fa-futbol"></i><br>No matches found</div>';
+                return;
+            }
+            
+            container.innerHTML = filtered.map(match => `
+                <div class="match-card">
+                    <div class="match-header">
+                        <span><i class="fas fa-trophy"></i> ${match.leagueName}</span>
+                        <span>${match.isLive ? '<span class="live-badge">🔴 LIVE</span>' : match.time}</span>
+                    </div>
+                    <div class="teams">
+                        <span class="team-name">${escapeHtml(match.homeTeam)}</span>
+                        <span class="score">${(match.homeScore !== null && match.homeScore !== undefined) ? match.homeScore : '-'} : ${(match.awayScore !== null && match.awayScore !== undefined) ? match.awayScore : '-'}</span>
+                        <span class="team-name">${escapeHtml(match.awayTeam)}</span>
+                    </div>
+                    <div class="market-grid">
+                        <div class="market-btn" onclick="addToBetSlip('${match.id}', '1', ${match.odds.home}, 'Home', 'Match Winner')">
+                            <div class="market-name">1 (HOME)</div>
+                            <div class="market-odds">${match.odds.home.toFixed(2)}</div>
+                        </div>
+                        <div class="market-btn" onclick="addToBetSlip('${match.id}', 'X', ${match.odds.draw}, 'Draw', 'Match Winner')">
+                            <div class="market-name">X (DRAW)</div>
+                            <div class="market-odds">${match.odds.draw.toFixed(2)}</div>
+                        </div>
+                        <div class="market-btn" onclick="addToBetSlip('${match.id}', '2', ${match.odds.away}, 'Away', 'Match Winner')">
+                            <div class="market-name">2 (AWAY)</div>
+                            <div class="market-odds">${match.odds.away.toFixed(2)}</div>
+                        </div>
+                        <div class="market-btn" onclick="addToBetSlip('${match.id}', 'Over 2.5', ${match.odds.over25}, 'Over 2.5', 'Total Goals')">
+                            <div class="market-name">OVER 2.5</div>
+                            <div class="market-odds">${match.odds.over25.toFixed(2)}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function escapeHtml(str) {
+            if(!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if(m === '&') return '&amp;';
+                if(m === '<') return '&lt;';
+                if(m === '>') return '&gt;';
+                return m;
+            });
+        }
+
+        function startAutoRefresh() {
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = setInterval(() => {
+                fetchLiveMatches();
+            }, 75000);
+        }
+
+        async function loadBalance() {
+            try {
+                const doc = await db.collection("wallets").doc(currentUser.uid).get();
+                if (doc.exists) {
+                    balance = doc.data().balance || 0;
+                } else {
+                    balance = 100;
+                    await db.collection("wallets").doc(currentUser.uid).set({ balance: 100 });
+                }
+                document.getElementById('balance').textContent = balance.toFixed(2);
+            } catch (error) {
+                console.error('Balance error:', error);
+                balance = 100;
+                document.getElementById('balance').textContent = balance.toFixed(2);
+            }
+        }
+
+        window.addToBetSlip = function(matchId, selection, odds, display, market) {
+            const match = matches.find(m => m.id === matchId);
+            if (!match) return;
+            
+            const bet = {
+                matchId: match.id,
+                matchName: `${match.homeTeam} vs ${match.awayTeam}`,
+                market: market,
+                selection: selection,
+                display: display,
+                odds: odds
+            };
+            
+            if (betType === 'single') {
+                selectedBets = [bet];
+            } else {
+                if (selectedBets.some(b => b.matchId === matchId)) {
+                    showToast('Only one bet per match allowed in ACCA', 'error');
+                    return;
+                }
+                selectedBets.push(bet);
+            }
+            updateBetSlip();
+            showToast(`Added: ${bet.matchName} - ${display} @ ${odds.toFixed(2)}`, 'success');
+        };
+
+        function updateBetSlip() {
+            const container = document.getElementById('betslipItems');
+            const totalOddsSpan = document.getElementById('totalOdds');
+            const potentialSpan = document.getElementById('potentialReturn');
+            const placeBtn = document.getElementById('placeBetBtn');
+            
+            if (selectedBets.length === 0) {
+                container.innerHTML = '<div class="empty-state">➕ Click odds to add bets</div>';
+                totalOddsSpan.textContent = '0.00';
+                potentialSpan.textContent = '$0.00';
+                placeBtn.disabled = true;
+                return;
+            }
+            
+            const totalOdds = selectedBets.reduce((acc, bet) => acc * bet.odds, 1);
+            const betAmount = parseFloat(document.getElementById('betAmount').value) || 10;
+            const potentialReturn = betAmount * totalOdds;
+            
+            totalOddsSpan.textContent = totalOdds.toFixed(2);
+            potentialSpan.textContent = `$${potentialReturn.toFixed(2)}`;
+            placeBtn.disabled = false;
+            
+            container.innerHTML = selectedBets.map((bet, index) => `
+                <div class="betslip-item">
+                    <div class="betslip-item-header">
+                        <span><strong>${escapeHtml(bet.matchName)}</strong></span>
+                        <span class="remove-bet" onclick="removeBet(${index})">✖</span>
+                    </div>
+                    <div>${bet.market} - ${bet.display}</div>
+                    <div style="color: var(--primary); font-weight: bold;">${bet.odds.toFixed(2)}</div>
+                </div>
+            `).join('');
+        }
+
+        window.removeBet = function(index) {
+            selectedBets.splice(index, 1);
+            updateBetSlip();
+        };
+
+        function generateTicketNumber() {
+            const date = new Date();
+            const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+            return `TKT-${date.getFullYear()}${(date.getMonth()+1).toString().padStart(2,'0')}${date.getDate().toString().padStart(2,'0')}-${date.getHours().toString().padStart(2,'0')}${date.getMinutes().toString().padStart(2,'0')}${date.getSeconds().toString().padStart(2,'0')}-${random}`;
+        }
+
+        async function placeBet() {
+            const betAmount = parseFloat(document.getElementById('betAmount').value);
+            if (selectedBets.length === 0) { showToast('No bets selected', 'error'); return; }
+            if (betAmount < 1 || betAmount > 5000) { showToast('Bet amount must be $1-$5000', 'error'); return; }
+            if (betAmount > balance) { showToast('Insufficient funds', 'error'); return; }
+            
+            const totalOdds = selectedBets.reduce((acc, bet) => acc * bet.odds, 1);
+            const ticketNumber = generateTicketNumber();
+            
+            try {
+                const walletRef = db.collection("wallets").doc(currentUser.uid);
+                await db.runTransaction(async (transaction) => {
+                    const doc = await transaction.get(walletRef);
+                    const newBalance = doc.data().balance - betAmount;
+                    if (newBalance < 0) throw new Error('Insufficient funds');
+                    transaction.update(walletRef, { balance: newBalance });
+                });
+                
+                const betData = {
+                    userId: currentUser.uid,
+                    ticketNumber: ticketNumber,
+                    selections: selectedBets,
+                    stake: betAmount,
+                    totalOdds: totalOdds,
+                    potentialReturn: betAmount * totalOdds,
+                    betType: betType,
+                    status: 'pending',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    createdAtDate: new Date().toISOString(),
+                    return: 0
+                };
+                await db.collection("football_bets").doc(ticketNumber).set(betData);
+                balance -= betAmount;
+                document.getElementById('balance').textContent = balance.toFixed(2);
+                selectedBets = [];
+                updateBetSlip();
+                showToast(`✅ Bet placed! Ticket: ${ticketNumber}`, 'success');
+                await loadOpenBets();
+                await loadHistory();
+            } catch (error) {
+                showToast('Failed to place bet: ' + error.message, 'error');
+            }
+        }
+
+        async function loadOpenBets() {
+            try {
+                const snapshot = await db.collection("football_bets").where("userId", "==", currentUser.uid).where("status", "==", "pending").get();
+                const container = document.getElementById('openBetsContainer');
+                if (snapshot.empty) { container.innerHTML = '<div class="empty-state">✨ No open bets</div>'; return; }
+                let html = '';
+                snapshot.forEach(doc => {
+                    const bet = doc.data();
+                    const selectionsText = bet.selections.map(s => `${s.matchName} - ${s.display} @ ${s.odds.toFixed(2)}`).join('<br>');
+                    html += `<div class="bet-card"><div class="bet-card-header"><span>🎫 ${bet.ticketNumber.substring(0,15)}</span><span style="background: var(--secondary); padding:2px 8px; border-radius:20px;">PENDING</span></div>
+                    <div style="font-size:12px; margin:8px 0;">${selectionsText}</div>
+                    <div style="display:flex; justify-content:space-between;"><span>Stake: $${bet.stake.toFixed(2)}</span><span>To Win: $${(bet.stake*bet.totalOdds).toFixed(2)}</span>
+                    <button class="cashout-btn" onclick="cashOut('${bet.ticketNumber}', ${bet.stake})">💸 CASH OUT (70%)</button></div></div>`;
+                });
+                container.innerHTML = html;
+            } catch(e) { console.error(e); }
+        }
+
+        window.cashOut = async function(ticketNumber, stake) {
+            const cashoutValue = stake * 0.7;
+            if (!confirm(`Cash out for $${cashoutValue.toFixed(2)}?`)) return;
+            try {
+                const walletRef = db.collection("wallets").doc(currentUser.uid);
+                await db.runTransaction(async (transaction) => {
+                    const doc = await transaction.get(walletRef);
+                    transaction.update(walletRef, { balance: doc.data().balance + cashoutValue });
+                });
+                await db.collection("football_bets").doc(ticketNumber).update({ status: 'cashed_out', return: cashoutValue, cashedOutAt: new Date().toISOString() });
+                balance += cashoutValue;
+                document.getElementById('balance').textContent = balance.toFixed(2);
+                await loadOpenBets();
+                await loadHistory();
+                showToast(`💰 Cashed out $${cashoutValue.toFixed(2)}`, 'success');
+            } catch(e) { showToast('Cashout failed', 'error'); }
+        };
+
+        async function loadHistory() {
+            try {
+                const snapshot = await db.collection("football_bets").where("userId", "==", currentUser.uid).where("status", "in", ["won", "lost", "cashed_out"]).get();
+                const container = document.getElementById('historyContainer');
+                if (snapshot.empty) { container.innerHTML = '<div class="empty-state">📜 No betting history</div>'; return; }
+                let html = '';
+                snapshot.forEach(doc => {
+                    const bet = doc.data();
+                    const returnAmount = bet.return || (bet.status === 'won' ? bet.stake * bet.totalOdds : 0);
+                    const borderColor = bet.status === 'won' ? 'var(--success)' : bet.status === 'lost' ? 'var(--danger)' : 'var(--warning)';
+                    html += `<div class="bet-card" style="border-left-color:${borderColor}"><div class="bet-card-header"><span>🎫 ${bet.ticketNumber.substring(0,15)}</span><span>${bet.status.toUpperCase()}</span></div>
+                    <div>${bet.selections.length} selections @ ${bet.totalOdds.toFixed(2)}</div><div>Stake: $${bet.stake.toFixed(2)} | ${bet.status === 'won' ? '+' : ''}$${returnAmount.toFixed(2)}</div></div>`;
+                });
+                container.innerHTML = html;
+            } catch(e) { console.error(e); }
+        }
+
+        function setupListeners() {
+            if (currentUser) {
+                db.collection("wallets").doc(currentUser.uid).onSnapshot((doc) => { if(doc.exists){ balance = doc.data().balance; document.getElementById('balance').textContent = balance.toFixed(2); } });
+                db.collection("football_bets").where("userId", "==", currentUser.uid).onSnapshot(() => { loadOpenBets(); loadHistory(); });
+            }
+        }
+
+        function showToast(message, type) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.borderLeftColor = type === 'success' ? 'var(--success)' : type === 'error' ? 'var(--danger)' : 'var(--warning)';
+            toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-triangle' : 'fa-info-circle'}"></i> ${message}`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                const page = item.dataset.page;
+                if (page === 'bets') {
+                    document.getElementById('openBetsContainer').scrollIntoView({ behavior: 'smooth' });
+                } else if (page === 'home') {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+                document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+                item.classList.add('active');
+            });
+        });
+
+        // Event Listeners
+        document.getElementById('placeBetBtn').addEventListener('click', placeBet);
+        document.getElementById('clearSlip').addEventListener('click', () => { selectedBets = []; updateBetSlip(); });
+        document.getElementById('betAmount').addEventListener('input', updateBetSlip);
+        document.querySelectorAll('.betslip-tab').forEach(btn => btn.addEventListener('click', () => {
+            document.querySelectorAll('.betslip-tab').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            betType = btn.dataset.type;
+            selectedBets = [];
+            updateBetSlip();
+        }));
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            currentMarket = btn.dataset.market;
+            displayMatches(currentLeague, currentMarket);
+        }));
+        document.querySelectorAll('.league-btn').forEach(btn => btn.addEventListener('click', () => {
+            document.querySelectorAll('.league-btn').forEach(l => l.classList.remove('active'));
+            btn.classList.add('active');
+            currentLeague = btn.dataset.league;
+            displayMatches(currentLeague, currentMarket);
+        }));
     </script>
 </body>
 </html>
