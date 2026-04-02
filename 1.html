@@ -1,138 +1,153 @@
 <!DOCTYPE html>
-
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Simple Betting Demo</title>
-  <style>
-    body {
-      font-family: Arial;
-      background: #0f172a;
-      color: white;
-      padding: 20px;
-    }
-    .match {
-      background: #1e293b;
-      padding: 15px;
-      margin-bottom: 10px;
-      border-radius: 10px;
-    }
-    button {
-      margin: 5px;
-      padding: 8px 12px;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    .home { background: #22c55e; }
-    .away { background: #ef4444; }
-    .draw { background: #eab308; }
-    pre {
-      background: black;
-      padding: 10px;
-      overflow-x: auto;
-      max-height: 300px;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>LIVE MATCHES (INPLAY)</title>
+
+<style>
+body {
+    background:#0f172a;
+    color:white;
+    font-family:Arial;
+    padding:20px;
+}
+
+h1 {
+    text-align:center;
+    margin-bottom:20px;
+}
+
+.container {
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+    gap:15px;
+}
+
+.card {
+    background:#020617;
+    padding:15px;
+    border-radius:10px;
+    box-shadow:0 0 10px rgba(0,0,0,0.5);
+}
+
+.league {
+    font-size:12px;
+    color:#94a3b8;
+}
+
+.teams {
+    font-size:18px;
+    margin:10px 0;
+}
+
+.score {
+    font-size:24px;
+    color:#22c55e;
+    font-weight:bold;
+}
+
+.status {
+    font-size:12px;
+    color:#facc15;
+}
+
+.odds {
+    display:flex;
+    justify-content:space-between;
+    margin-top:10px;
+}
+
+.odd {
+    background:#1e293b;
+    padding:5px 10px;
+    border-radius:5px;
+}
+</style>
+
 </head>
+
 <body>
 
-<h1>⚽ Betting Demo (SportMonks API)</h1>
+<h1>⚽ LIVE IN-PLAY MATCHES</h1>
 
-<h2>Matches</h2>
-<div id="matches">Loading...</div>
-
-<h2>Your Bets</h2>
-<div id="bets"></div>
-
-<h2>Raw API Data</h2>
-<pre id="raw"></pre>
+<div class="container" id="matches"></div>
 
 <script>
-const API_TOKEN = "YOUR_API_TOKEN";
 
-// Fetch matches
-async function loadMatches() {
-  const url = `https://api.sportmonks.com/v3/football/fixtures?api_token=${API_TOKEN}`;
+const API_TOKEN = "YOUR_TOKEN"; // 🔴 PUT YOUR REAL TOKEN
 
-  try {
-    const res = await fetch(url);
-    const data = await res.json();
+async function loadLiveMatches() {
 
-    document.getElementById("raw").textContent =
-      JSON.stringify(data, null, 2);
+    const url = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${API_TOKEN}&include=participants;scores;league;state;odds`;
 
-    const matchesDiv = document.getElementById("matches");
-    matchesDiv.innerHTML = "";
+    try {
+        const res = await fetch(url);
+        const json = await res.json();
 
-    data.data.slice(0, 10).forEach(match => {
-      const div = document.createElement("div");
-      div.className = "match";
+        const container = document.getElementById("matches");
+        container.innerHTML = "";
 
-      div.innerHTML = `
-        <h3>${match.name || "Match"}</h3>
-        <p>ID: ${match.id}</p>
+        json.data.forEach(match => {
 
-        <button class="home" onclick="placeBet('${match.id}', 'Home')">Home</button>
-        <button class="draw" onclick="placeBet('${match.id}', 'Draw')">Draw</button>
-        <button class="away" onclick="placeBet('${match.id}', 'Away')">Away</button>
-      `;
+            // Teams
+            const home = match.participants?.find(t => t.meta.location === "home")?.name || "Home";
+            const away = match.participants?.find(t => t.meta.location === "away")?.name || "Away";
 
-      matchesDiv.appendChild(div);
-    });
+            // Score
+            const homeScore = match.scores?.find(s => s.description === "CURRENT" && s.participant === "home")?.score || 0;
+            const awayScore = match.scores?.find(s => s.description === "CURRENT" && s.participant === "away")?.score || 0;
 
-  } catch (err) {
-    document.getElementById("matches").innerHTML =
-      "Error loading API. Check console.";
-    console.error(err);
-  }
+            // League
+            const league = match.league?.name || "League";
+
+            // Status
+            const status = match.state?.name || "LIVE";
+
+            // Odds (simple example)
+            let oddsHtml = "";
+            if(match.odds && match.odds.length > 0){
+                const o = match.odds.slice(0,3); // first 3 odds
+                oddsHtml = `
+                    <div class="odds">
+                        ${o.map(x => `<div class="odd">${x.value}</div>`).join("")}
+                    </div>
+                `;
+            }
+
+            const card = `
+                <div class="card">
+                    <div class="league">${league}</div>
+
+                    <div class="teams">
+                        ${home} vs ${away}
+                    </div>
+
+                    <div class="score">
+                        ${homeScore} - ${awayScore}
+                    </div>
+
+                    <div class="status">
+                        ${status}
+                    </div>
+
+                    ${oddsHtml}
+                </div>
+            `;
+
+            container.innerHTML += card;
+        });
+
+    } catch (err) {
+        console.log(err);
+    }
 }
 
-// Save bet
-function placeBet(matchId, choice) {
-  const bet = {
-    matchId,
-    choice,
-    amount: 10,
-    odds: (Math.random() * 2 + 1).toFixed(2)
-  };
+// load first time
+loadLiveMatches();
 
-  let bets = JSON.parse(localStorage.getItem("bets")) || [];
-  bets.push(bet);
+// auto refresh every 5 sec
+setInterval(loadLiveMatches, 5000);
 
-  localStorage.setItem("bets", JSON.stringify(bets));
-
-  renderBets();
-}
-
-// Show bets
-function renderBets() {
-  const bets = JSON.parse(localStorage.getItem("bets")) || [];
-  const betsDiv = document.getElementById("bets");
-
-  betsDiv.innerHTML = "";
-
-  bets.forEach(bet => {
-    const win = (bet.amount * bet.odds).toFixed(2);
-
-    const div = document.createElement("div");
-    div.className = "match";
-
-    div.innerHTML = `
-      <p>Match: ${bet.matchId}</p>
-      <p>Choice: ${bet.choice}</p>
-      <p>Odds: ${bet.odds}</p>
-      <p>Bet: $${bet.amount}</p>
-      <p>Win: $${win}</p>
-    `;
-
-    betsDiv.appendChild(div);
-  });
-}
-
-// Init
-loadMatches();
-renderBets();
 </script>
 
 </body>
