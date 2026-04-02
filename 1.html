@@ -51,7 +51,6 @@
             position: sticky;
             top: 0;
             z-index: 100;
-            backdrop-filter: blur(10px);
         }
 
         .logo {
@@ -164,6 +163,23 @@
             color: #000;
         }
 
+        .date-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .date-input {
+            background: var(--surface-light);
+            border: 1px solid var(--border);
+            border-radius: 30px;
+            padding: 8px 16px;
+            color: var(--text);
+            font-size: 14px;
+        }
+
         .matches-grid {
             display: flex;
             flex-direction: column;
@@ -178,7 +194,6 @@
             padding: 16px;
             border: 1px solid var(--border);
             transition: all 0.3s;
-            cursor: pointer;
         }
 
         .match-card:hover {
@@ -205,12 +220,28 @@
         .team-name {
             font-weight: 700;
             font-size: 15px;
+            flex: 1;
+        }
+
+        .team-name:first-child {
+            text-align: left;
+        }
+
+        .team-name:last-child {
+            text-align: right;
         }
 
         .score {
             font-size: 20px;
             font-weight: 800;
             color: var(--primary);
+            margin: 0 16px;
+        }
+
+        .vs-badge {
+            font-size: 14px;
+            color: var(--text-dim);
+            margin: 0 16px;
         }
 
         .live-badge {
@@ -241,26 +272,6 @@
             text-align: center;
             cursor: pointer;
             transition: all 0.2s;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .market-btn::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            background: rgba(0, 255, 157, 0.3);
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            transition: width 0.3s, height 0.3s;
-        }
-
-        .market-btn:hover::before {
-            width: 100%;
-            height: 100%;
         }
 
         .market-btn:hover {
@@ -291,7 +302,6 @@
             border: 2px solid var(--primary);
             position: sticky;
             top: 80px;
-            box-shadow: 0 4px 20px rgba(0, 255, 157, 0.1);
         }
 
         .betslip-tabs {
@@ -468,7 +478,6 @@
             justify-content: space-around;
             padding: 10px 16px;
             border-top: 2px solid var(--primary);
-            backdrop-filter: blur(10px);
             z-index: 100;
         }
 
@@ -622,16 +631,23 @@
                     <button class="tab-btn" data-market="live">🔴 Live Now</button>
                     <button class="tab-btn" data-market="upcoming">📅 Upcoming</button>
                 </div>
+                <div class="date-selector">
+                    <label style="color: var(--text-dim);">Select Date:</label>
+                    <input type="date" id="matchDate" class="date-input" value="2026-06-15">
+                    <button class="refresh-btn" onclick="fetchFixturesByDate()">
+                        <i class="fas fa-calendar-day"></i> Load
+                    </button>
+                </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                     <div class="league-filter" id="leagueFilter">
                         <button class="league-btn active" data-league="all">🌍 ALL</button>
-                        <button class="league-btn" data-league="39">🏴 PREMIER</button>
-                        <button class="league-btn" data-league="140">🇪🇸 LA LIGA</button>
-                        <button class="league-btn" data-league="78">🇩🇪 BUNDES</button>
-                        <button class="league-btn" data-league="135">🇮🇹 SERIE A</button>
-                        <button class="league-btn" data-league="61">🇫🇷 LIGUE 1</button>
+                        <button class="league-btn" data-league="1">🏆 World Cup</button>
+                        <button class="league-btn" data-league="2">🏴 PREMIER</button>
+                        <button class="league-btn" data-league="3">🇪🇸 LA LIGA</button>
+                        <button class="league-btn" data-league="4">🇩🇪 BUNDES</button>
+                        <button class="league-btn" data-league="5">🇮🇹 SERIE A</button>
                     </div>
-                    <button class="refresh-btn" onclick="fetchLiveMatches()">
+                    <button class="refresh-btn" onclick="fetchFixturesByDate()">
                         <i class="fas fa-sync-alt"></i> Refresh
                     </button>
                 </div>
@@ -760,7 +776,7 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // API Configuration - Sportmonks API
+        // API Configuration - Sportmonks API (CORRECT ENDPOINTS)
         const SPORTMONKS_TOKEN = 'DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy';
         const SPORTMONKS_URL = 'https://api.sportmonks.com/v3/football';
 
@@ -780,7 +796,7 @@
                 currentUser = user;
                 console.log('✅ User logged in:', user.uid);
                 await loadBalance();
-                await fetchLiveMatches();
+                await fetchFixturesByDate();
                 await loadOpenBets();
                 await loadHistory();
                 setupRealtimeListeners();
@@ -794,14 +810,23 @@
             }
         });
 
-        // Fetch Live Matches from Sportmonks API
-        async function fetchLiveMatches() {
+        // Fetch Fixtures by Date - CORRECT ENDPOINT
+        async function fetchFixturesByDate() {
             const container = document.getElementById('matchesContainer');
             container.innerHTML = '<div class="loading-spinner"></div>';
             
+            const selectedDate = document.getElementById('matchDate').value;
+            if (!selectedDate) {
+                container.innerHTML = '<div class="empty-state">Please select a date</div>';
+                return;
+            }
+            
             try {
-                // Fetch livescores endpoint
-                const response = await fetch(`${SPORTMONKS_URL}/livescores?api_token=${SPORTMONKS_TOKEN}&include=league,participants,scores`);
+                // CORRECT ENDPOINT: fixtures by date with participants and scores
+                const url = `${SPORTMONKS_URL}/fixtures/date/${selectedDate}?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;league`;
+                console.log('Fetching:', url);
+                
+                const response = await fetch(url);
                 
                 if (!response.ok) {
                     throw new Error(`API Error: ${response.status}`);
@@ -811,38 +836,40 @@
                 console.log('Sportmonks API Response:', data);
                 
                 if (!data.data || data.data.length === 0) {
-                    container.innerHTML = '<div class="empty-state"><i class="fas fa-futbol"></i><br>No live matches at the moment</div>';
-                    document.getElementById('lastUpdate').textContent = `Last update: ${new Date().toLocaleTimeString()} - No live matches`;
+                    container.innerHTML = `<div class="empty-state"><i class="fas fa-calendar-day"></i><br>No matches found for ${selectedDate}<br><small>Try another date (e.g., 2026-06-15 for World Cup)</small></div>`;
+                    document.getElementById('lastUpdate').textContent = `No matches on ${selectedDate}`;
                     return;
                 }
                 
                 // Process matches
-                matches = data.data.map(match => {
-                    const participants = match.participants || [];
+                matches = data.data.map(fixture => {
+                    const participants = fixture.participants || [];
                     const homeTeam = participants.find(p => p.meta?.location === 'home')?.name || 'Home Team';
                     const awayTeam = participants.find(p => p.meta?.location === 'away')?.name || 'Away Team';
                     
-                    const scores = match.scores || [];
+                    const scores = fixture.scores || [];
                     const homeScore = scores.find(s => s.description === 'CURRENT' && s.participant_id === participants[0]?.id)?.score?.goals || '-';
                     const awayScore = scores.find(s => s.description === 'CURRENT' && s.participant_id === participants[1]?.id)?.score?.goals || '-';
                     
-                    // Generate realistic odds based on match state
-                    const isLive = match.state_id === 2 || match.state_id === 3;
-                    const homeOdds = isLive ? (Math.random() * 1.5 + 1.5).toFixed(2) : (Math.random() * 1 + 2).toFixed(2);
+                    // Determine if match is live (has started but not finished)
+                    const isLive = fixture.state_id === 2 || fixture.state_id === 3;
+                    
+                    // Generate realistic odds (in real app, these come from odds endpoint)
+                    const homeOdds = (Math.random() * 1.5 + 1.8).toFixed(2);
                     const drawOdds = (Math.random() * 1 + 2.5).toFixed(2);
-                    const awayOdds = isLive ? (Math.random() * 1.5 + 2).toFixed(2) : (Math.random() * 1 + 2.5).toFixed(2);
+                    const awayOdds = (Math.random() * 1.5 + 2.2).toFixed(2);
                     
                     return {
-                        id: match.id.toString(),
-                        leagueId: match.league_id?.toString() || 'unknown',
-                        leagueName: match.league?.name || 'Football',
+                        id: fixture.id.toString(),
+                        leagueId: fixture.league_id?.toString() || 'unknown',
+                        leagueName: fixture.league?.name || 'Football',
                         homeTeam: homeTeam,
                         awayTeam: awayTeam,
                         homeScore: homeScore,
                         awayScore: awayScore,
-                        status: match.state?.name || 'LIVE',
+                        status: fixture.state?.name || (isLive ? 'LIVE' : 'Scheduled'),
                         isLive: isLive,
-                        startingAt: match.starting_at,
+                        startingAt: fixture.starting_at,
                         odds: {
                             home: parseFloat(homeOdds),
                             draw: parseFloat(drawOdds),
@@ -853,7 +880,7 @@
                     };
                 });
                 
-                document.getElementById('lastUpdate').textContent = `Last update: ${new Date().toLocaleTimeString()} - ${matches.length} matches`;
+                document.getElementById('lastUpdate').textContent = `Updated: ${new Date().toLocaleTimeString()} - ${matches.length} matches on ${selectedDate}`;
                 displayMatches(currentLeague, currentMarket);
                 
             } catch (error) {
@@ -863,10 +890,11 @@
                         <i class="fas fa-exclamation-triangle"></i>
                         <h3>API Connection Error</h3>
                         <p>${error.message}</p>
-                        <button onclick="fetchLiveMatches()" class="refresh-btn" style="margin-top: 10px;">Retry</button>
+                        <p style="font-size: 12px; margin-top: 8px;">Try: <strong>2026-06-15</strong> (World Cup) or <strong>2026-04-02</strong></p>
+                        <button onclick="fetchFixturesByDate()" class="refresh-btn" style="margin-top: 10px;">Retry</button>
                     </div>
                 `;
-                showToast('Failed to fetch live matches. Please retry.', 'error');
+                showToast('Failed to fetch matches. Please retry.', 'error');
             }
         }
 
@@ -921,8 +949,8 @@
         function startAutoRefresh() {
             if (autoRefreshInterval) clearInterval(autoRefreshInterval);
             autoRefreshInterval = setInterval(() => {
-                fetchLiveMatches();
-            }, 30000);
+                fetchFixturesByDate();
+            }, 60000);
         }
 
         async function loadBalance() {
@@ -1209,7 +1237,6 @@
         }
 
         function setupRealtimeListeners() {
-            // Real-time wallet updates
             db.collection("wallets").doc(currentUser.uid).onSnapshot((doc) => {
                 if (doc.exists) {
                     balance = doc.data().balance;
@@ -1217,7 +1244,6 @@
                 }
             });
             
-            // Real-time bet updates
             db.collection("football_bets")
                 .where("userId", "==", currentUser.uid)
                 .onSnapshot(() => {
@@ -1226,7 +1252,6 @@
                 });
         }
 
-        // Deposit Functions
         function openDepositModal() {
             document.getElementById('depositModal').style.display = 'flex';
         }
@@ -1323,7 +1348,6 @@
             });
         });
 
-        // Close modal when clicking outside
         window.onclick = function(event) {
             const modal = document.getElementById('depositModal');
             if (event.target === modal) {
