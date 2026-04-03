@@ -1,1 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>XLODON - LIVE Sports Betting | Real-Time Odds</title>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #0f172a 50%, #1e293b 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+
+        .header {
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(12px);
+            padding: 1rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(255,215,0,0.2);
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #ffd700, #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .balance-card {
+            background: linear-gradient(135deg, rgba(255,215,0,0.2), rgba(255,107,107,0.2));
+            padding: 0.6rem 1.5rem;
+            border-radius: 50px;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            border: 1px solid rgba(255,215,0,0.3);
+        }
+
+        .balance-amount {
+            font-size: 1.6rem;
+            font-weight: bold;
+            color: #ffd700;
+        }
+
+        .add-funds-btn {
+            background: #ffd700;
+            border: none;
+            padding: 0.5rem 1.2rem;
+            border-radius: 50px;
+            color: #0a0a1a;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .stats-bar {
+            max-width: 1400px;
+            margin: 1rem auto;
+            padding: 0 1rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-card {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(8px);
+            padding: 0.8rem;
+            border-radius: 16px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .stat-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #ffd700;
+        }
+
+        .filters {
+            max-width: 1400px;
+            margin: 1rem auto;
+            padding: 0 1rem;
+            display: flex;
+            gap: 0.8rem;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 0.6rem 1.3rem;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 40px;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+        }
+
+        .filter-btn.active {
+            background: linear-gradient(135deg, #ffd700, #ff6b6b);
+            color: #0a0a1a;
+            border-color: transparent;
+        }
+
+        .main-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+
+        .fixtures-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .fixture-card {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(12px);
+            border-radius: 24px;
+            padding: 1.2rem;
+            transition: 0.2s;
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .fixture-card:hover {
+            transform: translateY(-3px);
+            background: rgba(255,255,255,0.09);
+        }
+
+        .fixture-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.8rem;
+            font-size: 0.8rem;
+        }
+
+        .league-name {
+            background: rgba(255,215,0,0.2);
+            padding: 0.2rem 0.8rem;
+            border-radius: 20px;
+        }
+
+        .fixture-status {
+            padding: 0.2rem 0.7rem;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: bold;
+        }
+
+        .status-inplay { background: #ff4757; animation: pulse 1s infinite; }
+        .status-scheduled { background: #ffa502; }
+        .status-finished { background: #2ed573; }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } }
+
+        .fixture-teams {
+            text-align: center;
+            margin: 1rem 0;
+        }
+
+        .team {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin: 0.4rem 0;
+        }
+
+        .score {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #ffd700;
+        }
+
+        .odds-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.7rem;
+            margin-top: 1rem;
+        }
+
+        .odd-btn {
+            background: rgba(255,255,255,0.1);
+            border-radius: 14px;
+            padding: 0.7rem;
+            cursor: pointer;
+            text-align: center;
+            transition: 0.2s;
+        }
+
+        .odd-btn:hover {
+            background: #ffd700;
+            color: #0a0a1a;
+            transform: scale(1.02);
+        }
+
+        .odd-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .bet-slip-toggle {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            background: linear-gradient(135deg, #ffd700, #ff6b6b);
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 200;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.4);
+        }
+
+        .bet-count {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ff4757;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+        }
+
+        .bet-slip {
+            position: fixed;
+            right: 0;
+            top: 0;
+            width: 400px;
+            height: 100vh;
+            background: rgba(10,10,26,0.98);
+            backdrop-filter: blur(20px);
+            transform: translateX(100%);
+            transition: transform 0.3s;
+            z-index: 1000;
+            padding: 1rem;
+            overflow-y: auto;
+            border-left: 1px solid rgba(255,215,0,0.3);
+        }
+
+        .bet-slip.open {
+            transform: translateX(0);
+        }
+
+        .bet-item {
+            background: rgba(255,255,255,0.08);
+            padding: 1rem;
+            border-radius: 16px;
+            margin-bottom: 1rem;
+        }
+
+        .stake-input {
+            width: 100%;
+            padding: 0.6rem;
+            margin: 0.5rem 0;
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,215,0,0.4);
+            border-radius: 12px;
+            color: #fff;
+        }
+
+        .place-bet-btn {
+            width: 100%;
+            padding: 0.9rem;
+            background: linear-gradient(135deg, #ffd700, #ff6b6b);
+            border: none;
+            border-radius: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: #0f172a;
+            border-left: 4px solid #ffd700;
+            padding: 0.8rem 1.5rem;
+            border-radius: 12px;
+            z-index: 2000;
+            animation: slideInLeft 0.3s;
+        }
+
+        @keyframes slideInLeft {
+            from { transform: translateX(-100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .loader {
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top: 3px solid #ffd700;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 2rem auto;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        @media (max-width: 768px) {
+            .fixtures-grid { grid-template-columns: 1fr; }
+            .bet-slip { width: 100%; }
+            .balance-amount { font-size: 1.2rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-content">
+        <div class="logo">⚽ XLODON <span style="font-size:0.7rem;">LIVE BETTING</span></div>
+        <div class="balance-card">
+            <span>💰 Wallet</span>
+            <span class="balance-amount" id="balanceAmount">£0</span>
+            <button class="add-funds-btn" onclick="showAddFundsModal()">+ Add Funds</button>
+        </div>
+    </div>
+</div>
+
+<div class="stats-bar">
+    <div class="stat-card"><div class="stat-label">Today's Bets</div><div class="stat-value" id="todayBetsCount">0</div></div>
+    <div class="stat-card"><div class="stat-label">Today's Stake</div><div class="stat-value" id="todayStake">£0</div></div>
+    <div class="stat-card"><div class="stat-label">Active Bets</div><div class="stat-value" id="activeBetsCount">0</div></div>
+    <div class="stat-card"><div class="stat-label">Profit/Loss</div><div class="stat-value" id="profitLoss">£0</div></div>
+</div>
+
+<div class="filters">
+    <button class="filter-btn active" onclick="filterFixtures('all', this)">🏆 All Matches</button>
+    <button class="filter-btn" onclick="filterFixtures('inplay', this)">🔴 Live Now</button>
+    <button class="filter-btn" onclick="filterFixtures('today', this)">📅 Today</button>
+    <button class="filter-btn" onclick="filterFixtures('premier', this)">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League</button>
+    <button class="filter-btn" onclick="filterFixtures('laliga', this)">🇪🇸 La Liga</button>
+    <button class="filter-btn" onclick="filterFixtures('seriea', this)">🇮🇹 Serie A</button>
+</div>
+
+<div class="main-container">
+    <div id="fixturesGrid"><div class="loader"></div></div>
+</div>
+
+<div class="bet-slip-toggle" onclick="toggleBetSlip()">🎫<div class="bet-count" id="betCount">0</div></div>
+<div id="betSlip" class="bet-slip"><div class="bet-slip-header"><h3>📋 Bet Slip</h3><button class="close-slip" onclick="toggleBetSlip()">✕</button></div><div id="betSlipContent"><div class="empty-state">No selections</div></div></div>
+
+<script>
+    // ------------------- FIREBASE INIT -------------------
+    const firebaseConfig = {
+        apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+        authDomain: "x-bet-prod-jd.firebaseapp.com",
+        projectId: "x-bet-prod-jd",
+        storageBucket: "x-bet-prod-jd.firebasestorage.app",
+        messagingSenderId: "499334334535",
+        appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+        measurementId: "G-PTV4XMYQ6P"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    // ------------------- GLOBALS -------------------
+    const SPORTMONKS_TOKEN = "DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy";
+    let userBalance = 0;
+    let betSlipItems = [];      // { fixtureId, fixtureName, selection, odds, stake }
+    let currentFilter = 'all';
+    let fixturesMap = new Map(); // id -> fixture object
+    let liveUpdateInterval = null;
+    let currentUserId = null;
+    let userDocRef = null;
+
+    // Stats
+    let todayStats = { betsCount: 0, totalStake: 0, date: new Date().toISOString().split('T')[0] };
+    let betHistory = []; // stored in firestore
+
+    // Helper: show toast
+    function showToast(msg, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.innerText = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    // Update UI balance
+    function updateBalanceUI() {
+        document.getElementById('balanceAmount').innerHTML = `£${userBalance.toFixed(2)}`;
+    }
+
+    // Fetch user data from firestore (anonymous auth)
+    async function initUser() {
+        await auth.signInAnonymously();
+        currentUserId = auth.currentUser.uid;
+        userDocRef = db.collection('users').doc(currentUserId);
+        const doc = await userDocRef.get();
+        if (!doc.exists) {
+            await userDocRef.set({ balance: 1000, betHistory: [], todayStats: { betsCount: 0, totalStake: 0, date: new Date().toISOString().split('T')[0] } });
+            userBalance = 1000;
+            todayStats = { betsCount: 0, totalStake: 0, date: new Date().toISOString().split('T')[0] };
+            betHistory = [];
+        } else {
+            const data = doc.data();
+            userBalance = data.balance || 1000;
+            betHistory = data.betHistory || [];
+            const storedStats = data.todayStats || {};
+            const todayDate = new Date().toISOString().split('T')[0];
+            if (storedStats.date === todayDate) todayStats = storedStats;
+            else todayStats = { betsCount: 0, totalStake: 0, date: todayDate };
+        }
+        updateBalanceUI();
+        updateStatsUI();
+        saveUserToFirestore();
+    }
+
+    async function saveUserToFirestore() {
+        if (userDocRef) {
+            await userDocRef.set({ balance: userBalance, betHistory, todayStats }, { merge: true });
+        }
+    }
+
+    function updateStatsUI() {
+        document.getElementById('todayBetsCount').innerText = todayStats.betsCount;
+        document.getElementById('todayStake').innerHTML = `£${todayStats.totalStake.toFixed(2)}`;
+        const activeCount = betHistory.filter(b => b.status === 'active').length;
+        document.getElementById('activeBetsCount').innerText = activeCount;
+        const totalPL = betHistory.reduce((sum, b) => {
+            if (b.status === 'won') return sum + (b.potentialWin - b.stake);
+            if (b.status === 'lost') return sum - b.stake;
+            return sum;
+        }, 0);
+        document.getElementById('profitLoss').innerHTML = `${totalPL >= 0 ? '+' : ''}£${totalPL.toFixed(2)}`;
+        document.getElementById('profitLoss').style.color = totalPL >= 0 ? '#2ed573' : '#ff4757';
+    }
+
+    // ---------- SPORTMONKS FETCH (live fixtures + odds) ----------
+    async function fetchLiveFixtures() {
+        try {
+            // 1) Get latest fixtures (updated last 10 sec) includes participants, scores, odds
+            const url = `https://api.sportmonks.com/v3/football/fixtures/latest?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;odds;league`;
+            const resp = await fetch(url);
+            const json = await resp.json();
+            let latestFixtures = json.data || [];
+            
+            // 2) Also fetch today's fixtures to ensure we have all scheduled matches (fallback for new day)
+            const todayDate = new Date().toISOString().split('T')[0];
+            const todayUrl = `https://api.sportmonks.com/v3/football/fixtures/date/${todayDate}?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;odds;league`;
+            const todayResp = await fetch(todayUrl);
+            const todayJson = await todayResp.json();
+            const todayFixtures = todayJson.data || [];
+            
+            // Merge: latest overrides scores/state/odds
+            const mergedMap = new Map();
+            for (const fix of todayFixtures) mergedMap.set(fix.id, fix);
+            for (const fix of latestFixtures) mergedMap.set(fix.id, fix);
+            
+            const allFixtures = Array.from(mergedMap.values());
+            
+            // Transform to UI format
+            const formatted = allFixtures.map(f => {
+                const participants = f.participants || [];
+                const home = participants.find(p => p.meta?.location === 'home') || participants[0];
+                const away = participants.find(p => p.meta?.location === 'away') || participants[1];
+                let scoresArr = f.scores || [];
+                let homeScore = scoresArr.find(s => s.type === 'home')?.score ?? (f.score?.home ?? 0);
+                let awayScore = scoresArr.find(s => s.type === 'away')?.score ?? (f.score?.away ?? 0);
+                let state = f.state?.toLowerCase() || 'scheduled';
+                if (f.time?.status === 'inplay') state = 'inplay';
+                if (f.time?.status === 'finished') state = 'finished';
+                
+                // Extract odds: pre-match or inplay odds (main market 1X2)
+                let oddsList = [{ label: "Home", value: 2.0, type: "home" }, { label: "Draw", value: 3.2, type: "draw" }, { label: "Away", value: 2.8, type: "away" }];
+                if (f.odds && f.odds.length) {
+                    const oddData = f.odds.find(o => o.market?.name === "Match Winner" || o.market?.id === 1);
+                    if (oddData && oddData.odds) {
+                        const homeOdd = oddData.odds.find(o => o.label === "Home" || o.label === "1");
+                        const drawOdd = oddData.odds.find(o => o.label === "Draw" || o.label === "X");
+                        const awayOdd = oddData.odds.find(o => o.label === "Away" || o.label === "2");
+                        if (homeOdd) oddsList[0].value = parseFloat(homeOdd.value);
+                        if (drawOdd) oddsList[1].value = parseFloat(drawOdd.value);
+                        if (awayOdd) oddsList[2].value = parseFloat(awayOdd.value);
+                    }
+                }
+                
+                return {
+                    id: f.id,
+                    league: { name: f.league?.name || "Football", country: f.league?.country?.name || "" },
+                    participants: [{ name: home?.name || "Home" }, { name: away?.name || "Away" }],
+                    starting_at: f.starting_at || new Date().toISOString(),
+                    state: state,
+                    scores: [{ type: "home", score: homeScore }, { type: "away", score: awayScore }],
+                    odds: oddsList,
+                    time: { starting_at: { time: new Date(f.starting_at).toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' }) } }
+                };
+            });
+            
+            // Update map & re-render
+            for (const f of formatted) fixturesMap.set(f.id, f);
+            renderFixtures();
+        } catch (err) {
+            console.error("API fetch error", err);
+            // fallback demo only if absolutely empty
+            if (fixturesMap.size === 0) loadDemoFallback();
+            renderFixtures();
+        }
+    }
+    
+    function loadDemoFallback() {
+        const demo = [
+            { id: 9991, league: { name: "Premier League" }, participants: [{ name: "Arsenal" }, { name: "Chelsea" }], state: "inplay", scores: [{type:"home",score:1},{type:"away",score:0}], odds: [{label:"Home",value:2.1},{label:"Draw",value:3.4},{label:"Away",value:3.2}] },
+            { id: 9992, league: { name: "La Liga" }, participants: [{ name: "Barcelona" }, { name: "Real Madrid" }], state: "scheduled", scores: [], odds: [{label:"Home",value:2.5},{label:"Draw",value:3.3},{label:"Away",value:2.7}] }
+        ];
+        for (const d of demo) fixturesMap.set(d.id, d);
+    }
+    
+    function renderFixtures() {
+        let filtered = Array.from(fixturesMap.values());
+        const now = new Date().toISOString().split('T')[0];
+        if (currentFilter === 'inplay') filtered = filtered.filter(f => f.state === 'inplay');
+        else if (currentFilter === 'today') filtered = filtered.filter(f => f.starting_at?.split('T')[0] === now);
+        else if (currentFilter === 'premier') filtered = filtered.filter(f => f.league.name === 'Premier League');
+        else if (currentFilter === 'laliga') filtered = filtered.filter(f => f.league.name === 'La Liga');
+        else if (currentFilter === 'seriea') filtered = filtered.filter(f => f.league.name === 'Serie A');
+        
+        if (filtered.length === 0) {
+            document.getElementById('fixturesGrid').innerHTML = '<div class="empty-state">No matches for this filter</div>';
+            return;
+        }
+        
+        const html = `<div class="fixtures-grid">${filtered.map(f => {
+            const homeScore = f.scores?.find(s=>s.type==='home')?.score || 0;
+            const awayScore = f.scores?.find(s=>s.type==='away')?.score || 0;
+            const hasScore = f.state === 'inplay' || f.state === 'finished';
+            const statusClass = f.state === 'inplay' ? 'status-inplay' : (f.state === 'finished' ? 'status-finished' : 'status-scheduled');
+            const statusText = f.state === 'inplay' ? '🔴 LIVE' : (f.state === 'finished' ? '✅ FINISHED' : (f.time?.starting_at?.time || 'Scheduled'));
+            return `
+                <div class="fixture-card">
+                    <div class="fixture-header"><span class="league-name">${f.league.name}</span><span class="fixture-status ${statusClass}">${statusText}</span></div>
+                    <div class="fixture-teams">
+                        <div class="team">${f.participants[0].name}</div>
+                        ${hasScore ? `<div class="score">${homeScore} - ${awayScore}</div>` : '<div class="vs">VS</div>'}
+                        <div class="team">${f.participants[1].name}</div>
+                    </div>
+                    ${f.state !== 'finished' ? `<div class="odds-container">
+                        ${f.odds.map(odd => `<div class="odd-btn" onclick="addToBetSlip(${f.id}, '${odd.label}', ${odd.value}, '${f.participants[0].name} vs ${f.participants[1].name}')"><div class="odd-label">${odd.label}</div><div class="odd-value">${odd.value.toFixed(2)}</div></div>`).join('')}
+                    </div>` : '<div style="text-align:center;opacity:0.6;">Match Finished</div>'}
+                </div>
+            `;
+        }).join('')}</div>`;
+        document.getElementById('fixturesGrid').innerHTML = html;
+    }
+    
+    // ---------- BET SLIP LOGIC ----------
+    function addToBetSlip(fixtureId, selection, odds, fixtureName) {
+        if (betSlipItems.some(item => item.fixtureId === fixtureId && item.selection === selection)) {
+            showToast("Already in slip", "info");
+            return;
+        }
+        betSlipItems.push({ fixtureId, fixtureName, selection, odds, stake: null });
+        updateBetSlipUI();
+        updateBetCount();
+        showToast(`Added: ${fixtureName} - ${selection} @ ${odds}`, "success");
+    }
+    
+    function updateBetSlipUI() {
+        const container = document.getElementById('betSlipContent');
+        if (betSlipItems.length === 0) { container.innerHTML = '<div class="empty-state">No selections added</div>'; return; }
+        let totalStake = 0, totalPotential = 0;
+        const itemsHtml = betSlipItems.map((item, idx) => {
+            const potential = item.stake ? (item.stake * item.odds).toFixed(2) : 0;
+            if(item.stake) { totalStake += item.stake; totalPotential += parseFloat(potential); }
+            return `<div class="bet-item">
+                <div class="bet-fixture">${item.fixtureName}</div>
+                <div>${item.selection} | Odds: ${item.odds.toFixed(2)}</div>
+                <input type="number" class="stake-input" placeholder="Stake (£)" min="0.5" step="0.5" value="${item.stake || ''}" onchange="updateStake(${idx}, this.value)">
+                ${item.stake ? `<div>💰 Potential: £${potential}</div>` : ''}
+                <button class="remove-bet" style="background:none; border:1px solid #ff4757; padding:0.3rem 0.8rem; border-radius:20px; margin-top:0.5rem; color:#ff4757;" onclick="removeFromSlip(${idx})">Remove</button>
+            </div>`;
+        }).join('');
+        container.innerHTML = `${itemsHtml}
+            <div class="bet-summary" style="background:rgba(255,215,0,0.1); padding:1rem; border-radius:16px;">
+                <div>Total Stake: £${totalStake.toFixed(2)}</div>
+                <div>Total Potential: £${totalPotential.toFixed(2)}</div>
+            </div>
+            <button class="place-bet-btn" onclick="placeBetsAction()" ${totalStake === 0 ? 'disabled' : ''}>Place Bets (£${totalStake.toFixed(2)})</button>`;
+    }
+    
+    window.updateStake = (idx, val) => {
+        const stake = parseFloat(val);
+        if (isNaN(stake) || stake < 0.5) { betSlipItems[idx].stake = null; showToast("Min stake £0.50", "warning"); }
+        else if (stake > userBalance) { betSlipItems[idx].stake = null; showToast("Insufficient balance", "error"); }
+        else betSlipItems[idx].stake = stake;
+        updateBetSlipUI();
+    };
+    window.removeFromSlip = (idx) => { betSlipItems.splice(idx,1); updateBetSlipUI(); updateBetCount(); };
+    
+    function updateBetCount() { document.getElementById('betCount').innerText = betSlipItems.length; }
+    
+    async function placeBetsAction() {
+        const valid = betSlipItems.filter(i => i.stake && i.stake > 0);
+        if (valid.length === 0) { showToast("Enter stakes", "warning"); return; }
+        const total = valid.reduce((s,b)=> s + b.stake,0);
+        if (total > userBalance) { showToast("Insufficient balance", "error"); return; }
+        userBalance -= total;
+        todayStats.betsCount += valid.length;
+        todayStats.totalStake += total;
+        for (const bet of valid) {
+            const potential = bet.stake * bet.odds;
+            const newBet = { id: Date.now()+Math.random(), fixtureName: bet.fixtureName, selection: bet.selection, odds: bet.odds, stake: bet.stake, potentialWin: potential, status: 'active', createdAt: new Date().toISOString() };
+            betHistory.push(newBet);
+            showToast(`Bet placed: ${bet.fixtureName} - £${bet.stake} @ ${bet.odds}`, "success");
+        }
+        betSlipItems = [];
+        updateBetSlipUI();
+        updateBetCount();
+        updateBalanceUI();
+        updateStatsUI();
+        await saveUserToFirestore();
+        toggleBetSlip(false);
+        // Auto-settle simulation after 25 seconds (for demo fun, but real would wait webhook)
+        setTimeout(() => simulateSettlement(), 25000);
+    }
+    
+    function simulateSettlement() {
+        const activeBets = betHistory.filter(b => b.status === 'active');
+        if (activeBets.length === 0) return;
+        activeBets.forEach(bet => {
+            const isWin = Math.random() > 0.45; // 55% win for excitement
+            if (isWin) {
+                bet.status = 'won';
+                userBalance += bet.potentialWin;
+                showToast(`🎉 WIN! ${bet.fixtureName} +£${bet.potentialWin.toFixed(2)}`, "success");
+            } else {
+                bet.status = 'lost';
+                showToast(`❌ LOST: ${bet.fixtureName}`, "error");
+            }
+        });
+        updateBalanceUI();
+        updateStatsUI();
+        saveUserToFirestore();
+    }
+    
+    function toggleBetSlip(open = null) {
+        const slip = document.getElementById('betSlip');
+        if (open === true) slip.classList.add('open');
+        else if (open === false) slip.classList.remove('open');
+        else slip.classList.toggle('open');
+    }
+    
+    window.filterFixtures = (filter, btn) => {
+        currentFilter = filter;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderFixtures();
+    };
+    
+    function showAddFundsModal() {
+        const amt = prompt("Enter amount to add (£5 - £500):", "50");
+        if (amt) {
+            const val = parseFloat(amt);
+            if (val >= 5 && val <= 500) { userBalance += val; updateBalanceUI(); saveUserToFirestore(); showToast(`Added £${val}`, "success"); }
+            else showToast("Amount 5-500 only", "warning");
+        }
+    }
+    
+    // Auto-refresh every 8 seconds (Sportmonks recommended)
+    function startLiveRefresh() {
+        if (liveUpdateInterval) clearInterval(liveUpdateInterval);
+        liveUpdateInterval = setInterval(() => { fetchLiveFixtures(); }, 8000);
+        fetchLiveFixtures();
+    }
+    
+    // Entry
+    (async function() {
+        await initUser();
+        startLiveRefresh();
+    })();
+</script>
+</body>
+</html>
