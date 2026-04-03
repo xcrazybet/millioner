@@ -1,5 +1,4 @@
 const functions = require('firebase-functions');
-const fetch = require('node-fetch');
 
 // Sportmonks API base URL
 const SPORTMONKS_API_BASE_URL = 'https://api.sportmonks.com/v3/football';
@@ -7,12 +6,6 @@ const SPORTMONKS_API_BASE_URL = 'https://api.sportmonks.com/v3/football';
 /**
  * Cloud Function to securely proxy Sportmonks API calls.
  * The API token is stored in Firebase environment configuration.
- *
- * @param {object} data - The request data.
- * @param {string} data.endpoint - The Sportmonks API endpoint (e.g., '/fixtures', '/leagues').
- * @param {object} [data.params] - Optional query parameters for the API request.
- * @param {object} context - The Cloud Function context.
- * @returns {Promise<object>} - The data from the Sportmonks API.
  */
 exports.getSportmonksData = functions.https.onCall(async (data, context) => {
   // Try multiple ways to get the token
@@ -23,7 +16,7 @@ exports.getSportmonksData = functions.https.onCall(async (data, context) => {
   if (!apiToken) {
     console.error('CRITICAL: Sportmonks API key is missing from BOTH config and env!');
     throw new functions.https.HttpsError(
-      'internal',
+      'failed-precondition',
       'API Key Missing. Please run: firebase functions:config:set sportmonks.key="YOUR_TOKEN"'
     );
   }
@@ -39,18 +32,18 @@ exports.getSportmonksData = functions.https.onCall(async (data, context) => {
   }).toString();
 
   const url = `${SPORTMONKS_API_BASE_URL}${endpoint}?${queryParams}`;
-  console.log(`Calling Sportmonks: ${SPORTMONKS_API_BASE_URL}${endpoint}`);
+  console.log(`Calling Sportmonks: ${url}`);
 
   try {
+    // Using native fetch available in Node 18
     const response = await fetch(url, {
-      timeout: 10000 // 10 second timeout
+      signal: AbortSignal.timeout(10000) // 10 second timeout
     });
     
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`Sportmonks Error (${response.status}): ${errorText}`);
       
-      // Check for common Sportmonks errors
       if (response.status === 401 || response.status === 403) {
         throw new functions.https.HttpsError('unauthenticated', 'Invalid Sportmonks API Token');
       }
@@ -66,8 +59,7 @@ exports.getSportmonksData = functions.https.onCall(async (data, context) => {
   } catch (error) {
     console.error('Network Error:', error.message);
     
-    // Check if it's a timeout or connection issue (often caused by Spark plan)
-    if (error.message.includes('timeout') || error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
+    if (error.name === 'TimeoutError' || error.message.includes('timeout') || error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
       throw new functions.https.HttpsError(
         'deadline-exceeded',
         'Connection failed. Ensure you have upgraded to the Firebase Blaze plan.'
