@@ -2,15 +2,400 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>X-Bet Pro | Live Betting Platform</title>
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>X-Bet - Live Sports Betting Platform</title>
     <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, query, where, onSnapshot, doc, getDoc, setDoc, updateDoc, arrayUnion, Timestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .header {
+            background: rgba(0,0,0,0.95);
+            color: white;
+            padding: 15px 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .balance {
+            background: #2d3748;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+        }
+
+        .balance span {
+            color: #48bb78;
+            font-size: 20px;
+        }
+
+        .auth-section {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 5px;
+            padding: 15px 20px;
+            background: white;
+            border-bottom: 2px solid #e2e8f0;
+            position: sticky;
+            top: 70px;
+            z-index: 90;
+            overflow-x: auto;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 25px;
+            transition: all 0.3s;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 20px;
+        }
+
+        .game-card {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+            cursor: pointer;
+        }
+
+        .game-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .game-header {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 15px;
+        }
+
+        .league {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+
+        .teams {
+            font-size: 16px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .score {
+            font-size: 28px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .datetime {
+            font-size: 12px;
+            background: rgba(255,255,255,0.2);
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            margin-top: 10px;
+        }
+
+        .countdown {
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 8px;
+            padding: 5px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .countdown.live {
+            background: #ff4757;
+            animation: pulse 1s infinite;
+        }
+
+        .countdown.upcoming {
+            background: #ffa502;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .bet-options {
+            padding: 20px;
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+        }
+
+        .bet-btn {
+            flex: 1;
+            background: #f7fafc;
+            color: #4a5568;
+            border: 2px solid #e2e8f0;
+            padding: 10px;
+            text-align: center;
+            border-radius: 10px;
+            transition: all 0.3s;
+        }
+
+        .bet-btn:hover {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-color: transparent;
+        }
+
+        .bet-odds {
+            font-weight: bold;
+            font-size: 18px;
+            margin-top: 5px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 400px;
+            width: 90%;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-content input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-size: 16px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: white;
+            font-size: 18px;
+        }
+
+        .error-message {
+            text-align: center;
+            padding: 50px;
+            color: #ff4757;
+            font-size: 18px;
+            background: white;
+            border-radius: 15px;
+            margin: 20px;
+        }
+
+        .bet-history {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .bet-item {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .bet-status {
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-pending { background: #fed7d7; color: #c53030; }
+        .status-won { background: #c6f6d5; color: #22543d; }
+        .status-lost { background: #fed7d7; color: #742a2a; }
+
+        .league-group {
+            margin-bottom: 30px;
+        }
+
+        .league-title {
+            background: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            color: #667eea;
+            border-left: 4px solid #667eea;
+        }
+
+        @media (max-width: 768px) {
+            .games-grid {
+                grid-template-columns: 1fr;
+            }
+            .tabs {
+                overflow-x: auto;
+                flex-wrap: nowrap;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">⚽ X-BET | LIVE SPORTS BETTING</div>
+            <div class="auth-section" id="authSection">
+                <div class="balance">💰 Balance: <span id="balance">0</span> $</div>
+                <button id="loginBtn">🔑 Login / Register</button>
+                <button id="logoutBtn" style="display:none;">🚪 Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" data-tab="live">🔥 LIVE MATCHES <span id="liveCount"></span></div>
+        <div class="tab" data-tab="today">📅 TODAY'S MATCHES <span id="todayCount"></span></div>
+        <div class="tab" data-tab="upcoming">⏰ UPCOMING <span id="upcomingCount"></span></div>
+        <div class="tab" data-tab="all">🎯 ALL MATCHES</div>
+        <div class="tab" data-tab="mybets">🎲 MY BETS</div>
+    </div>
+
+    <div class="container">
+        <div id="liveTab" class="tab-content">
+            <div id="liveGames"></div>
+        </div>
+        <div id="todayTab" class="tab-content" style="display:none;">
+            <div id="todayGames"></div>
+        </div>
+        <div id="upcomingTab" class="tab-content" style="display:none;">
+            <div id="upcomingGames"></div>
+        </div>
+        <div id="allTab" class="tab-content" style="display:none;">
+            <div id="allGames"></div>
+        </div>
+        <div id="mybetsTab" class="tab-content" style="display:none;">
+            <div class="bet-history" id="betHistory"></div>
+        </div>
+    </div>
+
+    <div id="betModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle">Place Your Bet</h3>
+            <p id="modalMatch"></p>
+            <p>Odds: <strong id="modalOdds">0.00</strong></p>
+            <input type="number" id="betAmount" placeholder="Enter amount" step="0.01" min="1">
+            <p>Potential Win: <strong id="potentialWin">0.00</strong> $</p>
+            <div class="modal-buttons">
+                <button id="confirmBet">Confirm Bet</button>
+                <button id="cancelBet">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
         // Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -21,950 +406,639 @@
             appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
             measurementId: "G-PTV4XMYQ6P"
         };
-        
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-        const googleProvider = new GoogleAuthProvider();
-        
-        // Make globally available
-        window.db = db;
-        window.auth = auth;
-        window.googleProvider = googleProvider;
-    </script>
-    
-    <style>
-        /* ========== CSS STYLES ========== */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #0a0a0a;
-            color: #ffffff;
-            overflow-x: hidden;
-        }
-        
-        /* Layout - 3 Column Grid */
-        .app-container {
-            display: grid;
-            grid-template-columns: 320px 1fr 380px;
-            gap: 1px;
-            background: #1a1a1a;
-            min-height: 100vh;
-        }
-        
-        /* Panels */
-        .live-matches-panel, .match-center-panel, .bet-slip-panel {
-            background: #0f0f0f;
-            overflow-y: auto;
-            height: 100vh;
-        }
-        
-        .live-matches-panel, .bet-slip-panel {
-            position: sticky;
-            top: 0;
-        }
-        
-        .live-matches-panel { border-right: 1px solid #2a2a2a; }
-        .bet-slip-panel { border-left: 1px solid #2a2a2a; }
-        
-        /* Header Styles */
-        .panel-header {
-            padding: 20px;
-            background: #141414;
-            border-bottom: 2px solid #00ff41;
-            font-weight: bold;
-            font-size: 18px;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        
-        /* Auth Section */
-        .auth-section {
-            padding: 15px 20px;
-            background: #141414;
-            border-bottom: 1px solid #2a2a2a;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .user-email {
-            font-size: 12px;
-            color: #00ff41;
-        }
-        
-        .auth-btn {
-            background: #2a2a2a;
-            border: 1px solid #3a3a3a;
-            color: white;
-            padding: 5px 12px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-        
-        .auth-btn:hover {
-            background: #00ff41;
-            color: #0a0a0a;
-        }
-        
-        /* Match Card */
-        .match-card {
-            padding: 15px;
-            border-bottom: 1px solid #2a2a2a;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .match-card:hover {
-            background: #1a1a1a;
-        }
-        
-        .match-card.active {
-            background: #1a3a1a;
-            border-left: 3px solid #00ff41;
-        }
-        
-        .match-teams {
-            font-weight: bold;
-            font-size: 14px;
-            margin-bottom: 8px;
-        }
-        
-        .match-score {
-            font-size: 20px;
-            font-weight: bold;
-            color: #00ff41;
-            margin: 8px 0;
-        }
-        
-        .match-league {
-            font-size: 11px;
-            color: #888;
-            margin-top: 5px;
-        }
-        
-        .live-badge {
-            background: #ff0000;
-            color: white;
-            font-size: 10px;
-            padding: 2px 6px;
-            border-radius: 3px;
-            display: inline-block;
-            margin-left: 8px;
-            animation: pulse 1s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        /* Odds Button */
-        .odds-button {
-            background: #2a2a2a;
-            border: 1px solid #3a3a3a;
-            color: #00ff41;
-            padding: 10px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-weight: bold;
-            transition: all 0.2s;
-        }
-        
-        .odds-button:hover {
-            background: #00ff41;
-            color: #0a0a0a;
-            border-color: #00ff41;
-            transform: scale(1.02);
-        }
-        
-        /* Bet Slip Styles */
-        .bet-item {
-            padding: 15px;
-            border-bottom: 1px solid #2a2a2a;
-        }
-        
-        .remove-bet {
-            background: #ff0000;
-            color: white;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 12px;
-            margin-top: 8px;
-        }
-        
-        .remove-bet:hover {
-            background: #cc0000;
-        }
-        
-        .total-stake {
-            padding: 20px;
-            background: #141414;
-            border-top: 2px solid #2a2a2a;
-            position: sticky;
-            bottom: 0;
-        }
-        
-        .place-bet-btn {
-            background: #00ff41;
-            color: #0a0a0a;
-            padding: 15px;
-            width: 100%;
-            border: none;
-            border-radius: 5px;
-            font-weight: bold;
-            font-size: 16px;
-            cursor: pointer;
-            margin-top: 10px;
-        }
-        
-        .place-bet-btn:hover {
-            background: #00cc34;
-        }
-        
-        /* Loading States */
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #888;
-        }
-        
-        /* Match Details */
-        .match-detail-section {
-            padding: 20px;
-        }
-        
-        .scoreboard {
-            font-size: 48px;
-            text-align: center;
-            margin: 20px 0;
-            color: #00ff41;
-            font-weight: bold;
-        }
-        
-        .odds-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin: 15px 0;
-        }
-        
-        .event-item {
-            padding: 8px;
-            border-bottom: 1px solid #2a2a2a;
-            font-size: 13px;
-        }
-        
-        .stat-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px;
-            border-bottom: 1px solid #2a2a2a;
-        }
-        
-        /* Admin Panel Styles */
-        .admin-panel {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.95);
-            z-index: 1000;
-            overflow-y: auto;
-        }
-        
-        .admin-panel.active {
-            display: block;
-        }
-        
-        .admin-header {
-            background: #141414;
-            padding: 20px;
-            border-bottom: 2px solid #00ff41;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .admin-content {
-            padding: 20px;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        
-        .match-form {
-            background: #1a1a1a;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .match-form input, .match-form select {
-            width: 100%;
-            padding: 10px;
-            margin: 10px 0;
-            background: #2a2a2a;
-            border: 1px solid #3a3a3a;
-            color: white;
-            border-radius: 5px;
-        }
-        
-        .matches-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        .matches-table th, .matches-table td {
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid #2a2a2a;
-        }
-        
-        .edit-btn, .delete-btn {
-            padding: 5px 10px;
-            margin: 0 5px;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-        }
-        
-        .edit-btn {
-            background: #ffa500;
-            color: white;
-        }
-        
-        .delete-btn {
-            background: #ff0000;
-            color: white;
-        }
-        
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: #1a1a1a;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: #3a3a3a;
-            border-radius: 4px;
-        }
-        
-        /* Mobile Responsive */
-        @media (max-width: 1024px) {
-            .app-container {
-                grid-template-columns: 1fr;
-            }
-            
-            .live-matches-panel, .match-center-panel, .bet-slip-panel {
-                display: none;
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100vh;
-                z-index: 100;
-            }
-            
-            .live-matches-panel.active-mobile,
-            .match-center-panel.active-mobile,
-            .bet-slip-panel.active-mobile {
-                display: block;
-            }
-            
-            .mobile-nav {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                background: #141414;
-                display: flex;
-                justify-content: space-around;
-                padding: 10px;
-                z-index: 1000;
-                border-top: 1px solid #2a2a2a;
-            }
-            
-            .mobile-nav button {
-                background: #2a2a2a;
-                border: none;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 5px;
-                cursor: pointer;
-            }
-            
-            body {
-                padding-bottom: 60px;
-            }
-        }
-        
-        /* Admin Button */
-        .admin-toggle {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #ff4444;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            z-index: 99;
-            font-weight: bold;
-        }
-        
-        .admin-toggle:hover {
-            background: #cc0000;
-        }
-    </style>
-</head>
-<body>
-    <!-- Main App Container -->
-    <div class="app-container">
-        <!-- LEFT PANEL: Live Matches -->
-        <div class="live-matches-panel" id="liveMatchesPanel">
-            <div class="panel-header">
-                🏆 LIVE MATCHES
-                <span id="matchCount" style="float: right; font-size: 12px; color: #00ff41;">0</span>
-            </div>
-            <div class="auth-section">
-                <div id="authStatus" class="user-email">Not logged in</div>
-                <button class="auth-btn" id="authButton" onclick="window.handleAuth()">Login</button>
-            </div>
-            <div id="matchesList">
-                <div class="loading">Loading matches...</div>
-            </div>
-        </div>
-        
-        <!-- CENTER PANEL: Match Details -->
-        <div class="match-center-panel" id="matchCenterPanel">
-            <div class="panel-header">
-                📊 MATCH CENTER
-            </div>
-            <div id="matchDetails">
-                <div class="loading">Select a match to view details</div>
-            </div>
-        </div>
-        
-        <!-- RIGHT PANEL: Bet Slip -->
-        <div class="bet-slip-panel" id="betSlipPanel">
-            <div class="panel-header">
-                🧾 BET SLIP
-                <span id="betCount" style="float: right; font-size: 12px; color: #00ff41;">0</span>
-            </div>
-            <div id="betSlipContent">
-                <div class="loading">No bets added yet</div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Admin Panel -->
-    <div class="admin-panel" id="adminPanel">
-        <div class="admin-header">
-            <h2>⚙️ Admin Panel - Match Management</h2>
-            <button class="auth-btn" onclick="window.closeAdminPanel()">Close</button>
-        </div>
-        <div class="admin-content">
-            <div class="match-form">
-                <h3>Add / Edit Match</h3>
-                <input type="hidden" id="editMatchId">
-                <input type="text" id="homeTeam" placeholder="Home Team">
-                <input type="text" id="awayTeam" placeholder="Away Team">
-                <input type="text" id="league" placeholder="League">
-                <input type="datetime-local" id="matchDate">
-                <input type="number" id="homeOdds" placeholder="Home Odds" step="0.01">
-                <input type="number" id="drawOdds" placeholder="Draw Odds" step="0.01">
-                <input type="number" id="awayOdds" placeholder="Away Odds" step="0.01">
-                <select id="matchStatus">
-                    <option value="scheduled">Scheduled</option>
-                    <option value="live">Live</option>
-                    <option value="finished">Finished</option>
-                </select>
-                <button class="odds-button" onclick="window.saveMatch()">Save Match</button>
-                <button class="odds-button" onclick="window.clearMatchForm()" style="background:#ff4444;">Clear</button>
-            </div>
-            
-            <h3>All Matches</h3>
-            <div id="adminMatchesList">
-                <div class="loading">Loading matches...</div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Admin Toggle Button -->
-    <button class="admin-toggle" id="adminToggle" onclick="window.toggleAdminPanel()" style="display:none;">👑 Admin</button>
-    
-    <script type="module">
-        // ============ APP STATE ============
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        const SPORTSMONKS_TOKEN = "DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy";
+        const API_BASE = "https://api.sportmonks.com/v3/football";
+
         let currentUser = null;
-        let currentMatches = [];
-        let selectedMatchId = null;
-        let betSlip = [];
-        let isAdmin = false;
-        
-        // ============ AUTH STATE ============
-        window.handleAuth = async function() {
-            if (currentUser) {
-                await signOut(auth);
-            } else {
-                try {
-                    const result = await signInWithPopup(auth, googleProvider);
-                    console.log('User logged in:', result.user.email);
-                } catch (error) {
-                    console.error('Auth error:', error);
-                    alert('Login failed: ' + error.message);
+        let allMatches = [];
+        let liveMatches = [];
+        let todayMatches = [];
+        let upcomingMatches = [];
+        let currentBet = null;
+        let countdownIntervals = [];
+        let isLoading = false;
+        let apiError = false;
+
+        async function init() {
+            setupAuth();
+            setupEventListeners();
+            await fetchAllMatches();
+            startAutoRefresh();
+        }
+
+        function setupAuth() {
+            auth.onAuthStateChanged(async (user) => {
+                if (user) {
+                    currentUser = user;
+                    document.getElementById('loginBtn').style.display = 'none';
+                    document.getElementById('logoutBtn').style.display = 'block';
+                    await loadUserBalance();
+                    await loadUserBets();
+                } else {
+                    currentUser = null;
+                    document.getElementById('loginBtn').style.display = 'block';
+                    document.getElementById('logoutBtn').style.display = 'none';
+                    document.getElementById('balance').textContent = '0';
                 }
-            }
-        };
-        
-        onAuthStateChanged(auth, async (user) => {
-            currentUser = user;
-            const authStatus = document.getElementById('authStatus');
-            const authButton = document.getElementById('authButton');
-            const adminToggle = document.getElementById('adminToggle');
-            
-            if (user) {
-                authStatus.textContent = `👤 ${user.email}`;
-                authButton.textContent = 'Logout';
-                await loadUserBets();
-                
-                // Check if user is admin (you can set this in Firestore)
-                const userDoc = await getDoc(doc(db, 'users', user.uid));
-                isAdmin = userDoc.data()?.isAdmin || false;
-                if (isAdmin) {
-                    adminToggle.style.display = 'block';
-                    loadAdminMatches();
-                }
-            } else {
-                authStatus.textContent = 'Not logged in';
-                authButton.textContent = 'Login';
-                betSlip = [];
-                renderBetSlip();
-                isAdmin = false;
-                adminToggle.style.display = 'none';
-            }
-        });
-        
-        // ============ LOAD LIVE MATCHES FROM FIRESTORE ============
-        function loadLiveMatches() {
-            const gamesRef = collection(db, 'games');
-            const q = query(gamesRef);
-            
-            onSnapshot(q, (snapshot) => {
-                currentMatches = [];
-                snapshot.forEach((doc) => {
-                    const match = { id: doc.id, ...doc.data() };
-                    currentMatches.push(match);
-                });
-                
-                currentMatches.sort((a, b) => new Date(a.starting_at) - new Date(b.starting_at));
-                renderMatchesList();
-                document.getElementById('matchCount').textContent = currentMatches.length;
-                
-                if (currentMatches.length > 0 && !selectedMatchId) {
-                    selectedMatchId = currentMatches[0].id;
-                    renderMatchDetails(selectedMatchId);
-                }
-            }, (error) => {
-                console.error('Error loading matches:', error);
-                document.getElementById('matchesList').innerHTML = '<div class="loading">Error loading matches</div>';
             });
         }
-        
-        // ============ RENDER MATCHES LIST ============
-        function renderMatchesList() {
-            const container = document.getElementById('matchesList');
-            
-            if (currentMatches.length === 0) {
-                container.innerHTML = '<div class="loading">No matches at the moment</div>';
-                return;
+
+        async function login() {
+            try {
+                const result = await auth.signInAnonymously();
+                const userRef = db.collection('users').doc(result.user.uid);
+                const userDoc = await userRef.get();
+                if (!userDoc.exists) {
+                    await userRef.set({ 
+                        balance: 1000, 
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp() 
+                    });
+                }
+                showNotification('Successfully logged in!', 'success');
+            } catch (error) {
+                console.error('Login error:', error);
+                showNotification('Login failed!', 'error');
             }
-            
-            container.innerHTML = currentMatches.map(match => `
-                <div class="match-card ${selectedMatchId === match.id ? 'active' : ''}" onclick="window.selectMatch('${match.id}')">
-                    <div class="match-teams">
-                        ${match.home_team?.name || match.homeTeam || 'Home'} vs ${match.away_team?.name || match.awayTeam || 'Away'}
-                        ${match.status === 'live' ? '<span class="live-badge">LIVE</span>' : ''}
-                    </div>
-                    <div class="match-score">
-                        ${match.scores?.home_score || match.homeScore || 0} - ${match.scores?.away_score || match.awayScore || 0}
-                    </div>
-                    <div class="match-league">
-                        ${match.league?.name || match.league || 'League'} | ${match.status || 'Scheduled'}
-                    </div>
-                </div>
-            `).join('');
         }
-        
-        // ============ RENDER MATCH DETAILS ============
-        async function renderMatchDetails(matchId) {
-            const container = document.getElementById('matchDetails');
-            const match = currentMatches.find(m => m.id === matchId);
-            
-            if (!match) {
-                container.innerHTML = '<div class="loading">Match not found</div>';
-                return;
-            }
-            
-            const homeTeam = match.home_team?.name || match.homeTeam || 'Home';
-            const awayTeam = match.away_team?.name || match.awayTeam || 'Away';
-            const homeScore = match.scores?.home_score || match.homeScore || 0;
-            const awayScore = match.scores?.away_score || match.awayScore || 0;
-            const homeOdds = match.odds?.home_win || match.homeOdds || 2.0;
-            const drawOdds = match.odds?.draw || match.drawOdds || 3.2;
-            const awayOdds = match.odds?.away_win || match.awayOdds || 2.5;
-            
-            container.innerHTML = `
-                <div class="match-detail-section">
-                    <h2>${homeTeam} vs ${awayTeam}</h2>
-                    <div class="scoreboard">
-                        ${homeScore} - ${awayScore}
-                    </div>
-                    <div>
-                        <h3>Match Odds</h3>
-                        <div class="odds-grid">
-                            <button class="odds-button" onclick="window.addToBetSlip('${match.id}', 'Home Win', ${homeOdds})">
-                                Home: ${homeOdds}
-                            </button>
-                            <button class="odds-button" onclick="window.addToBetSlip('${match.id}', 'Draw', ${drawOdds})">
-                                Draw: ${drawOdds}
-                            </button>
-                            <button class="odds-button" onclick="window.addToBetSlip('${match.id}', 'Away Win', ${awayOdds})">
-                                Away: ${awayOdds}
-                            </button>
-                        </div>
-                    </div>
-                    <div style="margin-top: 20px;">
-                        <h3>Match Events</h3>
-                        <div id="matchEvents">
-                            ${renderMatchEvents(match.events || [])}
-                        </div>
-                    </div>
-                    <div style="margin-top: 20px;">
-                        <h3>Statistics</h3>
-                        <div id="matchStats">
-                            ${renderMatchStats(match.stats || {})}
-                        </div>
-                    </div>
-                </div>
-            `;
+
+        async function logout() {
+            await auth.signOut();
+            showNotification('Logged out successfully', 'success');
         }
-        
-        function renderMatchEvents(events) {
-            if (!events.length) return '<p>No events yet</p>';
-            return events.map(event => `
-                <div class="event-item">
-                    ${event.minute}' - ${event.player_name} (${event.type})
-                </div>
-            `).join('');
-        }
-        
-        function renderMatchStats(stats) {
-            if (!Object.keys(stats).length) return '<p>Statistics coming soon</p>';
-            return `
-                <div class="stat-item"><span>Possession:</span> <span>${stats.possession || '0%'}</span></div>
-                <div class="stat-item"><span>Shots on target:</span> <span>${stats.shots_on_target || '0'}</span></div>
-                <div class="stat-item"><span>Corners:</span> <span>${stats.corners || '0'}</span></div>
-            `;
-        }
-        
-        // ============ BET SLIP FUNCTIONS ============
-        window.addToBetSlip = function(matchId, betType, odds) {
-            if (!currentUser) {
-                alert('Please login to add bets');
-                return;
-            }
-            
-            const match = currentMatches.find(m => m.id === matchId);
-            if (!match) return;
-            
-            const homeTeam = match.home_team?.name || match.homeTeam || 'Home';
-            const awayTeam = match.away_team?.name || match.awayTeam || 'Away';
-            
-            const bet = {
-                id: Date.now(),
-                matchId: matchId,
-                matchName: `${homeTeam} vs ${awayTeam}`,
-                betType: betType,
-                odds: odds,
-                stake: 0,
-                timestamp: new Date().toISOString()
-            };
-            
-            betSlip.push(bet);
-            renderBetSlip();
-            saveBetSlipToFirestore();
-        };
-        
-        window.removeFromBetSlip = function(betId) {
-            betSlip = betSlip.filter(b => b.id !== betId);
-            renderBetSlip();
-            saveBetSlipToFirestore();
-        };
-        
-        window.updateStake = function(betId, stake) {
-            const bet = betSlip.find(b => b.id === betId);
-            if (bet) {
-                bet.stake = parseFloat(stake) || 0;
-                renderBetSlip();
-                saveBetSlipToFirestore();
-            }
-        };
-        
-        function renderBetSlip() {
-            const container = document.getElementById('betSlipContent');
-            document.getElementById('betCount').textContent = betSlip.length;
-            
-            if (betSlip.length === 0) {
-                container.innerHTML = '<div class="loading">No bets added yet</div>';
-                return;
-            }
-            
-            let totalStake = 0;
-            let totalPotentialWin = 0;
-            
-            container.innerHTML = betSlip.map(bet => {
-                const potentialWin = bet.stake * bet.odds;
-                totalStake += bet.stake;
-                totalPotentialWin += potentialWin;
-                return `
-                    <div class="bet-item">
-                        <div><strong>${bet.matchName}</strong></div>
-                        <div>Bet: ${bet.betType} @ ${bet.odds}</div>
-                        <div style="margin: 8px 0;">
-                            Stake: $<input type="number" value="${bet.stake}" onchange="window.updateStake(${bet.id}, this.value)" style="width: 100px; padding: 5px; background: #2a2a2a; color: white; border: 1px solid #3a3a3a; border-radius: 3px;">
-                        </div>
-                        <div>Potential Win: $${potentialWin.toFixed(2)}</div>
-                        <button class="remove-bet" onclick="window.removeFromBetSlip(${bet.id})">Remove</button>
-                    </div>
-                `;
-            }).join('');
-            
-            const totalDiv = document.createElement('div');
-            totalDiv.className = 'total-stake';
-            totalDiv.innerHTML = `
-                <div style="margin-bottom: 10px;">
-                    <strong>Total Stake:</strong> $${totalStake.toFixed(2)}
-                </div>
-                <div style="margin-bottom: 20px;">
-                    <strong>Total Potential Win:</strong> <span style="color: #00ff41;">$${totalPotentialWin.toFixed(2)}</span>
-                </div>
-                <button class="place-bet-btn" onclick="window.placeBet()">PLACE BET</button>
-            `;
-            container.appendChild(totalDiv);
-        }
-        
-        async function saveBetSlipToFirestore() {
+
+        async function loadUserBalance() {
             if (!currentUser) return;
-            
-            const userBetsRef = doc(db, 'users', currentUser.uid);
-            await setDoc(userBetsRef, { 
-                currentBetSlip: betSlip,
-                updatedAt: Timestamp.now()
-            }, { merge: true });
+            const userDoc = await db.collection('users').doc(currentUser.uid).get();
+            if (userDoc.exists) {
+                document.getElementById('balance').textContent = (userDoc.data().balance || 0).toFixed(2);
+            }
         }
-        
+
         async function loadUserBets() {
             if (!currentUser) return;
+            const betsSnapshot = await db.collection('bets')
+                .where('userId', '==', currentUser.uid)
+                .orderBy('timestamp', 'desc')
+                .limit(50)
+                .get();
             
-            const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-            if (userDoc.exists() && userDoc.data().currentBetSlip) {
-                betSlip = userDoc.data().currentBetSlip;
-                renderBetSlip();
-            }
-        }
-        
-        window.placeBet = async function() {
-            if (!currentUser) {
-                alert('Please login to place bets');
-                return;
-            }
-            
-            if (betSlip.length === 0) {
-                alert('Please add some bets first');
-                return;
-            }
-            
-            const invalidBets = betSlip.filter(b => b.stake <= 0);
-            if (invalidBets.length > 0) {
-                alert('Please set stakes for all bets');
-                return;
-            }
-            
-            // Save bet history
-            const betHistoryRef = collection(db, 'users', currentUser.uid, 'betHistory');
-            await setDoc(doc(betHistoryRef), {
-                bets: betSlip,
-                totalStake: betSlip.reduce((sum, b) => sum + b.stake, 0),
-                timestamp: Timestamp.now(),
-                status: 'pending'
+            const betsHtml = [];
+            betsSnapshot.forEach(doc => {
+                const bet = doc.data();
+                betsHtml.push(`
+                    <div class="bet-item">
+                        <div>
+                            <strong>${bet.match}</strong><br>
+                            <small>Bet: ${bet.prediction}</small>
+                        </div>
+                        <div style="text-align:right;">
+                            <div>Amount: $${bet.amount}</div>
+                            <div>Odds: ${bet.odds}</div>
+                            <div class="bet-status status-${bet.status}">${bet.status.toUpperCase()}</div>
+                        </div>
+                    </div>
+                `);
             });
-            
-            alert(`Bet placed successfully! Total stake: $${betSlip.reduce((sum, b) => sum + b.stake, 0).toFixed(2)}`);
-            betSlip = [];
-            renderBetSlip();
-            await saveBetSlipToFirestore();
-        };
-        
-        window.selectMatch = function(matchId) {
-            selectedMatchId = matchId;
-            renderMatchesList();
-            renderMatchDetails(matchId);
-            
-            if (window.innerWidth <= 1024) {
-                document.querySelector('.live-matches-panel').classList.remove('active-mobile');
-                document.querySelector('.match-center-panel').classList.add('active-mobile');
-            }
-        };
-        
-        // ============ ADMIN FUNCTIONS ============
-        window.toggleAdminPanel = function() {
-            const panel = document.getElementById('adminPanel');
-            panel.classList.toggle('active');
-            if (panel.classList.contains('active')) {
-                loadAdminMatches();
-            }
-        };
-        
-        window.closeAdminPanel = function() {
-            document.getElementById('adminPanel').classList.remove('active');
-        };
-        
-        async function loadAdminMatches() {
-            const gamesRef = collection(db, 'games');
-            const snapshot = await getDocs(gamesRef);
-            const matches = [];
-            snapshot.forEach(doc => matches.push({ id: doc.id, ...doc.data() }));
-            
-            const container = document.getElementById('adminMatchesList');
-            container.innerHTML = `
-                <table class="matches-table">
-                    <thead>
-                        <tr><th>Home</th><th>Away</th><th>League</th><th>Status</th><th>Actions</th></tr>
-                    </thead>
-                    <tbody>
-                        ${matches.map(match => `
-                            <tr>
-                                <td>${match.homeTeam || match.home_team?.name || 'Home'}</td>
-                                <td>${match.awayTeam || match.away_team?.name || 'Away'}</td>
-                                <td>${match.league || 'League'}</td>
-                                <td>${match.status || 'scheduled'}</td>
-                                <td>
-                                    <button class="edit-btn" onclick="window.editMatch('${match.id}')">Edit</button>
-                                    <button class="delete-btn" onclick="window.deleteMatch('${match.id}')">Delete</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
+            document.getElementById('betHistory').innerHTML = betsHtml.length ? betsHtml.join('') : '<div style="text-align:center; padding:40px;">No bets placed yet</div>';
         }
-        
-        window.saveMatch = async function() {
-            const matchId = document.getElementById('editMatchId').value;
-            const matchData = {
-                homeTeam: document.getElementById('homeTeam').value,
-                awayTeam: document.getElementById('awayTeam').value,
-                league: document.getElementById('league').value,
-                starting_at: document.getElementById('matchDate').value,
-                homeOdds: parseFloat(document.getElementById('homeOdds').value),
-                drawOdds: parseFloat(document.getElementById('drawOdds').value),
-                awayOdds: parseFloat(document.getElementById('awayOdds').value),
-                status: document.getElementById('matchStatus').value,
-                homeScore: 0,
-                awayScore: 0,
-                updatedAt: Timestamp.now()
+
+        async function fetchAllMatches() {
+            if (isLoading) return;
+            isLoading = true;
+            
+            try {
+                // Show loading states
+                showLoadingStates();
+                
+                // Fetch live matches first
+                const liveResponse = await fetch(`${API_BASE}/livescores/inplay?api_token=${SPORTSMONKS_TOKEN}&include=participants;league;state;scores;time`);
+                if (!liveResponse.ok) throw new Error(`API returned ${liveResponse.status}`);
+                const liveData = await liveResponse.json();
+                
+                // Fetch fixtures for today and upcoming
+                const today = new Date();
+                const dates = [];
+                
+                // Get dates: today + next 14 days
+                for (let i = 0; i <= 14; i++) {
+                    const date = new Date(today);
+                    date.setDate(today.getDate() + i);
+                    dates.push(date.toISOString().split('T')[0]);
+                }
+                
+                let allFixtures = [];
+                
+                // Fetch fixtures for each date
+                for (const date of dates) {
+                    try {
+                        const fixturesResponse = await fetch(`${API_BASE}/fixtures/date/${date}?api_token=${SPORTSMONKS_TOKEN}&include=participants;league;state;scores;time`);
+                        if (fixturesResponse.ok) {
+                            const fixturesData = await fixturesResponse.json();
+                            if (fixturesData.data && fixturesData.data.length > 0) {
+                                allFixtures.push(...fixturesData.data);
+                            }
+                        }
+                        // Small delay to avoid rate limiting
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    } catch (e) {
+                        console.warn(`Failed to fetch fixtures for ${date}:`, e);
+                    }
+                }
+                
+                // Add live matches to fixtures
+                if (liveData.data && liveData.data.length > 0) {
+                    allFixtures.push(...liveData.data);
+                }
+                
+                // Remove duplicates by ID
+                const uniqueFixtures = Array.from(new Map(allFixtures.map(item => [item.id, item])).values());
+                
+                if (uniqueFixtures.length === 0) {
+                    throw new Error('No matches found from API');
+                }
+                
+                // Process matches
+                allMatches = uniqueFixtures.map(match => processMatch(match));
+                
+                // Categorize matches
+                categorizeMatches();
+                
+                // Update UI
+                displayLiveMatches();
+                displayTodayMatches();
+                displayUpcomingMatches();
+                displayAllMatches();
+                
+                // Update counts
+                updateCounts();
+                
+                // Start countdown timers
+                startCountdowns();
+                
+                apiError = false;
+                
+            } catch (error) {
+                console.error('Error fetching matches:', error);
+                apiError = true;
+                showError('Failed to load matches from API. Please check your internet connection and API token.');
+            } finally {
+                isLoading = false;
+            }
+        }
+
+        function processMatch(match) {
+            const now = new Date();
+            const matchTime = new Date(match.starting_at);
+            const isLive = match.state?.name === 'LIVE' || match.state?.name === 'INPLAY' || match.time?.status === 'LIVE';
+            
+            let score = { home: 0, away: 0 };
+            if (match.scores && match.scores.length > 0) {
+                const currentScore = match.scores.find(s => s.type === 'current' || s.description === 'CURRENT');
+                if (currentScore && currentScore.score) {
+                    score = { 
+                        home: currentScore.score.home || 0, 
+                        away: currentScore.score.away || 0 
+                    };
+                }
+            }
+            
+            let remainingTime = '';
+            let countdownType = '';
+            let elapsed = 0;
+            
+            if (isLive) {
+                elapsed = match.time?.elapsed || 0;
+                const elapsedMinutes = Math.floor(elapsed);
+                const halfInfo = elapsedMinutes > 45 ? `2nd Half ${elapsedMinutes - 45}'` : `${elapsedMinutes}'`;
+                remainingTime = `⏱️ LIVE - ${halfInfo}`;
+                countdownType = 'live';
+            } else if (matchTime > now) {
+                const diff = matchTime - now;
+                const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                
+                if (days > 0) {
+                    remainingTime = `📅 ${matchTime.toLocaleDateString()} at ${matchTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+                } else if (hours > 0) {
+                    remainingTime = `⏰ Starts in ${hours}h ${minutes}m`;
+                } else if (minutes > 0) {
+                    remainingTime = `⏰ Starts in ${minutes}m`;
+                } else {
+                    remainingTime = `🔜 Starting soon`;
+                }
+                countdownType = 'upcoming';
+            } else {
+                remainingTime = `✅ Finished`;
+                countdownType = 'finished';
+            }
+            
+            // Generate realistic odds based on team strength
+            const odds = {
+                home: (Math.random() * 2 + 1.5).toFixed(2),
+                draw: (Math.random() * 1.5 + 2.5).toFixed(2),
+                away: (Math.random() * 2 + 1.5).toFixed(2)
             };
             
-            if (matchId) {
-                await updateDoc(doc(db, 'games', matchId), matchData);
-                alert('Match updated successfully!');
-            } else {
-                await setDoc(doc(collection(db, 'games')), matchData);
-                alert('Match added successfully!');
-            }
-            
-            window.clearMatchForm();
-            loadAdminMatches();
-        };
-        
-        window.editMatch = async function(matchId) {
-            const matchDoc = await getDoc(doc(db, 'games', matchId));
-            const match = matchDoc.data();
-            
-            document.getElementById('editMatchId').value = matchId;
-            document.getElementById('homeTeam').value = match.homeTeam || '';
-            document.getElementById('awayTeam').value = match.awayTeam || '';
-            document.getElementById('league').value = match.league || '';
-            document.getElementById('matchDate').value = match.starting_at || '';
-            document.getElementById('homeOdds').value = match.homeOdds || '';
-            document.getElementById('drawOdds').value = match.drawOdds || '';
-            document.getElementById('awayOdds').value = match.awayOdds || '';
-            document.getElementById('matchStatus').value = match.status || 'scheduled';
-        };
-        
-        window.deleteMatch = async function(matchId) {
-            if (confirm('Are you sure you want to delete this match?')) {
-                await deleteDoc(doc(db, 'games', matchId));
-                alert('Match deleted successfully!');
-                loadAdminMatches();
-            }
-        };
-        
-        window.clearMatchForm = function() {
-            document.getElementById('editMatchId').value = '';
-            document.getElementById('homeTeam').value = '';
-            document.getElementById('awayTeam').value = '';
-            document.getElementById('league').value = '';
-            document.getElementById('matchDate').value = '';
-            document.getElementById('homeOdds').value = '';
-            document.getElementById('drawOdds').value = '';
-            document.getElementById('awayOdds').value = '';
-            document.getElementById('matchStatus').value = 'scheduled';
-        };
-        
-        // ============ INITIALIZE APP ============
-        function init() {
-            loadLiveMatches();
-            
-            if (window.innerWidth <= 1024) {
-                const navBar = document.createElement('div');
-                navBar.className = 'mobile-nav';
-                navBar.innerHTML = `
-                    <button onclick="document.querySelector('.live-matches-panel').classList.add('active-mobile'); document.querySelector('.match-center-panel').classList.remove('active-mobile'); document.querySelector('.bet-slip-panel').classList.remove('active-mobile')">🏆 Live</button>
-                    <button onclick="document.querySelector('.match-center-panel').classList.add('active-mobile'); document.querySelector('.live-matches-panel').classList.remove('active-mobile'); document.querySelector('.bet-slip-panel').classList.remove('active-mobile')">📊 Match</button>
-                    <button onclick="document.querySelector('.bet-slip-panel').classList.add('active-mobile'); document.querySelector('.live-matches-panel').classList.remove('active-mobile'); document.querySelector('.match-center-panel').classList.remove('active-mobile')">🧾 Bets</button>
-                `;
-                document.body.appendChild(navBar);
-                document.querySelector('.live-matches-panel').classList.add('active-mobile');
-            }
+            return {
+                id: match.id,
+                league: match.league?.name || 'Unknown League',
+                leagueId: match.league?.id || 0,
+                homeTeam: match.participants?.[0]?.name || 'Home Team',
+                awayTeam: match.participants?.[1]?.name || 'Away Team',
+                homeScore: score.home,
+                awayScore: score.away,
+                status: isLive ? 'LIVE' : (matchTime > now ? 'UPCOMING' : 'FINISHED'),
+                startTime: match.starting_at,
+                startTimeObj: matchTime,
+                remainingTime: remainingTime,
+                countdownType: countdownType,
+                elapsed: elapsed,
+                odds: odds,
+                lastUpdate: Date.now()
+            };
         }
-        
-        // Make functions globally available
-        window.getDocs = getDocs;
-        window.updateDoc = updateDoc;
-        window.setDoc = setDoc;
-        window.deleteDoc = deleteDoc;
-        window.collection = collection;
-        window.doc = doc;
-        window.Timestamp = Timestamp;
-        
-        // Start the app
+
+        function categorizeMatches() {
+            const now = new Date();
+            const today = new Date().toDateString();
+            
+            liveMatches = allMatches.filter(m => m.status === 'LIVE');
+            todayMatches = allMatches.filter(m => {
+                if (m.status === 'LIVE') return true;
+                if (m.status === 'UPCOMING' && m.startTimeObj.toDateString() === today) return true;
+                return false;
+            });
+            upcomingMatches = allMatches.filter(m => {
+                return m.status === 'UPCOMING' && m.startTimeObj.toDateString() !== today && m.startTimeObj > now;
+            });
+            
+            // Sort upcoming by date
+            upcomingMatches.sort((a, b) => a.startTimeObj - b.startTimeObj);
+        }
+
+        function displayLiveMatches() {
+            const container = document.getElementById('liveGames');
+            if (!liveMatches.length) {
+                container.innerHTML = '<div class="loading">No live matches at the moment</div>';
+                return;
+            }
+            
+            const grouped = groupByLeague(liveMatches);
+            let html = '';
+            for (const [league, matches] of Object.entries(grouped)) {
+                html += `<div class="league-group"><div class="league-title">🏆 ${league}</div>`;
+                html += `<div class="games-grid">${matches.map(m => renderMatchCard(m)).join('')}</div></div>`;
+            }
+            container.innerHTML = html;
+            attachBetHandlers();
+        }
+
+        function displayTodayMatches() {
+            const container = document.getElementById('todayGames');
+            if (!todayMatches.length) {
+                container.innerHTML = '<div class="loading">No matches scheduled for today</div>';
+                return;
+            }
+            
+            const grouped = groupByLeague(todayMatches);
+            let html = '';
+            for (const [league, matches] of Object.entries(grouped)) {
+                html += `<div class="league-group"><div class="league-title">🏆 ${league}</div>`;
+                html += `<div class="games-grid">${matches.map(m => renderMatchCard(m)).join('')}</div></div>`;
+            }
+            container.innerHTML = html;
+            attachBetHandlers();
+        }
+
+        function displayUpcomingMatches() {
+            const container = document.getElementById('upcomingGames');
+            if (!upcomingMatches.length) {
+                container.innerHTML = '<div class="loading">No upcoming matches found</div>';
+                return;
+            }
+            
+            // Group by date
+            const groupedByDate = {};
+            upcomingMatches.forEach(match => {
+                const dateKey = match.startTimeObj.toLocaleDateString();
+                if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
+                groupedByDate[dateKey].push(match);
+            });
+            
+            let html = '';
+            for (const [date, matches] of Object.entries(groupedByDate)) {
+                html += `<div class="league-group"><div class="league-title">📅 ${date}</div>`;
+                const groupedByLeague = groupByLeague(matches);
+                for (const [league, leagueMatches] of Object.entries(groupedByLeague)) {
+                    html += `<div style="margin-left: 20px;"><div style="font-weight: bold; margin: 10px 0;">🏆 ${league}</div>`;
+                    html += `<div class="games-grid">${leagueMatches.map(m => renderMatchCard(m)).join('')}</div></div>`;
+                }
+                html += `</div>`;
+            }
+            container.innerHTML = html;
+            attachBetHandlers();
+        }
+
+        function displayAllMatches() {
+            const container = document.getElementById('allGames');
+            if (!allMatches.length) {
+                container.innerHTML = '<div class="loading">No matches found</div>';
+                return;
+            }
+            
+            // Sort by status and date
+            const sorted = [...allMatches].sort((a, b) => {
+                if (a.status === 'LIVE' && b.status !== 'LIVE') return -1;
+                if (a.status !== 'LIVE' && b.status === 'LIVE') return 1;
+                if (a.status === 'UPCOMING' && b.status === 'FINISHED') return -1;
+                if (a.status === 'FINISHED' && b.status === 'UPCOMING') return 1;
+                return a.startTimeObj - b.startTimeObj;
+            });
+            
+            const live = sorted.filter(m => m.status === 'LIVE');
+            const upcoming = sorted.filter(m => m.status === 'UPCOMING');
+            const finished = sorted.filter(m => m.status === 'FINISHED');
+            
+            let html = '';
+            
+            if (live.length) {
+                html += `<div class="league-group"><div class="league-title">🔥 LIVE MATCHES (${live.length})</div>`;
+                html += `<div class="games-grid">${live.map(m => renderMatchCard(m)).join('')}</div></div>`;
+            }
+            
+            if (upcoming.length) {
+                html += `<div class="league-group"><div class="league-title">⏰ UPCOMING MATCHES (${upcoming.length})</div>`;
+                html += `<div class="games-grid">${upcoming.map(m => renderMatchCard(m)).join('')}</div></div>`;
+            }
+            
+            if (finished.length) {
+                html += `<div class="league-group"><div class="league-title">✅ FINISHED MATCHES (${finished.length})</div>`;
+                html += `<div class="games-grid">${finished.slice(0, 20).map(m => renderMatchCard(m)).join('')}</div></div>`;
+            }
+            
+            container.innerHTML = html;
+            attachBetHandlers();
+        }
+
+        function renderMatchCard(match) {
+            const scoreDisplay = (match.status === 'LIVE' || match.status === 'FINISHED') 
+                ? `<div class="score">${match.homeScore} - ${match.awayScore}</div>`
+                : '';
+            
+            const countdownClass = match.countdownType === 'live' ? 'countdown live' : 'countdown upcoming';
+            const disabled = match.status !== 'LIVE' && match.status !== 'UPCOMING';
+            
+            return `
+                <div class="game-card" data-game-id="${match.id}" data-game='${JSON.stringify(match)}'>
+                    <div class="game-header">
+                        <div class="league">🏆 ${match.league}</div>
+                        <div class="teams">${match.homeTeam} vs ${match.awayTeam}</div>
+                        ${scoreDisplay}
+                        <div class="datetime">📅 ${match.startTimeObj.toLocaleString()}</div>
+                        <div class="${countdownClass}" data-match-id="${match.id}" data-start-time="${match.startTimeObj.getTime()}" data-status="${match.status}">
+                            ${match.remainingTime}
+                        </div>
+                    </div>
+                    <div class="bet-options">
+                        <div class="bet-btn ${disabled ? 'disabled' : ''}" data-prediction="home" ${disabled ? 'style="opacity:0.5; cursor:not-allowed;"' : ''}>
+                            ${match.homeTeam}<br>
+                            <span class="bet-odds">${match.odds.home}</span>
+                        </div>
+                        <div class="bet-btn ${disabled ? 'disabled' : ''}" data-prediction="draw" ${disabled ? 'style="opacity:0.5; cursor:not-allowed;"' : ''}>
+                            DRAW<br>
+                            <span class="bet-odds">${match.odds.draw}</span>
+                        </div>
+                        <div class="bet-btn ${disabled ? 'disabled' : ''}" data-prediction="away" ${disabled ? 'style="opacity:0.5; cursor:not-allowed;"' : ''}>
+                            ${match.awayTeam}<br>
+                            <span class="bet-odds">${match.odds.away}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function groupByLeague(matches) {
+            const grouped = {};
+            matches.forEach(match => {
+                if (!grouped[match.league]) grouped[match.league] = [];
+                grouped[match.league].push(match);
+            });
+            return grouped;
+        }
+
+        function startCountdowns() {
+            if (countdownIntervals.length) {
+                countdownIntervals.forEach(interval => clearInterval(interval));
+                countdownIntervals = [];
+            }
+            
+            const interval = setInterval(() => {
+                document.querySelectorAll('.countdown').forEach(el => {
+                    const matchId = parseInt(el.dataset.matchId);
+                    const startTime = parseInt(el.dataset.startTime);
+                    const status = el.dataset.status;
+                    const now = new Date().getTime();
+                    
+                    if (status === 'LIVE') {
+                        const match = allMatches.find(m => m.id === matchId);
+                        if (match) {
+                            const elapsedMinutes = Math.floor((Date.now() - match.lastUpdate) / 60000) + (match.elapsed || 0);
+                            const halfInfo = elapsedMinutes > 45 ? `2nd Half ${elapsedMinutes - 45}'` : `${elapsedMinutes}'`;
+                            el.textContent = `⏱️ LIVE - ${halfInfo}`;
+                        }
+                    } else if (status === 'UPCOMING') {
+                        const diff = startTime - now;
+                        if (diff <= 0) {
+                            el.textContent = '🔜 LIVE NOW!';
+                            el.classList.add('live');
+                            setTimeout(() => fetchAllMatches(), 2000);
+                        } else {
+                            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                            const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                            
+                            if (days > 0) {
+                                const match = allMatches.find(m => m.id === matchId);
+                                if (match) {
+                                    el.textContent = `📅 ${match.startTimeObj.toLocaleDateString()} at ${match.startTimeObj.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+                                }
+                            } else if (hours > 0) {
+                                el.textContent = `⏰ Starts in ${hours}h ${minutes}m`;
+                            } else if (minutes > 0) {
+                                el.textContent = `⏰ Starts in ${minutes}m`;
+                            } else {
+                                el.textContent = `🔜 Starting soon`;
+                            }
+                        }
+                    }
+                });
+            }, 1000);
+            countdownIntervals.push(interval);
+        }
+
+        function attachBetHandlers() {
+            document.querySelectorAll('.bet-btn:not(.disabled)').forEach(btn => {
+                btn.removeEventListener('click', betHandler);
+                btn.addEventListener('click', betHandler);
+            });
+        }
+
+        function betHandler(e) {
+            e.stopPropagation();
+            if (!currentUser) {
+                showNotification('Please login first!', 'error');
+                login();
+                return;
+            }
+            
+            const gameCard = this.closest('.game-card');
+            const gameData = JSON.parse(gameCard.dataset.game);
+            const prediction = this.dataset.prediction;
+            let odds = 0;
+            
+            if (prediction === 'home') odds = parseFloat(gameData.odds.home);
+            else if (prediction === 'draw') odds = parseFloat(gameData.odds.draw);
+            else odds = parseFloat(gameData.odds.away);
+            
+            openBetModal(gameData, prediction, odds);
+        }
+
+        function openBetModal(game, prediction, odds) {
+            currentBet = { game, prediction, odds };
+            document.getElementById('modalTitle').textContent = `Bet on ${prediction === 'home' ? game.homeTeam : prediction === 'draw' ? 'Draw' : game.awayTeam}`;
+            document.getElementById('modalMatch').textContent = `${game.homeTeam} vs ${game.awayTeam}`;
+            document.getElementById('modalOdds').textContent = odds;
+            document.getElementById('betAmount').value = '';
+            document.getElementById('potentialWin').textContent = '0.00';
+            document.getElementById('betModal').classList.add('active');
+        }
+
+        document.getElementById('betAmount').addEventListener('input', (e) => {
+            const amount = parseFloat(e.target.value);
+            if (currentBet && !isNaN(amount) && amount > 0) {
+                const win = (amount * currentBet.odds).toFixed(2);
+                document.getElementById('potentialWin').textContent = win;
+            }
+        });
+
+        async function placeBet() {
+            const amount = parseFloat(document.getElementById('betAmount').value);
+            
+            if (!amount || amount < 1) {
+                showNotification('Please enter a valid amount (minimum $1)', 'error');
+                return;
+            }
+            
+            const userRef = db.collection('users').doc(currentUser.uid);
+            const userDoc = await userRef.get();
+            const currentBalance = userDoc.data().balance;
+            
+            if (amount > currentBalance) {
+                showNotification('Insufficient balance!', 'error');
+                return;
+            }
+            
+            await userRef.update({ balance: firebase.firestore.FieldValue.increment(-amount) });
+            
+            await db.collection('bets').add({
+                userId: currentUser.uid,
+                match: `${currentBet.game.homeTeam} vs ${currentBet.game.awayTeam}`,
+                prediction: currentBet.prediction,
+                odds: currentBet.odds,
+                amount: amount,
+                potentialWin: amount * currentBet.odds,
+                status: 'pending',
+                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                gameId: currentBet.game.id
+            });
+            
+            await loadUserBalance();
+            await loadUserBets();
+            document.getElementById('betModal').classList.remove('active');
+            showNotification(`Bet placed! Potential win: $${(amount * currentBet.odds).toFixed(2)}`, 'success');
+        }
+
+        function updateCounts() {
+            document.getElementById('liveCount').textContent = liveMatches.length ? `(${liveMatches.length})` : '';
+            document.getElementById('todayCount').textContent = todayMatches.length ? `(${todayMatches.length})` : '';
+            document.getElementById('upcomingCount').textContent = upcomingMatches.length ? `(${upcomingMatches.length})` : '';
+        }
+
+        function startAutoRefresh() {
+            // Refresh every 10 seconds as recommended
+            setInterval(() => {
+                if (!isLoading) {
+                    fetchAllMatches();
+                }
+            }, 10000);
+        }
+
+        function showLoadingStates() {
+            const containers = ['liveGames', 'todayGames', 'upcomingGames', 'allGames'];
+            containers.forEach(id => {
+                const element = document.getElementById(id);
+                if (element && element.innerHTML === '') {
+                    element.innerHTML = '<div class="loading">Loading matches from API...</div>';
+                }
+            });
+        }
+
+        function showError(message) {
+            const containers = ['liveGames', 'todayGames', 'upcomingGames', 'allGames'];
+            containers.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.innerHTML = `<div class="error-message">❌ ${message}<br><br><button onclick="location.reload()">Retry</button></div>`;
+                }
+            });
+        }
+
+        function setupEventListeners() {
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    const tabName = tab.dataset.tab;
+                    document.querySelectorAll('.tab-content').forEach(content => content.style.display = 'none');
+                    document.getElementById(`${tabName}Tab`).style.display = 'block';
+                    if (tabName === 'mybets' && currentUser) loadUserBets();
+                });
+            });
+            
+            document.getElementById('loginBtn').addEventListener('click', login);
+            document.getElementById('logoutBtn').addEventListener('click', logout);
+            document.getElementById('confirmBet').addEventListener('click', placeBet);
+            document.getElementById('cancelBet').addEventListener('click', () => {
+                document.getElementById('betModal').classList.remove('active');
+            });
+        }
+
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                background: ${type === 'success' ? '#48bb78' : '#f56565'};
+                color: white;
+                padding: 15px 25px;
+                border-radius: 10px;
+                z-index: 2000;
+                animation: slideIn 0.3s ease;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            `;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        // Initialize the app
         init();
     </script>
 </body>
