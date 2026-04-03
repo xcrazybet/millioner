@@ -24,6 +24,7 @@ const db = getFirestore(app);
 const getLiveScores = httpsCallable(functions, 'getLiveScores');
 const getUpcomingFixtures = httpsCallable(functions, 'getUpcomingFixtures');
 const getFixtureOdds = httpsCallable(functions, 'getFixtureOdds');
+const checkSportmonksStatus = httpsCallable(functions, 'checkSportmonksStatus');
 
 // App State
 let currentUser = null;
@@ -36,9 +37,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (user) {
             currentUser = user;
             initWallet();
+            checkAPIStatus(); // New diagnostic call
             loadAppData();
         } else {
             showToast("Please login to place bets", "error");
+            checkAPIStatus(); // New diagnostic call
             loadAppData(); // Still show matches to guests
         }
     });
@@ -47,6 +50,19 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('betStake').addEventListener('input', updateSlipDisplay);
     document.getElementById('placeBetBtn').addEventListener('click', executeBet);
 });
+
+async function checkAPIStatus() {
+    try {
+        const status = await checkSportmonksStatus();
+        console.log("Diagnostic API Status:", status.data);
+        if (!status.data.configured) {
+            console.error("API Token not found in Firebase config!");
+            showToast("Backend Error: API Key missing. Please run deployment commands.", "error");
+        }
+    } catch (e) {
+        console.error("Diagnostic call failed:", e);
+    }
+}
 
 async function loadAppData() {
     renderLiveMatches();
@@ -72,7 +88,6 @@ async function renderLiveMatches() {
         const result = await getLiveScores();
         console.log("sports.js: getLiveScores Result:", result);
         
-        // Handle result structure carefully
         const responseData = result.data;
         if (!responseData) throw new Error("Cloud Function returned no data");
         if (!responseData.success) throw new Error(responseData.error || "Function reported failure");
@@ -125,10 +140,11 @@ async function renderLiveMatches() {
         }).join('');
     } catch (e) {
         console.error("sports.js: Error in renderLiveMatches:", e);
+        const errorMsg = e.code ? `${e.code}: ${e.message}` : e.message;
         container.innerHTML = `<div class="empty-slip" style="color: #ff4757;">
             <i class="fas fa-exclamation-triangle"></i><br>
             Failed to load live data.<br>
-            <small style="opacity: 0.6;">${e.message || 'Check connection or API key.'}</small>
+            <small style="opacity: 0.8; background: #000; padding: 2px 5px; border-radius: 4px;">Error: ${errorMsg}</small>
         </div>`;
     }
 }
@@ -196,10 +212,11 @@ async function renderUpcomingMatches() {
         }
     } catch (e) {
         console.error("sports.js: Error in renderUpcomingMatches:", e);
+        const errorMsg = e.code ? `${e.code}: ${e.message}` : e.message;
         container.innerHTML = `<div class="empty-slip" style="color: #ff4757;">
             <i class="fas fa-exclamation-triangle"></i><br>
             Failed to load upcoming fixtures.<br>
-            <small style="opacity: 0.6;">${e.message || 'Check connection or API key.'}</small>
+            <small style="opacity: 0.8; background: #000; padding: 2px 5px; border-radius: 4px;">Error: ${errorMsg}</small>
         </div>`;
     }
 }
