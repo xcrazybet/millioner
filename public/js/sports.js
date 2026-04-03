@@ -58,7 +58,7 @@ async function loadAppData() {
 function initWallet() {
     const walletRef = doc(db, "wallets", currentUser.uid);
     onSnapshot(walletRef, (snap) => {
-        if (docSnap.exists()) {
+        if (snap.exists()) {
             userBalance = snap.data().balance || 0;
             document.getElementById('balanceDisplay').textContent = `$${userBalance.toFixed(2)}`;
         }
@@ -68,124 +68,139 @@ function initWallet() {
 async function renderLiveMatches() {
     const container = document.getElementById('liveMatches');
     try {
+        console.log("sports.js: Calling getLiveScores...");
         const result = await getLiveScores();
-        if (result.data.success && result.data.data.data) {
-            const matches = result.data.data.data;
-            if (matches.length === 0) {
-                container.innerHTML = '<div class="empty-slip">No live matches at the moment</div>';
-                return;
-            }
-            container.innerHTML = matches.map(m => {
-                matchesData[m.id] = m;
-                const home = m.participants.find(p => p.meta.location === 'home');
-                const away = m.participants.find(p => p.meta.location === 'away');
-                const score = m.scores.find(s => s.description === 'CURRENT');
-                
-                return `
-                    <div class="match-card">
-                        <div class="match-meta">
-                            <span>${m.league?.name || 'Football'}</span>
-                            <span class="match-time">LIVE ${m.time?.minute || 0}'</span>
+        console.log("sports.js: getLiveScores Result:", result);
+        
+        // Handle result structure carefully
+        const responseData = result.data;
+        if (!responseData) throw new Error("Cloud Function returned no data");
+        if (!responseData.success) throw new Error(responseData.error || "Function reported failure");
+
+        const matches = responseData.data?.data;
+        if (!matches || matches.length === 0) {
+            container.innerHTML = '<div class="empty-slip"><i class="fas fa-info-circle"></i> No live matches currently in play.</div>';
+            return;
+        }
+
+        container.innerHTML = matches.map(m => {
+            matchesData[m.id] = m;
+            const home = m.participants?.find(p => p.meta?.location === 'home');
+            const away = m.participants?.find(p => p.meta?.location === 'away');
+            const score = m.scores?.find(s => s.description === 'CURRENT');
+            
+            return `
+                <div class="match-card">
+                    <div class="match-meta">
+                        <span>${m.league?.name || 'Football'}</span>
+                        <span class="match-time">LIVE ${m.time?.minute || 0}'</span>
+                    </div>
+                    <div class="match-teams">
+                        <div class="team">
+                            <img src="${home?.image_path || 'assets/images/placeholder.png'}" class="team-img" onerror="this.src='assets/images/placeholder.png'">
+                            <div class="team-name">${home?.name || 'Home'}</div>
                         </div>
-                        <div class="match-teams">
-                            <div class="team">
-                                <img src="${home?.image_path}" class="team-img">
-                                <div class="team-name">${home?.name}</div>
-                            </div>
-                            <div class="match-score">${score?.home_score || 0} - ${score?.away_score || 0}</div>
-                            <div class="team">
-                                <img src="${away?.image_path}" class="team-img">
-                                <div class="team-name">${away?.name}</div>
-                            </div>
-                        </div>
-                        <div class="odds-container">
-                            <div class="odd-box" onclick="addToSlip(${m.id}, '1', 1.85)">
-                                <span class="odd-label">1</span>
-                                <span class="odd-value">1.85</span>
-                            </div>
-                            <div class="odd-box" onclick="addToSlip(${m.id}, 'X', 3.40)">
-                                <span class="odd-label">X</span>
-                                <span class="odd-value">3.40</span>
-                            </div>
-                            <div class="odd-box" onclick="addToSlip(${m.id}, '2', 2.10)">
-                                <span class="odd-label">2</span>
-                                <span class="odd-value">2.10</span>
-                            </div>
+                        <div class="match-score">${score?.home_score || 0} - ${score?.away_score || 0}</div>
+                        <div class="team">
+                            <img src="${away?.image_path || 'assets/images/placeholder.png'}" class="team-img" onerror="this.src='assets/images/placeholder.png'">
+                            <div class="team-name">${away?.name || 'Away'}</div>
                         </div>
                     </div>
-                `;
-            }).join('');
-        }
+                    <div class="odds-container">
+                        <div class="odd-box" onclick="addToSlip(${m.id}, '1', 1.85)">
+                            <span class="odd-label">1</span>
+                            <span class="odd-value">1.85</span>
+                        </div>
+                        <div class="odd-box" onclick="addToSlip(${m.id}, 'X', 3.40)">
+                            <span class="odd-label">X</span>
+                            <span class="odd-value">3.40</span>
+                        </div>
+                        <div class="odd-box" onclick="addToSlip(${m.id}, '2', 2.10)">
+                            <span class="odd-label">2</span>
+                            <span class="odd-value">2.10</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
     } catch (e) {
-        container.innerHTML = '<div class="empty-slip">Failed to load live data</div>';
+        console.error("sports.js: Error in renderLiveMatches:", e);
+        container.innerHTML = `<div class="empty-slip" style="color: #ff4757;">
+            <i class="fas fa-exclamation-triangle"></i><br>
+            Failed to load live data.<br>
+            <small style="opacity: 0.6;">${e.message || 'Check connection or API key.'}</small>
+        </div>`;
     }
 }
 
 async function renderUpcomingMatches() {
     const container = document.getElementById('upcomingMatches');
     try {
+        console.log("sports.js: Calling getUpcomingFixtures...");
         const result = await getUpcomingFixtures();
-        if (result.data.success && result.data.data.data) {
-            const matches = result.data.data.data.slice(0, 10);
-            container.innerHTML = '';
-            
-            for (const m of matches) {
-                matchesData[m.id] = m;
-                const home = m.participants.find(p => p.meta.location === 'home');
-                const away = m.participants.find(p => p.meta.location === 'away');
-                const startTime = new Date(m.starting_at).toLocaleString([], { hour: '2-digit', minute: '2-digit' });
-                
-                // Fetch real odds for upcoming
-                let odds = { home: 1.90, draw: 3.20, away: 2.50 };
-                try {
-                    const oddsRes = await getFixtureOdds({ fixtureId: m.id });
-                    if (oddsRes.data.success && oddsRes.data.data.data) {
-                        const market = oddsRes.data.data.data.find(o => o.name === 'Full Time Result');
-                        if (market) {
-                            odds.home = market.odds.find(o => o.label === '1')?.value || 1.90;
-                            odds.draw = market.odds.find(o => o.label === 'X')?.value || 3.20;
-                            odds.away = market.odds.find(o => o.label === '2')?.value || 2.50;
-                        }
-                    }
-                } catch(err) {}
+        console.log("sports.js: getUpcomingFixtures Result:", result);
+        
+        const responseData = result.data;
+        if (!responseData) throw new Error("Cloud Function returned no data");
+        if (!responseData.success) throw new Error(responseData.error || "Function reported failure");
 
-                container.innerHTML += `
-                    <div class="match-card">
-                        <div class="match-meta">
-                            <span>${m.league?.name || 'Football'}</span>
-                            <span>Today, ${startTime}</span>
+        const matches = responseData.data?.data?.slice(0, 10);
+        if (!matches || matches.length === 0) {
+            container.innerHTML = '<div class="empty-slip">No upcoming fixtures found for today.</div>';
+            return;
+        }
+
+        container.innerHTML = '';
+        for (const m of matches) {
+            matchesData[m.id] = m;
+            const home = m.participants?.find(p => p.meta?.location === 'home');
+            const away = m.participants?.find(p => p.meta?.location === 'away');
+            const startTime = m.starting_at ? new Date(m.starting_at).toLocaleString([], { hour: '2-digit', minute: '2-digit' }) : 'TBA';
+            
+            // Default odds
+            let odds = { home: 1.90, draw: 3.20, away: 2.50 };
+            
+            container.innerHTML += `
+                <div class="match-card">
+                    <div class="match-meta">
+                        <span>${m.league?.name || 'Football'}</span>
+                        <span>Today, ${startTime}</span>
+                    </div>
+                    <div class="match-teams">
+                        <div class="team">
+                            <img src="${home?.image_path || 'assets/images/placeholder.png'}" class="team-img" onerror="this.src='assets/images/placeholder.png'">
+                            <div class="team-name">${home?.name || 'Home'}</div>
                         </div>
-                        <div class="match-teams">
-                            <div class="team">
-                                <img src="${home?.image_path}" class="team-img">
-                                <div class="team-name">${home?.name}</div>
-                            </div>
-                            <div class="match-score">VS</div>
-                            <div class="team">
-                                <img src="${away?.image_path}" class="team-img">
-                                <div class="team-name">${away?.name}</div>
-                            </div>
-                        </div>
-                        <div class="odds-container">
-                            <div class="odd-box" onclick="addToSlip(${m.id}, '1', ${odds.home})">
-                                <span class="odd-label">Home</span>
-                                <span class="odd-value">${odds.home}</span>
-                            </div>
-                            <div class="odd-box" onclick="addToSlip(${m.id}, 'X', ${odds.draw})">
-                                <span class="odd-label">Draw</span>
-                                <span class="odd-value">${odds.draw}</span>
-                            </div>
-                            <div class="odd-box" onclick="addToSlip(${m.id}, '2', ${odds.away})">
-                                <span class="odd-label">Away</span>
-                                <span class="odd-value">${odds.away}</span>
-                            </div>
+                        <div class="match-score">VS</div>
+                        <div class="team">
+                            <img src="${away?.image_path || 'assets/images/placeholder.png'}" class="team-img" onerror="this.src='assets/images/placeholder.png'">
+                            <div class="team-name">${away?.name || 'Away'}</div>
                         </div>
                     </div>
-                `;
-            }
+                    <div class="odds-container">
+                        <div class="odd-box" onclick="addToSlip(${m.id}, '1', ${odds.home})">
+                            <span class="odd-label">Home</span>
+                            <span class="odd-value">${odds.home}</span>
+                        </div>
+                        <div class="odd-box" onclick="addToSlip(${m.id}, 'X', ${odds.draw})">
+                            <span class="odd-label">Draw</span>
+                            <span class="odd-value">${odds.draw}</span>
+                        </div>
+                        <div class="odd-box" onclick="addToSlip(${m.id}, '2', ${odds.away})">
+                            <span class="odd-label">Away</span>
+                            <span class="odd-value">${odds.away}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
     } catch (e) {
-        container.innerHTML = '<div class="empty-slip">Failed to load upcoming fixtures</div>';
+        console.error("sports.js: Error in renderUpcomingMatches:", e);
+        container.innerHTML = `<div class="empty-slip" style="color: #ff4757;">
+            <i class="fas fa-exclamation-triangle"></i><br>
+            Failed to load upcoming fixtures.<br>
+            <small style="opacity: 0.6;">${e.message || 'Check connection or API key.'}</small>
+        </div>`;
     }
 }
 
