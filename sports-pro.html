@@ -250,7 +250,26 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('betStake').addEventListener('input', updateSlipDisplay);
     document.getElementById('placeBetBtn').addEventListener('click', executeBet);
     document.getElementById('retryBtn').addEventListener('click', loadAppData);
+    
+    // Initial Diagnostic
+    checkAPIStatus();
 });
+
+async function checkAPIStatus() {
+    const statusEl = document.getElementById('apiStatus');
+    try {
+        const checkStatus = httpsCallable(functions, 'checkSportmonksStatus');
+        const result = await checkStatus();
+        if (result.data.configured) {
+            statusEl.innerHTML = `<i class="fas fa-circle" style="color: var(--success);"></i> REAL API: Configured (${result.data.source})`;
+        } else {
+            statusEl.innerHTML = `<i class="fas fa-circle" style="color: var(--danger);"></i> API Key Missing!`;
+            showToast("Sportmonks API Key is not set in Firebase environment.", "error");
+        }
+    } catch (e) {
+        console.warn("Status check failed (probably not deployed yet):", e);
+    }
+}
 
 function initWallet() {
     if (walletUnsubscribe) walletUnsubscribe();
@@ -288,7 +307,13 @@ async function fetchFromSportmonks(endpoint, params = {}) {
     } catch (e) {
         console.error("Proxy Error:", e);
         let msg = e.message || "Connection Failed";
-        if (e.code === 'functions/deadline-exceeded') msg = "Upgrade to Blaze Plan";
+        
+        // Better error categorization
+        if (e.code === 'functions/deadline-exceeded') msg = "Blaze Plan Required (Timeout)";
+        else if (e.code === 'functions/internal') msg = "Internal Proxy Error (Check API Key)";
+        else if (e.code === 'functions/unavailable') msg = e.message;
+        else if (e.message.includes('timeout')) msg = "Request Timeout (Check Blaze Plan)";
+
         statusEl.innerHTML = `<i class="fas fa-circle" style="color: var(--danger);"></i> ${msg}`;
         return { error: msg };
     }
