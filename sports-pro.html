@@ -236,8 +236,14 @@ let currentUser = null;
 let userBalance = 0;
 let betSlip = [];
 let matchesData = {};
+let useDemoData = false;
 
 // ==================== CORE LOGIC ====================
+
+const DEMO_MATCHES = [
+    { id: 1, league: {name: "Premier League"}, participants: [{name: "Man Utd", image_path: "", meta: {location: "home"}}, {name: "Arsenal", image_path: "", meta: {location: "away"}}], scores: [{description: "CURRENT", home_score: 1, away_score: 1}], time: {minute: 65} },
+    { id: 2, league: {name: "La Liga"}, participants: [{name: "Real Madrid", image_path: "", meta: {location: "home"}}, {name: "Barcelona", image_path: "", meta: {location: "away"}}], scores: [{description: "CURRENT", home_score: 0, away_score: 2}], time: {minute: 22} }
+];
 
 document.addEventListener('DOMContentLoaded', () => {
     auth.onAuthStateChanged(user => {
@@ -270,19 +276,24 @@ function initWallet() {
     });
 }
 
-// DIRECT API CALLS (Bypassing Cloud Functions)
+// DIRECT API CALLS
 async function fetchFromSportmonks(endpoint, params = {}) {
     try {
         const url = new URL(`${API_BASE}${endpoint}`);
         url.searchParams.append('api_token', SPORTMONKS_TOKEN);
         for (let key in params) url.searchParams.append(key, params[key]);
 
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`API Error: ${response.status}`);
+        console.log("Calling API:", url.toString());
+        const response = await fetch(url, { method: 'GET', mode: 'cors' });
+        
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errText || 'Unknown Error'}`);
+        }
         return await response.json();
     } catch (e) {
         console.error("Sportmonks Fetch Error:", e);
-        return null;
+        return { error: e.message };
     }
 }
 
@@ -290,10 +301,19 @@ async function renderLiveMatches() {
     const container = document.getElementById('liveMatches');
     const statusEl = document.getElementById('apiStatus');
     
-    const data = await fetchFromSportmonks("/livescores/inplay", { include: "participants;scores;league" });
+    let data = await fetchFromSportmonks("/livescores/inplay", { include: "participants;scores;league" });
     
-    if (data && data.data) {
+    // Fallback to Demo Data if API fails (so UI is not broken)
+    if (!data || data.error) {
+        console.warn("API Failed, switching to Demo Data for UI visibility.");
+        useDemoData = true;
+        data = { data: DEMO_MATCHES };
+        statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="color: var(--warning);"></i> Demo Mode (API Error: ${data.error || 'CORS Blocked'})`;
+    } else {
         statusEl.innerHTML = '<i class="fas fa-circle" style="color: var(--success);"></i> Live';
+    }
+
+    if (data && data.data) {
         const matches = data.data;
         if (matches.length === 0) {
             container.innerHTML = '<div class="empty-slip">No matches live right now.</div>';
@@ -314,13 +334,13 @@ async function renderLiveMatches() {
                     </div>
                     <div class="match-teams">
                         <div class="team">
-                            <img src="${home?.image_path}" class="team-img">
-                            <div class="team-name">${home?.name}</div>
+                            <img src="${home?.image_path || 'assets/images/placeholder.png'}" class="team-img" onerror="this.src='assets/images/placeholder.png'">
+                            <div class="team-name">${home?.name || 'Home'}</div>
                         </div>
                         <div class="match-score">${score?.home_score || 0} - ${score?.away_score || 0}</div>
                         <div class="team">
-                            <img src="${away?.image_path}" class="team-img">
-                            <div class="team-name">${away?.name}</div>
+                            <img src="${away?.image_path || 'assets/images/placeholder.png'}" class="team-img" onerror="this.src='assets/images/placeholder.png'">
+                            <div class="team-name">${away?.name || 'Away'}</div>
                         </div>
                     </div>
                     <div class="odds-container">
@@ -337,9 +357,6 @@ async function renderLiveMatches() {
                 </div>
             `;
         }).join('');
-    } else {
-        statusEl.innerHTML = '<i class="fas fa-circle" style="color: var(--danger);"></i> API Offline';
-        container.innerHTML = '<div class="empty-slip">Failed to connect to API. Check your token.</div>';
     }
 }
 
@@ -363,13 +380,13 @@ async function renderUpcomingMatches() {
                     </div>
                     <div class="match-teams">
                         <div class="team">
-                            <img src="${home?.image_path}" class="team-img">
-                            <div class="team-name">${home?.name}</div>
+                            <img src="${home?.image_path || 'assets/images/placeholder.png'}" class="team-img" onerror="this.src='assets/images/placeholder.png'">
+                            <div class="team-name">${home?.name || 'Home'}</div>
                         </div>
                         <div class="match-score">VS</div>
                         <div class="team">
-                            <img src="${away?.image_path}" class="team-img">
-                            <div class="team-name">${away?.name}</div>
+                            <img src="${away?.image_path || 'assets/images/placeholder.png'}" class="team-img" onerror="this.src='assets/images/placeholder.png'">
+                            <div class="team-name">${away?.name || 'Away'}</div>
                         </div>
                     </div>
                     <div class="odds-container">
@@ -386,6 +403,8 @@ async function renderUpcomingMatches() {
                 </div>
             `;
         }).join('');
+    } else {
+        container.innerHTML = '<div class="empty-slip">Upcoming matches will appear here once the API connects.</div>';
     }
 }
 
