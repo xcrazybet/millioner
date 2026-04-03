@@ -1,4 +1,5 @@
 const functions = require('firebase-functions');
+const fetch = require('node-fetch');
 
 // Sportmonks API base URL
 const SPORTMONKS_API_BASE_URL = 'https://api.sportmonks.com/v3/football';
@@ -6,67 +7,58 @@ const SPORTMONKS_API_BASE_URL = 'https://api.sportmonks.com/v3/football';
 /**
  * Cloud Function to securely proxy Sportmonks API calls.
  * The API token is stored in Firebase environment configuration.
+ *
+ * @param {object} data - The request data.
+ * @param {string} data.endpoint - The Sportmonks API endpoint (e.g., '/fixtures', '/leagues').
+ * @param {object} [data.params] - Optional query parameters for the API request.
+ * @param {object} context - The Cloud Function context.
+ * @returns {Promise<object>} - The data from the Sportmonks API.
  */
 exports.getSportmonksData = functions.https.onCall(async (data, context) => {
-  // Try multiple ways to get the token
-  const configToken = functions.config().sportmonks?.key;
-  const envToken = process.env.SPORTMONKS_API_KEY;
-  const apiToken = configToken || envToken;
-
+  // Use environment variable for the API token
+  const apiToken = process.env.SPORTMONKS_API_KEY;
   if (!apiToken) {
-    console.error('CRITICAL: Sportmonks API key is missing from BOTH config and env!');
     throw new functions.https.HttpsError(
-      'failed-precondition',
-      'API Key Missing. Please run: firebase functions:config:set sportmonks.key="YOUR_TOKEN"'
+      'internal',
+      'Sportmonks API key not configured.'
     );
   }
 
   const { endpoint, params = {} } = data;
+
   if (!endpoint) {
-    throw new functions.https.HttpsError('invalid-argument', 'Endpoint is required');
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'The "endpoint" parameter is required.'
+    );
   }
 
+  // Construct the full URL
   const queryParams = new URLSearchParams({
     api_token: apiToken,
     ...params,
   }).toString();
 
   const url = `${SPORTMONKS_API_BASE_URL}${endpoint}?${queryParams}`;
-  console.log(`Calling Sportmonks: ${url}`);
 
   try {
-    // Using native fetch available in Node 18
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(10000) // 10 second timeout
-    });
-    
+    const response = await fetch(url);
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Sportmonks Error (${response.status}): ${errorText}`);
-      
-      if (response.status === 401 || response.status === 403) {
-        throw new functions.https.HttpsError('unauthenticated', 'Invalid Sportmonks API Token');
-      }
-      if (response.status === 429) {
-        throw new functions.https.HttpsError('resource-exhausted', 'API Rate limit exceeded');
-      }
-      
-      throw new functions.https.HttpsError('unavailable', `Sportmonks API Error: ${response.status}`);
+      console.error(`Sportmonks API error: ${response.status} - ${errorText}`);
+      throw new functions.https.HttpsError(
+        'unavailable',
+        `Sportmonks API returned an error: ${response.statusText}`
+      );
     }
-
     const json = await response.json();
     return { success: true, data: json };
   } catch (error) {
-    console.error('Network Error:', error.message);
-    
-    if (error.name === 'TimeoutError' || error.message.includes('timeout') || error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
-      throw new functions.https.HttpsError(
-        'deadline-exceeded',
-        'Connection failed. Ensure you have upgraded to the Firebase Blaze plan.'
-      );
-    }
-    
-    throw new functions.https.HttpsError('internal', error.message);
+    console.error('Error fetching data from Sportmonks API:', error);
+    throw new functions.https.HttpsError(
+      'internal',
+      `Failed to fetch data from Sportmonks API: ${error.message}`
+    );
   }
 });
 
@@ -169,7 +161,7 @@ exports.getLiveScores = functions.https.onCall(async (data, context) => {
     const result = await exports.getSportmonksData({
       endpoint: '/livescores/inplay',
       params: {
-        include: 'participants;scores;events',
+        include: 'participants;scores;league;state;lineups;events;statistics;periods',
       },
     }, context);
     return result;
