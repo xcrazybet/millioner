@@ -236,14 +236,8 @@ let currentUser = null;
 let userBalance = 0;
 let betSlip = [];
 let matchesData = {};
-let useDemoData = false;
 
 // ==================== CORE LOGIC ====================
-
-const DEMO_MATCHES = [
-    { id: 1, league: {name: "Premier League"}, participants: [{name: "Man Utd", image_path: "", meta: {location: "home"}}, {name: "Arsenal", image_path: "", meta: {location: "away"}}], scores: [{description: "CURRENT", home_score: 1, away_score: 1}], time: {minute: 65} },
-    { id: 2, league: {name: "La Liga"}, participants: [{name: "Real Madrid", image_path: "", meta: {location: "home"}}, {name: "Barcelona", image_path: "", meta: {location: "away"}}], scores: [{description: "CURRENT", home_score: 0, away_score: 2}], time: {minute: 22} }
-];
 
 document.addEventListener('DOMContentLoaded', () => {
     auth.onAuthStateChanged(user => {
@@ -276,23 +270,19 @@ function initWallet() {
     });
 }
 
-// DIRECT API CALLS
+// SECURE PROXY API CALLS (Mandatory to solve CORS and protect Token)
 async function fetchFromSportmonks(endpoint, params = {}) {
     try {
-        const url = new URL(`${API_BASE}${endpoint}`);
-        url.searchParams.append('api_token', SPORTMONKS_TOKEN);
-        for (let key in params) url.searchParams.append(key, params[key]);
-
-        console.log("Calling API:", url.toString());
-        const response = await fetch(url, { method: 'GET', mode: 'cors' });
+        const getSportmonksData = functions.httpsCallable('getSportmonksData');
+        const result = await getSportmonksData({ endpoint, params });
         
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`HTTP ${response.status}: ${errText || 'Unknown Error'}`);
+        if (result.data && result.data.success) {
+            return result.data.data;
+        } else {
+            throw new Error(result.data?.error || "Secure Proxy Error");
         }
-        return await response.json();
     } catch (e) {
-        console.error("Sportmonks Fetch Error:", e);
+        console.error("Secure Proxy Error:", e);
         return { error: e.message };
     }
 }
@@ -301,24 +291,14 @@ async function renderLiveMatches() {
     const container = document.getElementById('liveMatches');
     const statusEl = document.getElementById('apiStatus');
     
-    container.innerHTML = '<div class="empty-slip">Fetching Live Scores (Detailed)...</div>';
+    container.innerHTML = '<div class="empty-slip"><i class="fas fa-spinner fa-spin"></i> Loading REAL Live Scores...</div>';
     
-    // Using the exact includes you requested via the secure proxy
     let data = await fetchFromSportmonks("/livescores/inplay", { 
         include: "participants;scores;league;state;lineups;events;statistics;periods" 
     });
     
-    // Fallback to Demo Data if API fails (so UI is not broken)
-    if (!data || data.error) {
-        console.warn("API Failed, switching to Demo Data for UI visibility.");
-        useDemoData = true;
-        data = { data: DEMO_MATCHES };
-        statusEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="color: var(--warning);"></i> Demo Mode (API Error: ${data?.error || 'CORS Blocked'})`;
-    } else {
-        statusEl.innerHTML = '<i class="fas fa-circle" style="color: var(--success);"></i> Live';
-    }
-
     if (data && data.data) {
+        statusEl.innerHTML = '<i class="fas fa-circle" style="color: var(--success);"></i> REAL API: Live';
         const matches = data.data;
         if (matches.length === 0) {
             container.innerHTML = '<div class="empty-slip">No matches live right now.</div>';
@@ -363,6 +343,13 @@ async function renderLiveMatches() {
                 </div>
             `;
         }).join('');
+    } else {
+        statusEl.innerHTML = `<i class="fas fa-circle" style="color: var(--danger);"></i> REAL API: Offline`;
+        container.innerHTML = `<div class="empty-slip" style="color: var(--danger);">
+            <i class="fas fa-exclamation-triangle"></i><br>
+            Failed to load REAL data.<br>
+            <small>${data?.error || 'Check Firebase Blaze Plan'}</small>
+        </div>`;
     }
 }
 
