@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XLODON - LIVE Sports Betting | Real-Time Odds</title>
+  <!-- Firebase SDKs (optional, used if you enable Firebase mode) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    /* Paste the CSS from your snippet or keep the external file reference. Here is a compact version inline for convenience. */
+    /* You can replace this with a <link rel="stylesheet" href="styles.css"> if you prefer an external file. */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #0a0a1a 0%, #0f172a 50%, #1e293b 100%);
+      min-height: 100vh; color: #fff;
+    }
+    .header { background: rgba(0,0,0,0.5); backdrop-filter: blur(12px); padding: 1rem; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid rgba(255,215,0,0.2); }
+    .header-content { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+    .logo { font-size: 1.8rem; font-weight: bold; background: linear-gradient(135deg, #ffd700, #ff6b6b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: flex; align-items: center; gap: 0.5rem; }
+    .balance-card { background: linear-gradient(135deg, rgba(255,215,0,0.2), rgba(255,107,107,0.2)); padding: 0.6rem 1.5rem; border-radius: 50px; display: flex; gap: 1rem; align-items: center; border: 1px solid rgba(255,215,0,0.3); }
+    .balance-amount { font-size: 1.6rem; font-weight: bold; color: #ffd700; }
+    .add-funds-btn { background: #ffd700; border: none; padding: 0.5rem 1.2rem; border-radius: 50px; color: #0a0a1a; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .stats-bar { max-width: 1400px; margin: 1rem auto; padding: 0 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
+    .stat-card { background: rgba(255,255,255,0.05); padding: 0.8rem; border-radius: 16px; text-align: center; border: 1px solid rgba(255,255,255,0.1); }
+    .stat-value { font-size: 1.2rem; font-weight: bold; color: #ffd700; }
+    .filters { max-width: 1400px; margin: 1rem auto; padding: 0 1rem; display: flex; gap: 0.8rem; flex-wrap: wrap; }
+    .filter-btn { padding: 0.6rem 1.3rem; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); border-radius: 40px; color: #fff; cursor: pointer; transition: all 0.2s; font-size: 0.85rem; }
+    .filter-btn.active { background: linear-gradient(135deg, #ffd700, #ff6b6b); color: #0a0a1a; border-color: transparent; }
+    .main-container { max-width: 1400px; margin: 0 auto; padding: 1rem; }
+    .fixtures-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1.5rem; margin-top: 1rem; }
+    .fixture-card { background: rgba(255,255,255,0.05); backdrop-filter: blur(12px); border-radius: 24px; padding: 1.2rem; transition: 0.2s; border: 1px solid rgba(255,255,255,0.12); animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .fixture-card:hover { transform: translateY(-3px); background: rgba(255,255,255,0.09); }
+    .fixture-header { display: flex; justify-content: space-between; margin-bottom: 0.8rem; font-size: 0.8rem; }
+    .league-name { background: rgba(255,215,0,0.2); padding: 0.2rem 0.8rem; border-radius: 20px; }
+    .fixture-status { padding: 0.2rem 0.7rem; border-radius: 20px; font-size: 0.7rem; font-weight: bold; }
+    .status-inplay { background: #ff4757; animation: pulse 1s infinite; } .status-scheduled { background: #ffa502; } .status-finished { background: #2ed573; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } }
+    .fixture-teams { text-align: center; margin: 1rem 0; }
+    .team { font-size: 1.1rem; font-weight: 600; margin: 0.4rem 0; }
+    .score { font-size: 1.8rem; font-weight: bold; color: #ffd700; }
+    .odds-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.7rem; margin-top: 1rem; }
+    .odd-btn { background: rgba(255,255,255,0.1); border-radius: 14px; padding: 0.7rem; cursor: pointer; text-align: center; transition: 0.2s; }
+    .odd-btn:hover { background: #ffd700; color: #0a0a1a; transform: scale(1.02); }
+    .odd-value { font-size: 1.2rem; font-weight: bold; }
+    .bet-slip-toggle { position: fixed; right: 20px; bottom: 20px; background: linear-gradient(135deg, #ffd700, #ff6b6b); width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 200; box-shadow: 0 5px 20px rgba(0,0,0,0.4); }
+    .bet-count { position: absolute; top: -5px; right: -5px; background: #ff4757; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; }
+    .bet-slip { position: fixed; right: 0; top: 0; width: 400px; height: 100vh; background: rgba(10,10,26,0.98); backdrop-filter: blur(20px); transform: translateX(100%); transition: transform 0.3s; z-index: 1000; padding: 1rem; overflow-y: auto; border-left: 1px solid rgba(255,215,0,0.3); }
+    .bet-slip.open { transform: translateX(0); }
+    .bet-item { background: rgba(255,255,255,0.08); padding: 1rem; border-radius: 16px; margin-bottom: 1rem; }
+    .stake-input { width: 100%; padding: 0.6rem; margin: 0.5rem 0; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,215,0,0.4); border-radius: 12px; color: #fff; }
+    .place-bet-btn { width: 100%; padding: 0.9rem; background: linear-gradient(135deg, #ffd700, #ff6b6b); border: none; border-radius: 40px; font-weight: bold; cursor: pointer; margin-top: 1rem; }
+    .place-bet-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .toast { position: fixed; bottom: 20px; left: 20px; background: #0f172a; border-left: 4px solid #ffd700; padding: 0.8rem 1.5rem; border-radius: 12px; z-index: 2000; animation: slideInLeft 0.3s; }
+    @keyframes slideInLeft { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    .loader { border: 3px solid rgba(255,255,255,0.2); border-top: 3px solid #ffd700; width: 50px; height: 50px; border-radius: 50%; animation: spin 1s linear infinite; margin: 2rem auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .error-message, .empty-state { text-align: center; padding: 2rem; background: rgba(255,107,107,0.1); border-radius: 8px; margin: 1rem; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <div class="logo">XLODON <span style="font-weight: normal; font-size: 0.8em;">LIVE</span></div>
+      <div class="balance-card" id="balanceCard">
+        <span>Balance</span>
+        <span class="balance-amount" id="balanceAmount">$100.00</span>
+        <button class="add-funds-btn" onclick="addFunds()">Add Funds</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="stats-bar" id="statsBar">
+    <div class="stat-card"><div class="stat-value" id="stat1">Live Bets: 2</div></div>
+    <div class="stat-card"><div class="stat-value" id="stat2">Pending: 1</div></div>
+    <div class="stat-card"><div class="stat-value" id="stat3">P/L: $-12</div></div>
+  </section>
+
+  <section class="filters" aria-label="filters">
+    <button class="filter-btn active" data-filter="all" onclick="setFilter(event)">All</button>
+    <button class="filter-btn" data-filter="soccer" onclick="setFilter(event)">Soccer</button>
+    <button class="filter-btn" data-filter="basketball" onclick="setFilter(event)">Basketball</button>
+  </section>
+
+  <main class="main-container">
+    <div class="fixtures-grid" id="fixtures-grid">
+      <!-- Fixtures render here -->
+    </div>
+    <div id="loader" class="loader" style="display: none;"></div>
+    <div id="emptyState" class="empty-state" style="display: none;">No fixtures available</div>
+  </main>
+
+  <!-- Bet Slip Toggle -->
+  <div class="bet-slip-toggle" id="betSlipToggle" title="Open bet slip" onclick="toggleBetSlip()">
+    <span style="font-size: 1.2rem; line-height: 1;">💼</span>
+    <span class="bet-count" id="betCount" style="display: none;">0</span>
+  </div>
+
+  <!-- Bet Slip -->
+  <aside class="bet-slip" id="betSlip" aria-label="bet-slip">
+    <h3>Your Bet Slip</h3>
+    <div id="betItems"></div>
+    <div class="toast" id="betSummary" style="display:none;">
+      <div id="betSummaryText"></div>
+    </div>
+    <div>
+      <label>Stake ($)</label>
+      <input class="stake-input" id="stakeInput" type="number" min="1" step="1" value="10" />
+    </div>
+    <button class="place-bet-btn" id="placeBetBtn" onclick="placeBet()">Place Bet</button>
+  </aside>
+
+  <!-- Toasts -->
+  <div id="toast" class="toast" style="display:none;"></div>
+
+  <!-- Optional: Firebase initialization and app logic is in script.js -->
+
+  <script src="script.js"></script>
+</body>
+</html>
