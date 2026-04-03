@@ -63,6 +63,96 @@ exports.getSportmonksData = functions.https.onCall(async (data, context) => {
 });
 
 /**
+ * Cloud Function to fetch Sportmonks standings for a season.
+ * @param {object} data - The request data.
+ * @param {number} data.seasonId - The ID of the season to get standings for.
+ * @returns {Promise<object>} - The standings data.
+ */
+exports.getStandings = functions.https.onCall(async (data, context) => {
+  const { seasonId } = data;
+  if (!seasonId) {
+    throw new functions.https.HttpsError('invalid-argument', 'The "seasonId" parameter is required.');
+  }
+  try {
+    const result = await exports.getSportmonksData({
+      endpoint: `/standings/seasons/${seasonId}`,
+      params: { include: 'team' },
+    }, context);
+    return result;
+  } catch (error) {
+    console.error('Error in getStandings:', error);
+    throw new functions.https.HttpsError('internal', `Failed to fetch standings: ${error.message}`);
+  }
+});
+
+/**
+ * Cloud Function to fetch Sportmonks top scorers for a season.
+ * @param {object} data - The request data.
+ * @param {number} data.seasonId - The ID of the season.
+ * @returns {Promise<object>} - The top scorers data.
+ */
+exports.getTopScorers = functions.https.onCall(async (data, context) => {
+  const { seasonId } = data;
+  if (!seasonId) {
+    throw new functions.https.HttpsError('invalid-argument', 'The "seasonId" parameter is required.');
+  }
+  try {
+    const result = await exports.getSportmonksData({
+      endpoint: `/topscorers/seasons/${seasonId}`,
+      params: { include: 'player;team' },
+    }, context);
+    return result;
+  } catch (error) {
+    console.error('Error in getTopScorers:', error);
+    throw new functions.https.HttpsError('internal', `Failed to fetch top scorers: ${error.message}`);
+  }
+});
+
+/**
+ * Cloud Function to fetch latest match updates (last 10 seconds).
+ * @returns {Promise<object>} - The latest updates data.
+ */
+exports.getLatestUpdates = functions.https.onCall(async (data, context) => {
+  try {
+    const result = await exports.getSportmonksData({
+      endpoint: '/fixtures/latest',
+      params: {
+        include: 'participants;scores;events;odds',
+      },
+    }, context);
+    return result;
+  } catch (error) {
+    console.error('Error in getLatestUpdates:', error);
+    throw new functions.https.HttpsError(
+      'internal',
+      `Failed to fetch latest updates: ${error.message}`
+    );
+  }
+});
+
+/**
+ * Cloud Function to fetch all Sportmonks leagues.
+ * @returns {Promise<object>} - The leagues data.
+ */
+exports.getLeagues = functions.https.onCall(async (data, context) => {
+  try {
+    const result = await exports.getSportmonksData({
+      endpoint: '/leagues',
+      params: {
+        include: 'country;season',
+      },
+    }, context);
+    return result;
+  } catch (error) {
+    console.error('Error in getLeagues:', error);
+    throw new functions.https.HttpsError(
+      'internal',
+      `Failed to fetch leagues: ${error.message}`
+    );
+  }
+});
+
+/**
  * Cloud Function to fetch live Sportmonks scores.
  * @returns {Promise<object>} - The live scores data.
  */
