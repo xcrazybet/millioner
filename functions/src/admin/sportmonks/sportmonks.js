@@ -15,12 +15,16 @@ const SPORTMONKS_API_BASE_URL = 'https://api.sportmonks.com/v3/football';
  * @returns {Promise<object>} - The data from the Sportmonks API.
  */
 exports.getSportmonksData = functions.https.onCall(async (data, context) => {
-  // Use environment variable for the API token
-  const apiToken = process.env.SPORTMONKS_API_KEY;
+  // Try multiple ways to get the token (Config, Env, or GitHub Secret)
+  const configToken = functions.config().sportmonks?.key;
+  const envToken = process.env.SPORTMONKS_API_KEY || process.env.TOKEN_API_SPORTMONKS;
+  const apiToken = configToken || envToken;
+
   if (!apiToken) {
+    console.error('CRITICAL: Sportmonks API key is missing from BOTH config and env!');
     throw new functions.https.HttpsError(
-      'internal',
-      'Sportmonks API key not configured.'
+      'failed-precondition',
+      'API Key Missing. Please add TOKEN_API_SPORTMONKS to your GitHub Secrets and redeploy.'
     );
   }
 
