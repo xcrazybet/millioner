@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MILLIONER PRO - Standalone Betting</title>
+    <title>MILLIONER PRO - Professional Betting</title>
     
     <!-- Icons & Fonts -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
@@ -71,9 +71,7 @@
         .odds-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
         .odd-box { background: var(--surface-light); padding: 12px; border-radius: 8px; text-align: center; cursor: pointer; border: 1px solid transparent; transition: 0.2s; }
         .odd-box:hover { border-color: var(--primary); background: rgba(0, 255, 157, 0.05); }
-        .odd-box.selected { background: var(--primary); color: #000; border-color: var(--primary); }
         .odd-label { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; display: block; }
-        .odd-box.selected .odd-label { color: rgba(0,0,0,0.6); }
         .odd-value { font-weight: 700; font-size: 15px; }
 
         /* Bet Slip (Right Sidebar) */
@@ -102,13 +100,6 @@
         /* Empty States */
         .empty-slip { text-align: center; padding: 40px 20px; color: var(--text-dim); }
         .empty-slip i { font-size: 48px; margin-bottom: 15px; opacity: 0.2; }
-
-        /* Mobile */
-        @media (max-width: 1024px) {
-            .app-container { grid-template-columns: 1fr; }
-            .sidebar, .betslip { display: none; }
-            .mobile-nav { display: flex; position: fixed; bottom: 0; width: 100%; background: var(--surface); padding: 10px; border-top: 1px solid var(--border); justify-content: space-around; z-index: 1000; }
-        }
 
         /* Notifications */
         .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; }
@@ -139,7 +130,7 @@
         <nav class="nav-group">
             <div class="nav-label">Status</div>
             <div id="apiStatus" class="nav-item"><i class="fas fa-circle" style="color: var(--warning);"></i> Connecting...</div>
-            <div class="nav-item" onclick="loadAppData()" style="cursor: pointer; font-size: 11px; color: var(--primary);">
+            <div class="nav-item" id="retryBtn" style="cursor: pointer; font-size: 11px; color: var(--primary);">
                 <i class="fas fa-sync-alt"></i> Force Retry
             </div>
         </nav>
@@ -164,7 +155,7 @@
             <h2>Live Now</h2>
         </div>
         <div id="liveMatches" class="matches-grid">
-            <div class="empty-slip">Initializing real-time engine...</div>
+            <div class="empty-slip"><i class="fas fa-spinner fa-spin"></i> Initializing real-time engine...</div>
         </div>
 
         <!-- UPCOMING MATCHES -->
@@ -210,16 +201,14 @@
 
 <div class="toast-container" id="toastContainer"></div>
 
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<!-- Firebase SDK (Modular v9+) -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+import { getFirestore, doc, onSnapshot, runTransaction, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-functions.js";
 
-<script>
 // ==================== CONFIGURATION ====================
-const SPORTMONKS_TOKEN = "DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy";
-const API_BASE = "https://api.sportmonks.com/v3/football";
-
 const firebaseConfig = {
     apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
     authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -230,9 +219,10 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const auth = firebase.auth();
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+const functions = getFunctions(app);
 
 // App State
 let currentUser = null;
@@ -240,95 +230,80 @@ let userBalance = 0;
 let betSlip = [];
 let matchesData = {};
 let walletUnsubscribe = null;
-let refreshInterval = null;
 
 // ==================== CORE LOGIC ====================
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Ensure Firebase services are ready
-    const firebaseFunctions = firebase.functions();
-
-    auth.onAuthStateChanged(user => {
+    onAuthStateChanged(auth, user => {
         currentUser = user;
         if (user) {
             initWallet();
         } else {
             if (walletUnsubscribe) walletUnsubscribe();
             userBalance = 0;
-            document.getElementById('balanceDisplay').textContent = `$0.00`;
-            showToast("Please login to bet", "error");
+            updateBalanceUI(0);
+            showToast("Please login to place bets", "error");
         }
         loadAppData();
     });
 
     document.getElementById('betStake').addEventListener('input', updateSlipDisplay);
     document.getElementById('placeBetBtn').addEventListener('click', executeBet);
+    document.getElementById('retryBtn').addEventListener('click', loadAppData);
 });
 
-async function loadAppData() {
-    renderLiveMatches();
-    renderUpcomingMatches();
-    // Prevent multiple intervals
-    if (!refreshInterval) {
-        refreshInterval = setInterval(renderLiveMatches, 60000);
-    }
-}
-
 function initWallet() {
-    // Prevent multiple snapshot listeners
     if (walletUnsubscribe) walletUnsubscribe();
-    walletUnsubscribe = db.collection("wallets").doc(currentUser.uid).onSnapshot(doc => {
-        if (doc.exists) {
-            userBalance = doc.data().balance || 0;
-            document.getElementById('balanceDisplay').textContent = `$${userBalance.toFixed(2)}`;
+    const walletRef = doc(db, "wallets", currentUser.uid);
+    walletUnsubscribe = onSnapshot(walletRef, (snap) => {
+        if (snap.exists()) {
+            userBalance = snap.data().balance || 0;
+            updateBalanceUI(userBalance);
         }
     });
 }
 
-// SECURE PROXY API CALLS (Mandatory to solve CORS and protect Token)
+function updateBalanceUI(bal) {
+    document.getElementById('balanceDisplay').textContent = `$${bal.toFixed(2)}`;
+}
+
 async function fetchFromSportmonks(endpoint, params = {}) {
     const statusEl = document.getElementById('apiStatus');
     try {
-        console.log(`[Proxy] Calling: ${endpoint}`);
-        const functionsInstance = firebase.functions();
-        const getSportmonksData = functionsInstance.httpsCallable('getSportmonksData');
+        const getSportmonksData = httpsCallable(functions, 'getSportmonksData');
         
-        // Add a timeout to the callable
+        // 15s timeout
         const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Request timed out after 15s")), 15000)
+            setTimeout(() => reject(new Error("Timeout (Upgrade to Blaze Plan?)")), 15000)
         );
         
-        const result = await Promise.race([
-            getSportmonksData({ endpoint, params }),
-            timeoutPromise
-        ]);
+        const resultPromise = getSportmonksData({ endpoint, params });
+        const response = await Promise.race([resultPromise, timeoutPromise]);
         
-        console.log(`[Proxy] Result for ${endpoint}:`, result);
-        
-        if (result.data && result.data.success) {
-            return result.data.data;
+        if (response.data && response.data.success) {
+            return response.data.data;
         } else {
-            const errorMsg = result.data?.error || "Unknown backend error";
-            throw new Error(errorMsg);
+            throw new Error(response.data?.error || "Secure Proxy Error");
         }
     } catch (e) {
-        console.error(`[Proxy] Error calling ${endpoint}:`, e);
-        
-        // Update status UI immediately on error
-        let displayError = e.message;
-        if (e.code === 'functions/deadline-exceeded') displayError = "Upgrade to Blaze Plan";
-        if (e.code === 'functions/unauthenticated') displayError = "Check API Token";
-        
-        statusEl.innerHTML = `<i class="fas fa-circle" style="color: var(--danger);"></i> ${displayError}`;
-        return { error: displayError };
+        console.error("Proxy Error:", e);
+        let msg = e.message || "Connection Failed";
+        if (e.code === 'functions/deadline-exceeded') msg = "Upgrade to Blaze Plan";
+        statusEl.innerHTML = `<i class="fas fa-circle" style="color: var(--danger);"></i> ${msg}`;
+        return { error: msg };
     }
+}
+
+async function loadAppData() {
+    renderLiveMatches();
+    renderUpcomingMatches();
 }
 
 async function renderLiveMatches() {
     const container = document.getElementById('liveMatches');
     const statusEl = document.getElementById('apiStatus');
     
-    container.innerHTML = '<div class="empty-slip"><i class="fas fa-spinner fa-spin"></i> Fetching Real-Time Matches...</div>';
+    container.innerHTML = '<div class="empty-slip"><i class="fas fa-spinner fa-spin"></i> Fetching Real Live Scores...</div>';
     
     const data = await fetchFromSportmonks("/livescores/inplay", { 
         include: "participants;scores;league;state;lineups;events;statistics;periods" 
@@ -381,18 +356,17 @@ async function renderLiveMatches() {
             `;
         }).join('');
     } else {
-        // Status handled by fetchFromSportmonks catch block
         container.innerHTML = `<div class="empty-slip" style="color: var(--danger);">
             <i class="fas fa-exclamation-triangle"></i><br>
-            Failed to load data.<br>
-            <small style="background: #000; padding: 2px 8px; border-radius: 4px;">${data?.error || 'Connection Failed'}</small>
+            Failed to load REAL data.<br>
+            <small style="background: #000; padding: 2px 8px; border-radius: 4px;">${data?.error || 'Check Firebase Blaze Plan'}</small>
         </div>`;
     }
 }
 
 async function renderUpcomingMatches() {
     const container = document.getElementById('upcomingMatches');
-    container.innerHTML = '<div class="empty-slip"><i class="fas fa-spinner fa-spin"></i> Loading Fixtures...</div>';
+    container.innerHTML = '<div class="empty-slip"><i class="fas fa-spinner fa-spin"></i> Loading REAL Fixtures...</div>';
     
     const data = await fetchFromSportmonks("/fixtures", { include: "participants;league" });
     
@@ -436,17 +410,18 @@ async function renderUpcomingMatches() {
             `;
         }).join('');
     } else {
-        container.innerHTML = '<div class="empty-slip">Check connection to view upcoming matches.</div>';
+        container.innerHTML = '<div class="empty-slip">Upcoming matches unavailable. Check connection.</div>';
     }
 }
 
+// Global scope for onclick handlers
 window.addToSlip = (matchId, selection, price) => {
     const match = matchesData[matchId];
     if (!match) return;
 
     const existingIndex = betSlip.findIndex(b => b.matchId === matchId);
-    const home = match.participants?.find(p => p.meta?.location === 'home')?.name;
-    const away = match.participants?.find(p => p.meta?.location === 'away')?.name;
+    const home = match.participants?.find(p => p.meta?.location === 'home')?.name || 'Home';
+    const away = match.participants?.find(p => p.meta?.location === 'away')?.name || 'Away';
 
     const bet = { matchId, matchName: `${home} vs ${away}`, selection, price: parseFloat(price) };
 
@@ -476,7 +451,7 @@ function updateSlipDisplay() {
 
     container.innerHTML = betSlip.map((b, i) => `
         <div class="bet-item">
-            <i class="fas fa-times remove-bet" onclick="removeFromSlip(${i})"></i>
+            <div class="remove-bet" id="remove-${i}"><i class="fas fa-times"></i></div>
             <div class="bet-match">${b.matchName}</div>
             <div class="bet-selection">
                 <span class="selection-name">${b.selection}</span>
@@ -485,13 +460,19 @@ function updateSlipDisplay() {
         </div>
     `).join('');
 
+    // Re-attach listeners for remove buttons
+    betSlip.forEach((_, i) => {
+        document.getElementById(`remove-${i}`).onclick = () => {
+            betSlip.splice(i, 1);
+            updateSlipDisplay();
+        };
+    });
+
     const totalOdds = betSlip.reduce((acc, b) => acc * b.price, 1);
     totalOddsEl.textContent = totalOdds.toFixed(2);
     payoutEl.textContent = `$${(totalOdds * stake).toFixed(2)}`;
     document.getElementById('placeBetBtn').disabled = stake <= 0;
 }
-
-window.removeFromSlip = (i) => { betSlip.splice(i, 1); updateSlipDisplay(); };
 
 async function executeBet() {
     if (!currentUser) { showToast("Login required", "error"); return; }
@@ -503,21 +484,21 @@ async function executeBet() {
 
     try {
         const ticketId = `BET-${Date.now()}`;
-        const walletRef = db.collection("wallets").doc(currentUser.uid);
+        const walletRef = doc(db, "wallets", currentUser.uid);
         
-        await db.runTransaction(async (transaction) => {
+        await runTransaction(db, async (transaction) => {
             const snap = await transaction.get(walletRef);
             const currentBal = snap.data().balance || 0;
             if (currentBal < stake) throw new Error("Insufficient balance");
 
             transaction.update(walletRef, { balance: currentBal - stake });
-            const betRef = db.collection("football_bets").doc(ticketId);
+            const betRef = doc(collection(db, "football_bets"), ticketId);
             transaction.set(betRef, {
                 userId: currentUser.uid,
                 selections: betSlip,
                 stake,
                 status: 'pending',
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                createdAt: serverTimestamp(),
                 ticketId
             });
         });
