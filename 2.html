@@ -61,6 +61,7 @@
             gap: 20px;
             font-size: 14px;
             color: #666;
+            flex-wrap: wrap;
         }
 
         .stats span {
@@ -72,6 +73,7 @@
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
+            margin-top: 10px;
         }
 
         .filter-btn {
@@ -232,10 +234,31 @@
             display: none;
         }
 
-        .last-update {
+        .success-message {
+            background: #4CAF50;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .auth-status {
             font-size: 12px;
-            color: #999;
-            text-align: right;
+            padding: 5px 10px;
+            border-radius: 15px;
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .auth-status.connecting {
+            background: #fff3e0;
+            color: #ef6c00;
+        }
+
+        .auth-status.error {
+            background: #ffebee;
+            color: #c62828;
         }
 
         @media (max-width: 768px) {
@@ -257,8 +280,9 @@
                 <div class="live-badge">🔴 LIVE BETTING</div>
                 <div class="stats">
                     <div>📊 Live Matches: <span id="liveCount">0</span></div>
-                    <div>🏆 Today's Matches: <span id="totalCount">0</span></div>
+                    <div>🏆 Total Matches: <span id="totalCount">0</span></div>
                     <div>🔄 Last Update: <span id="lastUpdate">--:--:--</span></div>
+                    <div id="authStatus" class="auth-status connecting">🔌 Connecting to Firebase...</div>
                 </div>
             </div>
             <div class="filters">
@@ -270,6 +294,7 @@
         </div>
 
         <div id="errorMessage" class="error-message"></div>
+        <div id="successMessage" class="success-message"></div>
         
         <div id="loading" class="loading">
             <div class="spinner"></div>
@@ -279,12 +304,11 @@
         <div id="matchesContainer" class="matches-grid"></div>
     </div>
 
-    <!-- Firebase SDKs -->
     <script type="module">
         // Import Firebase modules
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getFirestore, collection, doc, setDoc, getDocs, query, where, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-        import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+        import { getFirestore, doc, setDoc, deleteDoc, writeBatch, collection } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 
         // Firebase Configuration
         const firebaseConfig = {
@@ -297,9 +321,10 @@
             measurementId: "G-PTV4XMYQ6P"
         };
 
-        // IMPORTANT: You MUST regenerate your Sportmonks token immediately!
-        // This token is exposed - replace with your new token from Sportmonks dashboard
-        const SPORTMONKS_TOKEN = "YOUR_NEW_TOKEN_HERE"; // REPLACE THIS WITH YOUR REGENERATED TOKEN!
+        // ⚠️ IMPORTANT: You MUST regenerate your Sportmonks token!
+        // Go to https://sportmonks.com dashboard and get a NEW token
+        // Then replace YOUR_NEW_SPORTMONKS_TOKEN_HERE with your actual token
+        const SPORTMONKS_TOKEN = "YOUR_NEW_SPORTMONKS_TOKEN_HERE";
         
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
@@ -310,53 +335,99 @@
         let allMatches = [];
         let currentFilter = 'all';
         let pollingInterval = null;
-        let lastSyncTime = null;
-        let deletedMatches = new Set();
+        let isAuthenticated = false;
+        let authRetryCount = 0;
 
         // Initialize app
         async function init() {
-            await setupFirebaseAuth();
+            setupFirebaseAuth();
             await loadInitialData();
             startPolling();
             setupEventListeners();
         }
 
         // Setup Firebase Authentication
-        async function setupFirebaseAuth() {
-            try {
-                const userCredential = await signInAnonymously(auth);
-                console.log('Firebase auth successful:', userCredential.user.uid);
-            } catch (error) {
-                console.error('Firebase auth error:', error);
-                showError('Failed to authenticate with Firebase');
-            }
+        function setupFirebaseAuth() {
+            // Listen for auth state changes
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    // User is signed in
+                    isAuthenticated = true;
+                    const authStatusDiv = document.getElementById('authStatus');
+                    authStatusDiv.className = 'auth-status';
+                    authStatusDiv.innerHTML = '✅ Firebase Connected';
+                    console.log('Firebase auth successful:', user.uid);
+                    showSuccess('Connected to Firebase successfully!');
+                    
+                    // Sync existing data to Firebase
+                    syncToFirebase();
+                } else {
+                    // User is signed out - try to sign in
+                    console.log('No user, attempting anonymous sign in...');
+                    signInAnonymously(auth)
+                        .then((userCredential) => {
+                            isAuthenticated = true;
+                            const authStatusDiv = document.getElementById('authStatus');
+                            authStatusDiv.className = 'auth-status';
+                            authStatusDiv.innerHTML = '✅ Firebase Connected';
+                            console.log('Signed in anonymously:', userCredential.user.uid);
+                            showSuccess('Connected to Firebase!');
+                            syncToFirebase();
+                        })
+                        .catch((error) => {
+                            console.error('Firebase auth error:', error);
+                            isAuthenticated = false;
+                            const authStatusDiv = document.getElementById('authStatus');
+                            authStatusDiv.className = 'auth-status error';
+                            
+                            if (error.code === 'auth/operation-not-allowed') {
+                                authStatusDiv.innerHTML = '⚠️ Enable Anonymous Auth in Firebase Console';
+                                showError('Please enable Anonymous Authentication in Firebase Console: Authentication → Sign-in methods → Enable Anonymous');
+                            } else {
+                                authStatusDiv.innerHTML = '⚠️ Firebase Connection Failed';
+                                showError('Firebase error: ' + error.message);
+                            }
+                        });
+                }
+            });
         }
 
-        // Load initial data
+        // Load initial data from API
         async function loadInitialData() {
             showLoading(true);
             try {
-                // Fetch live scores first
-                await fetchLiveScores();
-                // Fetch today's fixtures
-                await fetchTodayFixtures();
-                // Sync to Firebase
-                await syncToFirebase();
+                // Check if token is set
+                if (SPORTMONKS_TOKEN === "YOUR_NEW_SPORTMONKS_TOKEN_HERE") {
+                    throw new Error('Please set your Sportmonks API token in the code!');
+                }
+                
+                // Fetch live scores and fixtures
+                await Promise.all([
+                    fetchLiveScores(),
+                    fetchTodayFixtures()
+                ]);
+                
                 hideLoading();
+                updateLastUpdateTime();
             } catch (error) {
                 console.error('Initial load error:', error);
-                showError('Failed to load initial data: ' + error.message);
+                showError('Failed to load data: ' + error.message);
                 hideLoading();
             }
         }
 
         // Fetch live scores
         async function fetchLiveScores() {
-            const url = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;localTeam;visitorTeam`;
+            const url = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;localTeam;visitorTeam;venue`;
             
             try {
                 const response = await fetch(url);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('Invalid API token. Please check your Sportmonks token.');
+                    }
+                    throw new Error(`HTTP ${response.status}`);
+                }
                 const data = await response.json();
                 
                 if (data.data && Array.isArray(data.data)) {
@@ -368,13 +439,14 @@
                 }
             } catch (error) {
                 console.error('Fetch live scores error:', error);
+                throw error;
             }
         }
 
         // Fetch today's fixtures
         async function fetchTodayFixtures() {
             const today = new Date().toISOString().split('T')[0];
-            const url = `https://api.sportmonks.com/v3/football/fixtures/date/${today}?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;localTeam;visitorTeam;odds`;
+            const url = `https://api.sportmonks.com/v3/football/fixtures/date/${today}?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;localTeam;visitorTeam;odds;venue`;
             
             try {
                 const response = await fetch(url);
@@ -394,7 +466,7 @@
             }
         }
 
-        // Get latest updates (every 5-8 seconds)
+        // Get latest updates
         async function fetchLatestUpdates() {
             const url = `https://api.sportmonks.com/v3/football/fixtures/latest?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;events;odds`;
             
@@ -410,36 +482,9 @@
                     });
                     await syncToFirebase();
                     updateLastUpdateTime();
-                } else {
-                    console.log('No updates in last 10 seconds');
                 }
             } catch (error) {
                 console.error('Fetch latest updates error:', error);
-            }
-        }
-
-        // Check for deleted fixtures
-        async function checkDeletedFixtures() {
-            const today = new Date().toISOString().split('T')[0];
-            const url = `https://api.sportmonks.com/v3/football/fixtures/date/${today}?api_token=${SPORTMONKS_TOKEN}&filters=deleted`;
-            
-            try {
-                const response = await fetch(url);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const data = await response.json();
-                
-                if (data.data && Array.isArray(data.data)) {
-                    for (const deletedMatch of data.data) {
-                        if (!deletedMatches.has(deletedMatch.id)) {
-                            deletedMatches.add(deletedMatch.id);
-                            await removeMatchFromFirebase(deletedMatch.id);
-                            removeMatchFromLocal(deletedMatch.id);
-                            console.log(`Removed deleted match: ${deletedMatch.id}`);
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error('Check deleted fixtures error:', error);
             }
         }
 
@@ -462,54 +507,48 @@
                 });
             }
             
-            renderMatches();
-        }
-
-        // Remove match from local state
-        function removeMatchFromLocal(matchId) {
-            allMatches = allMatches.filter(m => m.id !== matchId);
+            // Sort matches: live first, then by time
+            allMatches.sort((a, b) => {
+                if (a.is_live && !b.is_live) return -1;
+                if (!a.is_live && b.is_live) return 1;
+                return new Date(a.starting_at) - new Date(b.starting_at);
+            });
+            
             renderMatches();
         }
 
         // Sync to Firebase
         async function syncToFirebase() {
-            if (!auth.currentUser) {
-                console.log('Waiting for auth...');
+            if (!isAuthenticated || allMatches.length === 0) {
                 return;
             }
 
             try {
+                const batch = writeBatch(db);
+                const gamesRef = collection(db, 'games');
+                
                 for (const match of allMatches) {
-                    const matchRef = doc(db, 'games', match.id.toString());
+                    const matchRef = doc(gamesRef, match.id.toString());
                     const matchData = formatMatchForFirebase(match);
-                    await setDoc(matchRef, matchData, { merge: true });
+                    batch.set(matchRef, matchData, { merge: true });
                 }
+                
+                await batch.commit();
                 console.log(`Synced ${allMatches.length} matches to Firebase`);
             } catch (error) {
                 console.error('Firebase sync error:', error);
             }
         }
 
-        // Remove match from Firebase
-        async function removeMatchFromFirebase(matchId) {
-            if (!auth.currentUser) return;
-            
-            try {
-                const matchRef = doc(db, 'games', matchId.toString());
-                await deleteDoc(matchRef);
-                console.log(`Removed match ${matchId} from Firebase`);
-            } catch (error) {
-                console.error('Firebase delete error:', error);
-            }
-        }
-
-        // Format match for Firebase storage
+        // Format match for Firebase
         function formatMatchForFirebase(match) {
             return {
                 id: match.id,
                 name: `${match.localTeam?.name || 'Team A'} vs ${match.visitorTeam?.name || 'Team B'}`,
                 localTeam: match.localTeam?.name || 'Unknown',
                 visitorTeam: match.visitorTeam?.name || 'Unknown',
+                localTeamId: match.localTeam?.id || null,
+                visitorTeamId: match.visitorTeam?.id || null,
                 score: {
                     local: match.scores?.localteam_score || 0,
                     visitor: match.scores?.visitorteam_score || 0
@@ -517,6 +556,7 @@
                 status: match.time?.status || match.state || 'NS',
                 is_live: match.is_live || false,
                 starting_at: match.starting_at,
+                venue: match.venue?.name || null,
                 odds: {
                     home: match.odds?.home || null,
                     draw: match.odds?.draw || null,
@@ -530,6 +570,7 @@
         // Render matches based on current filter
         function renderMatches() {
             let filteredMatches = allMatches;
+            const now = new Date();
             
             switch(currentFilter) {
                 case 'live':
@@ -540,7 +581,6 @@
                     filteredMatches = allMatches.filter(m => m.starting_at?.split('T')[0] === today);
                     break;
                 case 'upcoming':
-                    const now = new Date();
                     filteredMatches = allMatches.filter(m => !m.is_live && new Date(m.starting_at) > now);
                     break;
                 default:
@@ -568,6 +608,7 @@
             const visitorScore = match.scores?.visitorteam_score || 0;
             const status = match.is_live ? 'LIVE' : (match.time?.status || 'NS');
             const statusClass = match.is_live ? 'status-live' : (status === 'FT' ? 'status-ft' : 'status-NS');
+            const matchTime = match.starting_at ? new Date(match.starting_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
             
             return `
                 <div class="match-card" data-match-id="${match.id}">
@@ -589,10 +630,10 @@
                         <div class="match-details">
                             <div class="detail-row">
                                 <span>🏟️ ${match.venue?.name || 'Venue TBD'}</span>
-                                <span>📅 ${match.starting_at ? new Date(match.starting_at).toLocaleTimeString() : 'Time TBD'}</span>
+                                <span>⏰ ${matchTime}</span>
                             </div>
                         </div>
-                        ${match.odds ? `
+                        ${match.odds && (match.odds.home || match.odds.draw || match.odds.away) ? `
                             <div class="odds">
                                 <div class="odd">
                                     <div class="odd-label">1</div>
@@ -617,14 +658,13 @@
         function startPolling() {
             if (pollingInterval) clearInterval(pollingInterval);
             
-            // Poll every 7 seconds for live updates
+            // Poll every 7 seconds
             pollingInterval = setInterval(async () => {
                 await fetchLatestUpdates();
-                await checkDeletedFixtures();
             }, 7000);
         }
 
-        // Update last update time display
+        // Update last update time
         function updateLastUpdateTime() {
             const now = new Date();
             document.getElementById('lastUpdate').textContent = now.toLocaleTimeString();
@@ -651,6 +691,16 @@
             setTimeout(() => {
                 errorDiv.style.display = 'none';
             }, 5000);
+        }
+
+        // Show success message
+        function showSuccess(message) {
+            const successDiv = document.getElementById('successMessage');
+            successDiv.textContent = message;
+            successDiv.style.display = 'block';
+            setTimeout(() => {
+                successDiv.style.display = 'none';
+            }, 3000);
         }
 
         // Show/hide loading
