@@ -139,6 +139,9 @@
         <nav class="nav-group">
             <div class="nav-label">Status</div>
             <div id="apiStatus" class="nav-item"><i class="fas fa-circle" style="color: var(--warning);"></i> Connecting...</div>
+            <div class="nav-item" onclick="loadAppData()" style="cursor: pointer; font-size: 11px; color: var(--primary);">
+                <i class="fas fa-sync-alt"></i> Force Retry
+            </div>
         </nav>
     </aside>
 
@@ -282,18 +285,39 @@ function initWallet() {
 
 // SECURE PROXY API CALLS (Mandatory to solve CORS and protect Token)
 async function fetchFromSportmonks(endpoint, params = {}) {
+    const statusEl = document.getElementById('apiStatus');
     try {
+        console.log(`[Proxy] Calling: ${endpoint}`);
         const getSportmonksData = firebaseFunctions.httpsCallable('getSportmonksData');
-        const result = await getSportmonksData({ endpoint, params });
+        
+        // Add a timeout to the callable
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Request timed out after 15s")), 15000)
+        );
+        
+        const result = await Promise.race([
+            getSportmonksData({ endpoint, params }),
+            timeoutPromise
+        ]);
+        
+        console.log(`[Proxy] Result for ${endpoint}:`, result);
         
         if (result.data && result.data.success) {
             return result.data.data;
         } else {
-            throw new Error(result.data?.error || "Secure Proxy Error");
+            const errorMsg = result.data?.error || "Unknown backend error";
+            throw new Error(errorMsg);
         }
     } catch (e) {
-        console.error("Secure Proxy Error:", e);
-        return { error: e.message };
+        console.error(`[Proxy] Error calling ${endpoint}:`, e);
+        
+        // Update status UI immediately on error
+        let displayError = e.message;
+        if (e.code === 'functions/deadline-exceeded') displayError = "Upgrade to Blaze Plan";
+        if (e.code === 'functions/unauthenticated') displayError = "Check API Token";
+        
+        statusEl.innerHTML = `<i class="fas fa-circle" style="color: var(--danger);"></i> ${displayError}`;
+        return { error: displayError };
     }
 }
 
@@ -301,9 +325,9 @@ async function renderLiveMatches() {
     const container = document.getElementById('liveMatches');
     const statusEl = document.getElementById('apiStatus');
     
-    container.innerHTML = '<div class="empty-slip"><i class="fas fa-spinner fa-spin"></i> Loading REAL Live Scores...</div>';
+    container.innerHTML = '<div class="empty-slip"><i class="fas fa-spinner fa-spin"></i> Fetching Real-Time Matches...</div>';
     
-    let data = await fetchFromSportmonks("/livescores/inplay", { 
+    const data = await fetchFromSportmonks("/livescores/inplay", { 
         include: "participants;scores;league;state;lineups;events;statistics;periods" 
     });
     
@@ -354,17 +378,19 @@ async function renderLiveMatches() {
             `;
         }).join('');
     } else {
-        statusEl.innerHTML = `<i class="fas fa-circle" style="color: var(--danger);"></i> REAL API: Offline`;
+        // Status handled by fetchFromSportmonks catch block
         container.innerHTML = `<div class="empty-slip" style="color: var(--danger);">
             <i class="fas fa-exclamation-triangle"></i><br>
-            Failed to load REAL data.<br>
-            <small>${data?.error || 'Check Firebase Blaze Plan'}</small>
+            Failed to load data.<br>
+            <small style="background: #000; padding: 2px 8px; border-radius: 4px;">${data?.error || 'Connection Failed'}</small>
         </div>`;
     }
 }
 
 async function renderUpcomingMatches() {
     const container = document.getElementById('upcomingMatches');
+    container.innerHTML = '<div class="empty-slip"><i class="fas fa-spinner fa-spin"></i> Loading Fixtures...</div>';
+    
     const data = await fetchFromSportmonks("/fixtures", { include: "participants;league" });
     
     if (data && data.data) {
@@ -407,7 +433,7 @@ async function renderUpcomingMatches() {
             `;
         }).join('');
     } else {
-        container.innerHTML = '<div class="empty-slip">Upcoming matches will appear here once the API connects.</div>';
+        container.innerHTML = '<div class="empty-slip">Check connection to view upcoming matches.</div>';
     }
 }
 
