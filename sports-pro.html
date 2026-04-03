@@ -237,19 +237,23 @@ let currentUser = null;
 let userBalance = 0;
 let betSlip = [];
 let matchesData = {};
+let walletUnsubscribe = null;
+let refreshInterval = null;
 
 // ==================== CORE LOGIC ====================
 
 document.addEventListener('DOMContentLoaded', () => {
     auth.onAuthStateChanged(user => {
+        currentUser = user;
         if (user) {
-            currentUser = user;
             initWallet();
-            loadAppData();
         } else {
+            if (walletUnsubscribe) walletUnsubscribe();
+            userBalance = 0;
+            document.getElementById('balanceDisplay').textContent = `$0.00`;
             showToast("Please login to bet", "error");
-            loadAppData();
         }
+        loadAppData();
     });
 
     document.getElementById('betStake').addEventListener('input', updateSlipDisplay);
@@ -259,11 +263,16 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadAppData() {
     renderLiveMatches();
     renderUpcomingMatches();
-    setInterval(renderLiveMatches, 60000);
+    // Prevent multiple intervals
+    if (!refreshInterval) {
+        refreshInterval = setInterval(renderLiveMatches, 60000);
+    }
 }
 
 function initWallet() {
-    db.collection("wallets").doc(currentUser.uid).onSnapshot(doc => {
+    // Prevent multiple snapshot listeners
+    if (walletUnsubscribe) walletUnsubscribe();
+    walletUnsubscribe = db.collection("wallets").doc(currentUser.uid).onSnapshot(doc => {
         if (doc.exists) {
             userBalance = doc.data().balance || 0;
             document.getElementById('balanceDisplay').textContent = `$${userBalance.toFixed(2)}`;
