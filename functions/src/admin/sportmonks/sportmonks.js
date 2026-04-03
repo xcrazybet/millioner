@@ -15,16 +15,14 @@ const SPORTMONKS_API_BASE_URL = 'https://api.sportmonks.com/v3/football';
  * @returns {Promise<object>} - The data from the Sportmonks API.
  */
 exports.getSportmonksData = functions.https.onCall(async (data, context) => {
-  // Try multiple ways to get the token (Config, Env, or GitHub Secret)
-  const configToken = functions.config().sportmonks?.key;
-  const envToken = process.env.SPORTMONKS_API_KEY || process.env.TOKEN_API_SPORTMONKS;
-  const apiToken = configToken || envToken;
-
+  // Use environment variable for the API token (check both common names)
+  const apiToken = process.env.TOKEN_API_SPORTMONKS || process.env.SPORTMONKS_API_KEY || (functions.config().sportmonks ? functions.config().sportmonks.key : null);
+  
   if (!apiToken) {
-    console.error('CRITICAL: Sportmonks API key is missing from BOTH config and env!');
+    console.error('Sportmonks API key missing. Check TOKEN_API_SPORTMONKS or functions.config().sportmonks.key');
     throw new functions.https.HttpsError(
-      'failed-precondition',
-      'API Key Missing. Please add TOKEN_API_SPORTMONKS to your GitHub Secrets and redeploy.'
+      'internal',
+      'Sportmonks API key not configured. (Admin needs to set TOKEN_API_SPORTMONKS)'
     );
   }
 
@@ -52,7 +50,7 @@ exports.getSportmonksData = functions.https.onCall(async (data, context) => {
       console.error(`Sportmonks API error: ${response.status} - ${errorText}`);
       throw new functions.https.HttpsError(
         'unavailable',
-        `Sportmonks API returned an error: ${response.statusText}`
+        `Sportmonks API error ${response.status}: ${response.statusText}`
       );
     }
     const json = await response.json();
@@ -165,7 +163,7 @@ exports.getLiveScores = functions.https.onCall(async (data, context) => {
     const result = await exports.getSportmonksData({
       endpoint: '/livescores/inplay',
       params: {
-        include: 'participants;scores;league;state;lineups;events;statistics;periods',
+        include: 'participants;scores;events',
       },
     }, context);
     return result;
@@ -233,4 +231,16 @@ exports.getUpcomingFixtures = functions.https.onCall(async (data, context) => {
       `Failed to fetch upcoming fixtures: ${error.message}`
     );
   }
+});
+
+/**
+ * Cloud Function to check if the Sportmonks API key is configured.
+ * @returns {Promise<object>} - Configuration status.
+ */
+exports.checkSportmonksStatus = functions.https.onCall(async (data, context) => {
+  const apiToken = process.env.TOKEN_API_SPORTMONKS || process.env.SPORTMONKS_API_KEY || (functions.config().sportmonks ? functions.config().sportmonks.key : null);
+  return {
+    configured: !!apiToken,
+    source: apiToken ? (process.env.TOKEN_API_SPORTMONKS ? 'TOKEN_API_SPORTMONKS' : (process.env.SPORTMONKS_API_KEY ? 'SPORTMONKS_API_KEY' : 'functions.config')) : 'none'
+  };
 });
