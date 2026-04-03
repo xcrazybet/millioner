@@ -1,57 +1,66 @@
 import express from "express";
 import fetch from "node-fetch";
+import admin from "firebase-admin";
+import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
 
 const app = express();
 const PORT = 3000;
 const TOKEN = "DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy";
 
+// Firebase init
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: "https://x-bet-prod-jd.firebaseio.com"
+});
+const db = admin.firestore();
+
 app.use(express.static("public"));
 
-// Generic proxy function
-async function proxy(url, res) {
+async function proxyAndStore(url, res, collection) {
   try {
     const response = await fetch(url);
     const data = await response.json();
+
+    // Store each item in Firestore
+    if (data.data) {
+      for (const item of data.data) {
+        const id = item.id || item.fixture_id || Date.now();
+        await db.collection(collection).doc(String(id)).set(item, { merge: true });
+      }
+    }
+
     res.json(data);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to fetch data" });
+    res.status(500).json({ error: "Failed to fetch/store data" });
   }
 }
 
-// Routes for key endpoints
+// Routes
 app.get("/api/inplay", (req, res) =>
-  proxy(`https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${TOKEN}&include=state;lineups;events;statistics;periods`, res)
+  proxyAndStore(
+    `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${TOKEN}&include=state;lineups;events;statistics;periods`,
+    res,
+    "games"
+  )
 );
 
 app.get("/api/upcoming", (req, res) =>
-  proxy(`https://api.sportmonks.com/v3/football/fixtures/upcoming?api_token=${TOKEN}&include=participants;state`, res)
-);
-
-app.get("/api/leagues", (req, res) =>
-  proxy(`https://api.sportmonks.com/v3/football/leagues?api_token=${TOKEN}`, res)
-);
-
-app.get("/api/seasons", (req, res) =>
-  proxy(`https://api.sportmonks.com/v3/football/seasons?api_token=${TOKEN}`, res)
-);
-
-app.get("/api/teams", (req, res) =>
-  proxy(`https://api.sportmonks.com/v3/football/teams?api_token=${TOKEN}`, res)
-);
-
-app.get("/api/players", (req, res) =>
-  proxy(`https://api.sportmonks.com/v3/football/players?api_token=${TOKEN}`, res)
-);
-
-app.get("/api/standings", (req, res) =>
-  proxy(`https://api.sportmonks.com/v3/football/standings?api_token=${TOKEN}`, res)
+  proxyAndStore(
+    `https://api.sportmonks.com/v3/football/fixtures/upcoming?api_token=${TOKEN}&include=participants;state`,
+    res,
+    "fixtures"
+  )
 );
 
 app.get("/api/odds", (req, res) =>
-  proxy(`https://api.sportmonks.com/v3/football/odds/inplay?api_token=${TOKEN}`, res)
+  proxyAndStore(
+    `https://api.sportmonks.com/v3/football/odds/inplay?api_token=${TOKEN}`,
+    res,
+    "odds"
+  )
 );
 
 app.listen(PORT, () =>
-  console.log(`✅ Server running at http://localhost:${PORT}`)
+  console.log(`✅ Backend with Firebase running at http://localhost:${PORT}`)
 );
