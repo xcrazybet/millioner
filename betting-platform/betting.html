@@ -19,6 +19,16 @@
     .goal { color:#0f0; }
     .card { color:#ff0; }
     .sub { color:#0ff; }
+    .timeline { background:#333; height:8px; border-radius:4px; margin-top:10px; position:relative; }
+    .progress { background:#0f0; height:8px; border-radius:4px; }
+    .minute-label { font-size:0.8em; color:#ccc; margin-top:4px; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { border:1px solid #444; padding:8px; text-align:center; }
+    th { background:#333; }
+    .logo { width:40px; height:40px; border-radius:50%; }
+    .photo { width:50px; height:50px; border-radius:50%; }
+    .card { background:#222; padding:15px; border-radius:8px; margin:10px 0; }
+    .updated { font-size:0.8em; color:#888; margin-top:5px; text-align:right; }
   </style>
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js"></script>
@@ -43,6 +53,7 @@
   <div id="teams" class="section"></div>
   <div id="players" class="section"></div>
   <div id="odds" class="section"></div>
+  <div class="updated" id="lastUpdated"></div>
 
   <script type="module">
     const firebaseConfig = {
@@ -63,13 +74,16 @@
       document.getElementById(id).style.display = 'block';
     }
 
-    // Render helpers
     function renderMatch(match) {
       const home = match.participants?.[0];
       const away = match.participants?.[1];
       const start = new Date(match.starting_at);
       const homeScore = match.scores?.home_score ?? 0;
       const awayScore = match.scores?.away_score ?? 0;
+
+      let minute = match.time?.minute ?? 0;
+      if (minute > 90) minute = 90;
+      const progressWidth = (minute / 90) * 100;
 
       let eventsHtml = "";
       if (match.events && match.events.length > 0) {
@@ -89,12 +103,23 @@
         <div class="info">Date: ${start.toLocaleDateString()} | Time: ${start.toLocaleTimeString()}</div>
         <div class="info">Status: ${match.state?.name || "Unknown"}</div>
         <div class="score">${homeScore} - ${awayScore}</div>
+        <div class="timeline"><div class="progress" style="width:${progressWidth}%"></div></div>
+        <div class="minute-label">${minute}'</div>
         ${eventsHtml}
       `;
     }
 
-    // Real-time listeners
-    db.collection("games").onSnapshot(snapshot => {
+    function renderOdds(odd) {
+      return `
+        <div class="card">
+          <div class="info">Fixture ${odd.fixture_id}</div>
+          <div class="info">Market: ${odd.market?.name || "Unknown"}</div>
+          <div class="info">Bookmaker: ${odd.bookmaker?.name || "N/A"}</div>
+        </div>
+      `;
+    }
+
+    function refreshMatches(snapshot) {
       const liveContainer = document.getElementById("live");
       const finishedContainer = document.getElementById("finished");
       const upcomingContainer = document.getElementById("upcoming");
@@ -117,10 +142,216 @@
           upcomingContainer.appendChild(div);
         }
       });
+
+      document.getElementById("lastUpdated").innerText = "Last Updated: " + new Date().toLocaleTimeString();
+    }
+
+    let latestSnapshot = null;
+    db.collection("games").onSnapshot(snapshot => {
+      latestSnapshot = snapshot;
+      refreshMatches(snapshot);
     });
 
-    // Default view
-    showSection('live');
-  </script>
-</body>
-</html>
+    // Auto-refresh every 8 seconds
+    setInterval(() => {
+      if (latestSnapshot) {
+        refreshMatches(latestSnapshot);
+      }
+    }, 8000);
+
+    db.collection("standings").onSnapshot(snapshot => {
+      const container = document.getElementById("standings");
+      let html = "<table><tr><th>Team</th><th>Points</th><th>Wins</th><th>Losses</th></tr>";
+      snapshot.forEach(doc => {
+        const s = doc.data();
+        html += `<tr>
+          <td><img src="${s.participant?.image_path || ''}" class="logo"> ${s.participant?.name || "Team"}</td>
+          <td>${s.points || 0}</td>
+          <td>${s.wins || 0}</td>
+         Here’s the **full consolidated betting.html** file with all features merged cleanly — ready to drop into your `public/` folder and deploy.  
+
+---
+
+## 📂 betting.html
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Betting Platform</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#111; color:#eee; margin:0; padding:20px; }
+    h1 { text-align:center; }
+    .menu { display:flex; justify-content:center; gap:10px; margin-bottom:20px; }
+    button { padding:10px 15px; background:#333; color:#eee; border:none; cursor:pointer; }
+    button:hover { background:#555; }
+    .section { display:none; }
+    .item { background:#222; margin:10px 0; padding:15px; border-radius:8px; }
+    .teams { font-size:1.2em; font-weight:bold; }
+    .info { margin-top:5px; font-size:0.9em; color:#ccc; }
+    .score { font-size:1.4em; font-weight:bold; color:#0f0; margin-top:5px; }
+    .events { margin-top:10px; }
+    .event { font-size:0.9em; margin:3px 0; }
+    .goal { color:#0f0; }
+    .card { color:#ff0; }
+    .sub { color:#0ff; }
+    .timeline { background:#333; height:8px; border-radius:4px; margin-top:10px; position:relative; }
+    .progress { background:#0f0; height:8px; border-radius:4px; }
+    .minute-label { font-size:0.8em; color:#ccc; margin-top:4px; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { border:1px solid #444; padding:8px; text-align:center; }
+    th { background:#333; }
+    .logo { width:40px; height:40px; border-radius:50%; }
+    .photo { width:50px; height:50px; border-radius:50%; }
+    .card { background:#222; padding:15px; border-radius:8px; margin:10px 0; }
+    .updated { font-size:0.8em; color:#888; margin-top:5px; text-align:right; }
+  </style>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js"></script>
+</head>
+<body>
+  <h1>⚽ Betting Platform</h1>
+  <div class="menu">
+    <button onclick="showSection('live')">Live</button>
+    <button onclick="showSection('finished')">Finished</button>
+    <button onclick="showSection('upcoming')">Upcoming</button>
+    <button onclick="showSection('standings')">Standings</button>
+    <button onclick="showSection('teams')">Teams</button>
+    <button onclick="showSection('players')">Players</button>
+    <button onclick="showSection('odds')">Odds</button>
+  </div>
+
+  <div id="live" class="section"></div>
+  <div id="finished" class="section"></div>
+  <div id="upcoming" class="section"></div>
+  <div id="standings" class="section"></div>
+  <div id="teams" class="section"></div>
+  <div id="players" class="section"></div>
+  <div id="odds" class="section"></div>
+  <div class="updated" id="lastUpdated"></div>
+
+  <script type="module">
+    const firebaseConfig = {
+      apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+      authDomain: "x-bet-prod-jd.firebaseapp.com",
+      projectId: "x-bet-prod-jd",
+      storageBucket: "x-bet-prod-jd.firebasestorage.app",
+      messagingSenderId: "499334334535",
+      appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+      measurementId: "G-PTV4XMYQ6P"
+    };
+
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore(app);
+
+    function showSection(id) {
+      document.querySelectorAll('.section').forEach(sec => sec.style.display = 'none');
+      document.getElementById(id).style.display = 'block';
+    }
+
+    function renderMatch(match) {
+      const home = match.participants?.[0];
+      const away = match.participants?.[1];
+      const start = new Date(match.starting_at);
+      const homeScore = match.scores?.home_score ?? 0;
+      const awayScore = match.scores?.away_score ?? 0;
+
+      let minute = match.time?.minute ?? 0;
+      if (minute > 90) minute = 90;
+      const progressWidth = (minute / 90) * 100;
+
+      let eventsHtml = "";
+      if (match.events && match.events.length > 0) {
+        eventsHtml = `<div class="events">`;
+        match.events.forEach(ev => {
+          let cls = "event";
+          if (ev.type?.name?.toLowerCase().includes("goal")) cls += " goal";
+          else if (ev.type?.name?.toLowerCase().includes("card")) cls += " card";
+          else if (ev.type?.name?.toLowerCase().includes("substitution")) cls += " sub";
+          eventsHtml += `<div class="${cls}">${ev.minute}' - ${ev.player?.name || "Player"} (${ev.type?.name})</div>`;
+        });
+        eventsHtml += `</div>`;
+      }
+
+      return `
+        <div class="teams">${home?.name || "Home"} vs ${away?.name || "Away"}</div>
+        <div class="info">Date: ${start.toLocaleDateString()} | Time: ${start.toLocaleTimeString()}</div>
+        <div class="info">Status: ${match.state?.name || "Unknown"}</div>
+        <div class="score">${homeScore} - ${awayScore}</div>
+        <div class="timeline"><div class="progress" style="width:${progressWidth}%"></div></div>
+        <div class="minute-label">${minute}'</div>
+        ${eventsHtml}
+      `;
+    }
+
+    function renderOdds(odd) {
+      return `
+        <div class="card">
+          <div class="info">Fixture ${odd.fixture_id}</div>
+          <div class="info">Market: ${odd.market?.name || "Unknown"}</div>
+          <div class="info">Bookmaker: ${odd.bookmaker?.name || "N/A"}</div>
+        </div>
+      `;
+    }
+
+    function refreshMatches(snapshot) {
+      const liveContainer = document.getElementById("live");
+      const finishedContainer = document.getElementById("finished");
+      const upcomingContainer = document.getElementById("upcoming");
+      liveContainer.innerHTML = "";
+      finishedContainer.innerHTML = "";
+      upcomingContainer.innerHTML = "";
+
+      snapshot.forEach(doc => {
+        const match = doc.data();
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = renderMatch(match);
+
+        const state = match.state?.name?.toLowerCase() || "";
+        if (state.includes("live") || state.includes("inplay")) {
+          liveContainer.appendChild(div);
+        } else if (state.includes("finished") || state.includes("ended") || state.includes("ft")) {
+          finishedContainer.appendChild(div);
+        } else {
+          upcomingContainer.appendChild(div);
+        }
+      });
+
+      document.getElementById("lastUpdated").innerText = "Last Updated: " + new Date().toLocaleTimeString();
+    }
+
+    let latestSnapshot = null;
+    db.collection("games").onSnapshot(snapshot => {
+      latestSnapshot = snapshot;
+      refreshMatches(snapshot);
+    });
+
+    // Auto-refresh every 8 seconds
+    setInterval(() => {
+      if (latestSnapshot) {
+        refreshMatches(latestSnapshot);
+      }
+    }, 8000);
+
+    db.collection("standings").onSnapshot(snapshot => {
+      const container = document.getElementById("standings");
+      let html = "<table><tr><th>Team</th><th>Points</th><th>Wins</th><th>Losses</th></tr>";
+      snapshot.forEach(doc => {
+        const s = doc.data();
+        html += `<tr>
+          <td><img src="${s.participant?.image_path || ''}" class="logo"> ${s.participant?.name || "Team"}</td>
+          <td>${s.points || 0}</td>
+          <td>${s.wins || 0}</td>
+          <td>${s.losses || 0}</td>
+        </tr>`;
+      });
+      html += "</table>";
+      container.innerHTML = html;
+    });
+
+    db.collection("teams").onSnapshot(snapshot => {
+      const container = document.getElementById("teams");
+      container.innerHTML
