@@ -9,6 +9,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-functions-compat.js"></script>
 
     <style>
         * {
@@ -545,18 +546,13 @@
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
+        const functions = firebase.functions();
 
-        // ==================== iSPORTS API CONFIGURATION ====================
-        const ISPORTS_API_KEY = "XCFf1j8RZDWxDs6m";
-        // Try multiple possible endpoint patterns (iSports API structure may vary)
-        const API_ENDPOINTS = [
-            "https://api2.isportsapi.com/sport/football/livescores",
-            "https://api.isportsapi.com/sport/football/livescores",
-            "https://api2.isportsapi.com/football/livescores",
-            "https://api.isportsapi.com/football/livescores",
-            "https://api2.isportsapi.com/sport/football/matches"
-        ];
-        
+        // ==================== SPORTMONKS CALLABLE FUNCTIONS ====================
+        const getLiveScoresCallable = functions.httpsCallable('getLiveScores');
+        const getUpcomingFixturesCallable = functions.httpsCallable('getUpcomingFixtures');
+        const getFixtureOddsCallable = functions.httpsCallable('getFixtureOdds');
+
         // Fallback mock data (ensures betting functionality always works)
         const MOCK_MATCHES = [
             { id: "1", leagueId: "39", leagueName: "Premier League", homeTeam: "Manchester United", awayTeam: "Arsenal", homeScore: 1, awayScore: 1, status: "2H", isLive: true, odds: { home: 2.10, draw: 3.40, away: 3.20, over25: 1.85, under25: 1.95 } },
@@ -598,87 +594,96 @@
             }
         });
 
-        // FETCH MATCHES FROM iSPORTS API with fallback
+        // FETCH MATCHES FROM SPORTMONKS API via Firebase Cloud Functions
         async function fetchLiveMatches() {
             const container = document.getElementById('matchesContainer');
-            container.innerHTML = '<div class="loading-spinner"></div><p style="text-align:center;">Fetching live matches...</p>';
+            container.innerHTML = '<div class="loading-spinner"></div><p style="text-align:center;">Fetching live & upcoming matches...</p>';
             
-            let apiSuccess = false;
-            
-            // Try each API endpoint
-            for (const baseUrl of API_ENDPOINTS) {
-                if (apiSuccess) break;
-                try {
-                    const url = `${baseUrl}?api_key=${ISPORTS_API_KEY}`;
-                    console.log("Trying iSports URL:", url);
-                    const response = await fetch(url, { method: 'GET', mode: 'cors' });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        console.log("iSports API Response:", data);
-                        
-                        if (data && (data.status === true || data.code === 200) && data.data) {
-                            apiSuccess = true;
-                            usingMockData = false;
-                            parseApiResponse(data);
-                            break;
-                        }
-                    }
-                } catch (error) {
-                    console.log(`Endpoint failed: ${baseUrl}`, error);
+            try {
+                // Fetch both live and upcoming matches in parallel
+                const [liveResult, upcomingResult] = await Promise.all([
+                    getLiveScoresCallable(),
+                    getUpcomingFixturesCallable()
+                ]);
+
+                let allMatches = [];
+
+                if (liveResult.data && liveResult.data.success && liveResult.data.data.data) {
+                    const liveMatches = await processSportmonksMatches(liveResult.data.data.data, true);
+                    allMatches = allMatches.concat(liveMatches);
                 }
-            }
-            
-            // If all APIs fail, use mock data
-            if (!apiSuccess) {
+
+                if (upcomingResult.data && upcomingResult.data.success && upcomingResult.data.data.data) {
+                    const upcomingMatches = await processSportmonksMatches(upcomingResult.data.data.data, false);
+                    allMatches = allMatches.concat(upcomingMatches);
+                }
+
+                if (allMatches.length > 0) {
+                    matches = allMatches;
+                    usingMockData = false;
+                    document.getElementById('lastUpdate').textContent = `Last update: ${new Date().toLocaleTimeString()} - ${matches.length} matches`;
+                } else {
+                    throw new Error("No matches returned from API");
+                }
+
+            } catch (error) {
+                console.error("Sportmonks API error:", error);
                 console.log("Using mock data fallback");
                 usingMockData = true;
                 matches = JSON.parse(JSON.stringify(MOCK_MATCHES));
-                document.getElementById('lastUpdate').innerHTML = `<span style="color: var(--warning);">⚠️ Using demo data (API unavailable)</span> - ${new Date().toLocaleTimeString()}`;
+                document.getElementById('lastUpdate').innerHTML = `<span style="color: var(--warning);">⚠️ Using demo data (API error: ${error.message})</span> - ${new Date().toLocaleTimeString()}`;
                 showToast('Using demo matches. API connection failed.', 'warning');
-            } else {
-                document.getElementById('lastUpdate').textContent = `Last update: ${new Date().toLocaleTimeString()} - ${matches.length} matches`;
             }
             
             displayMatches(currentLeague, currentMarket);
         }
-        
-        function parseApiResponse(data) {
-            // Handle different possible API response structures
-            let rawMatches = [];
-            if (data.data && Array.isArray(data.data)) rawMatches = data.data;
-            else if (data.data && data.data.matches && Array.isArray(data.data.matches)) rawMatches = data.data.matches;
-            else if (data.matches && Array.isArray(data.matches)) rawMatches = data.matches;
-            else if (Array.isArray(data)) rawMatches = data;
+
+        async function processSportmonksMatches(rawMatches, isLive) {
+            const processed = [];
             
-            if (rawMatches.length === 0) {
-                matches = JSON.parse(JSON.stringify(MOCK_MATCHES));
-                usingMockData = true;
-                return;
-            }
-            
-            matches = rawMatches.slice(0, 30).map((m, idx) => {
-                const isLiveStatus = (m.status === "1H" || m.status === "2H" || m.status === "HT" || m.status === "LIVE" || m.live === true);
-                return {
-                    id: m.match_id || m.id || `match_${idx}`,
-                    leagueId: m.league_id ? m.league_id.toString() : (m.league?.id?.toString() || "0"),
-                    leagueName: m.league_name || m.league?.name || "Football",
-                    homeTeam: m.home_team_name || m.home_team?.name || m.home_name || "Home Team",
-                    awayTeam: m.away_team_name || m.away_team?.name || m.away_name || "Away Team",
-                    homeScore: m.home_score !== undefined ? m.home_score : (m.score?.home ?? null),
-                    awayScore: m.away_score !== undefined ? m.away_score : (m.score?.away ?? null),
-                    status: m.status || "NS",
-                    time: m.time || (isLiveStatus ? "LIVE" : "Scheduled"),
-                    isLive: isLiveStatus,
+            for (const m of rawMatches) {
+                const homeTeam = m.participants.find(p => p.meta.location === 'home');
+                const awayTeam = m.participants.find(p => p.meta.location === 'away');
+                
+                let homeOdds = 1.90, drawOdds = 3.20, awayOdds = 2.50; // Default values
+                
+                // Try to fetch real odds for each match
+                try {
+                    const oddsResult = await getFixtureOddsCallable({ fixtureId: m.id });
+                    if (oddsResult.data && oddsResult.data.success && oddsResult.data.data.data) {
+                        const oddsData = oddsResult.data.data.data;
+                        const fullTimeMarket = oddsData.find(odd => odd.name === 'Full Time Result');
+                        if (fullTimeMarket && fullTimeMarket.odds) {
+                            homeOdds = parseFloat(fullTimeMarket.odds.find(o => o.label === '1')?.value || homeOdds);
+                            drawOdds = parseFloat(fullTimeMarket.odds.find(o => o.label === 'X')?.value || drawOdds);
+                            awayOdds = parseFloat(fullTimeMarket.odds.find(o => o.label === '2')?.value || awayOdds);
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`Odds fetch failed for ${m.id}`);
+                }
+
+                processed.push({
+                    id: m.id.toString(),
+                    leagueId: m.league_id ? m.league_id.toString() : "0",
+                    leagueName: m.league?.name || "Football",
+                    homeTeam: homeTeam?.name || "Home Team",
+                    awayTeam: awayTeam?.name || "Away Team",
+                    homeScore: isLive ? (m.scores?.find(s => s.description === 'CURRENT')?.home_score ?? 0) : null,
+                    awayScore: isLive ? (m.scores?.find(s => s.description === 'CURRENT')?.away_score ?? 0) : null,
+                    status: m.time?.minute ? `${m.time.minute}'` : (isLive ? "LIVE" : "NS"),
+                    time: isLive ? "LIVE" : new Date(m.starting_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    isLive: isLive,
                     odds: {
-                        home: parseFloat(m.odds_home || m.odds?.home || (Math.random() * 2 + 1.5).toFixed(2)),
-                        draw: parseFloat(m.odds_draw || m.odds?.draw || (Math.random() * 1.5 + 2.8).toFixed(2)),
-                        away: parseFloat(m.odds_away || m.odds?.away || (Math.random() * 2 + 2.5).toFixed(2)),
+                        home: homeOdds,
+                        draw: drawOdds,
+                        away: awayOdds,
                         over25: 1.85,
                         under25: 1.95
                     }
-                };
-            });
+                });
+            }
+            return processed;
         }
 
         window.refreshMatches = function() {
@@ -692,7 +697,7 @@
             if (marketFilter === 'live') {
                 filtered = filtered.filter(m => m.isLive === true);
             } else if (marketFilter === 'upcoming') {
-                filtered = filtered.filter(m => !m.isLive && (m.homeScore === null || m.homeScore === undefined));
+                filtered = filtered.filter(m => !m.isLive);
             }
             
             if (filtered.length === 0) {
