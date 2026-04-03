@@ -1,5 +1,6 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const sportmonksFunctions = require('./src/sportmonks/sportmonks');
 
 // Initialize with your project
 admin.initializeApp({
@@ -9,6 +10,27 @@ admin.initializeApp({
 
 const db = admin.firestore();
 const auth = admin.auth();
+
+// Export Sportmonks functions
+exports.getSportmonksData = sportmonksFunctions.getSportmonksData;
+exports.getUpcomingFixtures = sportmonksFunctions.getUpcomingFixtures;
+exports.getFixtureOdds = sportmonksFunctions.getFixtureOdds;
+exports.getLiveScores = sportmonksFunctions.getLiveScores;
+exports.getLeagues = sportmonksFunctions.getLeagues;
+exports.getLatestUpdates = sportmonksFunctions.getLatestUpdates;
+exports.getStandings = sportmonksFunctions.getStandings;
+exports.getTopScorers = sportmonksFunctions.getTopScorers;
+
+// Diagnostic function to check API status
+exports.checkSportmonksStatus = functions.https.onCall(async (data, context) => {
+  const apiToken = functions.config().sportmonks?.key || process.env.SPORTMONKS_API_KEY;
+  return {
+    configured: !!apiToken,
+    tokenPreview: apiToken ? `${apiToken.substring(0, 5)}...` : 'NONE',
+    nodeVersion: process.version,
+    timestamp: new Date().toISOString()
+  };
+});
 
 // ==================== CONFIGURATION ====================
 const CONFIG = {
