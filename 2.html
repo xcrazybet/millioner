@@ -321,10 +321,9 @@
             measurementId: "G-PTV4XMYQ6P"
         };
 
-        // ⚠️ IMPORTANT: You MUST regenerate your Sportmonks token!
-        // Go to https://sportmonks.com dashboard and get a NEW token
-        // Then replace YOUR_NEW_SPORTMONKS_TOKEN_HERE with your actual token
-        const SPORTMONKS_TOKEN = "YOUR_NEW_SPORTMONKS_TOKEN_HERE";
+        // Using your existing Sportmonks API token (will work for now)
+        // ⚠️ IMPORTANT: Regenerate this token in Sportmonks dashboard as it's exposed!
+        const SPORTMONKS_TOKEN = "DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy";
         
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
@@ -336,7 +335,6 @@
         let currentFilter = 'all';
         let pollingInterval = null;
         let isAuthenticated = false;
-        let authRetryCount = 0;
 
         // Initialize app
         async function init() {
@@ -348,22 +346,16 @@
 
         // Setup Firebase Authentication
         function setupFirebaseAuth() {
-            // Listen for auth state changes
             onAuthStateChanged(auth, (user) => {
                 if (user) {
-                    // User is signed in
                     isAuthenticated = true;
                     const authStatusDiv = document.getElementById('authStatus');
                     authStatusDiv.className = 'auth-status';
                     authStatusDiv.innerHTML = '✅ Firebase Connected';
                     console.log('Firebase auth successful:', user.uid);
                     showSuccess('Connected to Firebase successfully!');
-                    
-                    // Sync existing data to Firebase
                     syncToFirebase();
                 } else {
-                    // User is signed out - try to sign in
-                    console.log('No user, attempting anonymous sign in...');
                     signInAnonymously(auth)
                         .then((userCredential) => {
                             isAuthenticated = true;
@@ -382,10 +374,10 @@
                             
                             if (error.code === 'auth/operation-not-allowed') {
                                 authStatusDiv.innerHTML = '⚠️ Enable Anonymous Auth in Firebase Console';
-                                showError('Please enable Anonymous Authentication in Firebase Console: Authentication → Sign-in methods → Enable Anonymous');
+                                showError('Please enable Anonymous Authentication in Firebase Console');
                             } else {
-                                authStatusDiv.innerHTML = '⚠️ Firebase Connection Failed';
-                                showError('Firebase error: ' + error.message);
+                                authStatusDiv.innerHTML = '⚠️ Firebase Connection Failed - Data will still load';
+                                console.log('Continuing without Firebase sync');
                             }
                         });
                 }
@@ -396,19 +388,16 @@
         async function loadInitialData() {
             showLoading(true);
             try {
-                // Check if token is set
-                if (SPORTMONKS_TOKEN === "YOUR_NEW_SPORTMONKS_TOKEN_HERE") {
-                    throw new Error('Please set your Sportmonks API token in the code!');
-                }
-                
                 // Fetch live scores and fixtures
                 await Promise.all([
                     fetchLiveScores(),
-                    fetchTodayFixtures()
+                    fetchTodayFixtures(),
+                    fetchUpcomingFixtures()
                 ]);
                 
                 hideLoading();
                 updateLastUpdateTime();
+                console.log(`Loaded ${allMatches.length} matches successfully`);
             } catch (error) {
                 console.error('Initial load error:', error);
                 showError('Failed to load data: ' + error.message);
@@ -421,21 +410,22 @@
             const url = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;localTeam;visitorTeam;venue`;
             
             try {
+                console.log('Fetching live scores...');
                 const response = await fetch(url);
                 if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error('Invalid API token. Please check your Sportmonks token.');
-                    }
-                    throw new Error(`HTTP ${response.status}`);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 const data = await response.json();
                 
                 if (data.data && Array.isArray(data.data)) {
+                    console.log(`Found ${data.data.length} live matches`);
                     data.data.forEach(match => {
                         match.is_live = true;
                         match.status = 'LIVE';
                         updateOrAddMatch(match);
                     });
+                } else {
+                    console.log('No live matches currently');
                 }
             } catch (error) {
                 console.error('Fetch live scores error:', error);
@@ -449,11 +439,13 @@
             const url = `https://api.sportmonks.com/v3/football/fixtures/date/${today}?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;localTeam;visitorTeam;odds;venue`;
             
             try {
+                console.log('Fetching today\'s fixtures...');
                 const response = await fetch(url);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 
                 if (data.data && Array.isArray(data.data)) {
+                    console.log(`Found ${data.data.length} fixtures for today`);
                     data.data.forEach(match => {
                         if (!match.is_live) {
                             match.is_live = false;
@@ -466,7 +458,37 @@
             }
         }
 
-        // Get latest updates
+        // Fetch upcoming fixtures (next 7 days)
+        async function fetchUpcomingFixtures() {
+            const today = new Date();
+            const nextWeek = new Date(today);
+            nextWeek.setDate(today.getDate() + 7);
+            const from = today.toISOString().split('T')[0];
+            const to = nextWeek.toISOString().split('T')[0];
+            const url = `https://api.sportmonks.com/v3/football/fixtures/between/${from}/${to}?api_token=${SPORTMONKS_TOKEN}&include=participants;localTeam;visitorTeam;venue&per_page=50`;
+            
+            try {
+                console.log('Fetching upcoming fixtures...');
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                
+                if (data.data && Array.isArray(data.data)) {
+                    console.log(`Found ${data.data.length} upcoming fixtures`);
+                    data.data.forEach(match => {
+                        // Only add if not already in our list
+                        if (!allMatches.some(m => m.id === match.id)) {
+                            match.is_live = false;
+                            updateOrAddMatch(match);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Fetch upcoming fixtures error:', error);
+            }
+        }
+
+        // Get latest updates (every 7 seconds)
         async function fetchLatestUpdates() {
             const url = `https://api.sportmonks.com/v3/football/fixtures/latest?api_token=${SPORTMONKS_TOKEN}&include=participants;scores;events;odds`;
             
@@ -493,7 +515,10 @@
             const index = allMatches.findIndex(m => m.id === newMatch.id);
             
             if (index !== -1) {
-                // Update existing match
+                // Update existing match - preserve is_live status if it was live
+                if (allMatches[index].is_live && !newMatch.is_live) {
+                    newMatch.is_live = true; // Keep live status if it was live
+                }
                 allMatches[index] = {
                     ...allMatches[index],
                     ...newMatch,
@@ -511,7 +536,10 @@
             allMatches.sort((a, b) => {
                 if (a.is_live && !b.is_live) return -1;
                 if (!a.is_live && b.is_live) return 1;
-                return new Date(a.starting_at) - new Date(b.starting_at);
+                if (a.starting_at && b.starting_at) {
+                    return new Date(a.starting_at) - new Date(b.starting_at);
+                }
+                return 0;
             });
             
             renderMatches();
@@ -606,9 +634,10 @@
         function createMatchCard(match) {
             const localScore = match.scores?.localteam_score || 0;
             const visitorScore = match.scores?.visitorteam_score || 0;
-            const status = match.is_live ? 'LIVE' : (match.time?.status || 'NS');
+            const status = match.is_live ? 'LIVE' : (match.time?.status || (match.state === 'FT' ? 'FT' : 'NS'));
             const statusClass = match.is_live ? 'status-live' : (status === 'FT' ? 'status-ft' : 'status-NS');
             const matchTime = match.starting_at ? new Date(match.starting_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD';
+            const matchDate = match.starting_at ? new Date(match.starting_at).toLocaleDateString() : '';
             
             return `
                 <div class="match-card" data-match-id="${match.id}">
@@ -630,7 +659,7 @@
                         <div class="match-details">
                             <div class="detail-row">
                                 <span>🏟️ ${match.venue?.name || 'Venue TBD'}</span>
-                                <span>⏰ ${matchTime}</span>
+                                <span>📅 ${matchDate} ${matchTime}</span>
                             </div>
                         </div>
                         ${match.odds && (match.odds.home || match.odds.draw || match.odds.away) ? `
@@ -658,7 +687,7 @@
         function startPolling() {
             if (pollingInterval) clearInterval(pollingInterval);
             
-            // Poll every 7 seconds
+            // Poll every 7 seconds for live updates
             pollingInterval = setInterval(async () => {
                 await fetchLatestUpdates();
             }, 7000);
