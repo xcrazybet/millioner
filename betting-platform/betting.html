@@ -10,16 +10,15 @@
     button { padding:10px 15px; background:#333; color:#eee; border:none; cursor:pointer; }
     button:hover { background:#555; }
     .section { display:none; }
-    .item { background:#222; margin:10px 0; padding:15px; border-radius:8px; display:flex; align-items:center; gap:15px; }
+    .item { background:#222; margin:10px 0; padding:15px; border-radius:8px; }
     .teams { font-size:1.2em; font-weight:bold; }
     .info { margin-top:5px; font-size:0.9em; color:#ccc; }
-    .countdown { color:#0f0; font-weight:bold; }
-    table { width:100%; border-collapse:collapse; margin-top:10px; }
-    th, td { border:1px solid #444; padding:8px; text-align:center; }
-    th { background:#333; }
-    .logo { width:40px; height:40px; border-radius:50%; }
-    .photo { width:50px; height:50px; border-radius:50%; }
-    .card { background:#222; padding:15px; border-radius:8px; margin:10px 0; }
+    .score { font-size:1.4em; font-weight:bold; color:#0f0; margin-top:5px; }
+    .events { margin-top:10px; }
+    .event { font-size:0.9em; margin:3px 0; }
+    .goal { color:#0f0; }
+    .card { color:#ff0; }
+    .sub { color:#0ff; }
   </style>
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js"></script>
@@ -46,7 +45,6 @@
   <div id="odds" class="section"></div>
 
   <script type="module">
-    // Firebase config
     const firebaseConfig = {
       apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
       authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -70,24 +68,28 @@
       const home = match.participants?.[0];
       const away = match.participants?.[1];
       const start = new Date(match.starting_at);
-      return `
-        <img src="${home?.image_path || ''}" class="logo">
-        <div>
-          <div class="teams">${home?.name || "Home"} vs ${away?.name || "Away"}</div>
-          <div class="info">Date: ${start.toLocaleDateString()} | Time: ${start.toLocaleTimeString()}</div>
-          <div class="info">Status: ${match.state?.name || "Unknown"}</div>
-        </div>
-        <img src="${away?.image_path || ''}" class="logo">
-      `;
-    }
+      const homeScore = match.scores?.home_score ?? 0;
+      const awayScore = match.scores?.away_score ?? 0;
 
-    function renderOdds(odd) {
+      let eventsHtml = "";
+      if (match.events && match.events.length > 0) {
+        eventsHtml = `<div class="events">`;
+        match.events.forEach(ev => {
+          let cls = "event";
+          if (ev.type?.name?.toLowerCase().includes("goal")) cls += " goal";
+          else if (ev.type?.name?.toLowerCase().includes("card")) cls += " card";
+          else if (ev.type?.name?.toLowerCase().includes("substitution")) cls += " sub";
+          eventsHtml += `<div class="${cls}">${ev.minute}' - ${ev.player?.name || "Player"} (${ev.type?.name})</div>`;
+        });
+        eventsHtml += `</div>`;
+      }
+
       return `
-        <div class="card">
-          <div class="info">Fixture ${odd.fixture_id}</div>
-          <div class="info">Market: ${odd.market?.name || "Unknown"}</div>
-          <div class="info">Bookmaker: ${odd.bookmaker?.name || "N/A"}</div>
-        </div>
+        <div class="teams">${home?.name || "Home"} vs ${away?.name || "Away"}</div>
+        <div class="info">Date: ${start.toLocaleDateString()} | Time: ${start.toLocaleTimeString()}</div>
+        <div class="info">Status: ${match.state?.name || "Unknown"}</div>
+        <div class="score">${homeScore} - ${awayScore}</div>
+        ${eventsHtml}
       `;
     }
 
@@ -114,58 +116,6 @@
         } else {
           upcomingContainer.appendChild(div);
         }
-      });
-    });
-
-    db.collection("standings").onSnapshot(snapshot => {
-      const container = document.getElementById("standings");
-      let html = "<table><tr><th>Team</th><th>Points</th><th>Wins</th><th>Losses</th></tr>";
-      snapshot.forEach(doc => {
-        const s = doc.data();
-        html += `<tr>
-          <td><img src="${s.participant?.image_path || ''}" class="logo"> ${s.participant?.name || "Team"}</td>
-          <td>${s.points || 0}</td>
-          <td>${s.wins || 0}</td>
-          <td>${s.losses || 0}</td>
-        </tr>`;
-      });
-      html += "</table>";
-      container.innerHTML = html;
-    });
-
-    db.collection("teams").onSnapshot(snapshot => {
-      const container = document.getElementById("teams");
-      container.innerHTML = "";
-      snapshot.forEach(doc => {
-        const t = doc.data();
-        const div = document.createElement("div");
-        div.className = "item";
-        div.innerHTML = `<img src="${t.image_path || ''}" class="logo"><div class="info">${t.name}</div>`;
-        container.appendChild(div);
-      });
-    });
-
-    db.collection("players").onSnapshot(snapshot => {
-      const container = document.getElementById("players");
-      container.innerHTML = "";
-      snapshot.forEach(doc => {
-        const p = doc.data();
-        const div = document.createElement("div");
-        div.className = "item";
-        div.innerHTML = `<img src="${p.image_path || ''}" class="photo"><div class="info">${p.display_name} - ${p.position?.name || "Unknown"}</div>`;
-        container.appendChild(div);
-      });
-    });
-
-    db.collection("odds").onSnapshot(snapshot => {
-      const container = document.getElementById("odds");
-      container.innerHTML = "";
-      snapshot.forEach(doc => {
-        const odd = doc.data();
-        const div = document.createElement("div");
-        div.className = "item";
-        div.innerHTML = renderOdds(odd);
-        container.appendChild(div);
       });
     });
 
