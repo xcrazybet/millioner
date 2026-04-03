@@ -23,11 +23,13 @@
   <h1>⚽ Betting Platform</h1>
   <div class="menu">
     <button onclick="showSection('live')">Live</button>
+    <button onclick="showSection('finished')">Finished</button>
     <button onclick="showSection('upcoming')">Upcoming</button>
     <button onclick="showSection('odds')">Odds</button>
   </div>
 
   <div id="live" class="section"></div>
+  <div id="finished" class="section"></div>
   <div id="upcoming" class="section"></div>
   <div id="odds" class="section"></div>
 
@@ -53,71 +55,58 @@
     }
 
     // Render helpers
-    function renderLive(doc) {
-      const match = doc.data();
+    function renderMatch(match) {
       const home = match.participants?.[0]?.name || "Home";
       const away = match.participants?.[1]?.name || "Away";
       const start = new Date(match.starting_at);
-      const now = new Date();
-      const elapsed = Math.floor((now - start) / 60000);
       return `
         <div class="teams">${home} vs ${away}</div>
         <div class="info">Date: ${start.toLocaleDateString()} | Time: ${start.toLocaleTimeString()}</div>
         <div class="info">Status: ${match.state?.name || "Unknown"}</div>
-        <div class="countdown">Elapsed: ${elapsed} min</div>
       `;
     }
 
-    function renderUpcoming(doc) {
-      const match = doc.data();
-      const home = match.participants?.[0]?.name || "Home";
-      const away = match.participants?.[1]?.name || "Away";
-      const start = new Date(match.starting_at);
-      const now = new Date();
-      const countdown = Math.max(0, Math.floor((start - now) / 60000));
-      return `
-        <div class="teams">${home} vs ${away}</div>
-        <div class="info">Starts in ${countdown} min</div>
-      `;
-    }
-
-    function renderOdds(doc) {
-      const odd = doc.data();
+    function renderOdds(odd) {
       return `
         <div class="info">Fixture ${odd.fixture_id} - Market: ${odd.market?.name || "Unknown"}</div>
       `;
     }
 
-    // Real-time listeners
+    // Real-time listener for games
     db.collection("games").onSnapshot(snapshot => {
-      const container = document.getElementById("live");
-      container.innerHTML = "";
+      const liveContainer = document.getElementById("live");
+      const finishedContainer = document.getElementById("finished");
+      const upcomingContainer = document.getElementById("upcoming");
+      liveContainer.innerHTML = "";
+      finishedContainer.innerHTML = "";
+      upcomingContainer.innerHTML = "";
+
       snapshot.forEach(doc => {
+        const match = doc.data();
         const div = document.createElement("div");
         div.className = "item";
-        div.innerHTML = renderLive(doc);
-        container.appendChild(div);
+        div.innerHTML = renderMatch(match);
+
+        const state = match.state?.name?.toLowerCase() || "";
+        if (state.includes("live") || state.includes("inplay")) {
+          liveContainer.appendChild(div);
+        } else if (state.includes("finished") || state.includes("ended") || state.includes("ft")) {
+          finishedContainer.appendChild(div);
+        } else {
+          upcomingContainer.appendChild(div);
+        }
       });
     });
 
-    db.collection("fixtures").onSnapshot(snapshot => {
-      const container = document.getElementById("upcoming");
-      container.innerHTML = "";
-      snapshot.forEach(doc => {
-        const div = document.createElement("div");
-        div.className = "item";
-        div.innerHTML = renderUpcoming(doc);
-        container.appendChild(div);
-      });
-    });
-
+    // Odds listener
     db.collection("odds").onSnapshot(snapshot => {
       const container = document.getElementById("odds");
       container.innerHTML = "";
       snapshot.forEach(doc => {
+        const odd = doc.data();
         const div = document.createElement("div");
         div.className = "item";
-        div.innerHTML = renderOdds(doc);
+        div.innerHTML = renderOdds(odd);
         container.appendChild(div);
       });
     });
