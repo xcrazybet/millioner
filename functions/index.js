@@ -1,6 +1,6 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
-const sportmonksFunctions = require('./src/sportmonks/sportmonks');
+const fetch = require('node-fetch');
 
 // Initialize with your project
 admin.initializeApp({
@@ -11,28 +11,201 @@ admin.initializeApp({
 const db = admin.firestore();
 const auth = admin.auth();
 
-// Export Sportmonks functions
-exports.getSportmonksData = sportmonksFunctions.getSportmonksData;
-exports.getUpcomingFixtures = sportmonksFunctions.getUpcomingFixtures;
-exports.getFixtureOdds = sportmonksFunctions.getFixtureOdds;
-exports.getLiveScores = sportmonksFunctions.getLiveScores;
-exports.getLeagues = sportmonksFunctions.getLeagues;
-exports.getLatestUpdates = sportmonksFunctions.getLatestUpdates;
-exports.getStandings = sportmonksFunctions.getStandings;
-exports.getTopScorers = sportmonksFunctions.getTopScorers;
+// ==================== SPORTMONKS API CONFIGURATION ====================
+const SPORTMONKS_API_TOKEN = "DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy";
+const SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3/football";
+
+// Helper function for Sportmonks API calls
+async function callSportmonksAPI(endpoint, params = {}) {
+  let url = `${SPORTMONKS_BASE_URL}${endpoint}?api_token=${SPORTMONKS_API_TOKEN}`;
+  
+  Object.keys(params).forEach(key => {
+    if (params[key]) {
+      url += `&${key}=${params[key]}`;
+    }
+  });
+  
+  console.log(`Calling Sportmonks API: ${endpoint}`);
+  
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
+    const data = await response.json();
+    return { success: true, data: data };
+  } catch (error) {
+    console.error(`Sportmonks API error (${endpoint}):`, error);
+    return { success: false, error: error.message };
+  }
+}
+
+// ==================== SPORTMONKS FUNCTIONS ====================
+
+// Get live scores/inplay matches
+exports.getLiveScores = functions.https.onCall(async (data, context) => {
+  // Optional: Check if user is authenticated
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { include = 'participants;scores;state;league' } = data;
+  const result = await callSportmonksAPI('/livescores/inplay', { include });
+  return result;
+});
+
+// Get upcoming fixtures
+exports.getUpcomingFixtures = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { days = 'next30days', include = 'participants;state;league', per_page = 50 } = data;
+  const result = await callSportmonksAPI('/fixtures', { 
+    filters: days, 
+    include, 
+    per_page 
+  });
+  return result;
+});
+
+// Get fixture odds
+exports.getFixtureOdds = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { fixtureId, include = 'bookmakers;market' } = data;
+  const result = await callSportmonksAPI(`/fixtures/${fixtureId}/odds`, { include });
+  return result;
+});
+
+// Get pre-match odds
+exports.getPreMatchOdds = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { include = 'bookmakers;market', per_page = 100 } = data;
+  const result = await callSportmonksAPI('/odds/pre-match', { include, per_page });
+  return result;
+});
+
+// Get all leagues
+exports.getLeagues = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { include = 'season' } = data;
+  const result = await callSportmonksAPI('/leagues', { include });
+  return result;
+});
+
+// Get latest updates (for real-time sync)
+exports.getLatestUpdates = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { include = 'participants;scores;events;odds' } = data;
+  const result = await callSportmonksAPI('/fixtures/latest', { include });
+  return result;
+});
+
+// Get standings/table
+exports.getStandings = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { leagueId, seasonId, include = 'participants' } = data;
+  let endpoint = '/standings';
+  if (leagueId) endpoint = `/standings/leagues/${leagueId}`;
+  if (seasonId) endpoint = `/standings/seasons/${seasonId}`;
+  
+  const result = await callSportmonksAPI(endpoint, { include });
+  return result;
+});
+
+// Get top scorers
+exports.getTopScorers = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { seasonId = '2026', include = 'player;team' } = data;
+  const result = await callSportmonksAPI(`/topscorers/seasons/${seasonId}`, { include });
+  return result;
+});
+
+// Get team info
+exports.getTeamInfo = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { teamId, include = 'squad;coach;venue' } = data;
+  const result = await callSportmonksAPI(`/teams/${teamId}`, { include });
+  return result;
+});
+
+// Get match statistics
+exports.getMatchStats = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { fixtureId } = data;
+  const result = await callSportmonksAPI(`/fixtures/${fixtureId}/statistics`);
+  return result;
+});
+
+// HTTP endpoint for direct API access (bypasses CORS)
+exports.sportmonksProxy = functions.https.onRequest(async (req, res) => {
+  // Enable CORS
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+  
+  const endpoint = req.path;
+  let url = `${SPORTMONKS_BASE_URL}${endpoint}?api_token=${SPORTMONKS_API_TOKEN}`;
+  
+  // Forward query parameters
+  Object.keys(req.query).forEach(key => {
+    if (key !== 'api_token') {
+      url += `&${key}=${req.query[key]}`;
+    }
+  });
+  
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Proxy error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Diagnostic function to check API status
 exports.checkSportmonksStatus = functions.https.onCall(async (data, context) => {
-  const apiToken = functions.config().sportmonks?.key || process.env.SPORTMONKS_API_KEY;
+  const result = await callSportmonksAPI('/leagues', { per_page: 1 });
   return {
-    configured: !!apiToken,
-    tokenPreview: apiToken ? `${apiToken.substring(0, 5)}...` : 'NONE',
+    configured: true,
+    tokenPreview: SPORTMONKS_API_TOKEN.substring(0, 10) + '...',
+    apiWorking: result.success,
     nodeVersion: process.version,
     timestamp: new Date().toISOString()
   };
 });
 
-// ==================== CONFIGURATION ====================
+// ==================== WALLET & BETTING CONFIGURATION ====================
 const CONFIG = {
   MIN_DEPOSIT: 10,
   MAX_DEPOSIT: 10000,
@@ -40,6 +213,8 @@ const CONFIG = {
   MAX_WITHDRAWAL: 5000,
   DAILY_WITHDRAWAL_LIMIT: 10000,
   MAX_ADJUSTMENT: 1000000,
+  MIN_BET: 1,
+  MAX_BET: 5000,
   CURRENCIES: ['USD', 'EUR', 'GBP'],
   PAYMENT_METHODS: ['bank_transfer', 'credit_card', 'crypto', 'paypal']
 };
@@ -145,7 +320,225 @@ exports.createUserWallet = functions.auth.user().onCreate(async (user) => {
   }
 });
 
-// ==================== USER TRANSFER ====================
+// ==================== BETTING FUNCTIONS ====================
+
+// Place a bet
+exports.placeBet = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { selections, stake, betType = 'single' } = data;
+  
+  if (!selections || !selections.length || selections.length === 0) {
+    throw new functions.https.HttpsError('invalid-argument', 'No selections provided');
+  }
+  
+  if (!stake || stake < CONFIG.MIN_BET || stake > CONFIG.MAX_BET) {
+    throw new functions.https.HttpsError('invalid-argument', `Stake must be $${CONFIG.MIN_BET}-$${CONFIG.MAX_BET}`);
+  }
+  
+  const userId = context.auth.uid;
+  const totalOdds = selections.reduce((acc, sel) => acc * sel.odds, 1);
+  const potentialReturn = stake * totalOdds;
+  const ticketNumber = `TKT-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+  
+  try {
+    const walletRef = db.collection('wallets').doc(userId);
+    
+    await db.runTransaction(async (transaction) => {
+      const walletDoc = await transaction.get(walletRef);
+      
+      if (!walletDoc.exists) {
+        throw new Error('Wallet not found');
+      }
+      
+      const walletData = walletDoc.data();
+      
+      if (walletData.balance < stake) {
+        throw new Error(`Insufficient balance. Available: $${walletData.balance}`);
+      }
+      
+      const newBalance = walletData.balance - stake;
+      
+      transaction.update(walletRef, {
+        balance: newBalance,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      // Create bet document
+      const betRef = db.collection('football_bets').doc(ticketNumber);
+      transaction.set(betRef, {
+        ticketNumber,
+        userId,
+        selections,
+        stake,
+        totalOdds,
+        potentialReturn,
+        betType,
+        status: 'pending',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    
+    return {
+      success: true,
+      ticketNumber,
+      stake,
+      totalOdds,
+      potentialReturn,
+      message: `Bet placed successfully! Ticket: ${ticketNumber}`
+    };
+    
+  } catch (error) {
+    console.error('Place bet failed:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+// Get user's open bets
+exports.getOpenBets = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const userId = context.auth.uid;
+  
+  try {
+    const betsSnapshot = await db.collection('football_bets')
+      .where('userId', '==', userId)
+      .where('status', '==', 'pending')
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
+    
+    const bets = [];
+    betsSnapshot.forEach(doc => {
+      bets.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return {
+      success: true,
+      bets,
+      count: bets.length
+    };
+    
+  } catch (error) {
+    console.error('Get open bets failed:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+// Get betting history
+exports.getBettingHistory = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const userId = context.auth.uid;
+  const { limit = 50, status = null } = data;
+  
+  try {
+    let query = db.collection('football_bets')
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .limit(limit);
+    
+    if (status && ['won', 'lost', 'cashed_out', 'pending'].includes(status)) {
+      query = query.where('status', '==', status);
+    }
+    
+    const betsSnapshot = await query.get();
+    
+    const bets = [];
+    betsSnapshot.forEach(doc => {
+      bets.push({ id: doc.id, ...doc.data() });
+    });
+    
+    return {
+      success: true,
+      bets,
+      count: bets.length
+    };
+    
+  } catch (error) {
+    console.error('Get betting history failed:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+// Cash out a bet
+exports.cashOutBet = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
+  }
+  
+  const { ticketNumber } = data;
+  
+  if (!ticketNumber) {
+    throw new functions.https.HttpsError('invalid-argument', 'Ticket number required');
+  }
+  
+  const userId = context.auth.uid;
+  
+  try {
+    const betDoc = await db.collection('football_bets').doc(ticketNumber).get();
+    
+    if (!betDoc.exists) {
+      throw new Error('Bet not found');
+    }
+    
+    const betData = betDoc.data();
+    
+    if (betData.userId !== userId) {
+      throw new Error('Unauthorized');
+    }
+    
+    if (betData.status !== 'pending') {
+      throw new Error(`Cannot cash out bet with status: ${betData.status}`);
+    }
+    
+    const cashoutValue = betData.stake * 0.7; // 70% cashout value
+    const walletRef = db.collection('wallets').doc(userId);
+    
+    await db.runTransaction(async (transaction) => {
+      const walletDoc = await transaction.get(walletRef);
+      
+      if (!walletDoc.exists) {
+        throw new Error('Wallet not found');
+      }
+      
+      const newBalance = walletDoc.data().balance + cashoutValue;
+      
+      transaction.update(walletRef, {
+        balance: newBalance,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      transaction.update(db.collection('football_bets').doc(ticketNumber), {
+        status: 'cashed_out',
+        cashoutValue,
+        cashedOutAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    
+    return {
+      success: true,
+      ticketNumber,
+      cashoutValue,
+      message: `Cashed out for $${cashoutValue.toFixed(2)}`
+    };
+    
+  } catch (error) {
+    console.error('Cash out failed:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
+
+// ==================== EXISTING WALLET FUNCTIONS (YOUR ORIGINAL CODE) ====================
+
 exports.transferToUser = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
@@ -168,7 +561,6 @@ exports.transferToUser = functions.https.onCall(async (data, context) => {
   }
   
   try {
-    // READ all data first
     const [fromWalletDoc, toWalletDoc] = await Promise.all([
       db.collection('wallets').doc(fromUserId).get(),
       db.collection('wallets').doc(toUserId).get()
@@ -189,18 +581,15 @@ exports.transferToUser = functions.https.onCall(async (data, context) => {
       throw new Error('Recipient wallet is not active');
     }
     
-    // Calculate new balances
     const newFromBalance = fromWallet.balance - amount;
     const newToBalance = toWallet.balance + amount;
     const transactionId = generateId();
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
     
-    // Execute transaction (ALL READS DONE, NOW WRITES)
     await db.runTransaction(async (transaction) => {
       const fromRef = db.collection('wallets').doc(fromUserId);
       const toRef = db.collection('wallets').doc(toUserId);
       
-      // Update wallets
       transaction.update(fromRef, {
         balance: newFromBalance,
         totalTransferred: (fromWallet.totalTransferred || 0) + amount,
@@ -213,7 +602,6 @@ exports.transferToUser = functions.https.onCall(async (data, context) => {
         updatedAt: timestamp
       });
       
-      // Create transaction records
       transaction.set(db.collection('transactions').doc(`${transactionId}_out`), {
         transactionId,
         userId: fromUserId,
@@ -241,7 +629,6 @@ exports.transferToUser = functions.https.onCall(async (data, context) => {
       });
     });
     
-    // Create notification (outside transaction for better performance)
     await db.collection('notifications').add({
       userId: toUserId,
       type: 'transfer_received',
@@ -267,7 +654,7 @@ exports.transferToUser = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== CREATE DEPOSIT REQUEST ====================
+// Create deposit request
 exports.createDepositRequest = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
@@ -308,7 +695,6 @@ exports.createDepositRequest = functions.https.onCall(async (data, context) => {
       updatedAt: timestamp
     });
     
-    // Create transaction record
     await db.collection('transactions').add({
       transactionId: generateId(),
       userId,
@@ -335,7 +721,7 @@ exports.createDepositRequest = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== PROCESS DEPOSIT ====================
+// Process deposit (Admin only)
 exports.processDeposit = functions.https.onCall(async (data, context) => {
   const adminData = await validateAdmin(context, 'finance');
   
@@ -346,7 +732,6 @@ exports.processDeposit = functions.https.onCall(async (data, context) => {
   }
   
   try {
-    // READ deposit request first
     const requestDoc = await db.collection('deposit_requests').doc(requestId).get();
     if (!requestDoc.exists) {
       throw new Error('Deposit request not found');
@@ -362,7 +747,6 @@ exports.processDeposit = functions.https.onCall(async (data, context) => {
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
     
     if (action === 'approve') {
-      // READ wallet before transaction
       const walletDoc = await db.collection('wallets').doc(requestData.userId).get();
       if (!walletDoc.exists) {
         throw new Error('Wallet not found');
@@ -371,9 +755,7 @@ exports.processDeposit = functions.https.onCall(async (data, context) => {
       const walletData = walletDoc.data();
       const newBalance = walletData.balance + requestData.amount;
       
-      // Execute transaction
       await db.runTransaction(async (transaction) => {
-        // Update deposit request
         transaction.update(db.collection('deposit_requests').doc(requestId), {
           status: newStatus,
           processedBy: context.auth.uid,
@@ -383,14 +765,12 @@ exports.processDeposit = functions.https.onCall(async (data, context) => {
           updatedAt: timestamp
         });
         
-        // Update wallet
         transaction.update(db.collection('wallets').doc(requestData.userId), {
           balance: newBalance,
           totalDeposited: (walletData.totalDeposited || 0) + requestData.amount,
           updatedAt: timestamp
         });
         
-        // Create transaction
         transaction.set(db.collection('transactions').doc(), {
           transactionId: generateId(),
           userId: requestData.userId,
@@ -406,7 +786,6 @@ exports.processDeposit = functions.https.onCall(async (data, context) => {
         });
       });
       
-      // Create notification
       await db.collection('notifications').add({
         userId: requestData.userId,
         type: 'deposit_approved',
@@ -432,7 +811,6 @@ exports.processDeposit = functions.https.onCall(async (data, context) => {
       };
       
     } else {
-      // Reject deposit
       await db.collection('deposit_requests').doc(requestId).update({
         status: newStatus,
         processedBy: context.auth.uid,
@@ -465,7 +843,7 @@ exports.processDeposit = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== CREATE WITHDRAWAL REQUEST ====================
+// Create withdrawal request
 exports.createWithdrawalRequest = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Must be logged in');
@@ -484,7 +862,6 @@ exports.createWithdrawalRequest = functions.https.onCall(async (data, context) =
   const userId = context.auth.uid;
   
   try {
-    // READ wallet first
     const walletDoc = await db.collection('wallets').doc(userId).get();
     if (!walletDoc.exists) {
       throw new Error('Wallet not found');
@@ -526,7 +903,7 @@ exports.createWithdrawalRequest = functions.https.onCall(async (data, context) =
   }
 });
 
-// ==================== PROCESS WITHDRAWAL ====================
+// Process withdrawal (Admin only)
 exports.processWithdrawal = functions.https.onCall(async (data, context) => {
   const adminData = await validateAdmin(context, 'finance');
   
@@ -541,7 +918,6 @@ exports.processWithdrawal = functions.https.onCall(async (data, context) => {
   }
   
   try {
-    // READ withdrawal request first
     const withdrawalDoc = await db.collection('withdrawals').doc(withdrawalId).get();
     if (!withdrawalDoc.exists) {
       throw new Error('Withdrawal request not found');
@@ -557,7 +933,6 @@ exports.processWithdrawal = functions.https.onCall(async (data, context) => {
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
     
     if (action === 'approve') {
-      // READ wallet before transaction
       const walletDoc = await db.collection('wallets').doc(withdrawalData.userId).get();
       if (!walletDoc.exists) {
         throw new Error('Wallet not found');
@@ -571,9 +946,7 @@ exports.processWithdrawal = functions.https.onCall(async (data, context) => {
       
       const newBalance = walletData.balance - withdrawalData.amount;
       
-      // Execute transaction
       await db.runTransaction(async (transaction) => {
-        // Update withdrawal
         transaction.update(db.collection('withdrawals').doc(withdrawalId), {
           status: newStatus,
           processedBy: context.auth.uid,
@@ -584,14 +957,12 @@ exports.processWithdrawal = functions.https.onCall(async (data, context) => {
           updatedAt: timestamp
         });
         
-        // Update wallet
         transaction.update(db.collection('wallets').doc(withdrawalData.userId), {
           balance: newBalance,
           totalWithdrawn: (walletData.totalWithdrawn || 0) + withdrawalData.amount,
           updatedAt: timestamp
         });
         
-        // Create transaction
         transaction.set(db.collection('transactions').doc(), {
           transactionId: generateId(),
           userId: withdrawalData.userId,
@@ -609,7 +980,6 @@ exports.processWithdrawal = functions.https.onCall(async (data, context) => {
         });
       });
       
-      // Create notification
       await db.collection('notifications').add({
         userId: withdrawalData.userId,
         type: 'withdrawal_approved',
@@ -637,7 +1007,6 @@ exports.processWithdrawal = functions.https.onCall(async (data, context) => {
       };
       
     } else {
-      // Reject withdrawal
       await db.collection('withdrawals').doc(withdrawalId).update({
         status: newStatus,
         processedBy: context.auth.uid,
@@ -670,17 +1039,11 @@ exports.processWithdrawal = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== ADMIN BALANCE ADJUSTMENT ====================
+// Admin balance adjustment
 exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
   const adminData = await validateAdmin(context, 'finance');
   
-  const { 
-    userId, 
-    amount, 
-    action, 
-    reason = 'Admin adjustment', 
-    notes = '' 
-  } = data;
+  const { userId, amount, action, reason = 'Admin adjustment', notes = '' } = data;
   
   if (!userId || typeof amount !== 'number' || amount <= 0) {
     throw new functions.https.HttpsError('invalid-argument', 'Invalid parameters');
@@ -695,7 +1058,6 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
   }
   
   try {
-    // READ wallet first
     const walletDoc = await db.collection('wallets').doc(userId).get();
     if (!walletDoc.exists) {
       throw new Error('User wallet not found');
@@ -705,7 +1067,6 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
     let newBalance = walletData.balance;
     let change = 0;
     
-    // Calculate new balance
     switch (action) {
       case 'add':
         newBalance = walletData.balance + amount;
@@ -730,15 +1091,12 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
     
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
     
-    // Execute transaction
     await db.runTransaction(async (transaction) => {
-      // Update wallet
       transaction.update(db.collection('wallets').doc(userId), {
         balance: newBalance,
         updatedAt: timestamp
       });
       
-      // Create transaction
       transaction.set(db.collection('transactions').doc(), {
         transactionId: generateId(),
         userId,
@@ -757,7 +1115,6 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
       });
     });
     
-    // Create notification
     await db.collection('notifications').add({
       userId,
       type: 'balance_adjusted',
@@ -792,7 +1149,7 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== ADMIN SEND TO USER ====================
+// Admin send to user
 exports.adminSendToUser = functions.https.onCall(async (data, context) => {
   const adminData = await validateAdmin(context, 'finance');
   
@@ -807,7 +1164,6 @@ exports.adminSendToUser = functions.https.onCall(async (data, context) => {
   }
   
   try {
-    // READ wallet first
     const walletDoc = await db.collection('wallets').doc(userId).get();
     if (!walletDoc.exists) {
       throw new Error('User wallet not found');
@@ -817,16 +1173,13 @@ exports.adminSendToUser = functions.https.onCall(async (data, context) => {
     const newBalance = walletData.balance + amount;
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
     
-    // Execute transaction
     await db.runTransaction(async (transaction) => {
-      // Update wallet
       transaction.update(db.collection('wallets').doc(userId), {
         balance: newBalance,
         totalReceived: (walletData.totalReceived || 0) + amount,
         updatedAt: timestamp
       });
       
-      // Create transaction
       transaction.set(db.collection('transactions').doc(), {
         transactionId: generateId(),
         userId,
@@ -843,7 +1196,6 @@ exports.adminSendToUser = functions.https.onCall(async (data, context) => {
       });
     });
     
-    // Create notification
     await db.collection('notifications').add({
       userId,
       type: 'admin_credit',
@@ -875,7 +1227,7 @@ exports.adminSendToUser = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== GET PENDING REQUESTS ====================
+// Get pending requests (Admin only)
 exports.getPendingRequests = functions.https.onCall(async (data, context) => {
   await validateAdmin(context, 'support');
   
@@ -921,7 +1273,7 @@ exports.getPendingRequests = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== GET USER STATS ====================
+// Get user stats (Admin only)
 exports.getUserStats = functions.https.onCall(async (data, context) => {
   await validateAdmin(context, 'support');
   
@@ -957,7 +1309,7 @@ exports.getUserStats = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== GET USER DETAILS ====================
+// Get user details (Admin only)
 exports.getUserDetails = functions.https.onCall(async (data, context) => {
   await validateAdmin(context, 'support');
   
@@ -968,22 +1320,27 @@ exports.getUserDetails = functions.https.onCall(async (data, context) => {
   }
   
   try {
-    const [walletDoc, transactionsSnapshot, depositsSnapshot, withdrawalsSnapshot] = await Promise.all([
+    const [walletDoc, transactionsSnapshot, depositsSnapshot, withdrawalsSnapshot, betsSnapshot] = await Promise.all([
       db.collection('wallets').doc(userId).get(),
       db.collection('transactions')
         .where('userId', '==', userId)
         .orderBy('timestamp', 'desc')
-        .limit(10)
+        .limit(20)
         .get(),
       db.collection('deposit_requests')
         .where('userId', '==', userId)
         .orderBy('createdAt', 'desc')
-        .limit(10)
+        .limit(20)
         .get(),
       db.collection('withdrawals')
         .where('userId', '==', userId)
         .orderBy('createdAt', 'desc')
-        .limit(10)
+        .limit(20)
+        .get(),
+      db.collection('football_bets')
+        .where('userId', '==', userId)
+        .orderBy('createdAt', 'desc')
+        .limit(20)
         .get()
     ]);
     
@@ -995,6 +1352,7 @@ exports.getUserDetails = functions.https.onCall(async (data, context) => {
     const transactions = [];
     const deposits = [];
     const withdrawals = [];
+    const bets = [];
     
     transactionsSnapshot.forEach(doc => {
       transactions.push({ id: doc.id, ...doc.data() });
@@ -1008,16 +1366,22 @@ exports.getUserDetails = functions.https.onCall(async (data, context) => {
       withdrawals.push({ id: doc.id, ...doc.data() });
     });
     
+    betsSnapshot.forEach(doc => {
+      bets.push({ id: doc.id, ...doc.data() });
+    });
+    
     return {
       success: true,
       user: walletData,
       transactions,
       deposits,
       withdrawals,
+      bets,
       summary: {
         totalTransactions: transactions.length,
         totalDeposits: deposits.length,
-        totalWithdrawals: withdrawals.length
+        totalWithdrawals: withdrawals.length,
+        totalBets: bets.length
       }
     };
     
@@ -1027,10 +1391,11 @@ exports.getUserDetails = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== CREATE MISSING WALLETS ====================
+// Create missing wallets (HTTP endpoint)
 exports.createMissingWallets = functions.https.onRequest(async (req, res) => {
   try {
-    if (req.query.secret !== 'YOUR_SECRET_KEY') {
+    const secret = req.query.secret || req.body?.secret;
+    if (secret !== 'YOUR_SECRET_KEY') {
       return res.status(403).json({ error: 'Unauthorized' });
     }
     
@@ -1089,7 +1454,7 @@ exports.createMissingWallets = functions.https.onRequest(async (req, res) => {
   }
 });
 
-// ==================== ADD ADMIN ROLE ====================
+// Add admin role (Super admin only)
 exports.addAdminRole = functions.https.onCall(async (data, context) => {
   const adminData = await validateAdmin(context, 'super_admin');
   
@@ -1106,19 +1471,16 @@ exports.addAdminRole = functions.https.onCall(async (data, context) => {
   try {
     const user = await auth.getUserByEmail(email);
     
-    // Check if already admin
     const existingAdmin = await db.collection('admins').doc(user.uid).get();
     if (existingAdmin.exists) {
       throw new Error('User is already an admin');
     }
     
-    // Set custom claims
     await auth.setCustomUserClaims(user.uid, {
       admin: true,
       role: role
     });
     
-    // Create admin document
     await db.collection('admins').doc(user.uid).set({
       email: email,
       role: role,
@@ -1140,7 +1502,7 @@ exports.addAdminRole = functions.https.onCall(async (data, context) => {
   }
 });
 
-// ==================== REMOVE ADMIN ROLE ====================
+// Remove admin role (Super admin only)
 exports.removeAdminRole = functions.https.onCall(async (data, context) => {
   await validateAdmin(context, 'super_admin');
   
@@ -1157,10 +1519,8 @@ exports.removeAdminRole = functions.https.onCall(async (data, context) => {
       throw new Error('Cannot remove your own admin role');
     }
     
-    // Remove custom claims
     await auth.setCustomUserClaims(user.uid, null);
     
-    // Update admin document
     await db.collection('admins').doc(user.uid).update({
       active: false,
       removedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1180,6 +1540,27 @@ exports.removeAdminRole = functions.https.onCall(async (data, context) => {
 
 // ==================== EXPORT ALL FUNCTIONS ====================
 module.exports = {
+  // Sportmonks functions
+  getLiveScores,
+  getUpcomingFixtures,
+  getFixtureOdds,
+  getPreMatchOdds,
+  getLeagues,
+  getLatestUpdates,
+  getStandings,
+  getTopScorers,
+  getTeamInfo,
+  getMatchStats,
+  sportmonksProxy,
+  checkSportmonksStatus,
+  
+  // Betting functions
+  placeBet,
+  getOpenBets,
+  getBettingHistory,
+  cashOutBet,
+  
+  // Wallet functions
   createUserWallet,
   transferToUser,
   createDepositRequest,
