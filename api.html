@@ -894,12 +894,19 @@
         async function fetchLiveMatches() {
             try {
                 console.log("Fetching live matches with working livescores endpoint...");
+                console.log("API Token:", SPORTMONKS_API_TOKEN);
                 
                 // Use working livescores endpoint (not inplay)
                 const url = `https://api.sportmonks.com/v3/football/livescores?api_token=${SPORTMONKS_API_TOKEN}&include=state;lineups;events;statistics;periods;participants;league;scores`;
                 
+                console.log("Fetching URL:", url);
+                
                 const response = await fetch(url);
+                console.log("Response status:", response.status);
+                console.log("Response headers:", response.headers);
+                
                 const data = await response.json();
+                console.log("Response data:", data);
                 
                 if (data.data && data.data.length > 0) {
                     // Filter only live matches (state_id 2,3,4,5,6)
@@ -911,12 +918,26 @@
                     console.log(`✅ Found ${liveMatches.length} live matches from livescores endpoint`);
                     return liveMatches;
                 } else {
-                    console.log("No live matches found, trying fixtures with live states...");
-                    // Fallback to fixtures endpoint with live state filter
+                    console.log("No live matches found, checking response structure...");
+                    console.log("Data keys:", Object.keys(data));
+                    
+                    // Check if it's an error response
+                    if (data.message) {
+                        console.log("API Error Message:", data.message);
+                        showToast('error', 'API Error', data.message);
+                    }
+                    
+                    // Try fixtures fallback
+                    console.log("Trying fixtures with live states...");
                     const fixturesUrl = `${SPORTMONKS_BASE_URL}/fixtures?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;scores;events;league&filter[state_ids]=2,3,4,5,6&per_page=15`;
                     
+                    console.log("Fallback URL:", fixturesUrl);
+                    
                     const fixturesResponse = await fetch(fixturesUrl);
+                    console.log("Fallback response status:", fixturesResponse.status);
+                    
                     const fixturesData = await fixturesResponse.json();
+                    console.log("Fallback data:", fixturesData);
                     
                     if (fixturesData.data && fixturesData.data.length > 0) {
                         matches.live = fixturesData.data;
@@ -930,7 +951,8 @@
                 
             } catch (error) {
                 console.error("Error fetching live matches:", error);
-                showToast('error', 'API Error', 'Failed to load live matches');
+                console.error("Error stack:", error.stack);
+                showToast('error', 'API Error', `Failed to load live matches: ${error.message}`);
                 return [];
             }
         }
@@ -938,6 +960,7 @@
         async function fetchUpcomingMatches() {
             try {
                 console.log("Fetching upcoming matches with working endpoint...");
+                console.log("API Token:", SPORTMONKS_API_TOKEN);
                 
                 const today = new Date();
                 const tomorrow = new Date(today);
@@ -953,10 +976,15 @@
                 
                 // Try today's fixtures first
                 console.log(`Trying fixtures for ${todayStr}...`);
-                let url = `https://api.sportmonks.com/api/v3/football/fixtures/date/${todayStr}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores;events;odds&per_page=15`;
+                let url = `https://api.sportmonks.com/v3/football/fixtures/date/${todayStr}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores;events;odds&per_page=15`;
+                
+                console.log("Today's URL:", url);
                 
                 let response = await fetch(url);
+                console.log("Today's response status:", response.status);
+                
                 let data = await response.json();
+                console.log("Today's response data:", data);
                 
                 if (data.data && data.data.length > 0) {
                     const dayMatches = data.data.filter(match => 
@@ -964,15 +992,28 @@
                     );
                     upcomingMatches = upcomingMatches.concat(dayMatches);
                     console.log(`✅ Found ${dayMatches.length} upcoming matches for ${todayStr}`);
+                } else {
+                    console.log("No matches found for today, checking response structure...");
+                    console.log("Today's data keys:", Object.keys(data));
+                    
+                    if (data.message) {
+                        console.log("API Error Message:", data.message);
+                        showToast('error', 'API Error', data.message);
+                    }
                 }
                 
                 // Try tomorrow if needed
                 if (upcomingMatches.length < 5) {
                     console.log(`Trying fixtures for ${tomorrowStr}...`);
-                    url = `https://api.sportmonks.com/api/v3/football/fixtures/date/${tomorrowStr}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores;events;odds&per_page=15`;
+                    url = `https://api.sportmonks.com/v3/football/fixtures/date/${tomorrowStr}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores;events;odds&per_page=15`;
+                    
+                    console.log("Tomorrow's URL:", url);
                     
                     response = await fetch(url);
+                    console.log("Tomorrow's response status:", response.status);
+                    
                     data = await response.json();
+                    console.log("Tomorrow's response data:", data);
                     
                     if (data.data && data.data.length > 0) {
                         const dayMatches = data.data.filter(match => 
@@ -980,45 +1021,6 @@
                         );
                         upcomingMatches = upcomingMatches.concat(dayMatches);
                         console.log(`✅ Found ${dayMatches.length} upcoming matches for ${tomorrowStr}`);
-                    }
-                }
-                
-                // Try day after if still needed
-                if (upcomingMatches.length < 8) {
-                    console.log(`Trying fixtures for ${dayAfterStr}...`);
-                    url = `https://api.sportmonks.com/api/v3/football/fixtures/date/${dayAfterStr}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores;events;odds&per_page=15`;
-                    
-                    response = await fetch(url);
-                    data = await response.json();
-                    
-                    if (data.data && data.data.length > 0) {
-                        const dayMatches = data.data.filter(match => 
-                            match.state_id === 1 || match.state_id === 45 || match.state_id === 46
-                        );
-                        upcomingMatches = upcomingMatches.concat(dayMatches);
-                        console.log(`✅ Found ${dayMatches.length} upcoming matches for ${dayAfterStr}`);
-                    }
-                }
-                
-                // Fallback to general fixtures if still needed
-                if (upcomingMatches.length === 0) {
-                    console.log("No scheduled matches, trying general fixtures...");
-                    url = `https://api.sportmonks.com/api/v3/football/fixtures?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores;events;odds&per_page=20`;
-                    
-                    response = await fetch(url);
-                    data = await response.json();
-                    
-                    if (data.data && data.data.length > 0) {
-                        // Sort by starting time and get future matches
-                        const sortedMatches = data.data.sort((a, b) => 
-                            new Date(a.starting_at) - new Date(b.starting_at)
-                        );
-                        
-                        const now = new Date();
-                        upcomingMatches = sortedMatches.filter(match => 
-                            new Date(match.starting_at) > now
-                        ).slice(0, 12);
-                        console.log(`✅ Found ${upcomingMatches.length} future matches from general fixtures`);
                     }
                 }
                 
@@ -1031,7 +1033,8 @@
                 
             } catch (error) {
                 console.error("Error fetching upcoming matches:", error);
-                showToast('error', 'API Error', 'Failed to load upcoming matches');
+                console.error("Error stack:", error.stack);
+                showToast('error', 'API Error', `Failed to load upcoming matches: ${error.message}`);
                 return [];
             }
         }
