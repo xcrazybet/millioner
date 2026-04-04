@@ -959,11 +959,11 @@
                     currentUser = user;
                     await loadUserData();
                     
-                    // Start real-time updates
-                    startRealTimeUpdates();
-                    
                     // Load initial matches
                     await loadMatches();
+                    
+                    // Temporarily disable real-time updates to fix issues
+                    // startRealTimeUpdates();
                     
                     console.log("🎯 BETTING PLATFORM READY!");
                 });
@@ -1143,11 +1143,12 @@
                 console.log("🔥 Fetching LIVE matches...");
                 
                 // Primary: Inplay endpoint (most current)
-                let url = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${SPORTMONKS_API_TOKEN}&include=state;lineups;events;statistics;periods;participants;league;scores`;
+                const url = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${SPORTMONKS_API_TOKEN}&include=state;participants;league;scores`;
                 console.log("📡 Inplay URL:", url);
                 
-                let response = await fetch(url);
-                let data = await response.json();
+                const response = await fetch(url);
+                const data = await response.json();
+                console.log("📊 Response:", data);
                 
                 if (data.data && data.data.length > 0) {
                     console.log(`✅ ${data.data.length} LIVE matches from INPLAY`);
@@ -1156,29 +1157,16 @@
                 }
                 
                 // Fallback: General livescores
-                url = `https://api.sportmonks.com/v3/football/livescores?api_token=${SPORTMONKS_API_TOKEN}&include=state;participants;league;scores`;
-                console.log("📡 Livescores URL:", url);
+                const fallbackUrl = `https://api.sportmonks.com/v3/football/livescores?api_token=${SPORTMONKS_API_TOKEN}&include=state;participants;league;scores`;
+                console.log("📡 Livescores URL:", fallbackUrl);
                 
-                response = await fetch(url);
-                data = await response.json();
+                const fallbackResponse = await fetch(fallbackUrl);
+                const fallbackData = await fallbackResponse.json();
+                console.log("� Fallback response:", fallbackData);
                 
-                if (data.data && data.data.length > 0) {
-                    const liveMatches = data.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
+                if (fallbackData.data && fallbackData.data.length > 0) {
+                    const liveMatches = fallbackData.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
                     console.log(`✅ ${liveMatches.length} LIVE matches from LIVESCORES`);
-                    matches.live = liveMatches;
-                    return liveMatches;
-                }
-                
-                // Fallback: Latest fixtures (real-time updates)
-                url = `https://api.sportmonks.com/v3/football/fixtures/latest?api_token=${SPORTMONKS_API_TOKEN}&include=participants;scores;events;odds`;
-                console.log("📡 Latest URL:", url);
-                
-                response = await fetch(url);
-                data = await response.json();
-                
-                if (data.data && data.data.length > 0) {
-                    const liveMatches = data.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
-                    console.log(`✅ ${liveMatches.length} LIVE matches from LATEST`);
                     matches.live = liveMatches;
                     return liveMatches;
                 }
@@ -1200,58 +1188,18 @@
                 console.log("📅 Fetching UPCOMING matches...");
                 
                 const today = new Date().toISOString().split('T')[0];
-                const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                
-                // Primary: Today's fixtures
-                let url = `https://api.sportmonks.com/v3/football/fixtures/date/${today}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores;events;odds&per_page=15`;
+                const url = `https://api.sportmonks.com/v3/football/fixtures/date/${today}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores&per_page=15`;
                 console.log("📡 Today URL:", url);
                 
-                let response = await fetch(url);
-                let data = await response.json();
+                const response = await fetch(url);
+                const data = await response.json();
+                console.log("📊 Response:", data);
                 
                 if (data.data && data.data.length > 0) {
                     const upcoming = data.data.filter(match => 
                         match.state_id === 1 || match.state_id === 45 || match.state_id === 46
                     );
                     console.log(`✅ ${upcoming.length} UPCOMING matches from TODAY`);
-                    matches.upcoming = upcoming;
-                    return upcoming;
-                }
-                
-                // Fallback: Tomorrow's fixtures
-                url = `https://api.sportmonks.com/v3/football/fixtures/date/${tomorrow}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores;events;odds&per_page=15`;
-                console.log("📡 Tomorrow URL:", url);
-                
-                response = await fetch(url);
-                data = await response.json();
-                
-                if (data.data && data.data.length > 0) {
-                    const upcoming = data.data.filter(match => 
-                        match.state_id === 1 || match.state_id === 45 || match.state_id === 46
-                    );
-                    console.log(`✅ ${upcoming.length} UPCOMING matches from TOMORROW`);
-                    matches.upcoming = upcoming;
-                    return upcoming;
-                }
-                
-                // Fallback: General fixtures with future dates
-                url = `https://api.sportmonks.com/v3/football/fixtures?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores;events;odds&per_page=20`;
-                console.log("📡 General fixtures URL:", url);
-                
-                response = await fetch(url);
-                data = await response.json();
-                
-                if (data.data && data.data.length > 0) {
-                    const now = new Date();
-                    const upcoming = data.data
-                        .filter(match => 
-                            match.state_id === 1 || match.state_id === 45 || match.state_id === 46
-                        )
-                        .filter(match => new Date(match.starting_at) > now)
-                        .sort((a, b) => new Date(a.starting_at) - new Date(b.starting_at))
-                        .slice(0, 10);
-                    
-                    console.log(`✅ ${upcoming.length} UPCOMING matches from GENERAL`);
                     matches.upcoming = upcoming;
                     return upcoming;
                 }
