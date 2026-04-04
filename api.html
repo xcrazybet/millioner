@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>⚽ Xlodon Bet - Live Football Betting | REAL DATA ONLY</title>
+    <title>⚽ Xlodon Bet - Live Football Betting | ALL MATCHES</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -20,7 +20,7 @@
         .tabs-header,.league-filter{display:flex;gap:8px;overflow-x:auto;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border)}
         .tab-btn,.league-btn{padding:8px 16px;background:var(--surface-light);border:1px solid var(--border);border-radius:30px;color:var(--text);font-size:13px;cursor:pointer;white-space:nowrap}
         .tab-btn.active,.league-btn.active{background:var(--primary);color:#000;border-color:var(--primary)}
-        .refresh-btn{background:var(--surface-light);border:1px solid var(--primary);border-radius:30px;padding:6px 12px;color:var(--primary);cursor:pointer;font-size:12px;margin-left:10px}
+        .refresh-btn{background:var(--surface-light);border:1px solid var(--primary);border-radius:30px;padding:6px 12px;color:var(--primary);cursor:pointer;font-size:12px}
         .matches-grid{display:flex;flex-direction:column;gap:12px;max-height:550px;overflow-y:auto}
         .match-card{background:var(--surface);border-radius:16px;padding:12px;border:1px solid var(--border);transition:transform 0.2s}
         .match-card:hover{transform:translateY(-2px);border-color:var(--primary)}
@@ -60,14 +60,14 @@
         .api-status{background:rgba(0,255,157,0.1);border-left:3px solid var(--primary);padding:8px 12px;font-size:12px;border-radius:8px;margin-bottom:12px;text-align:center}
         .api-status.error{background:rgba(255,71,87,0.1);border-left-color:var(--danger)}
         .api-status.success{background:rgba(76,175,80,0.1);border-left-color:var(--success)}
-        .match-time{font-size:11px;color:var(--primary)}
+        .countdown{font-size:10px;color:var(--text-dim)}
         .real-badge{background:var(--success);color:#000;padding:2px 6px;border-radius:10px;font-size:9px;margin-left:5px}
         @media(max-width:900px){.main-layout{grid-template-columns:1fr}.betslip-section{position:relative;top:0}}
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="logo">⚽ Xlodon Bet <span class="real-badge" style="font-size:10px">REAL DATA</span></div>
+        <div class="logo">⚽ Xlodon Bet <span class="real-badge">LIVE API</span></div>
         <div class="balance">💰 $<span id="balance">0.00</span></div>
     </div>
 
@@ -85,7 +85,7 @@
                     </div>
                     <button class="refresh-btn" id="refreshBtn"><i class="fas fa-sync-alt"></i> Refresh</button>
                 </div>
-                <div id="apiStatus" class="api-status">🔄 Fetching REAL matches from Sportmonks API...</div>
+                <div id="apiStatus" class="api-status">🔄 Fetching ALL matches from Sportmonks API...</div>
                 <div id="matchesContainer" class="matches-grid"><div class="loading-spinner"></div></div>
                 <div class="last-update" id="lastUpdate" style="font-size:11px;text-align:center;padding:8px;color:var(--text-dim)"></div>
             </div>
@@ -149,7 +149,7 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        // Sportmonks API - REAL DATA ONLY
+        // Sportmonks API
         const API_TOKEN = "DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy";
         
         let currentUser = null;
@@ -159,124 +159,203 @@
         let matches = [];
         let currentLeague = 'all';
         let currentMarket = 'all';
-        let autoRefreshInterval = null;
+        let refreshInterval = null;
 
         // Auth check
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 currentUser = user;
                 await loadBalance();
-                await fetchRealMatches(); // ONLY REAL DATA
+                await fetchAllMatches();
                 await loadOpenBets();
                 await loadHistory();
                 startAutoRefresh();
-                showToast('Welcome to Xlodon Bet - REAL DATA ONLY!', 'success');
+                showToast('Welcome to Xlodon Bet! Fetching ALL matches...', 'success');
             } else {
                 window.location.href = 'https://xcrazybet.github.io/millioner/login.html';
             }
         });
 
-        // FETCH ONLY REAL MATCHES - NO DEMO FALLBACK
-        async function fetchRealMatches() {
+        // FETCH ALL MATCHES - Using the fixtures endpoint
+        async function fetchAllMatches() {
             const container = document.getElementById('matchesContainer');
-            container.innerHTML = '<div class="loading-spinner"></div><p style="text-align:center;">🔴 Fetching REAL live matches from Sportmonks API...</p>';
+            container.innerHTML = '<div class="loading-spinner"></div><p style="text-align:center;">🔴 Fetching ALL matches from Sportmonks API...</p>';
             
             try {
-                // Fetch live scores
-                const liveUrl = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${API_TOKEN}&include=participants;scores;league;state`;
-                const liveProxyUrl = `https://corsproxy.io/?${encodeURIComponent(liveUrl)}`;
-                const liveResponse = await fetch(liveProxyUrl);
-                const liveData = await liveResponse.json();
+                // Use the fixtures endpoint to get all matches (including live and upcoming)
+                // This endpoint returns thousands of matches
+                const fixturesUrl = `https://api.sportmonks.com/v3/football/fixtures?api_token=${API_TOKEN}&include=participants;league;state;scores;localTeam;visitorTeam&per_page=100`;
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(fixturesUrl)}`;
                 
-                // Fetch upcoming fixtures for today and next days
-                const today = new Date().toISOString().split('T')[0];
-                const upcomingUrl = `https://api.sportmonks.com/v3/football/fixtures/date/${today}?api_token=${API_TOKEN}&include=participants;league;state`;
-                const upcomingProxyUrl = `https://corsproxy.io/?${encodeURIComponent(upcomingUrl)}`;
-                const upcomingResponse = await fetch(upcomingProxyUrl);
-                const upcomingData = await upcomingResponse.json();
+                console.log("Fetching from URL:", fixturesUrl);
+                const response = await fetch(proxyUrl);
+                const data = await response.json();
+                
+                console.log("API Response:", data);
                 
                 let allMatches = [];
                 
-                // Process REAL live matches
-                if (liveData.data && liveData.data.length > 0) {
-                    for (const fixture of liveData.data) {
-                        const home = fixture.participants?.find(p => p.meta?.location === 'home') || fixture.participants?.[0];
-                        const away = fixture.participants?.find(p => p.meta?.location === 'away') || fixture.participants?.[1];
-                        const score = fixture.scores?.find(s => s.description === 'CURRENT') || fixture.scores?.[0];
+                if (data.data && data.data.length > 0) {
+                    console.log(`Found ${data.data.length} fixtures from API`);
+                    
+                    for (const fixture of data.data) {
+                        // Skip if no participants
+                        if (!fixture.participants || fixture.participants.length < 2) continue;
                         
-                        allMatches.push({
-                            id: fixture.id.toString(),
-                            leagueId: fixture.league_id?.toString() || "0",
-                            leagueName: fixture.league?.name || "Live Match",
-                            homeTeam: home?.name || "Home Team",
-                            awayTeam: away?.name || "Away Team",
-                            homeScore: score?.score?.goals || 0,
-                            awayScore: score?.score?.opponent_goals || 0,
-                            matchTime: "LIVE",
-                            matchDate: new Date().toLocaleDateString(),
-                            isLive: true,
-                            odds: this.getRandomOdds()
-                        });
-                    }
-                }
-                
-                // Process REAL upcoming fixtures
-                if (upcomingData.data && upcomingData.data.length > 0) {
-                    for (const fixture of upcomingData.data) {
-                        if (fixture.state?.name === "Finished") continue;
-                        const home = fixture.participants?.find(p => p.meta?.location === 'home') || fixture.participants?.[0];
-                        const away = fixture.participants?.find(p => p.meta?.location === 'away') || fixture.participants?.[1];
+                        const home = fixture.participants.find(p => p.meta?.location === 'home') || fixture.participants[0];
+                        const away = fixture.participants.find(p => p.meta?.location === 'away') || fixture.participants[1];
+                        
+                        if (!home || !away) continue;
+                        
                         const matchDate = fixture.starting_at ? new Date(fixture.starting_at) : new Date();
                         const timeStr = matchDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         const dateStr = matchDate.toLocaleDateString();
+                        
+                        // Check if match is live or finished
+                        const isLive = fixture.state?.name === "In Progress" || fixture.time?.status === "LIVE";
+                        const isFinished = fixture.state?.name === "Finished";
+                        
+                        // Get scores if available
+                        let homeScore = null;
+                        let awayScore = null;
+                        if (fixture.scores && fixture.scores.length > 0) {
+                            const currentScore = fixture.scores.find(s => s.description === 'CURRENT') || fixture.scores[0];
+                            if (currentScore) {
+                                homeScore = currentScore.score?.goals || currentScore.goals || 0;
+                                awayScore = currentScore.score?.opponent_goals || currentScore.opponent_goals || 0;
+                            }
+                        }
+                        
+                        // Don't show finished matches
+                        if (isFinished) continue;
                         
                         allMatches.push({
                             id: fixture.id.toString(),
                             leagueId: fixture.league_id?.toString() || "0",
                             leagueName: fixture.league?.name || "Football",
-                            homeTeam: home?.name || "Home Team",
-                            awayTeam: away?.name || "Away Team",
-                            homeScore: null,
-                            awayScore: null,
-                            matchTime: timeStr,
+                            homeTeam: home.name,
+                            awayTeam: away.name,
+                            homeScore: homeScore,
+                            awayScore: awayScore,
+                            matchTime: isLive ? "LIVE" : timeStr,
                             matchDate: dateStr,
-                            isLive: false,
-                            odds: this.getRandomOdds()
+                            isLive: isLive,
+                            odds: generateOdds()
                         });
+                    }
+                } else {
+                    console.log("No fixtures found in response");
+                }
+                
+                // Also fetch live scores separately to ensure we get all live matches
+                try {
+                    const liveUrl = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${API_TOKEN}&include=participants;scores;league;state`;
+                    const liveProxyUrl = `https://corsproxy.io/?${encodeURIComponent(liveUrl)}`;
+                    const liveResponse = await fetch(liveProxyUrl);
+                    const liveData = await liveResponse.json();
+                    
+                    if (liveData.data && liveData.data.length > 0) {
+                        for (const fixture of liveData.data) {
+                            // Check if already added
+                            if (!allMatches.some(m => m.id === fixture.id.toString())) {
+                                const home = fixture.participants?.find(p => p.meta?.location === 'home') || fixture.participants?.[0];
+                                const away = fixture.participants?.find(p => p.meta?.location === 'away') || fixture.participants?.[1];
+                                const score = fixture.scores?.find(s => s.description === 'CURRENT') || fixture.scores?.[0];
+                                
+                                if (home && away) {
+                                    allMatches.unshift({
+                                        id: fixture.id.toString(),
+                                        leagueId: fixture.league_id?.toString() || "0",
+                                        leagueName: fixture.league?.name || "Live Match",
+                                        homeTeam: home.name,
+                                        awayTeam: away.name,
+                                        homeScore: score?.score?.goals || 0,
+                                        awayScore: score?.score?.opponent_goals || 0,
+                                        matchTime: "LIVE",
+                                        matchDate: new Date().toLocaleDateString(),
+                                        isLive: true,
+                                        odds: generateOdds()
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } catch (liveError) {
+                    console.log("Live matches fetch error:", liveError);
+                }
+                
+                if (allMatches.length === 0) {
+                    document.getElementById('apiStatus').innerHTML = '⚠️ No matches found. Trying alternative endpoint...';
+                    document.getElementById('apiStatus').className = 'api-status error';
+                    document.getElementById('lastUpdate').innerHTML = `No matches found at ${new Date().toLocaleString()}`;
+                    
+                    // Try alternative endpoint - fixtures by date range
+                    const today = new Date();
+                    const nextMonth = new Date(today);
+                    nextMonth.setMonth(today.getMonth() + 1);
+                    const fromDate = today.toISOString().split('T')[0];
+                    const toDate = nextMonth.toISOString().split('T')[0];
+                    
+                    const altUrl = `https://api.sportmonks.com/v3/football/fixtures/between/${fromDate}/${toDate}?api_token=${API_TOKEN}&include=participants;league;state&per_page=100`;
+                    const altProxyUrl = `https://corsproxy.io/?${encodeURIComponent(altUrl)}`;
+                    const altResponse = await fetch(altProxyUrl);
+                    const altData = await altResponse.json();
+                    
+                    if (altData.data && altData.data.length > 0) {
+                        for (const fixture of altData.data) {
+                            const home = fixture.participants?.[0];
+                            const away = fixture.participants?.[1];
+                            if (home && away) {
+                                const matchDate = fixture.starting_at ? new Date(fixture.starting_at) : new Date();
+                                allMatches.push({
+                                    id: fixture.id.toString(),
+                                    leagueId: fixture.league_id?.toString() || "0",
+                                    leagueName: fixture.league?.name || "Football",
+                                    homeTeam: home.name,
+                                    awayTeam: away.name,
+                                    homeScore: null,
+                                    awayScore: null,
+                                    matchTime: matchDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                                    matchDate: matchDate.toLocaleDateString(),
+                                    isLive: false,
+                                    odds: generateOdds()
+                                });
+                            }
+                        }
                     }
                 }
                 
-                // Check if we got ANY real data
                 if (allMatches.length === 0) {
-                    // NO DEMO DATA - Show clear message that no real matches are available
-                    document.getElementById('apiStatus').innerHTML = '⚠️ NO REAL MATCHES AVAILABLE RIGHT NOW';
-                    document.getElementById('apiStatus').className = 'api-status error';
-                    document.getElementById('lastUpdate').innerHTML = `📡 No live or upcoming matches found in Sportmonks API at ${new Date().toLocaleString()}`;
-                    container.innerHTML = `
+                    document.getElementById('apiStatus').innerHTML = '❌ No matches available. Please check API token.';
+                    document.getElementById('matchesContainer').innerHTML = `
                         <div class="empty-state" style="padding: 40px; text-align: center;">
-                            <i class="fas fa-futbol" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></i>
-                            <h3>No Real Matches Available</h3>
-                            <p style="margin-top: 12px; color: var(--text-dim);">No live or upcoming matches found from Sportmonks API.</p>
-                            <p style="margin-top: 8px; font-size: 12px; color: var(--text-dim);">Try refreshing or check back later when matches are available.</p>
-                            <button onclick="fetchRealMatches()" style="margin-top: 20px; padding: 10px 24px; background: var(--primary); border: none; border-radius: 30px; color: #000; font-weight: bold; cursor: pointer;">
-                                <i class="fas fa-sync-alt"></i> Refresh Again
+                            <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 16px; color: var(--danger);"></i>
+                            <h3>No Matches Found</h3>
+                            <p style="margin-top: 12px; color: var(--text-dim);">The Sportmonks API returned no matches.</p>
+                            <p style="margin-top: 8px; font-size: 12px; color: var(--text-dim);">Check your API token or try again later.</p>
+                            <button onclick="fetchAllMatches()" style="margin-top: 20px; padding: 10px 24px; background: var(--primary); border: none; border-radius: 30px; color: #000; font-weight: bold; cursor: pointer;">
+                                <i class="fas fa-sync-alt"></i> Retry
                             </button>
                         </div>
                     `;
-                    matches = [];
-                    displayMatches();
                     return;
                 }
                 
-                // WE HAVE REAL DATA!
+                // Sort matches: live first, then by date
+                allMatches.sort((a, b) => {
+                    if (a.isLive && !b.isLive) return -1;
+                    if (!a.isLive && b.isLive) return 1;
+                    return 0;
+                });
+                
                 matches = allMatches;
-                console.log(`✅ Loaded ${matches.length} REAL matches from Sportmonks API`);
+                console.log(`✅ Loaded ${matches.length} matches from Sportmonks API`);
                 
-                document.getElementById('apiStatus').innerHTML = `✅ REAL DATA: ${matches.length} matches loaded from Sportmonks API`;
+                document.getElementById('apiStatus').innerHTML = `✅ ${matches.length} MATCHES LOADED! ${matches.filter(m => m.isLive).length} LIVE, ${matches.filter(m => !m.isLive).length} UPCOMING`;
                 document.getElementById('apiStatus').className = 'api-status success';
-                document.getElementById('lastUpdate').innerHTML = `📅 REAL DATA | Last sync: ${new Date().toLocaleString()} | ${matches.filter(m => m.isLive).length} live, ${matches.filter(m => !m.isLive).length} upcoming`;
+                document.getElementById('lastUpdate').innerHTML = `📅 ${matches.length} total matches | Last updated: ${new Date().toLocaleString()}`;
                 
-                // Build league filters from real data
+                // Build league filters
                 const leagueMap = new Map();
                 matches.forEach(m => {
                     if (m.leagueId !== "0" && !leagueMap.has(m.leagueId)) {
@@ -291,7 +370,7 @@
                     leagueFilterDiv.innerHTML += `<button class="league-btn" data-league="${id}">🏆 ${name.substring(0, 25)} (${count})</button>`;
                 }
                 
-                // Reattach league filter events
+                // Reattach events
                 document.querySelectorAll('.league-btn').forEach(btn => {
                     btn.addEventListener('click', () => {
                         document.querySelectorAll('.league-btn').forEach(l => l.classList.remove('active'));
@@ -302,35 +381,31 @@
                 });
                 
                 displayMatches();
-                showToast(`✅ Loaded ${matches.length} REAL matches from Sportmonks API`, 'success');
+                showToast(`✅ Loaded ${matches.length} matches from Sportmonks API`, 'success');
                 
             } catch (error) {
                 console.error("API Error:", error);
-                // NO DEMO DATA - Show error message
                 document.getElementById('apiStatus').innerHTML = `❌ API ERROR: ${error.message}`;
                 document.getElementById('apiStatus').className = 'api-status error';
-                document.getElementById('lastUpdate').innerHTML = `⚠️ Failed to fetch real data. Check API connection.`;
+                document.getElementById('lastUpdate').innerHTML = `Error: ${error.message}`;
                 document.getElementById('matchesContainer').innerHTML = `
                     <div class="empty-state" style="padding: 40px; text-align: center;">
                         <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 16px; color: var(--danger);"></i>
-                        <h3>Cannot Connect to Sportmonks API</h3>
+                        <h3>Connection Error</h3>
                         <p style="margin-top: 12px; color: var(--text-dim);">${error.message}</p>
-                        <p style="margin-top: 8px; font-size: 12px; color: var(--text-dim);">Please check your internet connection and try again.</p>
-                        <button onclick="fetchRealMatches()" style="margin-top: 20px; padding: 10px 24px; background: var(--primary); border: none; border-radius: 30px; color: #000; font-weight: bold; cursor: pointer;">
+                        <button onclick="fetchAllMatches()" style="margin-top: 20px; padding: 10px 24px; background: var(--primary); border: none; border-radius: 30px; color: #000; font-weight: bold; cursor: pointer;">
                             <i class="fas fa-sync-alt"></i> Retry
                         </button>
                     </div>
                 `;
-                matches = [];
             }
         }
         
-        // Helper function for random odds (since odds API might need separate call)
-        function getRandomOdds() {
+        function generateOdds() {
             return {
-                home: (1.8 + Math.random() * 0.8).toFixed(2),
-                draw: (3.0 + Math.random() * 0.8).toFixed(2),
-                away: (2.2 + Math.random() * 1.0).toFixed(2),
+                home: parseFloat((1.8 + Math.random() * 0.8).toFixed(2)),
+                draw: parseFloat((3.0 + Math.random() * 0.8).toFixed(2)),
+                away: parseFloat((2.5 + Math.random() * 1.0).toFixed(2)),
                 over25: 1.85,
                 under25: 1.95
             };
@@ -340,16 +415,6 @@
             const container = document.getElementById('matchesContainer');
             
             if (matches.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state" style="padding: 40px; text-align: center;">
-                        <i class="fas fa-futbol" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></i>
-                        <h3>No Matches Available</h3>
-                        <p style="margin-top: 12px; color: var(--text-dim);">No real matches found from the API.</p>
-                        <button onclick="fetchRealMatches()" style="margin-top: 20px; padding: 10px 24px; background: var(--primary); border: none; border-radius: 30px; color: #000; font-weight: bold; cursor: pointer;">
-                            <i class="fas fa-sync-alt"></i> Refresh
-                        </button>
-                    </div>
-                `;
                 return;
             }
             
@@ -380,19 +445,19 @@
                     <div class="market-grid">
                         <div class="market-btn" onclick="addToBetSlip('${match.id}', '1', ${match.odds.home}, '1', 'Match Winner')">
                             <div class="market-name">1 (HOME)</div>
-                            <div class="market-odds">${parseFloat(match.odds.home).toFixed(2)}</div>
+                            <div class="market-odds">${match.odds.home.toFixed(2)}</div>
                         </div>
                         <div class="market-btn" onclick="addToBetSlip('${match.id}', 'X', ${match.odds.draw}, 'X', 'Match Winner')">
                             <div class="market-name">X (DRAW)</div>
-                            <div class="market-odds">${parseFloat(match.odds.draw).toFixed(2)}</div>
+                            <div class="market-odds">${match.odds.draw.toFixed(2)}</div>
                         </div>
                         <div class="market-btn" onclick="addToBetSlip('${match.id}', '2', ${match.odds.away}, '2', 'Match Winner')">
                             <div class="market-name">2 (AWAY)</div>
-                            <div class="market-odds">${parseFloat(match.odds.away).toFixed(2)}</div>
+                            <div class="market-odds">${match.odds.away.toFixed(2)}</div>
                         </div>
                         <div class="market-btn" onclick="addToBetSlip('${match.id}', 'Over 2.5', ${match.odds.over25}, 'O2.5', 'Total Goals')">
                             <div class="market-name">OVER 2.5</div>
-                            <div class="market-odds">${parseFloat(match.odds.over25).toFixed(2)}</div>
+                            <div class="market-odds">${match.odds.over25.toFixed(2)}</div>
                         </div>
                     </div>
                 </div>
@@ -400,10 +465,11 @@
         }
 
         function startAutoRefresh() {
-            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
-            autoRefreshInterval = setInterval(() => {
-                fetchRealMatches();
-            }, 60000);
+            if (refreshInterval) clearInterval(refreshInterval);
+            // Refresh every 30 seconds
+            refreshInterval = setInterval(() => {
+                fetchAllMatches();
+            }, 30000);
         }
 
         async function loadBalance() {
@@ -550,3 +616,87 @@
                 });
                 container.innerHTML = html;
             } catch(e) { console.error(e); }
+        }
+
+        window.cashOut = async function(ticketNumber, stake) {
+            const cashoutValue = stake * 0.7;
+            if (!confirm(`Cash out for $${cashoutValue.toFixed(2)}?`)) return;
+            try {
+                const walletRef = db.collection("wallets").doc(currentUser.uid);
+                await db.runTransaction(async (transaction) => {
+                    const doc = await transaction.get(walletRef);
+                    transaction.update(walletRef, { balance: doc.data().balance + cashoutValue });
+                });
+                await db.collection("football_bets").doc(ticketNumber).update({ status: 'cashed_out', return: cashoutValue, cashedOutAt: new Date().toISOString() });
+                balance += cashoutValue;
+                document.getElementById('balance').textContent = balance.toFixed(2);
+                await loadOpenBets();
+                await loadHistory();
+                showToast(`💰 Cashed out $${cashoutValue.toFixed(2)}`, 'success');
+            } catch(e) { showToast('Cashout failed', 'error'); }
+        };
+
+        async function loadHistory() {
+            try {
+                const snapshot = await db.collection("football_bets").where("userId", "==", currentUser.uid).where("status", "in", ["won", "lost", "cashed_out"]).get();
+                const container = document.getElementById('historyContainer');
+                if (snapshot.empty) { container.innerHTML = '<div class="empty-state">📜 No betting history</div>'; return; }
+                let html = '';
+                snapshot.forEach(doc => {
+                    const bet = doc.data();
+                    const returnAmount = bet.return || (bet.status === 'won' ? bet.stake * bet.totalOdds : 0);
+                    const borderColor = bet.status === 'won' ? '#4caf50' : bet.status === 'lost' ? '#ff4757' : '#ffc107';
+                    html += `<div class="bet-card" style="border-left-color:${borderColor}"><div style="display:flex;justify-content:space-between"><span>🎫 ${bet.ticketNumber.substring(0, 15)}</span><span>${bet.status.toUpperCase()}</span></div>
+                    <div>${bet.selections.length} selections @ ${bet.totalOdds.toFixed(2)}</div><div>Stake: $${bet.stake.toFixed(2)} | ${bet.status === 'won' ? '+' : ''}$${returnAmount.toFixed(2)}</div></div>`;
+                });
+                container.innerHTML = html;
+            } catch(e) { console.error(e); }
+        }
+
+        function showToast(message, type) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.borderLeftColor = type === 'success' ? '#4caf50' : type === 'error' ? '#ff4757' : '#ffc107';
+            toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-triangle' : 'fa-info-circle'}"></i> ${message}`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Event Listeners
+        document.getElementById('placeBetBtn').addEventListener('click', placeBet);
+        document.getElementById('clearSlip').addEventListener('click', () => { selectedBets = []; updateBetSlip(); });
+        document.getElementById('betAmount').addEventListener('input', updateBetSlip);
+        document.getElementById('refreshBtn').addEventListener('click', () => { fetchAllMatches(); });
+        
+        document.querySelectorAll('.betslip-tab').forEach(btn => btn.addEventListener('click', () => {
+            document.querySelectorAll('.betslip-tab').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            betType = btn.dataset.type;
+            selectedBets = [];
+            updateBetSlip();
+        }));
+        
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            currentMarket = btn.dataset.market;
+            displayMatches();
+        }));
+        
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                const page = item.dataset.page;
+                if (page === 'bets') {
+                    document.getElementById('openBetsContainer').scrollIntoView({ behavior: 'smooth' });
+                } else if (page === 'home') {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+                document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+                item.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>
