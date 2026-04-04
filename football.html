@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>⚽ Xlodon Bet - Live Football Betting</title>
+    <title>⚽ Xlodon Bet - Live Football Betting | REAL API</title>
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -441,13 +441,24 @@
             }
         }
         
-        .api-warning {
-            background: rgba(255, 100, 0, 0.2);
-            border-left: 3px solid var(--warning);
-            padding: 8px 12px;
-            font-size: 12px;
-            margin-bottom: 12px;
+        .api-status {
+            background: rgba(0, 255, 157, 0.1);
+            border-left: 3px solid var(--primary);
+            padding: 6px 12px;
+            font-size: 11px;
             border-radius: 8px;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+        
+        .api-status.error {
+            border-left-color: var(--danger);
+            background: rgba(255, 71, 87, 0.1);
+        }
+        
+        .api-status.success {
+            border-left-color: var(--success);
+            background: rgba(76, 175, 80, 0.1);
         }
     </style>
 </head>
@@ -472,14 +483,10 @@
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div class="league-filter" id="leagueFilter">
                         <button class="league-btn active" data-league="all">🌍 ALL</button>
-                        <button class="league-btn" data-league="39">🏴 PREMIER</button>
-                        <button class="league-btn" data-league="140">🇪🇸 LA LIGA</button>
-                        <button class="league-btn" data-league="78">🇩🇪 BUNDES</button>
-                        <button class="league-btn" data-league="135">🇮🇹 SERIE A</button>
-                        <button class="league-btn" data-league="61">🇫🇷 LIGUE 1</button>
                     </div>
-                    <button class="refresh-btn" onclick="window.refreshMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
+                    <button class="refresh-btn" id="manualRefreshBtn"><i class="fas fa-sync-alt"></i> Refresh</button>
                 </div>
+                <div id="apiStatus" class="api-status">🔄 Connecting to Sportmonks API via Firebase...</div>
                 <div id="matchesContainer" class="matches-grid"><div class="loading-spinner"></div></div>
                 <div class="last-update" id="lastUpdate"></div>
             </div>
@@ -551,17 +558,12 @@
         // ==================== SPORTMONKS CALLABLE FUNCTIONS ====================
         const getLiveScoresCallable = functions.httpsCallable('getLiveScores');
         const getUpcomingFixturesCallable = functions.httpsCallable('getUpcomingFixtures');
-        const getFixtureOddsCallable = functions.httpsCallable('getFixtureOdds');
-
-        // Fallback mock data (ensures betting functionality always works)
-        const MOCK_MATCHES = [
-            { id: "1", leagueId: "39", leagueName: "Premier League", homeTeam: "Manchester United", awayTeam: "Arsenal", homeScore: 1, awayScore: 1, status: "2H", isLive: true, odds: { home: 2.10, draw: 3.40, away: 3.20, over25: 1.85, under25: 1.95 } },
-            { id: "2", leagueId: "140", leagueName: "La Liga", homeTeam: "Barcelona", awayTeam: "Real Madrid", homeScore: 0, awayScore: 0, status: "1H", isLive: true, odds: { home: 2.30, draw: 3.30, away: 2.90, over25: 1.80, under25: 2.00 } },
-            { id: "3", leagueId: "78", leagueName: "Bundesliga", homeTeam: "Bayern Munich", awayTeam: "Borussia Dortmund", homeScore: null, awayScore: null, status: "NS", isLive: false, odds: { home: 1.65, draw: 4.00, away: 4.50, over25: 1.70, under25: 2.10 } },
-            { id: "4", leagueId: "135", leagueName: "Serie A", homeTeam: "AC Milan", awayTeam: "Inter Milan", homeScore: null, awayScore: null, status: "NS", isLive: false, odds: { home: 2.60, draw: 3.20, away: 2.70, over25: 1.90, under25: 1.90 } },
-            { id: "5", leagueId: "61", leagueName: "Ligue 1", homeTeam: "PSG", awayTeam: "Marseille", homeScore: 2, awayScore: 0, status: "2H", isLive: true, odds: { home: 1.45, draw: 4.50, away: 6.00, over25: 1.60, under25: 2.25 } },
-            { id: "6", leagueId: "39", leagueName: "Premier League", homeTeam: "Liverpool", awayTeam: "Chelsea", homeScore: null, awayScore: null, status: "NS", isLive: false, odds: { home: 1.85, draw: 3.60, away: 3.90, over25: 1.75, under25: 2.05 } }
-        ];
+        const getPreMatchOddsCallable = functions.httpsCallable('getPreMatchOdds');
+        const placeBetCallable = functions.httpsCallable('placeBet');
+        const getOpenBetsCallable = functions.httpsCallable('getOpenBets');
+        const getBettingHistoryCallable = functions.httpsCallable('getBettingHistory');
+        const cashOutBetCallable = functions.httpsCallable('cashOutBet');
+        const checkStatusCallable = functions.httpsCallable('checkSportmonksStatus');
 
         // ==================== APP STATE ====================
         let currentUser = null;
@@ -572,7 +574,6 @@
         let currentLeague = 'all';
         let currentMarket = 'all';
         let autoRefreshInterval = null;
-        let usingMockData = false;
 
         // Auth check
         auth.onAuthStateChanged(async (user) => {
@@ -586,6 +587,18 @@
                 setupListeners();
                 startAutoRefresh();
                 showToast('Welcome to Xlodon Bet!', 'success');
+                
+                // Check API status
+                try {
+                    const status = await checkStatusCallable();
+                    console.log('API Status:', status.data);
+                    if (status.data.apiWorking) {
+                        document.getElementById('apiStatus').innerHTML = '✅ Sportmonks API Connected! Getting real match data.';
+                        document.getElementById('apiStatus').className = 'api-status success';
+                    }
+                } catch (e) {
+                    console.log('Status check failed:', e);
+                }
             } else {
                 showToast('Please login to continue', 'error');
                 setTimeout(() => {
@@ -597,98 +610,146 @@
         // FETCH MATCHES FROM SPORTMONKS API via Firebase Cloud Functions
         async function fetchLiveMatches() {
             const container = document.getElementById('matchesContainer');
-            container.innerHTML = '<div class="loading-spinner"></div><p style="text-align:center;">Fetching live & upcoming matches...</p>';
+            container.innerHTML = '<div class="loading-spinner"></div><p style="text-align:center;">Fetching live & upcoming matches from Sportmonks...</p>';
+            document.getElementById('apiStatus').innerHTML = '🔄 Fetching real match data from Sportmonks API...';
             
             try {
                 // Fetch both live and upcoming matches in parallel
-                const [liveResult, upcomingResult] = await Promise.all([
-                    getLiveScoresCallable(),
-                    getUpcomingFixturesCallable()
+                const [liveResult, upcomingResult, oddsResult] = await Promise.all([
+                    getLiveScoresCallable({ include: 'participants;scores;state;league' }),
+                    getUpcomingFixturesCallable({ days: 'next30days', include: 'participants;state;league', per_page: 50 }),
+                    getPreMatchOddsCallable({ include: 'bookmakers;market', per_page: 200 })
                 ]);
 
                 let allMatches = [];
+                const oddsMap = new Map();
 
-                if (liveResult.data && liveResult.data.success && liveResult.data.data.data) {
-                    const liveMatches = await processSportmonksMatches(liveResult.data.data.data, true);
-                    allMatches = allMatches.concat(liveMatches);
+                // Build odds lookup map from pre-match odds
+                if (oddsResult.data && oddsResult.data.success && oddsResult.data.data.data) {
+                    const oddsData = oddsResult.data.data.data;
+                    oddsData.forEach(odd => {
+                        if (odd.market?.name === 'Full Time Result' && odd.bookmakers?.length) {
+                            const bookmaker = odd.bookmakers[0];
+                            if (bookmaker.odds) {
+                                const odds = { home: 2.0, draw: 3.2, away: 2.5 };
+                                bookmaker.odds.forEach(o => {
+                                    if (o.label === '1') odds.home = parseFloat(o.value);
+                                    if (o.label === 'X') odds.draw = parseFloat(o.value);
+                                    if (o.label === '2') odds.away = parseFloat(o.value);
+                                });
+                                oddsMap.set(odd.fixture_id, odds);
+                            }
+                        }
+                    });
                 }
 
+                // Process live matches
+                if (liveResult.data && liveResult.data.success && liveResult.data.data.data) {
+                    const liveMatches = liveResult.data.data.data;
+                    for (const fixture of liveMatches) {
+                        const home = fixture.participants?.find(p => p.meta?.location === 'home') || fixture.participants?.[0];
+                        const away = fixture.participants?.find(p => p.meta?.location === 'away') || fixture.participants?.[1];
+                        const currentScore = fixture.scores?.find(s => s.description === 'CURRENT') || fixture.scores?.[0];
+                        const homeScore = currentScore?.score?.goals || currentScore?.goals || 0;
+                        const awayScore = currentScore?.score?.opponent_goals || currentScore?.opponent_goals || 0;
+                        const matchOdds = oddsMap.get(fixture.id) || { home: 2.0, draw: 3.2, away: 2.5 };
+                        
+                        allMatches.push({
+                            id: fixture.id.toString(),
+                            leagueId: fixture.league_id?.toString() || "0",
+                            leagueName: fixture.league?.name || "Live Match",
+                            homeTeam: home?.name || "Home Team",
+                            awayTeam: away?.name || "Away Team",
+                            homeScore: homeScore,
+                            awayScore: awayScore,
+                            status: "LIVE",
+                            time: "LIVE",
+                            isLive: true,
+                            odds: { ...matchOdds, over25: 1.85, under25: 1.95 }
+                        });
+                    }
+                }
+
+                // Process upcoming fixtures
                 if (upcomingResult.data && upcomingResult.data.success && upcomingResult.data.data.data) {
-                    const upcomingMatches = await processSportmonksMatches(upcomingResult.data.data.data, false);
-                    allMatches = allMatches.concat(upcomingMatches);
+                    const upcomingMatches = upcomingResult.data.data.data;
+                    for (const fixture of upcomingMatches) {
+                        if (fixture.state?.name === "Finished" || fixture.state?.name === "In Progress") continue;
+                        const home = fixture.participants?.find(p => p.meta?.location === 'home') || fixture.participants?.[0];
+                        const away = fixture.participants?.find(p => p.meta?.location === 'away') || fixture.participants?.[1];
+                        const matchOdds = oddsMap.get(fixture.id) || { home: 2.0, draw: 3.2, away: 2.5 };
+                        const startTime = fixture.starting_at ? new Date(fixture.starting_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "TBD";
+                        
+                        allMatches.push({
+                            id: fixture.id.toString(),
+                            leagueId: fixture.league_id?.toString() || "0",
+                            leagueName: fixture.league?.name || "Football",
+                            homeTeam: home?.name || "Home",
+                            awayTeam: away?.name || "Away",
+                            homeScore: null,
+                            awayScore: null,
+                            status: "NS",
+                            time: startTime,
+                            isLive: false,
+                            odds: { ...matchOdds, over25: 1.85, under25: 1.95 }
+                        });
+                    }
                 }
 
                 if (allMatches.length > 0) {
                     matches = allMatches;
-                    usingMockData = false;
-                    document.getElementById('lastUpdate').textContent = `Last update: ${new Date().toLocaleTimeString()} - ${matches.length} matches`;
+                    document.getElementById('apiStatus').innerHTML = `✅ Live API Connected | ${matches.length} real matches loaded`;
+                    document.getElementById('apiStatus').className = 'api-status success';
+                    document.getElementById('lastUpdate').innerHTML = `Last update: ${new Date().toLocaleTimeString()} - ${matches.length} matches from Sportmonks`;
+                    
+                    // Build league filters dynamically
+                    const leagueMap = new Map();
+                    matches.forEach(m => {
+                        if (m.leagueId !== "0" && !leagueMap.has(m.leagueId)) {
+                            leagueMap.set(m.leagueId, m.leagueName);
+                        }
+                    });
+                    
+                    const leagueFilterDiv = document.getElementById('leagueFilter');
+                    leagueFilterDiv.innerHTML = `<button class="league-btn active" data-league="all">🌍 ALL (${matches.length})</button>`;
+                    for (const [id, name] of leagueMap) {
+                        const count = matches.filter(m => m.leagueId === id).length;
+                        leagueFilterDiv.innerHTML += `<button class="league-btn" data-league="${id}">🏆 ${name.substring(0, 25)} (${count})</button>`;
+                    }
+                    
+                    // Reattach league filter events
+                    document.querySelectorAll('.league-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            document.querySelectorAll('.league-btn').forEach(l => l.classList.remove('active'));
+                            btn.classList.add('active');
+                            currentLeague = btn.dataset.league;
+                            displayMatches(currentLeague, currentMarket);
+                        });
+                    });
+                    
                 } else {
                     throw new Error("No matches returned from API");
                 }
 
             } catch (error) {
                 console.error("Sportmonks API error:", error);
-                console.log("Using mock data fallback");
-                usingMockData = true;
-                matches = JSON.parse(JSON.stringify(MOCK_MATCHES));
-                document.getElementById('lastUpdate').innerHTML = `<span style="color: var(--warning);">⚠️ Using demo data (API error: ${error.message})</span> - ${new Date().toLocaleTimeString()}`;
-                showToast('Using demo matches. API connection failed.', 'warning');
+                document.getElementById('apiStatus').innerHTML = `⚠️ API Error: ${error.message}. Using demo data.`;
+                document.getElementById('apiStatus').className = 'api-status error';
+                document.getElementById('lastUpdate').innerHTML = `<span style="color: var(--warning);">⚠️ Using demo data (API error: ${error.message})</span>`;
+                showToast('API connection issue. Using demo matches.', 'warning');
+                
+                // Fallback mock data
+                matches = [
+                    { id: "1", leagueId: "39", leagueName: "Premier League", homeTeam: "Manchester United", awayTeam: "Arsenal", homeScore: 1, awayScore: 1, status: "2H", isLive: true, odds: { home: 2.10, draw: 3.40, away: 3.20, over25: 1.85, under25: 1.95 } },
+                    { id: "2", leagueId: "140", leagueName: "La Liga", homeTeam: "Barcelona", awayTeam: "Real Madrid", homeScore: 0, awayScore: 0, status: "1H", isLive: true, odds: { home: 2.30, draw: 3.30, away: 2.90, over25: 1.80, under25: 2.00 } },
+                    { id: "3", leagueId: "78", leagueName: "Bundesliga", homeTeam: "Bayern Munich", awayTeam: "Borussia Dortmund", homeScore: null, awayScore: null, status: "NS", isLive: false, odds: { home: 1.65, draw: 4.00, away: 4.50, over25: 1.70, under25: 2.10 } },
+                    { id: "4", leagueId: "135", leagueName: "Serie A", homeTeam: "AC Milan", awayTeam: "Inter Milan", homeScore: null, awayScore: null, status: "NS", isLive: false, odds: { home: 2.60, draw: 3.20, away: 2.70, over25: 1.90, under25: 1.90 } },
+                    { id: "5", leagueId: "61", leagueName: "Ligue 1", homeTeam: "PSG", awayTeam: "Marseille", homeScore: 2, awayScore: 0, status: "2H", isLive: true, odds: { home: 1.45, draw: 4.50, away: 6.00, over25: 1.60, under25: 2.25 } }
+                ];
             }
             
             displayMatches(currentLeague, currentMarket);
         }
-
-        async function processSportmonksMatches(rawMatches, isLive) {
-            const processed = [];
-            
-            for (const m of rawMatches) {
-                const homeTeam = m.participants.find(p => p.meta.location === 'home');
-                const awayTeam = m.participants.find(p => p.meta.location === 'away');
-                
-                let homeOdds = 1.90, drawOdds = 3.20, awayOdds = 2.50; // Default values
-                
-                // Try to fetch real odds for each match
-                try {
-                    const oddsResult = await getFixtureOddsCallable({ fixtureId: m.id });
-                    if (oddsResult.data && oddsResult.data.success && oddsResult.data.data.data) {
-                        const oddsData = oddsResult.data.data.data;
-                        const fullTimeMarket = oddsData.find(odd => odd.name === 'Full Time Result');
-                        if (fullTimeMarket && fullTimeMarket.odds) {
-                            homeOdds = parseFloat(fullTimeMarket.odds.find(o => o.label === '1')?.value || homeOdds);
-                            drawOdds = parseFloat(fullTimeMarket.odds.find(o => o.label === 'X')?.value || drawOdds);
-                            awayOdds = parseFloat(fullTimeMarket.odds.find(o => o.label === '2')?.value || awayOdds);
-                        }
-                    }
-                } catch (e) {
-                    console.warn(`Odds fetch failed for ${m.id}`);
-                }
-
-                processed.push({
-                    id: m.id.toString(),
-                    leagueId: m.league_id ? m.league_id.toString() : "0",
-                    leagueName: m.league?.name || "Football",
-                    homeTeam: homeTeam?.name || "Home Team",
-                    awayTeam: awayTeam?.name || "Away Team",
-                    homeScore: isLive ? (m.scores?.find(s => s.description === 'CURRENT')?.home_score ?? 0) : null,
-                    awayScore: isLive ? (m.scores?.find(s => s.description === 'CURRENT')?.away_score ?? 0) : null,
-                    status: m.time?.minute ? `${m.time.minute}'` : (isLive ? "LIVE" : "NS"),
-                    time: isLive ? "LIVE" : new Date(m.starting_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    isLive: isLive,
-                    odds: {
-                        home: homeOdds,
-                        draw: drawOdds,
-                        away: awayOdds,
-                        over25: 1.85,
-                        under25: 1.95
-                    }
-                });
-            }
-            return processed;
-        }
-
-        window.refreshMatches = function() {
-            fetchLiveMatches();
-        };
 
         function displayMatches(leagueFilter, marketFilter) {
             const container = document.getElementById('matchesContainer');
@@ -742,7 +803,7 @@
             if (autoRefreshInterval) clearInterval(autoRefreshInterval);
             autoRefreshInterval = setInterval(() => {
                 fetchLiveMatches();
-            }, 60000);
+            }, 45000);
         }
 
         async function loadBalance() {
@@ -828,9 +889,7 @@
         };
 
         function generateTicketNumber() {
-            const date = new Date();
-            const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-            return `TKT-${date.getFullYear()}${(date.getMonth()+1).toString().padStart(2,'0')}${date.getDate().toString().padStart(2,'0')}-${date.getHours().toString().padStart(2,'0')}${date.getMinutes().toString().padStart(2,'0')}${date.getSeconds().toString().padStart(2,'0')}-${random}`;
+            return `TKT-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
         }
 
         async function placeBet() {
@@ -839,39 +898,22 @@
             if (betAmount < 1 || betAmount > 5000) { showToast('Bet amount must be $1-$5000', 'error'); return; }
             if (betAmount > balance) { showToast('Insufficient funds', 'error'); return; }
             
-            const totalOdds = selectedBets.reduce((acc, bet) => acc * bet.odds, 1);
-            const ticketNumber = generateTicketNumber();
-            
             try {
-                const walletRef = db.collection("wallets").doc(currentUser.uid);
-                await db.runTransaction(async (transaction) => {
-                    const doc = await transaction.get(walletRef);
-                    const newBalance = doc.data().balance - betAmount;
-                    if (newBalance < 0) throw new Error('Insufficient funds');
-                    transaction.update(walletRef, { balance: newBalance });
-                });
-                
-                const betData = {
-                    userId: currentUser.uid,
-                    ticketNumber: ticketNumber,
+                const result = await placeBetCallable({
                     selections: selectedBets,
                     stake: betAmount,
-                    totalOdds: totalOdds,
-                    potentialReturn: betAmount * totalOdds,
-                    betType: betType,
-                    status: 'pending',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    createdAtDate: new Date().toISOString(),
-                    return: 0
-                };
-                await db.collection("football_bets").doc(ticketNumber).set(betData);
-                balance -= betAmount;
-                document.getElementById('balance').textContent = balance.toFixed(2);
-                selectedBets = [];
-                updateBetSlip();
-                showToast(`✅ Bet placed! Ticket: ${ticketNumber}`, 'success');
-                await loadOpenBets();
-                await loadHistory();
+                    betType: betType
+                });
+                
+                if (result.data.success) {
+                    balance -= betAmount;
+                    document.getElementById('balance').textContent = balance.toFixed(2);
+                    selectedBets = [];
+                    updateBetSlip();
+                    showToast(`✅ Bet placed! Ticket: ${result.data.ticketNumber}`, 'success');
+                    await loadOpenBets();
+                    await loadHistory();
+                }
             } catch (error) {
                 showToast('Failed to place bet: ' + error.message, 'error');
             }
@@ -879,61 +921,98 @@
 
         async function loadOpenBets() {
             try {
-                const snapshot = await db.collection("football_bets").where("userId", "==", currentUser.uid).where("status", "==", "pending").get();
+                const result = await getOpenBetsCallable();
                 const container = document.getElementById('openBetsContainer');
-                if (snapshot.empty) { container.innerHTML = '<div class="empty-state">✨ No open bets</div>'; return; }
+                
+                if (!result.data.bets || result.data.bets.length === 0) {
+                    container.innerHTML = '<div class="empty-state">✨ No open bets</div>';
+                    return;
+                }
+                
                 let html = '';
-                snapshot.forEach(doc => {
-                    const bet = doc.data();
+                result.data.bets.forEach(bet => {
                     const selectionsText = bet.selections.map(s => `${s.matchName} - ${s.display} @ ${s.odds.toFixed(2)}`).join('<br>');
-                    html += `<div class="bet-card"><div class="bet-card-header"><span>🎫 ${bet.ticketNumber.substring(0,15)}</span><span style="background: var(--secondary); padding:2px 8px; border-radius:20px;">PENDING</span></div>
-                    <div style="font-size:12px; margin:8px 0;">${selectionsText}</div>
-                    <div style="display:flex; justify-content:space-between;"><span>Stake: $${bet.stake.toFixed(2)}</span><span>To Win: $${(bet.stake*bet.totalOdds).toFixed(2)}</span>
-                    <button class="cashout-btn" onclick="cashOut('${bet.ticketNumber}', ${bet.stake})">💸 CASH OUT (70%)</button></div></div>`;
+                    html += `<div class="bet-card">
+                        <div class="bet-card-header">
+                            <span>🎫 ${bet.ticketNumber.substring(0, 15)}</span>
+                            <span style="background: var(--secondary); padding:2px 8px; border-radius:20px;">PENDING</span>
+                        </div>
+                        <div style="font-size:12px; margin:8px 0;">${selectionsText}</div>
+                        <div style="display:flex; justify-content:space-between;">
+                            <span>Stake: $${bet.stake.toFixed(2)}</span>
+                            <span>To Win: $${(bet.stake * bet.totalOdds).toFixed(2)}</span>
+                            <button class="cashout-btn" onclick="cashOutBetFunc('${bet.ticketNumber}', ${bet.stake})">💸 CASH OUT (70%)</button>
+                        </div>
+                    </div>`;
                 });
                 container.innerHTML = html;
-            } catch(e) { console.error(e); }
+            } catch(e) { 
+                console.error(e);
+                document.getElementById('openBetsContainer').innerHTML = '<div class="empty-state">Error loading bets</div>';
+            }
         }
 
-        window.cashOut = async function(ticketNumber, stake) {
+        window.cashOutBetFunc = async function(ticketNumber, stake) {
             const cashoutValue = stake * 0.7;
             if (!confirm(`Cash out for $${cashoutValue.toFixed(2)}?`)) return;
+            
             try {
-                const walletRef = db.collection("wallets").doc(currentUser.uid);
-                await db.runTransaction(async (transaction) => {
-                    const doc = await transaction.get(walletRef);
-                    transaction.update(walletRef, { balance: doc.data().balance + cashoutValue });
-                });
-                await db.collection("football_bets").doc(ticketNumber).update({ status: 'cashed_out', return: cashoutValue, cashedOutAt: new Date().toISOString() });
-                balance += cashoutValue;
-                document.getElementById('balance').textContent = balance.toFixed(2);
-                await loadOpenBets();
-                await loadHistory();
-                showToast(`💰 Cashed out $${cashoutValue.toFixed(2)}`, 'success');
-            } catch(e) { showToast('Cashout failed', 'error'); }
+                const result = await cashOutBetCallable({ ticketNumber });
+                if (result.data.success) {
+                    balance += cashoutValue;
+                    document.getElementById('balance').textContent = balance.toFixed(2);
+                    await loadOpenBets();
+                    await loadHistory();
+                    showToast(`💰 Cashed out $${cashoutValue.toFixed(2)}`, 'success');
+                }
+            } catch(e) { 
+                showToast('Cashout failed: ' + e.message, 'error');
+            }
         };
 
         async function loadHistory() {
             try {
-                const snapshot = await db.collection("football_bets").where("userId", "==", currentUser.uid).where("status", "in", ["won", "lost", "cashed_out"]).get();
+                const result = await getBettingHistoryCallable({ limit: 50 });
                 const container = document.getElementById('historyContainer');
-                if (snapshot.empty) { container.innerHTML = '<div class="empty-state">📜 No betting history</div>'; return; }
+                
+                if (!result.data.bets || result.data.bets.length === 0) {
+                    container.innerHTML = '<div class="empty-state">📜 No betting history</div>';
+                    return;
+                }
+                
                 let html = '';
-                snapshot.forEach(doc => {
-                    const bet = doc.data();
+                result.data.bets.forEach(bet => {
                     const returnAmount = bet.return || (bet.status === 'won' ? bet.stake * bet.totalOdds : 0);
                     const borderColor = bet.status === 'won' ? 'var(--success)' : bet.status === 'lost' ? 'var(--danger)' : 'var(--warning)';
-                    html += `<div class="bet-card" style="border-left-color:${borderColor}"><div class="bet-card-header"><span>🎫 ${bet.ticketNumber.substring(0,15)}</span><span>${bet.status.toUpperCase()}</span></div>
-                    <div>${bet.selections.length} selections @ ${bet.totalOdds.toFixed(2)}</div><div>Stake: $${bet.stake.toFixed(2)} | ${bet.status === 'won' ? '+' : ''}$${returnAmount.toFixed(2)}</div></div>`;
+                    html += `<div class="bet-card" style="border-left-color:${borderColor}">
+                        <div class="bet-card-header">
+                            <span>🎫 ${bet.ticketNumber.substring(0, 15)}</span>
+                            <span>${bet.status.toUpperCase()}</span>
+                        </div>
+                        <div>${bet.selections.length} selections @ ${bet.totalOdds.toFixed(2)}</div>
+                        <div>Stake: $${bet.stake.toFixed(2)} | ${bet.status === 'won' ? '+' : ''}$${returnAmount.toFixed(2)}</div>
+                    </div>`;
                 });
                 container.innerHTML = html;
-            } catch(e) { console.error(e); }
+            } catch(e) { 
+                console.error(e);
+                document.getElementById('historyContainer').innerHTML = '<div class="empty-state">Error loading history</div>';
+            }
         }
 
         function setupListeners() {
             if (currentUser) {
-                db.collection("wallets").doc(currentUser.uid).onSnapshot((doc) => { if(doc.exists){ balance = doc.data().balance; document.getElementById('balance').textContent = balance.toFixed(2); } });
-                db.collection("football_bets").where("userId", "==", currentUser.uid).onSnapshot(() => { loadOpenBets(); loadHistory(); });
+                db.collection("wallets").doc(currentUser.uid).onSnapshot((doc) => { 
+                    if(doc.exists){ 
+                        balance = doc.data().balance; 
+                        document.getElementById('balance').textContent = balance.toFixed(2); 
+                    } 
+                });
+                // Refresh bets on any change
+                db.collection("football_bets").where("userId", "==", currentUser.uid).onSnapshot(() => { 
+                    loadOpenBets(); 
+                    loadHistory(); 
+                });
             }
         }
 
@@ -947,7 +1026,7 @@
             setTimeout(() => toast.remove(), 3000);
         }
 
-        // Navigation handling for bets.html compatibility
+        // Navigation handling
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -979,12 +1058,7 @@
             currentMarket = btn.dataset.market;
             displayMatches(currentLeague, currentMarket);
         }));
-        document.querySelectorAll('.league-btn').forEach(btn => btn.addEventListener('click', () => {
-            document.querySelectorAll('.league-btn').forEach(l => l.classList.remove('active'));
-            btn.classList.add('active');
-            currentLeague = btn.dataset.league;
-            displayMatches(currentLeague, currentMarket);
-        }));
+        document.getElementById('manualRefreshBtn').addEventListener('click', () => { fetchLiveMatches(); });
     </script>
 </body>
 </html>
