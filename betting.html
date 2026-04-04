@@ -97,6 +97,9 @@
             <div class="flex justify-between items-center">
                 <div class="flex items-center space-x-4">
                     <h1 class="text-2xl font-bold">🏆 X London Betting Platform</h1>
+                    <a href="https://xcrazybet.github.io/millioner/index.html" class="text-white hover:text-gray-200 transition text-lg">
+                        <i class="fas fa-home mr-1"></i>Home
+                    </a>
                 </div>
                 <div class="flex items-center space-x-6">
                     <div class="text-right">
@@ -240,27 +243,6 @@
     <!-- Footer -->
     <footer class="bg-gray-800 text-white mt-12 py-8">
         <div class="container mx-auto px-4">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                    <h3 class="font-bold mb-3">Responsible Gambling</h3>
-                    <p class="text-sm text-gray-400">Please gamble responsibly. If you need help, please contact gambling support services.</p>
-                </div>
-                <div>
-                    <h3 class="font-bold mb-3">Quick Links</h3>
-                    <ul class="text-sm text-gray-400 space-y-1">
-                        <li><a href="#" class="hover:text-white">Terms & Conditions</a></li>
-                        <li><a href="#" class="hover:text-white">Privacy Policy</a></li>
-                        <li><a href="#" class="hover:text-white">Contact Support</a></li>
-                    </ul>
-                </div>
-                <div>
-                    <h3 class="font-bold mb-3">Support</h3>
-                    <p class="text-sm text-gray-400">24/7 Customer Support Available</p>
-                    <div class="mt-2">
-                        <i class="fas fa-envelope mr-2"></i>support@xlondonbetting.com
-                    </div>
-                </div>
-            </div>
             <div class="mt-6 pt-6 border-t border-gray-700 text-center text-sm text-gray-400">
                 © 2026 X London Betting Platform. All rights reserved. Must be 18+ to participate.
             </div>
@@ -394,15 +376,35 @@
         async function fetchFromAPI(endpoint) {
             try {
                 const url = `${BASE_URL}${endpoint}?api_token=${API_TOKEN}`;
-                const response = await fetch(url);
+                console.log("🌐 Fetching from API:", url);
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    }
+                });
                 
                 if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ API Response Error:', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        body: errorText
+                    });
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
-                return await response.json();
+                const data = await response.json();
+                console.log('✅ API Response:', data);
+                return data;
             } catch (error) {
-                console.error('API Error:', error);
+                console.error('💥 API Error Details:', {
+                    message: error.message,
+                    endpoint: endpoint,
+                    timestamp: new Date().toISOString()
+                });
                 throw error;
             }
         }
@@ -414,16 +416,51 @@
             showStatus('loading', 'Loading Live Matches', 'Fetching current live matches...');
 
             try {
-                const data = await fetchFromAPI('/football/livescores?include=state;participants;league;scores;events;statistics&per_page=20');
-                const liveMatches = data.data.filter(match => 
-                    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22].includes(match.state_id)
-                );
-                
-                displayMatches(liveMatches, 'live');
-                showStatus('success', 'Live Matches Loaded', `${liveMatches.length} live matches found`);
+                // Try multiple endpoints for live matches
+                const endpoints = [
+                    '/football/livescores?include=state;participants;league;scores;events;statistics&per_page=20',
+                    '/football/livescores/inplay?include=state;participants;league;scores;events&per_page=15',
+                    '/football/livescores?per_page=10',
+                    '/football/fixtures/live?include=participants;league;scores&per_page=10'
+                ];
+
+                let liveMatches = [];
+                let lastError = null;
+
+                for (const endpoint of endpoints) {
+                    try {
+                        console.log(`🔄 Trying endpoint: ${endpoint}`);
+                        const data = await fetchFromAPI(endpoint);
+                        
+                        if (data && data.data && data.data.length > 0) {
+                            liveMatches = data.data.filter(match => 
+                                [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22].includes(match.state_id)
+                            );
+                            
+                            if (liveMatches.length > 0) {
+                                console.log(`✅ Found ${liveMatches.length} live matches from ${endpoint}`);
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        console.warn(`⚠️ Endpoint failed: ${endpoint}`, error.message);
+                        lastError = error;
+                    }
+                }
+
+                if (liveMatches.length > 0) {
+                    displayMatches(liveMatches, 'live');
+                    showStatus('success', 'Live Matches Loaded', `${liveMatches.length} live matches found`);
+                } else {
+                    // Use sample data if all endpoints fail
+                    console.log('📋 Using sample live data due to API failures');
+                    displayMatches(getSampleLiveMatches(), 'live');
+                    showStatus('warning', 'Sample Data', 'Showing sample live matches - API unavailable');
+                }
             } catch (error) {
-                showStatus('error', 'Load Failed', 'Failed to load live matches. Trying alternative...');
-                await loadLiveMatchesAlternative();
+                console.error('💥 Critical error in loadLiveMatches:', error);
+                showStatus('error', 'Load Failed', 'Using sample data - API unavailable');
+                displayMatches(getSampleLiveMatches(), 'live');
             }
         }
 
@@ -439,16 +476,50 @@
                 const todayStr = today.toISOString().split('T')[0];
                 const endDateStr = sevenDaysLater.toISOString().split('T')[0];
 
-                const data = await fetchFromAPI(`/football/fixtures/between/${todayStr}/${endDateStr}?include=participants;state;league;scores&per_page=50`);
-                const upcomingMatches = data.data.filter(match => 
-                    [1, 45, 46].includes(match.state_id) && new Date(match.starting_at) > new Date()
-                ).sort((a, b) => new Date(a.starting_at) - new Date(b.starting_at));
+                // Try multiple endpoints for upcoming matches
+                const endpoints = [
+                    `/football/fixtures/between/${todayStr}/${endDateStr}?include=participants;state;league;scores&per_page=50`,
+                    `/football/fixtures/date/${todayStr}?include=participants;state;league;scores&per_page=30`,
+                    `/football/fixtures?filters=starting_at:>=${todayStr}&include=participants;league&per_page=25`
+                ];
 
-                displayMatches(upcomingMatches, 'upcoming');
-                showStatus('success', 'Upcoming Matches Loaded', `${upcomingMatches.length} upcoming matches found`);
+                let upcomingMatches = [];
+                let lastError = null;
+
+                for (const endpoint of endpoints) {
+                    try {
+                        console.log(`🔄 Trying upcoming endpoint: ${endpoint}`);
+                        const data = await fetchFromAPI(endpoint);
+                        
+                        if (data && data.data && data.data.length > 0) {
+                            upcomingMatches = data.data.filter(match => 
+                                [1, 45, 46].includes(match.state_id) && new Date(match.starting_at) > new Date()
+                            ).sort((a, b) => new Date(a.starting_at) - new Date(b.starting_at));
+                            
+                            if (upcomingMatches.length > 0) {
+                                console.log(`✅ Found ${upcomingMatches.length} upcoming matches from ${endpoint}`);
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        console.warn(`⚠️ Upcoming endpoint failed: ${endpoint}`, error.message);
+                        lastError = error;
+                    }
+                }
+
+                if (upcomingMatches.length > 0) {
+                    displayMatches(upcomingMatches, 'upcoming');
+                    showStatus('success', 'Upcoming Matches Loaded', `${upcomingMatches.length} upcoming matches found`);
+                } else {
+                    // Use sample data if all endpoints fail
+                    console.log('📋 Using sample upcoming data due to API failures');
+                    displayMatches(getSampleUpcomingMatches(), 'upcoming');
+                    showStatus('warning', 'Sample Data', 'Showing sample upcoming matches - API unavailable');
+                }
             } catch (error) {
-                showStatus('error', 'Load Failed', 'Failed to load upcoming matches');
-                console.error('Upcoming matches error:', error);
+                console.error('💥 Critical error in loadUpcomingMatches:', error);
+                showStatus('error', 'Load Failed', 'Using sample data - API unavailable');
+                displayMatches(getSampleUpcomingMatches(), 'upcoming');
             }
         }
 
@@ -464,20 +535,216 @@
                 const startDateStr = sevenDaysAgo.toISOString().split('T')[0];
                 const todayStr = today.toISOString().split('T')[0];
 
-                const data = await fetchFromAPI(`/football/fixtures/between/${startDateStr}/${todayStr}?include=participants;state;league;scores&per_page=50`);
-                const finishedMatches = data.data.filter(match => 
-                    [90, 100].includes(match.state_id)
-                ).sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at)).slice(0, 20);
+                // Try multiple endpoints for finished matches
+                const endpoints = [
+                    `/football/fixtures/between/${startDateStr}/${todayStr}?include=participants;state;league;scores&per_page=50`,
+                    `/football/fixtures/latest?include=participants;state;league;scores&per_page=20`,
+                    `/football/fixtures?filters=state_ids:90,100&include=participants;league;scores&per_page=25`
+                ];
 
-                displayMatches(finishedMatches, 'finished');
-                showStatus('success', 'Finished Matches Loaded', `${finishedMatches.length} finished matches found`);
+                let finishedMatches = [];
+                let lastError = null;
+
+                for (const endpoint of endpoints) {
+                    try {
+                        console.log(`🔄 Trying finished endpoint: ${endpoint}`);
+                        const data = await fetchFromAPI(endpoint);
+                        
+                        if (data && data.data && data.data.length > 0) {
+                            finishedMatches = data.data.filter(match => 
+                                [90, 100].includes(match.state_id)
+                            ).sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at)).slice(0, 20);
+                            
+                            if (finishedMatches.length > 0) {
+                                console.log(`✅ Found ${finishedMatches.length} finished matches from ${endpoint}`);
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        console.warn(`⚠️ Finished endpoint failed: ${endpoint}`, error.message);
+                        lastError = error;
+                    }
+                }
+
+                if (finishedMatches.length > 0) {
+                    displayMatches(finishedMatches, 'finished');
+                    showStatus('success', 'Finished Matches Loaded', `${finishedMatches.length} finished matches found`);
+                } else {
+                    // Use sample data if all endpoints fail
+                    console.log('📋 Using sample finished data due to API failures');
+                    displayMatches(getSampleFinishedMatches(), 'finished');
+                    showStatus('warning', 'Sample Data', 'Showing sample finished matches - API unavailable');
+                }
             } catch (error) {
-                showStatus('error', 'Load Failed', 'Failed to load finished matches');
-                console.error('Finished matches error:', error);
+                console.error('💥 Critical error in loadFinishedMatches:', error);
+                showStatus('error', 'Load Failed', 'Using sample data - API unavailable');
+                displayMatches(getSampleFinishedMatches(), 'finished');
             }
         }
 
-        // Alternative Live Matches Loading
+        // Sample Data Functions
+        function getSampleLiveMatches() {
+            return [
+                {
+                    id: 12345,
+                    state_id: 2,
+                    starting_at: new Date().toISOString(),
+                    participants: [
+                        { id: 1, name: 'Manchester United', meta: { location: 'home' } },
+                        { id: 2, name: 'Liverpool', meta: { location: 'away' } }
+                    ],
+                    league: { name: 'Premier League' },
+                    scores: [
+                        { participant: 'home', score: 1 },
+                        { participant: 'away', score: 1 }
+                    ],
+                    events: [
+                        { type_id: 14, minute: 23, player_name: 'Bruno Fernandes', result: '1-0' },
+                        { type_id: 14, minute: 45, player_name: 'Mohamed Salah', result: '1-1' }
+                    ],
+                    periods: [
+                        { minutes: 45, seconds: 30, ticking: true }
+                    ]
+                },
+                {
+                    id: 12346,
+                    state_id: 4,
+                    starting_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+                    participants: [
+                        { id: 3, name: 'Real Madrid', meta: { location: 'home' } },
+                        { id: 4, name: 'Barcelona', meta: { location: 'away' } }
+                    ],
+                    league: { name: 'La Liga' },
+                    scores: [
+                        { participant: 'home', score: 2 },
+                        { participant: 'away', score: 1 }
+                    ],
+                    events: [
+                        { type_id: 14, minute: 12, player_name: 'Vinicius Jr', result: '1-0' },
+                        { type_id: 13, minute: 25, player_name: 'Jude Bellingham', result: 'Yellow Card' },
+                        { type_id: 14, minute: 67, player_name: 'Rodrygo', result: '2-0' },
+                        { type_id: 14, minute: 78, player_name: 'Robert Lewandowski', result: '2-1' }
+                    ],
+                    periods: [
+                        { minutes: 78, seconds: 15, ticking: true }
+                    ]
+                },
+                {
+                    id: 12347,
+                    state_id: 3,
+                    starting_at: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+                    participants: [
+                        { id: 5, name: 'Bayern Munich', meta: { location: 'home' } },
+                        { id: 6, name: 'Borussia Dortmund', meta: { location: 'away' } }
+                    ],
+                    league: { name: 'Bundesliga' },
+                    scores: [
+                        { participant: 'home', score: 0 },
+                        { participant: 'away', score: 0 }
+                    ],
+                    events: [
+                        { type_id: 13, minute: 18, player_name: 'Joshua Kimmich', result: 'Yellow Card' },
+                        { type_id: 13, minute: 35, player_name: 'Marco Reus', result: 'Yellow Card' }
+                    ],
+                    periods: [
+                        { minutes: 45, seconds: 0, ticking: false }
+                    ]
+                }
+            ];
+        }
+
+        function getSampleUpcomingMatches() {
+            const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            const dayAfter = new Date(Date.now() + 48 * 60 * 60 * 1000);
+            const threeDays = new Date(Date.now() + 72 * 60 * 60 * 1000);
+            
+            return [
+                {
+                    id: 23456,
+                    state_id: 1,
+                    starting_at: tomorrow.toISOString(),
+                    participants: [
+                        { id: 7, name: 'Arsenal', meta: { location: 'home' } },
+                        { id: 8, name: 'Chelsea', meta: { location: 'away' } }
+                    ],
+                    league: { name: 'Premier League' },
+                    scores: []
+                },
+                {
+                    id: 23457,
+                    state_id: 1,
+                    starting_at: dayAfter.toISOString(),
+                    participants: [
+                        { id: 9, name: 'PSG', meta: { location: 'home' } },
+                        { id: 10, name: 'Manchester City', meta: { location: 'away' } }
+                    ],
+                    league: { name: 'Champions League' },
+                    scores: []
+                },
+                {
+                    id: 23458,
+                    state_id: 1,
+                    starting_at: threeDays.toISOString(),
+                    participants: [
+                        { id: 11, name: 'AC Milan', meta: { location: 'home' } },
+                        { id: 12, name: 'Inter Milan', meta: { location: 'away' } }
+                    ],
+                    league: { name: 'Serie A' },
+                    scores: []
+                }
+            ];
+        }
+
+        function getSampleFinishedMatches() {
+            const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+            const threeDaysAgo = new Date(Date.now() - 72 * 60 * 60 * 1000);
+            
+            return [
+                {
+                    id: 34567,
+                    state_id: 100,
+                    starting_at: yesterday.toISOString(),
+                    participants: [
+                        { id: 13, name: 'Tottenham', meta: { location: 'home' } },
+                        { id: 14, name: 'Newcastle', meta: { location: 'away' } }
+                    ],
+                    league: { name: 'Premier League' },
+                    scores: [
+                        { participant: 'home', score: 3 },
+                        { participant: 'away', score: 1 }
+                    ]
+                },
+                {
+                    id: 34568,
+                    state_id: 100,
+                    starting_at: twoDaysAgo.toISOString(),
+                    participants: [
+                        { id: 15, name: 'Juventus', meta: { location: 'home' } },
+                        { id: 16, name: 'Roma', meta: { location: 'away' } }
+                    ],
+                    league: { name: 'Serie A' },
+                    scores: [
+                        { participant: 'home', score: 2 },
+                        { participant: 'away', score: 2 }
+                    ]
+                },
+                {
+                    id: 34569,
+                    state_id: 100,
+                    starting_at: threeDaysAgo.toISOString(),
+                    participants: [
+                        { id: 17, name: 'Ajax', meta: { location: 'home' } },
+                        { id: 18, name: 'Feyenoord', meta: { location: 'away' } }
+                    ],
+                    league: { name: 'Eredivisie' },
+                    scores: [
+                        { participant: 'home', score: 1 },
+                        { participant: 'away', score: 0 }
+                    ]
+                }
+            ];
+        }
         async function loadLiveMatchesAlternative() {
             try {
                 const data = await fetchFromAPI('/football/livescores/inplay?include=state;lineups;events;statistics;periods&per_page=10');
