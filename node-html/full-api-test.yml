@@ -1,0 +1,84 @@
+name: Complete API Integration Test
+
+on:
+  workflow_dispatch:  # Manual trigger only
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight
+
+jobs:
+  test-all-endpoints:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false  # Continue even if one endpoint fails
+      matrix:
+        endpoint:
+          - name: "Live Scores"
+            url: "livescores"
+            include: "state;participants;scores"
+          - name: "Today's Fixtures"
+            url: "fixtures/date/$(date +%Y-%m-%d)"
+            include: "state;participants"
+          - name: "Leagues"
+            url: "leagues"
+            include: ""
+          - name: "Teams"
+            url: "teams"
+            include: ""
+    
+    steps:
+      - name: Test ${{ matrix.endpoint.name }}
+        env:
+          API_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
+        run: |
+          echo "🔄 Testing ${{ matrix.endpoint.name }}..."
+          
+          # Replace date variable
+          URL_PATH="${{ matrix.endpoint.url }}"
+          if [[ "$URL_PATH" == *"\$(date"* ]]; then
+            URL_PATH=$(date +%Y-%m-%d)
+            URL_PATH="fixtures/date/$URL_PATH"
+          fi
+          
+          FULL_URL="https://api.sportmonks.com/v3/football/$URL_PATH?api_token=$API_TOKEN&include=${{ matrix.endpoint.include }}&per_page=3"
+          
+          echo "URL: $FULL_URL"
+          
+          RESPONSE=$(curl -s -o /tmp/response.json -w "%{http_code}" "$FULL_URL")
+          
+          if [ "$RESPONSE" -eq 200 ]; then
+            echo "✅ ${{ matrix.endpoint.name }} - SUCCESS (HTTP $RESPONSE)"
+            echo "Response size: $(wc -c < /tmp/response.json) bytes"
+            cat /tmp/response.json | jq '.data | length' 2>/dev/null && echo "Items received: $(cat /tmp/response.json | jq '.data | length')"
+          else
+            echo "❌ ${{ matrix.endpoint.name }} - FAILED (HTTP $RESPONSE)"
+            cat /tmp/response.json
+            exit 1
+          fi
+      
+      - name: Save ${{ matrix.endpoint.name }} Response
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.endpoint.name }}-response
+          path: /tmp/response.json
+          retention-days: 3
+
+  validate-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate API Token Format
+        env:
+          API_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
+        run: |
+          if [ -z "$API_TOKEN" ]; then
+            echo "❌ API_TOKEN secret is not set!"
+            exit 1
+          fi
+          
+          if [ ${#API_TOKEN} -lt 10 ]; then
+            echo "⚠️ API_TOKEN seems too short (${#API_TOKEN} chars)"
+          else
+            echo "✅ API_TOKEN length is valid (${#API_TOKEN} chars)"
+          fi
+          
+          echo "Token prefix: ${API_TOKEN:0:10}..."
