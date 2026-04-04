@@ -398,6 +398,12 @@
                 const data2 = await test2.json();
                 console.log("📊 Test 2 Response:", data2);
                 
+                // Test 3: Fixtures endpoint
+                const test3 = await fetch(`https://api.sportmonks.com/v3/football/fixtures?api_token=${SPORTMONKS_API_TOKEN}&per_page=5`);
+                console.log("📡 Test 3 Status:", test3.status);
+                const data3 = await test3.json();
+                console.log("📊 Test 3 Response:", data3);
+                
                 console.log("🎯 API TEST COMPLETE - Check console for results");
                 
             } catch (error) {
@@ -415,29 +421,46 @@
                 console.log("📡 Inplay URL:", url);
                 
                 const response = await fetch(url);
+                console.log("📊 Response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
-                console.log("📊 Response:", data);
+                console.log("📊 Response data:", data);
                 
                 if (data.data && data.data.length > 0) {
                     console.log(`✅ ${data.data.length} REAL LIVE matches found!`);
+                    showToast('success', 'Live Matches', `${data.data.length} live matches found`);
                     return data.data;
                 }
                 
                 // Fallback: General livescores
+                console.log("🔄 Trying general livescores...");
                 const fallbackUrl = `https://api.sportmonks.com/v3/football/livescores?api_token=${SPORTMONKS_API_TOKEN}&include=state;participants;league;scores`;
                 console.log("📡 Livescores URL:", fallbackUrl);
                 
                 const fallbackResponse = await fetch(fallbackUrl);
+                console.log("📊 Fallback status:", fallbackResponse.status);
+                
+                if (!fallbackResponse.ok) {
+                    throw new Error(`HTTP ${fallbackResponse.status}: ${fallbackResponse.statusText}`);
+                }
+                
                 const fallbackData = await fallbackResponse.json();
                 console.log("📊 Fallback response:", fallbackData);
                 
                 if (fallbackData.data && fallbackData.data.length > 0) {
                     const liveMatches = fallbackData.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
                     console.log(`✅ ${liveMatches.length} REAL LIVE matches from fallback!`);
-                    return liveMatches;
+                    if (liveMatches.length > 0) {
+                        showToast('success', 'Live Matches', `${liveMatches.length} live matches found`);
+                        return liveMatches;
+                    }
                 }
                 
-                // No real data found - show empty state
+                // No real data found
                 console.log("❌ NO REAL LIVE MATCHES FOUND");
                 showToast('warning', 'No Live Matches', 'No live matches currently available');
                 return [];
@@ -458,23 +481,39 @@
                 console.log("📡 Today URL:", url);
                 
                 const response = await fetch(url);
+                console.log("📊 Response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
-                console.log("📊 Response:", data);
+                console.log("📊 Response data:", data);
                 
                 if (data.data && data.data.length > 0) {
                     const upcoming = data.data.filter(match => 
                         match.state_id === 1 || match.state_id === 45 || match.state_id === 46
                     );
                     console.log(`✅ ${upcoming.length} REAL UPCOMING matches found!`);
-                    return upcoming;
+                    if (upcoming.length > 0) {
+                        showToast('success', 'Upcoming Matches', `${upcoming.length} upcoming matches found`);
+                        return upcoming;
+                    }
                 }
                 
                 // Try tomorrow if no today matches
+                console.log("🔄 Trying tomorrow's fixtures...");
                 const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
                 const tomorrowUrl = `https://api.sportmonks.com/v3/football/fixtures/date/${tomorrow}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores&per_page=15`;
                 console.log("📡 Tomorrow URL:", tomorrowUrl);
                 
                 const tomorrowResponse = await fetch(tomorrowUrl);
+                console.log("📊 Tomorrow status:", tomorrowResponse.status);
+                
+                if (!tomorrowResponse.ok) {
+                    throw new Error(`HTTP ${tomorrowResponse.status}: ${tomorrowResponse.statusText}`);
+                }
+                
                 const tomorrowData = await tomorrowResponse.json();
                 console.log("📊 Tomorrow response:", tomorrowData);
                 
@@ -483,7 +522,10 @@
                         match.state_id === 1 || match.state_id === 45 || match.state_id === 46
                     );
                     console.log(`✅ ${tomorrowMatches.length} REAL UPCOMING matches from tomorrow!`);
-                    return tomorrowMatches;
+                    if (tomorrowMatches.length > 0) {
+                        showToast('success', 'Upcoming Matches', `${tomorrowMatches.length} upcoming matches found`);
+                        return tomorrowMatches;
+                    }
                 }
                 
                 // No real data found
@@ -507,8 +549,14 @@
                 console.log("📡 Finished URL:", url);
                 
                 const response = await fetch(url);
+                console.log("📊 Response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
-                console.log("📊 Response:", data);
+                console.log("📊 Response data:", data);
                 
                 if (data.data && data.data.length > 0) {
                     const finished = data.data.filter(match => 
@@ -516,7 +564,37 @@
                     ).sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at)).slice(0, 15);
                     
                     console.log(`✅ ${finished.length} REAL FINISHED matches found!`);
-                    return finished;
+                    if (finished.length > 0) {
+                        showToast('success', 'Finished Matches', `${finished.length} finished matches found`);
+                        return finished;
+                    }
+                }
+                
+                // Try yesterday's matches
+                console.log("🔄 Trying yesterday's fixtures...");
+                const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                const yesterdayUrl = `https://api.sportmonks.com/v3/football/fixtures/date/${yesterday}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores&per_page=15`;
+                console.log("📡 Yesterday URL:", yesterdayUrl);
+                
+                const yesterdayResponse = await fetch(yesterdayUrl);
+                console.log("📊 Yesterday status:", yesterdayResponse.status);
+                
+                if (!yesterdayResponse.ok) {
+                    throw new Error(`HTTP ${yesterdayResponse.status}: ${yesterdayResponse.statusText}`);
+                }
+                
+                const yesterdayData = await yesterdayResponse.json();
+                console.log("📊 Yesterday response:", yesterdayData);
+                
+                if (yesterdayData.data && yesterdayData.data.length > 0) {
+                    const yesterdayFinished = yesterdayData.data.filter(match => 
+                        match.state_id === 100 || match.state_id === 90 || match.state_id === 5
+                    );
+                    console.log(`✅ ${yesterdayFinished.length} REAL FINISHED matches from yesterday!`);
+                    if (yesterdayFinished.length > 0) {
+                        showToast('success', 'Finished Matches', `${yesterdayFinished.length} finished matches found`);
+                        return yesterdayFinished;
+                    }
                 }
                 
                 // No real data found
