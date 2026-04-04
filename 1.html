@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enhanced Real-Time Betting Platform</title>
+    <title>Enhanced Working Betting Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -37,6 +37,13 @@
         .time-display {
             font-variant-numeric: tabular-nums;
         }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -46,7 +53,7 @@
             <div class="flex justify-between items-center">
                 <div class="flex items-center space-x-3">
                     <i class="fas fa-futbol text-3xl"></i>
-                    <h1 class="text-2xl font-bold"> Enhanced Live Betting Platform</h1>
+                    <h1 class="text-2xl font-bold">Enhanced Working Betting Platform</h1>
                     <div class="flex items-center space-x-2">
                         <div class="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
                         <span class="text-sm">Live Updates</span>
@@ -96,6 +103,9 @@
                     <button onclick="testConnection()" class="bg-purple-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-purple-600 transition">
                         <i class="fas fa-vial mr-2"></i>Test Connection
                     </button>
+                    <button onclick="trySampleData()" class="bg-orange-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-orange-600 transition">
+                        <i class="fas fa-database mr-2"></i>Sample Data
+                    </button>
                 </div>
                 <div class="text-sm text-gray-600">
                     Update interval: <span id="updateInterval">7</span> seconds
@@ -123,7 +133,7 @@
             <div class="text-center py-12 bg-white rounded-lg shadow">
                 <i class="fas fa-futbol text-6xl text-gray-300 mb-4"></i>
                 <h3 class="text-xl font-semibold text-gray-600 mb-2">No matches found</h3>
-                <p class="text-gray-500">No matches available at the moment</p>
+                <p class="text-gray-500">Try sample data or check connection</p>
             </div>
         </div>
     </main>
@@ -137,11 +147,20 @@
         const BASE_URL = 'https://api.sportmonks.com/v3/football';
         const UPDATE_INTERVAL = 7000; // 7 seconds
         
+        // CORS Proxies (same as working version)
+        const PROXIES = [
+            'https://cors-anywhere.herokuapp.com/',
+            'https://api.allorigins.win/raw?url=',
+            'https://corsproxy.io/?',
+            'https://cors.bridged.cc/'
+        ];
+        
         // Global state
         let currentTab = 'live';
         let autoUpdateEnabled = true;
         let updateIntervalId = null;
         let updateCounter = 0;
+        let currentProxy = 0;
         let matchData = {
             live: [],
             upcoming: [],
@@ -150,7 +169,7 @@
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
-            console.log('🚀 Enhanced Betting Platform Initialized');
+            console.log('🚀 Enhanced Working Betting Platform Initialized');
             startAutoUpdate();
             loadMatches();
         });
@@ -232,24 +251,25 @@
             } catch (error) {
                 console.error('💥 Load error:', error);
                 showToast('error', 'Load Error', error.message);
+                renderMatches([], currentTab);
             } finally {
                 showLoading(false);
             }
         }
 
-        // Load live matches with enhanced data
+        // Load live matches with working fetch
         async function loadLiveMatches(isRefresh = false) {
             try {
                 console.log('🔥 Loading enhanced live matches...');
                 
                 // Try inplay first with full includes
                 let url = `${BASE_URL}/livescores/inplay?api_token=${API_TOKEN}&include=state;participants;league;scores;events;lineups;statistics&per_page=20`;
-                let response = await fetchWithFallback(url);
+                let response = await callAPI(url);
                 
                 if (!response || !response.data || response.data.length === 0) {
                     // Fallback to general livescores
                     url = `${BASE_URL}/livescores?api_token=${API_TOKEN}&include=state;participants;league;scores;events&per_page=20`;
-                    response = await fetchWithFallback(url);
+                    response = await callAPI(url);
                     
                     if (response && response.data) {
                         response.data = response.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
@@ -289,12 +309,12 @@
                 
                 // Try today first
                 let url = `${BASE_URL}/fixtures/date/${today}?api_token=${API_TOKEN}&include=state;participants;league;scores;lineups&per_page=25`;
-                let response = await fetchWithFallback(url);
+                let response = await callAPI(url);
                 
                 if (!response || !response.data || response.data.length === 0) {
                     // Try tomorrow
                     url = `${BASE_URL}/fixtures/date/${tomorrow}?api_token=${API_TOKEN}&include=state;participants;league;scores;lineups&per_page=25`;
-                    response = await fetchWithFallback(url);
+                    response = await callAPI(url);
                 }
                 
                 if (response && response.data) {
@@ -326,7 +346,7 @@
                 
                 // Try yesterday's matches
                 let url = `${BASE_URL}/fixtures/date/${yesterday}?api_token=${API_TOKEN}&include=state;participants;league;scores;events&per_page=25`;
-                let response = await fetchWithFallback(url);
+                let response = await callAPI(url);
                 
                 if (response && response.data) {
                     const finished = response.data.filter(match => [100, 90, 5].includes(match.state_id))
@@ -348,23 +368,32 @@
             }
         }
 
-        // Fetch with fallback
-        async function fetchWithFallback(url) {
-            try {
-                console.log('📡 Fetching:', url);
-                const response = await fetch(url);
+        // Working API call function (same as JSONP version)
+        async function callAPI(url) {
+            for (let i = 0; i < PROXIES.length; i++) {
+                const proxy = PROXIES[i];
+                const proxyUrl = proxy + url;
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                try {
+                    console.log(`📡 Trying proxy ${i + 1}/${PROXIES.length}:`, proxy);
+                    
+                    const response = await fetch(proxyUrl);
+                    console.log(`📊 Proxy ${i + 1} response:`, response.status);
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log(`✅ Proxy ${i + 1} success!`, data);
+                        
+                        currentProxy = i;
+                        return data;
+                    }
+                } catch (error) {
+                    console.log(`❌ Proxy ${i + 1} failed:`, error.message);
                 }
-                
-                const data = await response.json();
-                console.log('✅ Success:', data);
-                return data;
-            } catch (error) {
-                console.error('❌ Fetch error:', error);
-                return null;
             }
+            
+            console.log('❌ All proxies failed');
+            return null;
         }
 
         // Render matches with enhanced display
@@ -489,13 +518,13 @@
                 
                 if (minute) {
                     if (minute <= 45) {
-                        return { text: `${minute}'`, subtext: 'First Half' };
+                        return { text: `${minute}'`, subtext: 'First Half', minute: minute + "'" };
                     } else if (minute <= 50) {
                         return { text: 'HT', subtext: 'Half Time' };
                     } else if (minute <= 90) {
-                        return { text: `${minute}'`, subtext: 'Second Half' };
+                        return { text: `${minute}'`, subtext: 'Second Half', minute: minute + "'" };
                     } else {
-                        return { text: `${minute}'`, subtext: 'Added Time' };
+                        return { text: `${minute}'`, subtext: 'Added Time', minute: minute + "'" };
                     }
                 }
                 
@@ -564,17 +593,63 @@
             
             try {
                 const url = `${BASE_URL}/livescores?api_token=${API_TOKEN}&include=state;participants;league;scores&per_page=3`;
-                const response = await fetch(url);
+                const response = await callAPI(url);
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    showToast('success', 'Connection OK', `API working! Found ${data.data?.length || 0} matches`);
+                if (response) {
+                    showToast('success', 'Connection OK', `API working! Found ${response.data?.length || 0} matches`);
                 } else {
-                    throw new Error(`HTTP ${response.status}`);
+                    showToast('error', 'Connection Failed', 'All proxies failed');
                 }
             } catch (error) {
                 showToast('error', 'Connection Failed', error.message);
             }
+        }
+
+        // Try sample data
+        function trySampleData() {
+            const sampleMatches = [
+                {
+                    id: 1,
+                    state_id: 2,
+                    state: { name: 'Live', minute: 23 },
+                    starting_at: new Date().toISOString(),
+                    league: { name: 'Premier League', country: { name: 'England' } },
+                    participants: [
+                        { name: 'Manchester United', meta: { location: 'home' } },
+                        { name: 'Liverpool', meta: { location: 'away' } }
+                    ],
+                    scores: { home_score: 2, away_score: 1 }
+                },
+                {
+                    id: 2,
+                    state_id: 2,
+                    state: { name: 'Live', minute: 67 },
+                    starting_at: new Date().toISOString(),
+                    league: { name: 'La Liga', country: { name: 'Spain' } },
+                    participants: [
+                        { name: 'Real Madrid', meta: { location: 'home' } },
+                        { name: 'Barcelona', meta: { location: 'away' } }
+                    ],
+                    scores: { home_score: 1, away_score: 1 }
+                },
+                {
+                    id: 3,
+                    state_id: 1,
+                    state: { name: 'NS' },
+                    starting_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+                    league: { name: 'Serie A', country: { name: 'Italy' } },
+                    participants: [
+                        { name: 'Juventus', meta: { location: 'home' } },
+                        { name: 'AC Milan', meta: { location: 'away' } }
+                    ],
+                    scores: { home_score: 0, away_score: 0 }
+                }
+            ];
+            
+            matchData[currentTab] = sampleMatches;
+            renderMatches(sampleMatches, currentTab);
+            updateCounts();
+            showToast('success', 'Sample Data', `Loaded ${sampleMatches.length} sample matches`);
         }
 
         // Toast notification
