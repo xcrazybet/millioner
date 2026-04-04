@@ -915,25 +915,50 @@
         
         async function fetchUpcomingMatches() {
             try {
-                const today = new Date().toISOString().split('T')[0];
-                const url = `${SPORTMONKS_BASE_URL}/football/fixtures/date/${today}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league`;
+                // Get current date and next few days for upcoming matches
+                const today = new Date();
+                const tomorrow = new Date(today);
+                tomorrow.setDate(today.getDate() + 1);
                 
-                console.log("Fetching upcoming matches...");
-                const response = await fetch(url);
-                const data = await response.json();
+                const todayStr = today.toISOString().split('T')[0];
+                const tomorrowStr = tomorrow.toISOString().split('T')[0];
                 
-                if (data.data) {
-                    // Filter out live matches
-                    const upcoming = data.data.filter(match => 
-                        match.state_id === 1 || match.state_id === 45 // Scheduled or Postponed
-                    );
-                    
-                    matches.upcoming = upcoming;
-                    console.log(`Loaded ${upcoming.length} upcoming matches`);
-                    return upcoming;
+                // Try today's matches first
+                let url = `${SPORTMONKS_BASE_URL}/football/fixtures/date/${todayStr}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores`;
+                
+                console.log("Fetching upcoming matches for today...");
+                let response = await fetch(url);
+                let data = await response.json();
+                
+                let matches = data.data || [];
+                
+                // If no matches today, try tomorrow
+                if (matches.length === 0) {
+                    console.log("No matches today, trying tomorrow...");
+                    url = `${SPORTMONKS_BASE_URL}/football/fixtures/date/${tomorrowStr}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores`;
+                    response = await fetch(url);
+                    data = await response.json();
+                    matches = data.data || [];
                 }
                 
-                return [];
+                // If still no matches, get recent fixtures from general endpoint
+                if (matches.length === 0) {
+                    console.log("No upcoming matches found, getting recent fixtures...");
+                    url = `${SPORTMONKS_BASE_URL}/football/fixtures?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores&per_page=10`;
+                    response = await fetch(url);
+                    data = await response.json();
+                    matches = data.data || [];
+                }
+                
+                // Filter for scheduled/postponed matches only
+                const upcoming = matches.filter(match => 
+                    match.state_id === 1 || match.state_id === 45 || match.state_id === 46
+                );
+                
+                matches.upcoming = upcoming.length > 0 ? upcoming : matches.slice(0, 5); // Show some matches even if not upcoming
+                console.log(`Loaded ${matches.upcoming.length} upcoming matches`);
+                return matches.upcoming;
+                
             } catch (error) {
                 console.error("Error fetching upcoming matches:", error);
                 showToast('error', 'API Error', 'Failed to load upcoming matches');
@@ -943,22 +968,25 @@
         
         async function fetchFinishedMatches() {
             try {
-                const today = new Date().toISOString().split('T')[0];
-                const url = `${SPORTMONKS_BASE_URL}/football/fixtures/date/${today}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;scores;events`;
+                // Try to get recent finished matches
+                let url = `${SPORTMONKS_BASE_URL}/football/fixtures?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;scores;events&per_page=15`;
                 
                 console.log("Fetching finished matches...");
                 const response = await fetch(url);
                 const data = await response.json();
                 
                 if (data.data) {
-                    // Filter finished matches
+                    // Filter finished matches and sort by most recent
                     const finished = data.data.filter(match => 
-                        match.state_id === 100 || match.state_id === 90 // Finished or Canceled
+                        match.state_id === 100 || match.state_id === 90 || match.state_id === 5
                     );
                     
-                    matches.finished = finished;
-                    console.log(`Loaded ${finished.length} finished matches`);
-                    return finished;
+                    // Sort by starting_at descending (most recent first)
+                    finished.sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at));
+                    
+                    matches.finished = finished.slice(0, 10); // Show latest 10
+                    console.log(`Loaded ${matches.finished.length} finished matches`);
+                    return matches.finished;
                 }
                 
                 return [];
@@ -1013,6 +1041,68 @@
                     await loadFinishedMatches();
                     break;
             }
+            
+            // If no matches loaded, show sample data
+            setTimeout(() => {
+                const container = document.getElementById('matchesContent');
+                if (container.querySelector('.empty-state') || container.querySelector('.loading')) {
+                    console.log("No matches loaded, showing sample data...");
+                    showSampleMatches();
+                }
+            }, 3000);
+        }
+        
+        function showSampleMatches() {
+            const sampleMatches = [
+                {
+                    id: 'sample1',
+                    name: 'Manchester United vs Liverpool',
+                    league: { name: 'Premier League' },
+                    state_id: currentTab === 'live' ? 2 : (currentTab === 'upcoming' ? 1 : 100),
+                    starting_at: currentTab === 'upcoming' ? new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() : new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+                    participants: [
+                        { id: 1, name: 'Manchester United', meta: { location: 'home' } },
+                        { id: 2, name: 'Liverpool', meta: { location: 'away' } }
+                    ],
+                    scores: currentTab !== 'upcoming' ? [
+                        { participant: 'home', score: currentTab === 'live' ? 1 : 2 },
+                        { participant: 'away', score: currentTab === 'live' ? 1 : 1 }
+                    ] : []
+                },
+                {
+                    id: 'sample2',
+                    name: 'Real Madrid vs Barcelona',
+                    league: { name: 'La Liga' },
+                    state_id: currentTab === 'live' ? 4 : (currentTab === 'upcoming' ? 1 : 100),
+                    starting_at: currentTab === 'upcoming' ? new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString() : new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+                    participants: [
+                        { id: 3, name: 'Real Madrid', meta: { location: 'home' } },
+                        { id: 4, name: 'Barcelona', meta: { location: 'away' } }
+                    ],
+                    scores: currentTab !== 'upcoming' ? [
+                        { participant: 'home', score: currentTab === 'live' ? 2 : 3 },
+                        { participant: 'away', score: currentTab === 'live' ? 1 : 2 }
+                    ] : []
+                },
+                {
+                    id: 'sample3',
+                    name: 'Bayern Munich vs Borussia Dortmund',
+                    league: { name: 'Bundesliga' },
+                    state_id: currentTab === 'live' ? 2 : (currentTab === 'upcoming' ? 1 : 100),
+                    starting_at: currentTab === 'upcoming' ? new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString() : new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+                    participants: [
+                        { id: 5, name: 'Bayern Munich', meta: { location: 'home' } },
+                        { id: 6, name: 'Borussia Dortmund', meta: { location: 'away' } }
+                    ],
+                    scores: currentTab !== 'upcoming' ? [
+                        { participant: 'home', score: currentTab === 'live' ? 0 : 2 },
+                        { participant: 'away', score: currentTab === 'live' ? 0 : 1 }
+                    ] : []
+                }
+            ];
+            
+            renderMatches(sampleMatches, currentTab);
+            showToast('info', 'Sample Data', 'Showing sample matches - API data unavailable');
         }
         
         async function loadLiveMatches() {
@@ -1076,25 +1166,28 @@
             const homeTeam = participants.find(p => p.meta.location === 'home') || participants[0];
             const awayTeam = participants.find(p => p.meta.location === 'away') || participants[1];
             
-            const leagueName = match.league?.name || 'Unknown League';
+            const leagueName = match.league?.name || 'International Match';
             const status = getMatchStatus(match.state_id);
             const statusClass = getStatusClass(match.state_id);
             
-            let scoresHtml = '';
-            if (type === 'live' || type === 'finished') {
-                const homeScore = match.scores?.find(s => s.type === 'current' && s.participant === 'home')?.score || 0;
-                const awayScore = match.scores?.find(s => s.type === 'current' && s.participant === 'away')?.score || 0;
-                scoresHtml = `
-                    <div class="team-score">${homeScore}</div>
-                    <div class="match-time">${status}</div>
-                    <div class="team-score">${awayScore}</div>
-                `;
+            // Get scores if available
+            let homeScore = 0;
+            let awayScore = 0;
+            if (match.scores && match.scores.length > 0) {
+                const homeScoreObj = match.scores.find(s => s.participant === 'home' || s.participant === homeTeam?.id);
+                const awayScoreObj = match.scores.find(s => s.participant === 'away' || s.participant === awayTeam?.id);
+                homeScore = homeScoreObj?.score || 0;
+                awayScore = awayScoreObj?.score || 0;
+            }
+            
+            // Format match time
+            let timeDisplay = '';
+            if (type === 'live') {
+                timeDisplay = status;
+            } else if (type === 'finished') {
+                timeDisplay = `FT ${homeScore}-${awayScore}`;
             } else {
-                scoresHtml = `
-                    <div class="team-name">${homeTeam?.name || 'Home Team'}</div>
-                    <div class="match-time">${formatMatchTime(match.starting_at)}</div>
-                    <div class="team-name">${awayTeam?.name || 'Away Team'}</div>
-                `;
+                timeDisplay = formatMatchTime(match.starting_at);
             }
             
             return `
@@ -1110,16 +1203,16 @@
                     <div class="match-teams">
                         <div class="team">
                             <div class="team-name">${homeTeam?.name || 'Home Team'}</div>
-                            ${type === 'live' || type === 'finished' ? `<div class="team-score">${match.scores?.find(s => s.type === 'current' && s.participant === 'home')?.score || 0}</div>` : ''}
+                            ${type === 'live' || type === 'finished' ? `<div class="team-score">${homeScore}</div>` : ''}
                         </div>
                         
                         <div class="match-time">
-                            ${type === 'live' || type === 'finished' ? status : formatMatchTime(match.starting_at)}
+                            ${timeDisplay}
                         </div>
                         
                         <div class="team">
                             <div class="team-name">${awayTeam?.name || 'Away Team'}</div>
-                            ${type === 'live' || type === 'finished' ? `<div class="team-score">${match.scores?.find(s => s.type === 'current' && s.participant === 'away')?.score || 0}</div>` : ''}
+                            ${type === 'live' || type === 'finished' ? `<div class="team-score">${awayScore}</div>` : ''}
                         </div>
                     </div>
                     
@@ -1207,7 +1300,13 @@
             const diffMs = date - now;
             const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
             
-            if (diffHours < 24) {
+            // Handle old dates (finished matches)
+            if (diffMs < -24 * 60 * 60 * 1000) { // More than 24 hours in the past
+                return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+            }
+            
+            // Recent past or future
+            if (Math.abs(diffHours) < 24) {
                 return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             } else {
                 return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
