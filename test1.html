@@ -408,50 +408,54 @@
         
         async function fetchLiveMatches() {
             try {
-                console.log("🔥 Fetching LIVE matches...");
+                console.log("🔥 Fetching REAL LIVE matches...");
                 
-                const url = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${SPORTMONKS_API_TOKEN}&include=state;participants;league;scores`;
-                console.log("📡 URL:", url);
+                // Primary: Inplay endpoint (most current)
+                const url = `https://api.sportmonks.com/v3/football/livescores/inplay?api_token=${SPORTMONKS_API_TOKEN}&include=state;participants;league;scores;events`;
+                console.log("📡 Inplay URL:", url);
                 
                 const response = await fetch(url);
                 const data = await response.json();
                 console.log("📊 Response:", data);
                 
                 if (data.data && data.data.length > 0) {
-                    console.log(`✅ ${data.data.length} LIVE matches found`);
+                    console.log(`✅ ${data.data.length} REAL LIVE matches found!`);
                     return data.data;
                 }
                 
                 // Fallback: General livescores
                 const fallbackUrl = `https://api.sportmonks.com/v3/football/livescores?api_token=${SPORTMONKS_API_TOKEN}&include=state;participants;league;scores`;
+                console.log("📡 Livescores URL:", fallbackUrl);
+                
                 const fallbackResponse = await fetch(fallbackUrl);
                 const fallbackData = await fallbackResponse.json();
+                console.log("📊 Fallback response:", fallbackData);
                 
                 if (fallbackData.data && fallbackData.data.length > 0) {
                     const liveMatches = fallbackData.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
-                    console.log(`✅ ${liveMatches.length} LIVE matches from fallback`);
+                    console.log(`✅ ${liveMatches.length} REAL LIVE matches from fallback!`);
                     return liveMatches;
                 }
                 
-                // Sample data fallback
-                console.log("⚠️ Using sample data");
-                showToast('info', 'Sample Data', 'Showing sample live matches');
-                return getSampleLiveMatches();
+                // No real data found - show empty state
+                console.log("❌ NO REAL LIVE MATCHES FOUND");
+                showToast('warning', 'No Live Matches', 'No live matches currently available');
+                return [];
                 
             } catch (error) {
                 console.error("💥 LIVE matches error:", error);
-                showToast('error', 'API Error', 'Using sample data');
-                return getSampleLiveMatches();
+                showToast('error', 'API Error', `Failed to load live matches: ${error.message}`);
+                return [];
             }
         }
         
         async function fetchUpcomingMatches() {
             try {
-                console.log("📅 Fetching UPCOMING matches...");
+                console.log("📅 Fetching REAL UPCOMING matches...");
                 
                 const today = new Date().toISOString().split('T')[0];
                 const url = `https://api.sportmonks.com/v3/football/fixtures/date/${today}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores&per_page=15`;
-                console.log("📡 URL:", url);
+                console.log("📡 Today URL:", url);
                 
                 const response = await fetch(url);
                 const data = await response.json();
@@ -461,27 +465,46 @@
                     const upcoming = data.data.filter(match => 
                         match.state_id === 1 || match.state_id === 45 || match.state_id === 46
                     );
-                    console.log(`✅ ${upcoming.length} UPCOMING matches found`);
+                    console.log(`✅ ${upcoming.length} REAL UPCOMING matches found!`);
                     return upcoming;
                 }
                 
-                console.log("⚠️ Using sample data");
-                showToast('info', 'Sample Data', 'Showing sample upcoming matches');
-                return getSampleUpcomingMatches();
+                // Try tomorrow if no today matches
+                const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                const tomorrowUrl = `https://api.sportmonks.com/v3/football/fixtures/date/${tomorrow}?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores&per_page=15`;
+                console.log("📡 Tomorrow URL:", tomorrowUrl);
+                
+                const tomorrowResponse = await fetch(tomorrowUrl);
+                const tomorrowData = await tomorrowResponse.json();
+                console.log("📊 Tomorrow response:", tomorrowData);
+                
+                if (tomorrowData.data && tomorrowData.data.length > 0) {
+                    const tomorrowMatches = tomorrowData.data.filter(match => 
+                        match.state_id === 1 || match.state_id === 45 || match.state_id === 46
+                    );
+                    console.log(`✅ ${tomorrowMatches.length} REAL UPCOMING matches from tomorrow!`);
+                    return tomorrowMatches;
+                }
+                
+                // No real data found
+                console.log("❌ NO REAL UPCOMING MATCHES FOUND");
+                showToast('warning', 'No Upcoming Matches', 'No upcoming matches currently available');
+                return [];
                 
             } catch (error) {
                 console.error("💥 UPCOMING matches error:", error);
-                showToast('error', 'API Error', 'Using sample data');
-                return getSampleUpcomingMatches();
+                showToast('error', 'API Error', `Failed to load upcoming matches: ${error.message}`);
+                return [];
             }
         }
         
         async function fetchFinishedMatches() {
             try {
-                console.log("🏁 Fetching FINISHED matches...");
+                console.log("🏁 Fetching REAL FINISHED matches...");
                 
-                const url = `https://api.sportmonks.com/v3/football/fixtures?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores&per_page=15`;
-                console.log("📡 URL:", url);
+                // Get recent finished matches
+                const url = `https://api.sportmonks.com/v3/football/fixtures?api_token=${SPORTMONKS_API_TOKEN}&include=participants;state;league;scores&per_page=20`;
+                console.log("📡 Finished URL:", url);
                 
                 const response = await fetch(url);
                 const data = await response.json();
@@ -490,20 +513,21 @@
                 if (data.data && data.data.length > 0) {
                     const finished = data.data.filter(match => 
                         match.state_id === 100 || match.state_id === 90 || match.state_id === 5
-                    ).sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at)).slice(0, 10);
+                    ).sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at)).slice(0, 15);
                     
-                    console.log(`✅ ${finished.length} FINISHED matches found`);
+                    console.log(`✅ ${finished.length} REAL FINISHED matches found!`);
                     return finished;
                 }
                 
-                console.log("⚠️ Using sample data");
-                showToast('info', 'Sample Data', 'Showing sample finished matches');
-                return getSampleFinishedMatches();
+                // No real data found
+                console.log("❌ NO REAL FINISHED MATCHES FOUND");
+                showToast('warning', 'No Finished Matches', 'No finished matches currently available');
+                return [];
                 
             } catch (error) {
                 console.error("💥 FINISHED matches error:", error);
-                showToast('error', 'API Error', 'Using sample data');
-                return getSampleFinishedMatches();
+                showToast('error', 'API Error', `Failed to load finished matches: ${error.message}`);
+                return [];
             }
         }
         
