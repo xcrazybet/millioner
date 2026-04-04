@@ -1,73 +1,17 @@
 name: Test Sportmonks API Connection
 
 on:
+  workflow_dispatch:  # Add this line!
   push:
     branches: [ main, master ]
-  workflow_dispatch:  # Allow manual trigger
-  schedule:
-    - cron: '0 */6 * * *'  # Run every 6 hours
 
 jobs:
-  verify-api:
+  test-api:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Test Live Matches Endpoint
+      - name: Test API Connection
         env:
           API_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
         run: |
-          echo "🔴 Testing Live Matches API..."
-          response=$(curl -s -w "\n%{http_code}" -X GET \
-            "https://api.sportmonks.com/v3/football/livescores?api_token=$API_TOKEN&include=state&per_page=5")
-          
-          http_code=$(echo "$response" | tail -n1)
-          body=$(echo "$response" | sed '$d')
-          
-          echo "HTTP Status: $http_code"
-          
-          if [ "$http_code" -eq 200 ]; then
-            echo "✅ API connection successful!"
-            echo "Response preview:"
-            echo "$body" | jq '.data[] | {id, state_id, starting_at}' 2>/dev/null || echo "$body" | head -c 500
-          else
-            echo "❌ API request failed with status $http_code"
-            echo "Error: $body"
-            exit 1
-          fi
-      
-      - name: Test Upcoming Matches Endpoint
-        env:
-          API_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
-        run: |
-          echo "📅 Testing Upcoming Matches API..."
-          TODAY=$(date +%Y-%m-%d)
-          
-          response=$(curl -s -w "\n%{http_code}" -X GET \
-            "https://api.sportmonks.com/v3/football/fixtures/date/$TODAY?api_token=$API_TOKEN&include=state&per_page=5")
-          
-          http_code=$(echo "$response" | tail -n1)
-          
-          if [ "$http_code" -eq 200 ]; then
-            echo "✅ Upcoming matches API successful!"
-          else
-            echo "❌ Upcoming matches API failed with status $http_code"
-          fi
-      
-      - name: Test API Rate Limits
-        env:
-          API_TOKEN: ${{ secrets.SPORTMONKS_API_TOKEN }}
-        run: |
-          echo "📊 Checking API Rate Limits..."
-          curl -I -s "https://api.sportmonks.com/v3/football/fixtures?api_token=$API_TOKEN&per_page=1" | grep -i "x-ratelimit"
-      
-      - name: Save API Response as Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: api-response-logs
-          path: |
-            /tmp/*.log
-          retention-days: 7
+          echo "Testing API..."
+          curl -X GET "https://api.sportmonks.com/v3/football/livescores?api_token=$API_TOKEN&per_page=5"
