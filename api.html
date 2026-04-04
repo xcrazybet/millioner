@@ -941,6 +941,9 @@
                 // Setup event listeners
                 setupEventListeners();
                 
+                // Add API test button
+                addAPITestButton();
+                
                 // Verify API token first
                 console.log("🔍 Starting API token verification...");
                 const isTokenValid = await verifyApiToken();
@@ -962,9 +965,6 @@
                     // Load initial matches
                     await loadMatches();
                     
-                    // Temporarily disable real-time updates to fix issues
-                    // startRealTimeUpdates();
-                    
                     console.log("🎯 BETTING PLATFORM READY!");
                 });
                 
@@ -973,6 +973,25 @@
                 showToast('error', 'System Error', 'Failed to initialize platform');
             }
         });
+        
+        function addAPITestButton() {
+            const header = document.querySelector('.header');
+            const testBtn = document.createElement('button');
+            testBtn.innerHTML = '🧪 Test API';
+            testBtn.style.cssText = `
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-weight: 600;
+                margin-left: 10px;
+                font-size: 12px;
+            `;
+            testBtn.addEventListener('click', testAPIConnection);
+            header.appendChild(testBtn);
+        }
         
         // ===== AUTHENTICATION =====
         function handleAuthStateChange(user) {
@@ -1443,22 +1462,88 @@
             showToast('info', 'Sample Data', 'Showing sample matches - API data unavailable');
         }
         
-        async function loadLiveMatches() {
+        // ===== DEBUG & TEST FUNCTIONS =====
+        async function testAPIConnection() {
+            console.log("🧪 Testing API connection...");
+            
+            try {
+                // Test simple endpoint
+                const testUrl = `https://api.sportmonks.com/v3/my/resources?api_token=${SPORTMONKS_API_TOKEN}`;
+                console.log("📡 Test URL:", testUrl);
+                
+                const response = await fetch(testUrl);
+                console.log("📊 Response status:", response.status);
+                console.log("📊 Response headers:", Object.fromEntries(response.headers.entries()));
+                
+                const data = await response.json();
+                console.log("📊 Response data:", data);
+                
+                if (data.subscription) {
+                    console.log("✅ API CONNECTION SUCCESSFUL!");
+                    showToast('success', 'API Working', 'SportMonks API connected successfully');
+                    return true;
+                } else {
+                    console.log("❌ API CONNECTION FAILED!");
+                    showToast('error', 'API Failed', 'SportMonks API connection failed');
+                    return false;
+                }
+                
+            } catch (error) {
+                console.error("💥 API Test Error:", error);
+                showToast('error', 'Test Error', `API test failed: ${error.message}`);
+                return false;
+            }
+        }
+        
+        async function loadMatches() {
+            console.log("🔄 Loading matches for tab:", currentTab);
+            
+            // Show loading state
             showLoading();
-            const liveMatches = await fetchLiveMatches();
-            renderMatches(liveMatches, 'live');
+            
+            try {
+                let matches = [];
+                
+                switch(currentTab) {
+                    case 'live':
+                        matches = await fetchLiveMatches();
+                        break;
+                    case 'upcoming':
+                        matches = await fetchUpcomingMatches();
+                        break;
+                    case 'finished':
+                        matches = await fetchFinishedMatches();
+                        break;
+                }
+                
+                console.log(`📊 Total matches loaded: ${matches.length}`);
+                
+                if (matches.length > 0) {
+                    console.log("✅ REAL API DATA loaded!");
+                    renderMatches(matches, currentTab);
+                } else {
+                    console.log("⚠️ No API data - Using SAMPLE data");
+                    renderMatches(matches, currentTab);
+                }
+                
+            } catch (error) {
+                console.error("💥 Load matches error:", error);
+                showToast('error', 'Load Error', 'Failed to load matches');
+                renderMatches([], currentTab);
+            }
+        }
+        
+        // ===== LOAD MATCHES =====
+        async function loadLiveMatches() {
+            return await fetchLiveMatches();
         }
         
         async function loadUpcomingMatches() {
-            showLoading();
-            const upcomingMatches = await fetchUpcomingMatches();
-            renderMatches(upcomingMatches, 'upcoming');
+            return await fetchUpcomingMatches();
         }
         
         async function loadFinishedMatches() {
-            showLoading();
-            const finishedMatches = await fetchFinishedMatches();
-            renderMatches(finishedMatches, 'finished');
+            return await fetchFinishedMatches();
         }
         
         // ===== UI RENDERING =====
