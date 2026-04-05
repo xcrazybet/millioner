@@ -1255,6 +1255,184 @@
             setTimeout(() => balanceElement.classList.remove('balance-update'), 500);
         }
 
+        // Load Live Matches - SIMPLE WORKING VERSION
+        async function loadLiveMatches() {
+            console.log('⚽ Loading live matches...');
+            
+            try {
+                showStatus('loading', 'Loading Live Matches', 'Fetching live matches from API...');
+                
+                // Get live matches from SportMonks API
+                const data = await tryDirectFetch();
+                
+                if (!data || !data.data) {
+                    console.error('❌ No data from API');
+                    showStatus('error', 'API Error', 'Could not fetch live matches');
+                    return;
+                }
+                
+                // Filter live matches (state_id: 2,3,4,5,6)
+                const liveMatches = data.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
+                console.log('📊 Found live matches:', liveMatches.length);
+                
+                if (liveMatches.length === 0) {
+                    showStatus('info', 'No Live Matches', 'No live matches currently available');
+                    document.getElementById('matchesContainer').innerHTML = `
+                        <div class="text-center py-8">
+                            <i class="fas fa-futbol text-6xl text-gray-400 mb-4"></i>
+                            <p class="text-gray-600 text-lg">No live matches at the moment</p>
+                            <p class="text-gray-500">Check back later for live games</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Display live matches
+                const container = document.getElementById('matchesContainer');
+                container.innerHTML = '';
+                
+                liveMatches.forEach(match => {
+                    console.log('🔍 Processing live match:', match.id);
+                    const matchCard = createMatchCard(match, 'live');
+                    container.appendChild(matchCard);
+                });
+                
+                showStatus('success', 'Live Matches Loaded', `${liveMatches.length} live matches found`);
+                console.log('✅ Live matches loaded successfully');
+                
+            } catch (error) {
+                console.error('❌ Error loading live matches:', error);
+                showStatus('error', 'Load Failed', 'Could not load live matches: ' + error.message);
+            }
+        }
+
+        // Load Upcoming Matches - SIMPLE WORKING VERSION
+        async function loadUpcomingMatches() {
+            console.log('📅 Loading upcoming matches...');
+            
+            try {
+                showStatus('loading', 'Loading Upcoming', 'Fetching upcoming matches...');
+                
+                // Get upcoming matches from SportMonks API
+                const data = await tryDirectFetch();
+                
+                if (!data || !data.data) {
+                    console.error('❌ No data from API');
+                    showStatus('error', 'API Error', 'Could not fetch upcoming matches');
+                    return;
+                }
+                
+                // Filter upcoming matches (state_id: 1)
+                const upcomingMatches = data.data.filter(match => match.state_id === 1);
+                console.log('📊 Found upcoming matches:', upcomingMatches.length);
+                
+                if (upcomingMatches.length === 0) {
+                    showStatus('info', 'No Upcoming Matches', 'No upcoming matches found');
+                    document.getElementById('matchesContainer').innerHTML = `
+                        <div class="text-center py-8">
+                            <i class="fas fa-calendar text-6xl text-gray-400 mb-4"></i>
+                            <p class="text-gray-600 text-lg">No upcoming matches</p>
+                            <p class="text-gray-500">Check back later for scheduled games</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Display upcoming matches
+                const container = document.getElementById('matchesContainer');
+                container.innerHTML = '';
+                
+                upcomingMatches.forEach(match => {
+                    console.log('🔍 Processing upcoming match:', match.id);
+                    const matchCard = createMatchCard(match, 'upcoming');
+                    container.appendChild(matchCard);
+                });
+                
+                showStatus('success', 'Upcoming Matches Loaded', `${upcomingMatches.length} upcoming matches found`);
+                console.log('✅ Upcoming matches loaded successfully');
+                
+            } catch (error) {
+                console.error('❌ Error loading upcoming matches:', error);
+                showStatus('error', 'Load Failed', 'Could not load upcoming matches: ' + error.message);
+            }
+        }
+
+        // Load Finished Matches - SIMPLE WORKING VERSION
+        async function loadFinishedMatches() {
+            console.log('🏁 Loading finished matches...');
+            
+            try {
+                showStatus('loading', 'Loading Finished', 'Fetching finished matches...');
+                
+                // Get finished matches from Firestore (last 24 hours)
+                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                const finishedSnapshot = await db.collection('finishedMatches')
+                    .where('storedAt', '>=', twentyFourHoursAgo)
+                    .get();
+                
+                if (finishedSnapshot.empty) {
+                    showStatus('info', 'No Finished Matches', 'No finished matches in last 24 hours');
+                    document.getElementById('matchesContainer').innerHTML = `
+                        <div class="text-center py-8">
+                            <i class="fas fa-flag-checkered text-6xl text-gray-400 mb-4"></i>
+                            <p class="text-gray-600 text-lg">No finished matches in last 24 hours</p>
+                            <p class="text-gray-500">Recent completed matches will appear here</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                const finishedMatches = finishedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log('📊 Found finished matches:', finishedMatches.length);
+                
+                // Display finished matches
+                const container = document.getElementById('matchesContainer');
+                container.innerHTML = '';
+                
+                finishedMatches.forEach(match => {
+                    console.log('🔍 Processing finished match:', match.matchId);
+                    const matchCard = createFinishedMatchCard(match);
+                    container.appendChild(matchCard);
+                });
+                
+                showStatus('success', 'Finished Matches Loaded', `${finishedMatches.length} finished matches found`);
+                console.log('✅ Finished matches loaded successfully');
+                
+            } catch (error) {
+                console.error('❌ Error loading finished matches:', error);
+                showStatus('error', 'Load Failed', 'Could not load finished matches: ' + error.message);
+            }
+        }
+
+        // Create Finished Match Card
+        function createFinishedMatchCard(match) {
+            const card = document.createElement('div');
+            card.className = 'match-card bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition';
+            card.innerHTML = `
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-4">
+                        <div class="text-center">
+                            <div class="font-bold text-lg">${match.homeTeam}</div>
+                            <div class="text-sm text-gray-600">Home</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-gray-800">${match.homeScore} - ${match.awayScore}</div>
+                            <div class="text-sm text-green-600 font-semibold">Final Score</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="font-bold text-lg">${match.awayTeam}</div>
+                            <div class="text-sm text-gray-600">Away</div>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-sm text-gray-600">Result: ${match.result}</div>
+                        <div class="text-xs text-gray-500">Finished: ${new Date(match.finishedAt).toLocaleString()}</div>
+                    </div>
+                </div>
+            `;
+            return card;
+        }
+
         // Show Status
         function showStatus(type, title, message) {
             const statusDisplay = document.getElementById('statusDisplay');
