@@ -1452,94 +1452,100 @@
         // Place Bet
         async function placeBet() {
             if (bettingSlip.length === 0) {
-                showStatus('error', 'No Selections', 'Add selections to bet slip first');
                 return;
             }
 
-            const stake = parseFloat(document.getElementById('stakeAmount').value);
-            const userBalance = userData?.balance || 0;
-
-            if (stake < 1) {
-                showStatus('error', 'Invalid Stake', 'Minimum stake is $1.00');
+            if (bettingSlip.length === 0) {
+                showToast('Please add at least one selection to bet slip', 'error');
                 return;
             }
 
-            if (stake > userBalance) {
-                showStatus('error', 'Insufficient Balance', `You have $${userBalance.toFixed(2)} available`);
+            const stakeInput = document.getElementById('stakeInput');
+            const stake = parseFloat(stakeInput.value);
+
+            if (!stake || stake <= 0) {
+                showToast('Please enter a valid stake amount', 'error');
                 return;
             }
 
-            const totalOdds = parseFloat(document.getElementById('totalOdds').textContent);
+            // Calculate total odds and potential winnings
+            const totalOdds = bettingSlip.reduce((product, bet) => product * bet.odds, 1);
             const potentialWin = stake * totalOdds;
 
-            if (!confirm(`Place bet of $${stake.toFixed(2)} to win $${potentialWin.toFixed(2)}?`)) {
-                return;
-            }
-
             try {
-                const placeBetBtn = document.getElementById('placeBetBtn');
-                placeBetBtn.disabled = true;
-                placeBetBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Placing Bet...';
+                // Check user balance
+                const walletDoc = await db.collection('wallets').doc(currentUser.uid).get();
+                const currentBalance = walletDoc.exists ? walletDoc.data().balance : 0;
 
-                // Create bet record
-                const betId = `bet_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                if (currentBalance < stake) {
+                    showToast('Insufficient balance', 'error');
+                    return;
+                }
+
+                // Create bet object with all required fields
                 const betData = {
-                    betId,
                     userId: currentUser.uid,
-                    selections: bettingSlip,
+                    bets: bettingSlip.map(bet => ({
+                        matchId: bet.matchId,
+                        matchName: bet.matchName,
+                        market: bet.market,
+                        selection: bet.selection,
+                        odds: bet.odds,
+                    })),
                     stake: stake,
                     totalOdds: totalOdds,
                     potentialWin: potentialWin,
                     status: 'pending',
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    userEmail: currentUser.email,
-                    username: userData.username
+                    createdAtDate: new Date().toISOString()
                 };
 
                 // Save bet to Firestore
-                await db.collection('bets').doc(betId).set(betData);
+                const betRef = await db.collection('bets').add(betData);
+                console.log('Bet saved with ID:', betRef.id);
 
                 // Update user balance
-                const newBalance = userBalance - stake;
+                const newBalance = currentBalance - stake;
                 await db.collection('wallets').doc(currentUser.uid).update({
-                    balance: newBalance,
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    totalBets: (userData.totalBets || 0) + bettingSlip.length
+                    balance: newBalance
                 });
 
-                // Create transaction record
-                const transactionId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                await db.collection('transactions').doc(transactionId).set({
-                    transactionId,
-                    type: 'bet',
-                    amount: -stake,
-                    description: `Bet placed - ${bettingSlip.length} selections`,
-                    status: 'completed',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    userId: currentUser.uid,
-                    userEmail: currentUser.email,
-                    username: userData.username,
-                    previousBalance: userBalance,
-                    newBalance: newBalance,
-                    betId: betId
-                });
-
-                // Update local data
-                userData.balance = newBalance;
-                updateBalanceDisplay();
-                bettingSlip = [];
-                updateBetSlip();
-
-                showStatus('success', 'Bet Placed', `Your bet of $${stake.toFixed(2)} has been placed successfully!`);
-                loadUserStats();
+                // Update UI
+                updateBalance(newBalance);
+                clearBetSlip();
+                
+                // Show success message
+                showToast(`Bet placed successfully! Bet ID: ${betRef.id.substring(0, 15)}...`, 'success');
+                
+                // Update open bets
+                await updateOpenBets();
+                
+                // Show bet in open bets section
+                setTimeout(() => {
+                    const openBetsContainer = document.getElementById('openBetsContainer');
+                    if (openBetsContainer) {
+                        const betCard = document.createElement('div');
+                        betCard.className = 'bg-white rounded-lg p-4 mb-3 shadow-md';
+                        betCard.innerHTML = `
+                            <div class="flex justify-between items-start">
+                                <div class="flex-1">
+                                    <div class="font-bold text-sm">Bet #${betRef.id.substring(0, 15)}...</div>
+                                    <div class="text-xs text-gray-600">${bettingSlip.length} selections</div>
+                                    <div class="text-xs text-gray-600">Stake: $${stake.toFixed(2)}</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-xs font-bold text-orange-500">PENDING</div>
+                                    <div class="text-xs">Potential: $${potentialWin.toFixed(2)}</div>
+                                </div>
+                            </div>
+                        `;
+                        openBetsContainer.appendChild(betCard);
+                    }
+                }, 1000);
 
             } catch (error) {
                 console.error('Error placing bet:', error);
-                showStatus('error', 'Bet Failed', 'Failed to place bet. Please try again.');
-            } finally {
-                const placeBetBtn = document.getElementById('placeBetBtn');
-                placeBetBtn.disabled = false;
-                placeBetBtn.innerHTML = 'Place Bet';
+                showToast('Failed to place bet. Please try again.', 'error');
             }
         }
 
@@ -1819,12 +1825,30 @@
             initializeApp();
         };
 
-        // Cleanup on unload
+        // Cleanup on unload - Fixed to clear all intervals
         window.onbeforeunload = function() {
             if (liveUpdateInterval) {
                 clearInterval(liveUpdateInterval);
             }
+            if (scoreUpdateInterval) {
+                clearInterval(scoreUpdateInterval);
+            }
         };
+
+        // Add link to bets.html in the sidebar
+        function addBetsLink() {
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar) {
+                const betsLink = document.createElement('a');
+                betsLink.href = 'bets.html';
+                betsLink.className = 'block px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition';
+                betsLink.innerHTML = '<i class="fas fa-ticket-alt mr-2"></i>View All Bets';
+                sidebar.appendChild(betsLink);
+            }
+        }
+
+        // Initialize bets link when app loads
+        setTimeout(addBetsLink, 1000);
     </script>
 </body>
 </html>
