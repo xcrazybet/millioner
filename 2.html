@@ -855,6 +855,9 @@
                         <button onclick="forceLiveScoreUpdate()" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm ml-2">
                             <i class="fas fa-bolt text-yellow-500 mr-2"></i>Force Scores
                         </button>
+                        <button onclick="forceRealAPIUpdate()" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm ml-2">
+                            <i class="fas fa-globe text-blue-500 mr-2"></i>Real API
+                        </button>
                     </div>
                 </div>
 
@@ -2391,7 +2394,7 @@
                     
                     ${!isFinished ? `
                         <div class="mt-6 grid grid-cols-3 gap-3">
-                            <button onclick="addToBetSlip('${matchId}', '${homeTeam?.name}', 'Home Win', 2.15)" 
+                            <button onclick="addToBetSlip('${matchId}', '${homeTeam?.name || 'Home Team'}', 'Home Win', 2.15)" 
                                     class="odds-button text-white font-bold py-3 px-4 rounded-xl hover:scale-105 transition">
                                 Home<br>${(2.15).toFixed(2)}
                             </button>
@@ -2399,7 +2402,7 @@
                                     class="odds-button center-odds text-white font-bold py-3 px-4 rounded-xl hover:scale-105 transition">
                                 Draw<br>${(3.40).toFixed(2)}
                             </button>
-                            <button onclick="addToBetSlip('${matchId}', '${awayTeam?.name}', 'Away Win', 2.85)" 
+                            <button onclick="addToBetSlip('${matchId}', '${awayTeam?.name || 'Away Team'}', 'Away Win', 2.85)" 
                                     class="odds-button text-white font-bold py-3 px-4 rounded-xl hover:scale-105 transition">
                                 Away<br>${(2.85).toFixed(2)}
                             </button>
@@ -2443,10 +2446,10 @@
             }, 4000); // Every 4 seconds for live score updates
         }
 
-// Fetch and Update Live Scores - Enhanced for Real Data
+        // Fetch and Update Live Scores - Enhanced for Real Data
         async function fetchAndUpdateLiveScores() {
             try {
-                console.log('🔄 Fetching live scores...');
+                console.log('🔄 Fetching live scores from SportMonks API...');
                 
                 const data = await tryDirectFetch();
                 if (data && data.data) {
@@ -2460,6 +2463,7 @@
                     // Log sample match data for debugging
                     if (liveMatches.length > 0) {
                         console.log('🔍 Sample live match:', liveMatches[0]);
+                        console.log('📊 Sample match scores:', liveMatches[0].scores);
                     }
                     
                     // Update live match scores
@@ -2476,13 +2480,15 @@
                     await checkForNewGoals(liveMatches);
                     
                     console.log(`✅ Updated ${liveMatches.length} live matches, ${finishedMatches.length} finished matches`);
+                    return true;
                 } else {
                     console.log('❌ No data received from API');
                     console.log('Response:', data);
+                    return false;
                 }
             } catch (error) {
-                console.error('Error updating live scores:', error);
-                showStatus('error', 'Score Update Failed', 'Could not fetch live scores');
+                console.error('💥 Error fetching live scores:', error);
+                return false;
             }
         }
 
@@ -2614,6 +2620,22 @@
             } catch (error) {
                 console.error('❌ Test failed:', error);
                 showStatus('error', 'Test Failed', 'Could not update scores');
+            }
+        }
+
+        // Force Real API Live Score Update
+        async function forceRealAPIUpdate() {
+            console.log('🌐 Forcing real API live score update...');
+            showStatus('info', 'Real API Update', 'Fetching live scores from SportMonks API...');
+            
+            try {
+                // Call the real API function
+                await fetchAndUpdateLiveScores();
+                showStatus('success', 'API Update Complete', 'Live scores updated from real API!');
+                
+            } catch (error) {
+                console.error('❌ Real API update failed:', error);
+                showStatus('error', 'API Update Failed', 'Could not fetch real scores');
             }
         }
 
@@ -2752,73 +2774,164 @@
             }
         }
 
-        // Update Match Card Score - Enhanced for Real API Data
-        function updateMatchCardScore(match) {
-            const matchId = `match_${match.id}`;
-            const scoreElement = document.getElementById(`score_${matchId}`);
+        // Force Live Score Update
+        async function forceLiveScoreUpdate() {
+            console.log('⚡ Forcing live score update...');
             
-            if (scoreElement) {
-                console.log('🔍 Updating score for match:', match.id, 'Looking for element:', `score_${matchId}`);
+            try {
+                // Get current matches and update scores
+                const matchCards = document.querySelectorAll('.match-card');
+                console.log('📊 Found match cards:', matchCards.length);
                 
-                let homeScore = 0;
-                let awayScore = 0;
-                
-                // Try multiple score formats based on real API responses
-                if (match.scores && Array.isArray(match.scores) && match.scores.length > 0) {
-                    console.log('📊 Scores array found:', match.scores);
-                    
-                    // Method 1: participant field
-                    const homeScoreObj = match.scores.find(s => s.participant === 'home');
-                    const awayScoreObj = match.scores.find(s => s.participant === 'away');
-                    
-                    if (homeScoreObj && awayScoreObj) {
-                        homeScore = parseInt(homeScoreObj.score) || parseInt(homeScoreObj.goals) || 0;
-                        awayScore = parseInt(awayScoreObj.score) || parseInt(awayScoreObj.goals) || 0;
-                        console.log('✅ Method 1 (participant):', { homeScore, awayScore });
-                    } else {
-                        // Method 2: Check by index (first = home, second = away)
-                        homeScore = parseInt(match.scores[0]?.score) || parseInt(match.scores[0]?.goals) || 0;
-                        awayScore = parseInt(match.scores[1]?.score) || parseInt(match.scores[1]?.goals) || 0;
-                        console.log('✅ Method 2 (index):', { homeScore, awayScore });
+                matchCards.forEach((card, index) => {
+                    const scoreElement = card.querySelector('[id^="score_"]');
+                    if (scoreElement) {
+                        // Generate random test scores
+                        const homeScore = Math.floor(Math.random() * 5);
+                        const awayScore = Math.floor(Math.random() * 5);
+                        const testScore = `${homeScore} - ${awayScore}`;
+                        
+                        scoreElement.textContent = testScore;
+                        scoreElement.classList.add('score-changed');
+                        
+                        console.log('⚡ Updated match card:', index, 'score:', testScore);
                     }
-                } else if (match.score && typeof match.score === 'object') {
-                    // Method 3: Direct score object
-                    homeScore = parseInt(match.score.home) || parseInt(match.score.ht) || parseInt(match.score.localteam_score) || 0;
-                    awayScore = parseInt(match.score.away) || parseInt(match.score.at) || parseInt(match.score.visitorteam_score) || 0;
-                    console.log('✅ Method 3 (score object):', { homeScore, awayScore });
-                } else if (match.goals && Array.isArray(match.goals)) {
-                    // Method 4: Goals array
-                    const homeGoals = match.goals.filter(g => g.team === 'home' || g.team_id === match.participants?.[0]?.id).length;
-                    const awayGoals = match.goals.filter(g => g.team === 'away' || g.team_id === match.participants?.[1]?.id).length;
-                    homeScore = homeGoals;
-                    awayScore = awayGoals;
-                    console.log('✅ Method 4 (goals array):', { homeScore, awayScore });
-                } else if (match.result) {
-                    // Method 5: Result string like "2-1"
-                    const resultMatch = match.result.match(/(\d+)\s*[-:]\s*(\d+)/);
-                    if (resultMatch) {
-                        homeScore = parseInt(resultMatch[1]) || 0;
-                        awayScore = parseInt(resultMatch[2]) || 0;
-                        console.log('✅ Method 5 (result string):', { homeScore, awayScore });
-                    }
-                } else {
-                    console.log('⚠️ No score data found for match:', match.id);
-                    console.log('Available fields:', Object.keys(match));
-                }
+                });
                 
-                const newScore = `${homeScore} - ${awayScore}`;
-                const currentScore = scoreElement.textContent;
+                showStatus('success', 'Force Update Complete', 'All match scores updated!');
                 
-                console.log('🎯 Score change:', currentScore, '→', newScore);
+            } catch (error) {
+                console.error('❌ Force update failed:', error);
+                showStatus('error', 'Update Failed', error.message);
+            }
+        }
+
+        // Comprehensive Debug Function
+        async function debugBettingSystem() {
+    console.log(' Starting comprehensive betting system debug...');
+            
+    try {
+        // 1. Check Firebase connection
+        console.log('1. Checking Firebase connection...');
+        console.log('Firebase initialized:', !!firebase);
+        console.log('Auth available:', !!auth);
+        console.log('DB available:', !!db);
+        console.log('Current user:', currentUser);
                 
-                if (currentScore !== newScore) {
-                    scoreElement.textContent = newScore;
-                    scoreElement.classList.add('score-changed');
-                    setTimeout(() => scoreElement.classList.remove('score-changed'), 1000);
+        // 2. Check user data
+        console.log('2. Checking user data...');
+        if (currentUser) {
+            const userDoc = await db.collection('wallets').doc(currentUser.uid).get();
+            console.log('User wallet exists:', userDoc.exists);
+            if (userDoc.exists) {
+                console.log('User balance:', userDoc.data().balance);
+            }
+        }
+                
+        // 3. Check betting slip
+        console.log('3. Checking betting slip...');
+        console.log('Betting slip length:', bettingSlip.length);
+        console.log('Betting slip contents:', bettingSlip);
+                
+        // 4. Test bet placement
+        console.log('4. Testing bet placement...');
+        if (bettingSlip.length > 0) {
+            console.log(' Can place bet - betting slip has items');
+        } else {
+            console.log(' Cannot place bet - betting slip is empty');
+            showStatus('warning', 'Add Selection', 'Please add selections to bet slip first');
+        }
+                
+        // 5. Check recent bets
+        console.log('5. Checking recent bets...');
+        if (currentUser) {
+            const betsSnapshot = await db.collection('bets')
+                .where('userId', '==', currentUser.uid)
+                .limit(5)
+                .get();
+            console.log('Recent bets count:', betsSnapshot.docs.length);
+            betsSnapshot.docs.forEach(doc => {
+                console.log('Bet:', doc.id, doc.data());
+            });
+        }
+                
+        showStatus('success', 'Debug Complete', 'Check console for detailed information');
+                
+    } catch (error) {
+        console.error(' Debug error:', error);
+        showStatus('error', 'Debug Failed', error.message);
+    }
+}
+
+// Simple Test Bet Function
+async function testSimpleBet() {
+    console.log(' Testing simple bet placement...');
+            
+    if (!currentUser) {
+        showStatus('error', 'Not Logged In', 'Please login first');
+        return;
+    }
+            
+    try {
+        // Create a simple test bet
+        const testBet = {
+            userId: currentUser.uid,
+            selections: [{
+                id: 'test_match_123',
+                team: 'Test Team',
+                market: 'Test Market',
+                odds: 2.0
+            }],
+            stake: 10,
+            totalOdds: 2.0,
+            potentialWin: 20,
+            betType: 'single',
+            status: 'pending',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            settledAt: null
+        };
+                
+        console.log(' Saving test bet:', testBet);
+                
+        // Save to Firestore
+        const betRef = await db.collection('bets').add(testBet);
+        console.log(' Test bet saved with ID:', betRef.id);
+                
+        // Verify it was saved
+        const savedBet = await betRef.get();
+        console.log(' Verified test bet:', savedBet.data());
+                
+        showStatus('success', 'Test Bet Placed', `Test bet ID: ${betRef.id}`);
+                
+    } catch (error) {
+        console.error(' Test bet failed:', error);
+        showStatus('error', 'Test Failed', error.message);
+    }
+}
+
+// Update Match Card Score - Enhanced with Visual Feedback
+function updateMatchCardScore(match) {
+    const matchId = `match_${match.id}`;
+    const scoreElement = document.getElementById(`score_${matchId}`);
+            
+    if (scoreElement) {
+        console.log(' Updating score for match:', match.id, 'Looking for element:', `score_${matchId}`);
+                
+        let homeScore = 0;
+        let awayScore = 0;
+                
+        // Try multiple score formats based on real API responses
+        if (match.scores && Array.isArray(match.scores) && match.scores.length > 0) {
+            console.log(' Scores array found:', match.scores);
                     
-                    // Show goal notification if score changed from 0-0
-                    if (currentScore === '0 - 0' && newScore !== '0 - 0') {
-                        showStatus('success', 'Goal Scored!', `Score updated: ${newScore}`);
+            // Method 1: participant field
+            const homeScoreObj = match.scores.find(s => s.participant === 'home');
+            const awayScoreObj = match.scores.find(s => s.participant === 'away');
+                    
+            if (homeScoreObj && awayScoreObj) {
+                homeScore = parseInt(homeScoreObj.score) || parseInt(homeScoreObj.goals) || 0;
+                awayScore = parseInt(awayScoreObj.score) || parseInt(awayScoreObj.goals) || 0;
+                console.log(' Method 1 (participant):', { homeScore, awayScore });
                     }
                 }
             } else {
@@ -2848,7 +2961,10 @@
 
         // Bet Slip Functions
         function addToBetSlip(matchId, team, market, odds) {
+            console.log('🎯 Adding to bet slip:', { matchId, team, market, odds });
+            
             if (bettingSlip.find(bet => bet.matchId === matchId && bet.market === market)) {
+                console.log('❌ Selection already in bet slip');
                 showToast('This selection is already in your bet slip', 'warning');
                 return;
             }
@@ -2862,9 +2978,11 @@
                 matchName: team
             };
 
+            console.log('✅ Adding selection:', selection);
             bettingSlip.push(selection);
             updateBetSlip();
             showToast('Added to bet slip', 'success');
+            console.log('📊 Current betting slip:', bettingSlip);
         }
 
         function removeFromBetSlip(selectionId) {
@@ -2953,44 +3071,68 @@ function setQuickStake(amount) {
     }
 }
 
-// Place Bet Function
-async function placeBet() {
-            console.log('🎯 Place bet function called...');
+// Enhanced Place Bet Function with Error Handling, Loading States, and Retry Logic
+        async function placeBet(retryCount = 0) {
+            const MAX_RETRIES = 3;
+            const RETRY_DELAY = 1000; // 1 second
             
-            const stakeInput = document.getElementById('stakeAmount');
-            const stake = parseFloat(stakeInput.value);
-            
-            console.log('💰 Stake amount:', stake);
-            console.log('🎲 Betting slip:', bettingSlip);
-            
-            if (!stake || stake <= 0) {
-                console.log('❌ Invalid stake amount');
-                showToast('Please enter a valid stake amount', 'error');
+            // Prevent double submissions
+            if (window.isPlacingBet) {
+                console.log('⚠️ Bet placement already in progress...');
+                showToast('Please wait, bet is being placed...', 'warning');
                 return;
             }
             
-            if (!userData || userData.balance < stake) {
-                console.log('❌ Insufficient balance. Available:', userData.balance, 'Required:', stake);
-                showToast('Insufficient balance', 'error');
-                return;
-            }
-            
-            if (bettingSlip.length === 0) {
-                console.log('❌ Betting slip is empty');
-                showToast('Please add selections to bet slip', 'error');
-                return;
-            }
+            window.isPlacingBet = true;
             
             try {
+                console.log(`🎯 Place bet function called (Attempt ${retryCount + 1}/${MAX_RETRIES + 1})...`);
+                
+                const stakeInput = document.getElementById('stakeAmount');
+                const placeBetButton = document.querySelector('button[onclick="placeBet()"]');
+                
+                // Show loading state
+                if (placeBetButton) {
+                    placeBetButton.disabled = true;
+                    placeBetButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Placing...';
+                }
+                
+                const stake = parseFloat(stakeInput.value);
+                
+                console.log('💰 Stake amount:', stake);
+                console.log('🎲 Betting slip:', bettingSlip);
+                
+                // Validation
+                if (!stake || stake <= 0) {
+                    console.log('❌ Invalid stake amount');
+                    showToast('Please enter a valid stake amount', 'error');
+                    return;
+                }
+                
+                if (!userData || userData.balance < stake) {
+                    console.log('❌ Insufficient balance. Available:', userData.balance, 'Required:', stake);
+                    showToast('Insufficient balance', 'error');
+                    return;
+                }
+                
+                if (bettingSlip.length === 0) {
+                    console.log('❌ Betting slip is empty');
+                    showToast('Please add selections to bet slip', 'error');
+                    return;
+                }
+                
                 console.log('✅ Validation passed, proceeding with bet placement...');
                 
                 // Check bet limits
                 await checkBetLimits(stake);
                 
-                const totalOdds = bettingSlip.reduce((acc, bet) => acc * bet.odds, 1);
-                const potentialWin = stake * totalOdds;
+                // Calculate bet details based on bet type
+                const totalOdds = calculateTotalOdds(bettingSlip, currentBetType);
+                const potentialWin = calculatePotentialWin(bettingSlip, currentBetType, stake);
                 
-                console.log('📊 Total odds:', totalOdds, 'Potential win:', potentialWin);
+                console.log('📊 Bet type:', currentBetType);
+                console.log('📊 Total odds:', totalOdds);
+                console.log('💰 Potential win:', potentialWin);
                 
                 // Create bet record
                 const betData = {
@@ -3002,34 +3144,88 @@ async function placeBet() {
                     betType: currentBetType,
                     status: 'pending',
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    settledAt: null
+                    settledAt: null,
+                    retryCount: retryCount
                 };
                 
                 console.log('💾 Saving bet data:', betData);
                 console.log('👤 Current user:', currentUser.uid);
                 console.log('🔥 Firebase db object:', db);
                 
-                // Save bet to Firestore
-                const betRef = await db.collection('bets').add(betData);
-                console.log('✅ Bet saved with ID:', betRef.id);
+                // Store in memory first (for persistence)
+                const tempBetId = `temp_${Date.now()}`;
+                const memoryBet = {
+                    id: tempBetId,
+                    ...betData,
+                    createdAt: new Date()
+                };
                 
-                // Verify it was saved
-                const savedBet = await betRef.get();
-                console.log('🔍 Verified saved bet:', savedBet.data());
+                // Add to memory storage
+                if (!window.pendingBets) window.pendingBets = [];
+                window.pendingBets.push(memoryBet);
                 
-                // Update user balance
-                await db.collection('wallets').doc(currentUser.uid).update({
-                    balance: firebase.firestore.FieldValue.increment(-stake),
-                    dailyBets: firebase.firestore.FieldValue.increment(stake)
-                });
+                // Save to localStorage for persistence
+                localStorage.setItem('pendingBets', JSON.stringify(window.pendingBets));
                 
-                // Update local data
-                userData.balance -= stake;
-                updateBalanceDisplay();
+                // Save to Firestore with error handling
+                let betRef;
+                try {
+                    betRef = await db.collection('bets').add(betData);
+                    console.log('✅ Bet saved with ID:', betRef.id);
+                    
+                    // Verify it was saved
+                    const savedBet = await betRef.get();
+                    console.log('🔍 Verified saved bet:', savedBet.data());
+                    
+                    // Update memory storage with real ID
+                    const memoryIndex = window.pendingBets.findIndex(b => b.id === tempBetId);
+                    if (memoryIndex !== -1) {
+                        window.pendingBets[memoryIndex].id = betRef.id;
+                        window.pendingBets[memoryIndex].isSaved = true;
+                        localStorage.setItem('pendingBets', JSON.stringify(window.pendingBets));
+                    }
+                    
+                } catch (firestoreError) {
+                    console.error('❌ Firestore save error:', firestoreError);
+                    
+                    // Retry logic
+                    if (retryCount < MAX_RETRIES) {
+                        console.log(`🔄 Retrying bet placement in ${RETRY_DELAY}ms...`);
+                        showToast(`Connection issue, retrying... (${retryCount + 1}/${MAX_RETRIES})`, 'warning');
+                        
+                        setTimeout(() => {
+                            placeBet(retryCount + 1);
+                        }, RETRY_DELAY);
+                        return;
+                    } else {
+                        throw new Error('Failed to save bet after multiple attempts');
+                    }
+                }
+                
+                // Update user balance with error handling
+                try {
+                    await db.collection('wallets').doc(currentUser.uid).update({
+                        balance: firebase.firestore.FieldValue.increment(-stake),
+                        dailyBets: firebase.firestore.FieldValue.increment(stake)
+                    });
+                    
+                    // Update local data
+                    userData.balance -= stake;
+                    updateBalanceDisplay();
+                    
+                } catch (balanceError) {
+                    console.error('❌ Balance update error:', balanceError);
+                    // Don't fail the bet, but log the error
+                    showToast('Bet placed but balance update failed', 'warning');
+                }
                 
                 // Clear bet slip
                 bettingSlip = [];
                 updateBetSlip();
+                
+                // Remove from pending bets since it's saved
+                window.pendingBets = window.pendingBets.filter(b => b.id !== tempBetId);
+                localStorage.setItem('pendingBets', JSON.stringify(window.pendingBets));
                 
                 showToast('Bet placed successfully!', 'success');
                 loadUserStats();
@@ -3039,6 +3235,271 @@ async function placeBet() {
             } catch (error) {
                 console.error('❌ Error placing bet:', error);
                 showToast(error.message || 'Failed to place bet', 'error');
+                
+                // Keep bet in pending bets for retry
+                console.log('💾 Bet kept in pending for manual retry');
+                
+            } finally {
+                // Reset loading state
+                window.isPlacingBet = false;
+                
+                if (placeBetButton) {
+                    placeBetButton.disabled = false;
+                    placeBetButton.innerHTML = '<i class="fas fa-check-circle mr-2"></i>Place Bet';
+                }
+            }
+        }
+
+        // Bet Type Calculation Functions
+        function calculateTotalOdds(selections, betType) {
+            switch(betType) {
+                case 'single':
+                    return selections.length > 0 ? selections[0].odds : 1;
+                case 'double':
+                    if (selections.length < 2) return 1;
+                    return selections[0].odds * selections[1].odds;
+                case 'treble':
+                    if (selections.length < 3) return 1;
+                    return selections[0].odds * selections[1].odds * selections[2].odds;
+                case 'accumulator':
+                    return selections.reduce((acc, sel) => acc * sel.odds, 1);
+                case 'system':
+                    // For system bets, we'll calculate combinations later
+                    return selections.reduce((acc, sel) => acc * sel.odds, 1);
+                default:
+                    return selections.reduce((acc, sel) => acc * sel.odds, 1);
+            }
+        }
+
+        function calculatePotentialWin(selections, betType, stake) {
+            const totalOdds = calculateTotalOdds(selections, betType);
+            
+            switch(betType) {
+                case 'single':
+                    return totalOdds * stake;
+                case 'double':
+                    return totalOdds * stake;
+                case 'treble':
+                    return totalOdds * stake;
+                case 'accumulator':
+                    return totalOdds * stake;
+                case 'system':
+                    return calculateSystemBets(selections, stake);
+                default:
+                    return totalOdds * stake;
+            }
+        }
+
+        function calculateSystemBets(selections, stake) {
+            const n = selections.length;
+            if (n < 2) return 0;
+            
+            // For simplicity, implement 2/3 system (all possible doubles)
+            if (n === 3) {
+                // All possible doubles: AB, AC, BC
+                const combinations = [
+                    [0, 1], // A, B
+                    [0, 2], // A, C
+                    [1, 2]  // B, C
+                ];
+                
+                let totalWin = 0;
+                const stakePerCombination = stake / combinations.length;
+                
+                combinations.forEach(combo => {
+                    const odds = combo.reduce((acc, index) => acc * selections[index].odds, 1);
+                    totalWin += odds * stakePerCombination;
+                });
+                
+                return totalWin;
+            }
+            
+            // For other system sizes, return accumulator odds as fallback
+            return selections.reduce((acc, sel) => acc * sel.odds, 1) * stake;
+        }
+
+        function canBetOnMatch(match) {
+            // Only allow betting on matches that haven't started (state_id: 1)
+            const ALLOWED_STATES = [1];
+            return ALLOWED_STATES.includes(match.state_id);
+        }
+
+        function determineMatchResult(homeScore, awayScore) {
+            if (homeScore > awayScore) return 'Home Win';
+            if (awayScore > homeScore) return 'Away Win';
+            return 'Draw';
+        }
+
+        function evaluateBet(betSelection, actualResult) {
+            return betSelection === actualResult;
+        }
+
+        // Real-time Match Settlement System
+        async function settleFinishedMatches() {
+            try {
+                console.log('🏁 Checking for finished matches to settle...');
+                
+                // Get all finished matches from last 24 hours
+                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                const finishedMatchesSnapshot = await db.collection('finishedMatches')
+                    .where('storedAt', '>=', twentyFourHoursAgo)
+                    .get();
+                
+                if (finishedMatchesSnapshot.empty) {
+                    console.log('📊 No finished matches to settle');
+                    return;
+                }
+                
+                const finishedMatches = finishedMatchesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log(`🏁 Found ${finishedMatches.length} finished matches to check`);
+                
+                // Get all pending bets
+                const pendingBetsSnapshot = await db.collection('bets')
+                    .where('status', '==', 'pending')
+                    .get();
+                
+                if (pendingBetsSnapshot.empty) {
+                    console.log('📊 No pending bets to settle');
+                    return;
+                }
+                
+                const pendingBets = pendingBetsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log(`📊 Found ${pendingBets.length} pending bets to check`);
+                
+                // Settle each bet
+                for (const bet of pendingBets) {
+                    await settleBet(bet, finishedMatches);
+                }
+                
+            } catch (error) {
+                console.error('❌ Error settling matches:', error);
+            }
+        }
+
+        async function settleBet(bet, finishedMatches) {
+            try {
+                console.log(`🎯 Settling bet ${bet.id}...`);
+                
+                let totalWinnings = 0;
+                let allWon = true;
+                
+                // Check each selection in the bet
+                for (const selection of bet.selections) {
+                    const finishedMatch = finishedMatches.find(fm => fm.matchId == selection.matchId);
+                    
+                    if (!finishedMatch) {
+                        console.log(`⏳ Match ${selection.matchId} not finished yet`);
+                        allWon = false;
+                        continue;
+                    }
+                    
+                    // Determine actual result
+                    const actualResult = determineMatchResult(finishedMatch.homeScore, finishedMatch.awayScore);
+                    console.log(`📊 Match ${selection.matchId}: ${actualResult} (${finishedMatch.homeScore}-${finishedMatch.awayScore})`);
+                    
+                    // Check if bet selection matches actual result
+                    const won = evaluateBet(selection.market, actualResult);
+                    console.log(`🎯 Selection: ${selection.market} vs Result: ${actualResult} = ${won ? 'WON' : 'LOST'}`);
+                    
+                    if (!won) {
+                        allWon = false;
+                        break; // For accumulator/system bets, one loss means total loss
+                    }
+                }
+                
+                // Update bet status
+                let newStatus;
+                let winnings = 0;
+                
+                if (allWon && bet.selections.length > 0) {
+                    newStatus = 'won';
+                    winnings = bet.potentialWin;
+                    totalWinnings = winnings;
+                    console.log(`🎉 Bet WON! Winnings: $${winnings}`);
+                } else {
+                    newStatus = 'lost';
+                    console.log(`😞 Bet LOST`);
+                }
+                
+                // Update bet in Firestore
+                await db.collection('bets').doc(bet.id).update({
+                    status: newStatus,
+                    settledAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    winnings: winnings
+                });
+                
+                // Add winnings to user balance
+                if (winnings > 0) {
+                    await db.collection('wallets').doc(bet.userId).update({
+                        balance: firebase.firestore.FieldValue.increment(winnings)
+                    });
+                    
+                    // Update local balance if it's current user
+                    if (bet.userId === currentUser.uid) {
+                        userData.balance += winnings;
+                        updateBalanceDisplay();
+                    }
+                    
+                    // Show notification
+                    showStatus('success', 'Bet Won!', `Congratulations! You won $${winnings.toFixed(2)}`);
+                }
+                
+                console.log(`✅ Bet ${bet.id} settled as ${newStatus}`);
+                
+            } catch (error) {
+                console.error(`❌ Error settling bet ${bet.id}:`, error);
+            }
+        }
+
+        // Enhanced finished match handler with settlement
+        async function handleNewlyFinishedMatches(finishedMatches) {
+            for (const match of finishedMatches) {
+                try {
+                    console.log('🏁 Processing finished match:', match.id);
+                    
+                    // Store match in Firestore
+                    const matchData = {
+                        matchId: match.id,
+                        homeTeam: match.participants?.[0]?.name || 'Home Team',
+                        awayTeam: match.participants?.[1]?.name || 'Away Team',
+                        homeScore: 0,
+                        awayScore: 0,
+                        result: '',
+                        finishedAt: new Date(match.starting_at || Date.now()),
+                        storedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    
+                    // Extract scores using enhanced parsing
+                    if (match.scores && Array.isArray(match.scores) && match.scores.length > 0) {
+                        const homeScoreObj = match.scores.find(s => s.participant === 'home');
+                        const awayScoreObj = match.scores.find(s => s.participant === 'away');
+                        
+                        if (homeScoreObj && awayScoreObj) {
+                            matchData.homeScore = parseInt(homeScoreObj.score) || parseInt(homeScoreObj.goals) || 0;
+                            matchData.awayScore = parseInt(awayScoreObj.score) || parseInt(awayScoreObj.goals) || 0;
+                        } else {
+                            matchData.homeScore = parseInt(match.scores[0]?.score) || parseInt(match.scores[0]?.goals) || 0;
+                            matchData.awayScore = parseInt(match.scores[1]?.score) || parseInt(match.scores[1]?.goals) || 0;
+                        }
+                    } else if (match.score && typeof match.score === 'object') {
+                        matchData.homeScore = parseInt(match.score.home) || parseInt(match.score.ht) || parseInt(match.score.localteam_score) || 0;
+                        matchData.awayScore = parseInt(match.score.away) || parseInt(match.score.at) || parseInt(match.score.visitorteam_score) || 0;
+                    }
+                    
+                    // Determine result
+                    matchData.result = determineMatchResult(matchData.homeScore, matchData.awayScore);
+                    
+                    console.log(`📊 Match ${match.id} final score: ${matchData.homeScore}-${matchData.awayScore} (${matchData.result})`);
+                    
+                    // Store in Firestore
+                    await db.collection('finishedMatches').doc(`match_${match.id}`).set(matchData);
+                    
+                    // Trigger settlement for this match
+                    setTimeout(() => settleFinishedMatches(), 1000);
+                    
+                } catch (error) {
+                    console.error('❌ Error storing finished match:', error);
+                }
             }
         }
 
