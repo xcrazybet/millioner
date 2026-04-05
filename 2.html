@@ -846,6 +846,9 @@
                         <button onclick="testLiveScores()" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm ml-2">
                             <i class="fas fa-bell text-green-500 mr-2"></i>Test Scores
                         </button>
+                        <button onclick="debugBettingSystem()" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm ml-2">
+                            <i class="fas fa-bug text-red-500 mr-2"></i>Debug System
+                        </button>
                     </div>
                 </div>
 
@@ -2592,6 +2595,63 @@
             }
         }
 
+        // Comprehensive Debug Function
+        async function debugBettingSystem() {
+            console.log('🔍 Starting comprehensive betting system debug...');
+            
+            try {
+                // 1. Check Firebase connection
+                console.log('1️⃣ Checking Firebase connection...');
+                console.log('Firebase initialized:', !!firebase);
+                console.log('Auth available:', !!auth);
+                console.log('DB available:', !!db);
+                console.log('Current user:', currentUser);
+                
+                // 2. Check user data
+                console.log('2️⃣ Checking user data...');
+                if (currentUser) {
+                    const userDoc = await db.collection('wallets').doc(currentUser.uid).get();
+                    console.log('User wallet exists:', userDoc.exists);
+                    if (userDoc.exists) {
+                        console.log('User balance:', userDoc.data().balance);
+                    }
+                }
+                
+                // 3. Check betting slip
+                console.log('3️⃣ Checking betting slip...');
+                console.log('Betting slip length:', bettingSlip.length);
+                console.log('Betting slip contents:', bettingSlip);
+                
+                // 4. Test bet placement
+                console.log('4️⃣ Testing bet placement...');
+                if (bettingSlip.length > 0) {
+                    console.log('✅ Can place bet - betting slip has items');
+                } else {
+                    console.log('❌ Cannot place bet - betting slip is empty');
+                    showStatus('warning', 'Add Selection', 'Please add selections to bet slip first');
+                }
+                
+                // 5. Check recent bets
+                console.log('5️⃣ Checking recent bets...');
+                if (currentUser) {
+                    const betsSnapshot = await db.collection('bets')
+                        .where('userId', '==', currentUser.uid)
+                        .limit(5)
+                        .get();
+                    console.log('Recent bets count:', betsSnapshot.docs.length);
+                    betsSnapshot.docs.forEach(doc => {
+                        console.log('Bet:', doc.id, doc.data());
+                    });
+                }
+                
+                showStatus('success', 'Debug Complete', 'Check console for detailed information');
+                
+            } catch (error) {
+                console.error('❌ Debug error:', error);
+                showStatus('error', 'Debug Failed', error.message);
+            }
+        }
+
         // Update Match Card Score - Enhanced for Real API Data
         function updateMatchCardScore(match) {
             const matchId = `match_${match.id}`;
@@ -2791,29 +2851,46 @@ function setQuickStake(amount) {
             winDisplay.textContent = `$${potentialWin.toFixed(2)}`;
         }
     }
-        }
+}
 
-        // Place Bet Function
-        async function placeBet() {
+// Place Bet Function
+async function placeBet() {
+            console.log('🎯 Place bet function called...');
+            
             const stakeInput = document.getElementById('stakeAmount');
             const stake = parseFloat(stakeInput.value);
             
+            console.log('💰 Stake amount:', stake);
+            console.log('🎲 Betting slip:', bettingSlip);
+            
             if (!stake || stake <= 0) {
+                console.log('❌ Invalid stake amount');
                 showToast('Please enter a valid stake amount', 'error');
                 return;
             }
             
             if (!userData || userData.balance < stake) {
+                console.log('❌ Insufficient balance. Available:', userData.balance, 'Required:', stake);
                 showToast('Insufficient balance', 'error');
                 return;
             }
             
+            if (bettingSlip.length === 0) {
+                console.log('❌ Betting slip is empty');
+                showToast('Please add selections to bet slip', 'error');
+                return;
+            }
+            
             try {
+                console.log('✅ Validation passed, proceeding with bet placement...');
+                
                 // Check bet limits
                 await checkBetLimits(stake);
                 
                 const totalOdds = bettingSlip.reduce((acc, bet) => acc * bet.odds, 1);
                 const potentialWin = stake * totalOdds;
+                
+                console.log('📊 Total odds:', totalOdds, 'Potential win:', potentialWin);
                 
                 // Create bet record
                 const betData = {
@@ -2828,23 +2905,17 @@ function setQuickStake(amount) {
                     settledAt: null
                 };
                 
-                // Save bet to Firestore
                 console.log('💾 Saving bet data:', betData);
                 console.log('👤 Current user:', currentUser.uid);
                 console.log('🔥 Firebase db object:', db);
                 
-                try {
-                    const betRef = await db.collection('bets').add(betData);
-                    console.log('✅ Bet saved with ID:', betRef.id);
-                    
-                    // Verify it was saved
-                    const savedBet = await betRef.get();
-                    console.log('🔍 Verified saved bet:', savedBet.data());
-                    
-                } catch (saveError) {
-                    console.error('❌ Error saving bet:', saveError);
-                    throw saveError;
-                }
+                // Save bet to Firestore
+                const betRef = await db.collection('bets').add(betData);
+                console.log('✅ Bet saved with ID:', betRef.id);
+                
+                // Verify it was saved
+                const savedBet = await betRef.get();
+                console.log('🔍 Verified saved bet:', savedBet.data());
                 
                 // Update user balance
                 await db.collection('wallets').doc(currentUser.uid).update({
@@ -2863,8 +2934,10 @@ function setQuickStake(amount) {
                 showToast('Bet placed successfully!', 'success');
                 loadUserStats();
                 
+                console.log('🎉 Bet placement completed successfully!');
+                
             } catch (error) {
-                console.error('Error placing bet:', error);
+                console.error('❌ Error placing bet:', error);
                 showToast(error.message || 'Failed to place bet', 'error');
             }
         }
