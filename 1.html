@@ -2938,6 +2938,223 @@
             }
         }
 
+        // Missing function implementations
+        function loadUpcomingMatches() {
+            currentMatchType = 'upcoming';
+            updateActiveButton('upcomingBtn');
+            showStatus('loading', 'Loading Upcoming Matches', 'Fetching matches for next 7 days...');
+
+            try {
+                let allUpcomingMatches = [];
+                
+                // Get matches for the next 7 days
+                for (let i = 0; i < 7; i++) {
+                    const targetDate = new Date(Date.now() + i * 24 * 60 * 60 * 1000);
+                    const dateString = targetDate.toISOString().split('T')[0];
+                    
+                    const url = 'https://api.sportmonks.com/v3/football/fixtures/date/' + dateString + '?api_token=' + API_TOKEN + '&include=participants;state;league;scores&per_page=15';
+                    
+                    let data = await tryDirectFetchWithUrl(url);
+                    if (!data) {
+                        data = await tryPublicProxyWithUrl(url);
+                    }
+                    
+                    if (data && data.data) {
+                        const upcoming = data.data.filter(match => 
+                            [1, 45, 46].includes(match.state_id)
+                        );
+                        allUpcomingMatches = allUpcomingMatches.concat(upcoming);
+                    }
+                }
+                
+                // Sort by start time
+                allUpcomingMatches.sort((a, b) => new Date(a.starting_at) - new Date(b.starting_at));
+                
+                if (allUpcomingMatches.length > 0) {
+                    displayMatches(allUpcomingMatches, 'upcoming');
+                    showStatus('success', 'Upcoming Matches Loaded', `${allUpcomingMatches.length} upcoming matches found for next 7 days`);
+                } else {
+                    // Generate sample upcoming matches
+                    const sampleUpcoming = generateSampleUpcomingMatches();
+                    displayMatches(sampleUpcoming, 'upcoming');
+                    showStatus('success', 'Sample Data', 'Showing sample upcoming matches for next 7 days');
+                }
+                
+            } catch (error) {
+                console.error('💥 Error loading upcoming matches:', error);
+                showStatus('error', 'API Error', 'Using sample data - API unavailable');
+                const sampleUpcoming = generateSampleUpcomingMatches();
+                displayMatches(sampleUpcoming, 'upcoming');
+            }
+        }
+
+        function loadFinishedMatches() {
+            currentMatchType = 'finished';
+            updateActiveButton('finishedBtn');
+            showStatus('loading', 'Loading Finished Matches', 'Fetching recent completed matches...');
+
+            try {
+                let allFinishedMatches = [];
+                
+                // Try multiple methods to get finished matches from last 24 hours
+                const methods = [
+                    // Method 1: Latest fixtures
+                    async () => {
+                        const data = await tryDirectFetch();
+                        if (data && data.data) {
+                            const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
+                            const recentFinished = finished.filter(match => {
+                                const matchTime = new Date(match.starting_at);
+                                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                                return matchTime >= twentyFourHoursAgo;
+                            });
+                            return recentFinished;
+                        }
+                        return [];
+                    },
+                    // Method 2: Yesterday's fixtures
+                    async () => {
+                        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                        const url = 'https://api.sportmonks.com/v3/football/fixtures/date/' + yesterday + '?api_token=' + API_TOKEN + '&include=participants;state;league;scores;events&per_page=20';
+                        const data = await tryDirectFetchWithUrl(url);
+                        if (data && data.data) {
+                            const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
+                            return finished;
+                        }
+                        return [];
+                    }
+                ];
+                
+                // Try all methods to get real data
+                for (const method of methods) {
+                    const matches = await method();
+                    if (matches.length > 0) {
+                        allFinishedMatches = allFinishedMatches.concat(matches);
+                        console.log(`✅ Found ${matches.length} finished matches from API`);
+                        break;
+                    }
+                }
+                
+                // Sort by most recent first
+                allFinishedMatches.sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at));
+                
+                if (allFinishedMatches.length > 0) {
+                    displayMatches(allFinishedMatches, 'finished');
+                    showStatus('success', 'Finished Matches Loaded', `${allFinishedMatches.length} finished matches found`);
+                } else {
+                    // Generate sample finished matches
+                    const sampleFinished = generateSampleFinishedMatches();
+                    displayMatches(sampleFinished, 'finished');
+                    showStatus('success', 'Sample Data', 'Showing sample finished matches from last 24 hours');
+                }
+                
+            } catch (error) {
+                console.error('💥 Error loading finished matches:', error);
+                showStatus('error', 'API Error', 'Using sample data - API unavailable');
+                const sampleFinished = generateSampleFinishedMatches();
+                displayMatches(sampleFinished, 'finished');
+            }
+        }
+
+        function updateMatchCardScore(match) {
+            const matchCard = document.querySelector(`[data-match-id="${match.id}"]`);
+            if (!matchCard) return;
+            
+            const scoreElement = matchCard.querySelector('.match-score');
+            if (scoreElement) {
+                const currentHomeScore = parseInt(scoreElement.dataset.homeScore) || 0;
+                const currentAwayScore = parseInt(scoreElement.dataset.awayScore) || 0;
+                
+                // Get new scores
+                const scores = match.scores || [];
+                let newHomeScore = 0;
+                let newAwayScore = 0;
+                
+                if (scores.length > 0) {
+                    const homeScoreObj = scores.find(s => s.participant === 'home' || s.participant === match.participants?.[0]?.id);
+                    const awayScoreObj = scores.find(s => s.participant === 'away' || s.participant === match.participants?.[1]?.id);
+                    newHomeScore = homeScoreObj?.score || 0;
+                    newAwayScore = awayScoreObj?.score || 0;
+                }
+                
+                // Update if scores changed
+                if (newHomeScore !== currentHomeScore || newAwayScore !== currentAwayScore) {
+                    scoreElement.textContent = `${newHomeScore} - ${newAwayScore}`;
+                    scoreElement.dataset.homeScore = newHomeScore;
+                    scoreElement.dataset.awayScore = newAwayScore;
+                    scoreElement.classList.add('score-changed');
+                    
+                    setTimeout(() => {
+                        scoreElement.classList.remove('score-changed');
+                    }, 1000);
+                }
+            }
+        }
+
+        async function checkForNewGoals(liveMatches) {
+            // This would compare with previous scores and show goal notifications
+            // For now, just log the matches being checked
+            console.log('🔍 Checking for new goals in', liveMatches.length, 'matches');
+        }
+
+        function updateBalance(newBalance) {
+            const balanceElement = document.getElementById('userBalance');
+            balanceElement.textContent = `$${newBalance.toFixed(2)}`;
+            balanceElement.classList.add('balance-update');
+            setTimeout(() => balanceElement.classList.remove('balance-update'), 500);
+        }
+
+        function clearBetSlip() {
+            bettingSlip = [];
+            updateBetSlip();
+        }
+
+        // Add missing helper functions for CashOutManager
+        CashOutManager.prototype.getCurrentScore = async function(matchId) {
+            // This would get current score from API or cache
+            return { home: 1, away: 0 }; // Placeholder
+        };
+
+        CashOutManager.prototype.getMatchTime = function(matchId) {
+            // This would get elapsed time
+            return 45; // Placeholder
+        };
+
+        CashOutManager.prototype.isBetWinning = function(bet, currentScore) {
+            // Logic to determine if bet is currently winning
+            return Math.random() > 0.5; // Placeholder
+        };
+
+        CashOutManager.prototype.isBetLosing = function(bet, currentScore) {
+            // Logic to determine if bet is currently losing
+            return Math.random() > 0.7; // Placeholder
+        };
+
+        CashOutManager.prototype.getBet = async function(betId) {
+            const betDoc = await db.collection('bets').doc(betId).get();
+            return { id: betDoc.id, ...betDoc.data() };
+        };
+
+        // Add missing helper functions for BettingAI
+        BettingAI.prototype.getHistoricalData = async function(match) {
+            // This would fetch historical data for the teams
+            return { home: 0.6, away: 0.4 }; // Placeholder
+        };
+
+        BettingAI.prototype.calculateTeamForm = function(historicalData) {
+            return historicalData;
+        };
+
+        BettingAI.prototype.getHeadToHead = function(match) {
+            // This would calculate head-to-head statistics
+            return 0.5; // Placeholder
+        };
+
+        BettingAI.prototype.getInjuries = async function(match) {
+            // This would fetch injury data
+            return []; // Placeholder
+        };
+
         // Event Listeners
         document.getElementById('stakeAmount').addEventListener('input', updatePotentialWin);
 
@@ -2951,6 +3168,8 @@
         // Initialize on load
         window.onload = function() {
             initializeApp();
+            initDarkMode();
+            initChat();
         };
     </script>
 </body>
