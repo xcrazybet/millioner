@@ -829,69 +829,83 @@
             }
         }
 
-        // Load Finished Matches - Enhanced for 24 hour data
-        async function loadFinishedMatches() {
+        // Load All Finished Matches - Use Real API Data Only
+        async function loadAllFinishedMatches() {
             currentMatchType = 'finished';
             updateActiveButton('finishedBtn');
-            showStatus('loading', 'Loading Finished Matches', 'Fetching recent completed matches...');
+            showStatus('loading', 'Loading Finished Matches', 'Fetching recent completed matches from API...');
 
             try {
                 let allFinishedMatches = [];
                 
-                // Try multiple methods to get finished matches from last 24 hours
+                // Try multiple methods to get real finished matches from last 24 hours
+                const methods = [
+                    // Method 1: Latest fixtures with finished status
+                    async () => {
+                        const data = await tryDirectFetch();
+                        if (data && data.data) {
+                            const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
+                            const recentFinished = finished.filter(match => {
+                                const matchTime = new Date(match.starting_at);
+                                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                                return matchTime >= twentyFourHoursAgo;
+                            });
+                            return recentFinished;
+                        }
+                        return [];
+                    },
+                    // Method 2: Yesterday's fixtures
+                    async () => {
+                        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                        const url = 'https://api.sportmonks.com/v3/football/fixtures/date/' + yesterday + '?api_token=' + API_TOKEN + '&include=participants;state;league;scores;events&per_page=50';
+                        const data = await tryDirectFetchWithUrl(url);
+                        if (data && data.data) {
+                            const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
+                            return finished;
+                        }
+                        return [];
+                    },
+                    // Method 3: Two days ago
+                    async () => {
+                        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().split('T')[0];
+                        const url = 'https://api.sportmonks.com/v3/football/fixtures/date/' + twoDaysAgo + '?api_token=' + API_TOKEN + '&include=participants;state;league;scores;events&per_page=50';
+                        const data = await tryDirectFetchWithUrl(url);
+                        if (data && data.data) {
+                            const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
+                            return finished;
+                        }
+                        return [];
+                    }
+                ];
                 
-                // Method 1: Latest fixtures
-                let data = await tryDirectFetch();
-                if (data && data.data) {
-                    const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
-                    const recentFinished = finished.filter(match => {
-                        const matchTime = new Date(match.starting_at);
-                        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-                        return matchTime >= twentyFourHoursAgo;
-                    });
-                    allFinishedMatches = allFinishedMatches.concat(recentFinished);
-                }
-                
-                // Method 2: Yesterday's fixtures
-                if (allFinishedMatches.length === 0) {
-                    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                    const url = 'https://api.sportmonks.com/v3/football/fixtures/date/' + yesterday + '?api_token=' + API_TOKEN + '&include=participants;state;league;scores;events&per_page=20';
-                    
-                    data = await tryDirectFetchWithUrl(url);
-                    if (data && data.data) {
-                        const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
-                        allFinishedMatches = allFinishedMatches.concat(finished);
+                // Try all methods to get real data
+                for (const method of methods) {
+                    const matches = await method();
+                    if (matches.length > 0) {
+                        allFinishedMatches = allFinishedMatches.concat(matches);
+                        console.log(`✅ Found ${matches.length} finished matches from API`);
+                        break;
                     }
                 }
                 
-                // Method 3: Two days ago if still no matches
-                if (allFinishedMatches.length === 0) {
-                    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().split('T')[0];
-                    const url = 'https://api.sportmonks.com/v3/football/fixtures/date/' + twoDaysAgo + '?api_token=' + API_TOKEN + '&include=participants;state;league;scores;events&per_page=20';
-                    
-                    data = await tryDirectFetchWithUrl(url);
-                    if (data && data.data) {
-                        const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
-                        allFinishedMatches = allFinishedMatches.concat(finished);
-                    }
-                }
+                // Remove duplicates and sort
+                const uniqueMatches = Array.from(new Map(allFinishedMatches.map(match => [match.id, match])).values());
+                uniqueMatches.sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at));
                 
-                // Sort by most recent first
-                allFinishedMatches.sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at));
-                
-                if (allFinishedMatches.length > 0) {
-                    displayMatches(allFinishedMatches, 'finished');
-                    showStatus('success', 'Finished Matches Loaded', `${allFinishedMatches.length} finished matches found`);
+                if (uniqueMatches.length > 0) {
+                    displayMatches(uniqueMatches, 'finished');
+                    showStatus('success', 'Finished Matches Loaded', `${uniqueMatches.length} real finished matches from last 24 hours`);
                 } else {
-                    // Generate sample finished matches for last 24 hours
+                    // Only use sample data if API completely fails
+                    console.log('⚠️ No real finished matches found, API may be down');
                     const sampleFinished = generateSampleFinishedMatches();
                     displayMatches(sampleFinished, 'finished');
-                    showStatus('success', 'Sample Data', 'Showing sample finished matches from last 24 hours');
+                    showStatus('warning', 'API Unavailable', 'Showing sample data - API may be temporarily down');
                 }
                 
             } catch (error) {
                 console.error('💥 Error loading finished matches:', error);
-                showStatus('error', 'API Error', 'Using sample data - API unavailable');
+                showStatus('error', 'API Error', 'Using sample data - API temporarily unavailable');
                 const sampleFinished = generateSampleFinishedMatches();
                 displayMatches(sampleFinished, 'finished');
             }
@@ -1807,21 +1821,6 @@
                 clearInterval(scoreUpdateInterval);
             }
         };
-
-        // Add link to bets.html in the sidebar
-        function addBetsLink() {
-            const sidebar = document.querySelector('.sidebar');
-            if (sidebar) {
-                const betsLink = document.createElement('a');
-                betsLink.href = 'bets.html';
-                betsLink.className = 'block px-4 py-2 text-gray-700 hover:bg-gray-100 rounded transition';
-                betsLink.innerHTML = '<i class="fas fa-ticket-alt mr-2"></i>View All Bets';
-                sidebar.appendChild(betsLink);
-            }
-        }
-
-        // Initialize bets link when app loads
-        setTimeout(addBetsLink, 1000);
     </script>
 </body>
 </html>
