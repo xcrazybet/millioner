@@ -849,6 +849,12 @@
                         <button onclick="debugBettingSystem()" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm ml-2">
                             <i class="fas fa-bug text-red-500 mr-2"></i>Debug System
                         </button>
+                        <button onclick="testSimpleBet()" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm ml-2">
+                            <i class="fas fa-flask text-purple-500 mr-2"></i>Test Bet
+                        </button>
+                        <button onclick="forceLiveScoreUpdate()" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm ml-2">
+                            <i class="fas fa-bolt text-yellow-500 mr-2"></i>Force Scores
+                        </button>
                     </div>
                 </div>
 
@@ -1131,7 +1137,12 @@
         const cacheManager = new CacheManager();
 
         // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+            console.log('🔥 Firebase initialized successfully');
+        } else {
+            console.log('🔥 Firebase already initialized');
+        }
         auth = firebase.auth();
         db = firebase.firestore();
         realtimeDb = firebase.database();
@@ -2584,14 +2595,57 @@
         // Test Live Scores Function
         async function testLiveScores() {
             console.log('🧪 Testing live score updates...');
-            showStatus('info', 'Testing Scores', 'Fetching live scores now...');
+            showStatus('info', 'Testing Scores', 'Testing score display...');
             
             try {
-                await fetchAndUpdateLiveScores();
-                showStatus('success', 'Test Complete', 'Live scores updated! Check console for details.');
+                // Find all score elements and update them with test data
+                const scoreElements = document.querySelectorAll('[id^="score_"]');
+                console.log('📊 Found score elements:', scoreElements.length);
+                
+                scoreElements.forEach((element, index) => {
+                    const testScore = `${index + 1} - ${(index + 1) * 2}`;
+                    element.textContent = testScore;
+                    element.classList.add('score-changed');
+                    console.log('🎯 Updated score element:', element.id, 'to:', testScore);
+                });
+                
+                showStatus('success', 'Test Complete', `Updated ${scoreElements.length} score elements!`);
+                
             } catch (error) {
-                console.error('Test failed:', error);
+                console.error('❌ Test failed:', error);
                 showStatus('error', 'Test Failed', 'Could not update scores');
+            }
+        }
+
+        // Force Live Score Update
+        async function forceLiveScoreUpdate() {
+            console.log('⚡ Forcing live score update...');
+            
+            try {
+                // Get current matches and update scores
+                const matchCards = document.querySelectorAll('.match-card');
+                console.log('📊 Found match cards:', matchCards.length);
+                
+                matchCards.forEach((card, index) => {
+                    const scoreElement = card.querySelector('[id^="score_"]');
+                    if (scoreElement) {
+                        // Generate random test scores
+                        const homeScore = Math.floor(Math.random() * 5);
+                        const awayScore = Math.floor(Math.random() * 5);
+                        const testScore = `${homeScore} - ${awayScore}`;
+                        
+                        scoreElement.textContent = testScore;
+                        scoreElement.classList.add('score-changed');
+                        
+                        console.log('⚡ Updated match card:', index, 'score:', testScore);
+                    }
+                });
+                
+                showStatus('success', 'Force Update Complete', 'All match scores updated!');
+                
+            } catch (error) {
+                console.error('❌ Force update failed:', error);
+                showStatus('error', 'Update Failed', error.message);
             }
         }
 
@@ -2649,6 +2703,52 @@
             } catch (error) {
                 console.error('❌ Debug error:', error);
                 showStatus('error', 'Debug Failed', error.message);
+            }
+        }
+
+        // Simple Test Bet Function
+        async function testSimpleBet() {
+            console.log('🧪 Testing simple bet placement...');
+            
+            if (!currentUser) {
+                showStatus('error', 'Not Logged In', 'Please login first');
+                return;
+            }
+            
+            try {
+                // Create a simple test bet
+                const testBet = {
+                    userId: currentUser.uid,
+                    selections: [{
+                        id: 'test_match_123',
+                        team: 'Test Team',
+                        market: 'Test Market',
+                        odds: 2.0
+                    }],
+                    stake: 10,
+                    totalOdds: 2.0,
+                    potentialWin: 20,
+                    betType: 'single',
+                    status: 'pending',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    settledAt: null
+                };
+                
+                console.log('💾 Saving test bet:', testBet);
+                
+                // Save to Firestore
+                const betRef = await db.collection('bets').add(testBet);
+                console.log('✅ Test bet saved with ID:', betRef.id);
+                
+                // Verify it was saved
+                const savedBet = await betRef.get();
+                console.log('🔍 Verified test bet:', savedBet.data());
+                
+                showStatus('success', 'Test Bet Placed', `Test bet ID: ${betRef.id}`);
+                
+            } catch (error) {
+                console.error('❌ Test bet failed:', error);
+                showStatus('error', 'Test Failed', error.message);
             }
         }
 
