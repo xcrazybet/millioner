@@ -229,9 +229,14 @@
 
                 <!-- Open Bets Section -->
                 <div class="bg-white rounded-2xl shadow-xl mt-6 p-6">
-                    <h3 class="text-xl font-bold mb-4 text-gray-800">
-                        <i class="fas fa-eye mr-2 text-blue-500"></i>Your Open Bets
-                    </h3>
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold text-gray-800">
+                            <i class="fas fa-eye mr-2 text-blue-500"></i>Your Open Bets
+                        </h3>
+                        <button onclick="updateOpenBets()" class="text-sm bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600">
+                            <i class="fas fa-sync-alt mr-1"></i>Refresh
+                        </button>
+                    </div>
                     <div id="openBets" class="space-y-3 max-h-64 overflow-y-auto">
                         <div class="text-center py-6 text-gray-600">
                             <i class="fas fa-hourglass-half text-3xl mb-2"></i>
@@ -242,9 +247,14 @@
 
                 <!-- Betting History -->
                 <div class="bg-white rounded-2xl shadow-xl mt-6 p-6">
-                    <h3 class="text-xl font-bold mb-4 text-gray-800">
-                        <i class="fas fa-history mr-2"></i>Your Betting History
-                    </h3>
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-xl font-bold text-gray-800">
+                            <i class="fas fa-history mr-2"></i>Your Betting History
+                        </h3>
+                        <button onclick="updateBettingHistory()" class="text-sm bg-purple-500 text-white px-3 py-1 rounded hover:bg-purple-600">
+                            <i class="fas fa-sync-alt mr-1"></i>Refresh
+                        </button>
+                    </div>
                     <div id="bettingHistory" class="space-y-3 max-h-64 overflow-y-auto">
                         <div class="text-center py-6 text-gray-600">
                             <i class="fas fa-clock text-3xl mb-2"></i>
@@ -765,8 +775,12 @@
             document.getElementById('potentialWin').textContent = `$${potentialWin.toFixed(2)}`;
         }
 
-        // Place Bet - Enhanced with proper storage
+        // Place Bet - Enhanced with proper storage and debugging
         async function placeBet() {
+            console.log('🎯 Starting bet placement...');
+            console.log('Current user:', currentUser);
+            console.log('Betting slip:', bettingSlip);
+            
             if (bettingSlip.length === 0) {
                 showStatus('error', 'No Selections', 'Add selections to bet slip first');
                 return;
@@ -774,6 +788,8 @@
 
             const stake = parseFloat(document.getElementById('stakeAmount').value);
             const userBalance = userData?.balance || 0;
+
+            console.log('Stake:', stake, 'Balance:', userBalance);
 
             if (stake < 1) {
                 showStatus('error', 'Invalid Stake', 'Minimum stake is $1.00');
@@ -813,6 +829,8 @@
                     winnings: 0
                 };
 
+                console.log('📝 Bet data to save:', betData);
+
                 // Save to Firestore 'bets' collection
                 const betRef = await db.collection('bets').add(betData);
                 console.log('✅ Bet saved with ID:', betRef.id);
@@ -823,6 +841,8 @@
                     totalBets: firebase.firestore.FieldValue.increment(1),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
+
+                console.log('💰 Balance updated');
 
                 // Create transaction record
                 const transactionData = {
@@ -838,6 +858,7 @@
                 };
 
                 await db.collection('transactions').add(transactionData);
+                console.log('📄 Transaction recorded');
 
                 // Update local data
                 userData.balance = userBalance - stake;
@@ -845,16 +866,21 @@
                 bettingSlip = [];
                 updateBetSlip();
 
-                // Refresh open bets and history
-                await updateOpenBets();
-                await updateBettingHistory();
-                loadUserStats();
+                console.log('🔄 Updating displays...');
+                
+                // Refresh open bets and history with delay to ensure Firebase updates
+                setTimeout(async () => {
+                    await updateOpenBets();
+                    await updateBettingHistory();
+                    loadUserStats();
+                    console.log('✅ All displays updated');
+                }, 1000);
 
                 showStatus('success', 'Bet Placed', `Your bet of $${stake.toFixed(2)} has been placed successfully! Bet ID: ${betRef.id}`);
 
             } catch (error) {
-                console.error('Error placing bet:', error);
-                showStatus('error', 'Bet Failed', 'Failed to place bet. Please try again.');
+                console.error('❌ Error placing bet:', error);
+                showStatus('error', 'Bet Failed', `Failed to place bet: ${error.message}`);
             } finally {
                 const placeBetBtn = document.getElementById('placeBetBtn');
                 placeBetBtn.disabled = false;
@@ -881,6 +907,20 @@
 
             showStatus('loading', 'Initializing...', 'Setting up your enhanced betting experience');
 
+            // Test Firebase connection
+            try {
+                console.log('🔥 Testing Firebase connection...');
+                const testDoc = await db.collection('test').doc('connection').set({
+                    test: true,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                console.log('✅ Firebase connection successful');
+            } catch (error) {
+                console.error('❌ Firebase connection failed:', error);
+                showStatus('error', 'Connection Error', 'Failed to connect to database');
+                return;
+            }
+
             auth.onAuthStateChanged(async (user) => {
                 if (!user) {
                     window.location.href = 'login.html';
@@ -888,13 +928,18 @@
                 }
 
                 currentUser = user;
+                console.log('👤 User authenticated:', user.uid);
+                
                 await loadUserData();
                 updateUI();
                 
-                // Load all user data
-                await updateOpenBets();
-                await updateBettingHistory();
-                loadUserStats();
+                // Load all user data with delays to ensure Firebase is ready
+                setTimeout(async () => {
+                    await updateOpenBets();
+                    await updateBettingHistory();
+                    loadUserStats();
+                    console.log('📊 Initial data loaded');
+                }, 1000);
                 
                 // Load matches
                 loadLiveMatches();
@@ -959,10 +1004,16 @@
             });
         }
 
-        // Update Open Bets - Shows pending bets
+        // Update Open Bets - Shows pending bets with debugging
         async function updateOpenBets() {
             try {
-                if (!currentUser) return;
+                console.log('🔄 Updating open bets...');
+                console.log('Current user:', currentUser);
+                
+                if (!currentUser) {
+                    console.log('❌ No current user');
+                    return;
+                }
                 
                 const betsSnapshot = await db.collection('bets')
                     .where('userId', '==', currentUser.uid)
@@ -970,20 +1021,30 @@
                     .orderBy('createdAt', 'desc')
                     .get();
 
+                console.log('📊 Open bets snapshot size:', betsSnapshot.size);
+
                 const openBets = betsSnapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
                 }));
                 
+                console.log('📝 Open bets data:', openBets);
                 updateOpenBetsDisplay(openBets);
             } catch (error) {
-                console.error('Error updating open bets:', error);
+                console.error('❌ Error updating open bets:', error);
+                showStatus('error', 'Load Error', 'Failed to load open bets');
             }
         }
 
-        // Update Open Bets Display
+        // Update Open Bets Display with debugging
         function updateOpenBetsDisplay(openBets) {
+            console.log('🎨 Updating open bets display with:', openBets);
             const openBetsContainer = document.getElementById('openBets');
+            
+            if (!openBetsContainer) {
+                console.error('❌ Open bets container not found');
+                return;
+            }
             
             if (openBets.length === 0) {
                 openBetsContainer.innerHTML = `
@@ -992,16 +1053,19 @@
                         <p>No open bets</p>
                     </div>
                 `;
+                console.log('📭 No open bets to display');
                 return;
             }
 
             let html = '';
-            openBets.forEach(bet => {
+            openBets.forEach((bet, index) => {
                 const date = bet.createdAt ? bet.createdAt.toDate() : new Date();
                 const selections = bet.selections || [];
                 
+                console.log(`📋 Processing bet ${index + 1}:`, bet);
+                
                 html += `
-                    <div class="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 rounded-lg p-4">
+                    <div class="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 rounded-lg p-4 mb-3">
                         <div class="flex justify-between items-start mb-2">
                             <div class="flex-1">
                                 <div class="font-bold text-sm mb-1 text-blue-600">
@@ -1034,6 +1098,7 @@
             });
             
             openBetsContainer.innerHTML = html;
+            console.log('✅ Open bets display updated');
         }
 
         // Update Betting History - Shows all bets
