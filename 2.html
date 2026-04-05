@@ -289,13 +289,16 @@
         .match-card {
             background: linear-gradient(145deg, #ffffff 0%, #f1f5f9 100%);
             border: 1px solid rgba(0,0,0,0.08);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.12);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08) !important;
+            transition: all 0.2s ease !important;
+            padding: 12px !important;
+            margin-bottom: 8px !important;
+            border-radius: 12px !important;
         }
         
         .match-card:hover {
-            transform: translateY(-6px) scale(1.02);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            transform: translateY(-2px) scale(1.01) !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
         }
         
         .team-logo-img {
@@ -325,16 +328,33 @@
             left: 100%;
         }
         
+        .stake-quick-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 8px 12px !important;
+            border-radius: 8px !important;
+            font-size: 0.75rem !important;
+            font-weight: 600 !important;
+            cursor: pointer !important;
+            transition: all 0.2s ease !important;
+        }
+        
+        .stake-quick-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+        
         /* Team Logo Styles */
         .team-logo-img {
-            width: 50px;
-            height: 50px;
+            width: 35px !important;
+            height: 35px !important;
             object-fit: contain;
             border-radius: 50%;
             background: white;
-            padding: 4px;
-            border: 2px solid #e5e7eb;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 2px !important;
+            border: 1px solid #e5e7eb !important;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08) !important;
         }
         
         /* Live Match Timer */
@@ -2244,11 +2264,34 @@
             
             let homeScore = 0;
             let awayScore = 0;
+            
+            // Enhanced score parsing for finished matches
             if (scores.length > 0) {
+                console.log('📊 Processing scores for match:', match.id, scores);
+                
+                // Method 1: participant field
                 const homeScoreObj = scores.find(s => s.participant === 'home' || s.participant === homeTeam?.id);
                 const awayScoreObj = scores.find(s => s.participant === 'away' || s.participant === awayTeam?.id);
-                homeScore = homeScoreObj?.score || 0;
-                awayScore = awayScoreObj?.score || 0;
+                
+                if (homeScoreObj && awayScoreObj) {
+                    homeScore = parseInt(homeScoreObj.score) || parseInt(homeScoreObj.goals) || 0;
+                    awayScore = parseInt(awayScoreObj.score) || parseInt(awayScoreObj.goals) || 0;
+                    console.log('✅ Score parsing method 1:', { homeScore, awayScore });
+                } else {
+                    // Method 2: By index
+                    homeScore = parseInt(scores[0]?.score) || parseInt(scores[0]?.goals) || 0;
+                    awayScore = parseInt(scores[1]?.score) || parseInt(scores[1]?.goals) || 0;
+                    console.log('✅ Score parsing method 2:', { homeScore, awayScore });
+                }
+            } else if (match.goals && Array.isArray(match.goals)) {
+                // Method 3: Goals array
+                const homeGoals = match.goals.filter(g => g.team === 'home' || g.team_id === homeTeam?.id).length;
+                const awayGoals = match.goals.filter(g => g.team === 'away' || g.team_id === awayTeam?.id).length;
+                homeScore = homeGoals;
+                awayScore = awayGoals;
+                console.log('✅ Score parsing method 3:', { homeScore, awayScore });
+            } else {
+                console.log('⚠️ No score data found for match:', match.id);
             }
             
             const league = match.league?.name || 'Unknown League';
@@ -2550,44 +2593,63 @@
             }
         }
 
-        // Update Match Card Score - Fixed ID and improved score parsing
+        // Update Match Card Score - Enhanced Score Parsing
         function updateMatchCardScore(match) {
             const matchId = `match_${match.id}`;
             const scoreElement = document.getElementById(`score_${matchId}`);
             
             if (scoreElement) {
-                const scores = match.scores || [];
+                console.log('🔍 Updating score for match:', match.id, 'Full match data:', match);
+                
                 let homeScore = 0;
                 let awayScore = 0;
                 
-                console.log('🔍 Updating score for match:', match.id, 'Scores:', scores);
-                
-                if (scores.length > 0) {
-                    // Try multiple ways to get home/away scores
-                    const homeScoreObj = scores.find(s => s.participant === 'home') || 
-                                       scores.find(s => s.type === 'home') ||
-                                       scores[0];
-                    const awayScoreObj = scores.find(s => s.participant === 'away') || 
-                                       scores.find(s => s.type === 'away') ||
-                                       scores[1];
+                // Try multiple score formats
+                if (match.scores && Array.isArray(match.scores) && match.scores.length > 0) {
+                    console.log('📊 Scores array:', match.scores);
                     
-                    homeScore = parseInt(homeScoreObj?.score) || parseInt(homeScoreObj?.goals) || 0;
-                    awayScore = parseInt(awayScoreObj?.score) || parseInt(awayScoreObj?.goals) || 0;
+                    // Method 1: participant field
+                    const homeScoreObj = match.scores.find(s => s.participant === 'home');
+                    const awayScoreObj = match.scores.find(s => s.participant === 'away');
                     
-                    console.log('📊 Parsed scores:', { homeScore, awayScore });
+                    if (homeScoreObj && awayScoreObj) {
+                        homeScore = parseInt(homeScoreObj.score) || 0;
+                        awayScore = parseInt(awayScoreObj.score) || 0;
+                        console.log('✅ Method 1 success:', { homeScore, awayScore });
+                    } else {
+                        // Method 2: Check by index
+                        homeScore = parseInt(match.scores[0]?.score) || parseInt(match.scores[0]?.goals) || 0;
+                        awayScore = parseInt(match.scores[1]?.score) || parseInt(match.scores[1]?.goals) || 0;
+                        console.log('✅ Method 2 success:', { homeScore, awayScore });
+                    }
+                } else if (match.score && typeof match.score === 'object') {
+                    // Method 3: Direct score object
+                    homeScore = parseInt(match.score.home) || parseInt(match.score.ht) || 0;
+                    awayScore = parseInt(match.score.away) || parseInt(match.score.at) || 0;
+                    console.log('✅ Method 3 success:', { homeScore, awayScore });
+                } else if (match.goals && Array.isArray(match.goals)) {
+                    // Method 4: Goals array
+                    const homeGoals = match.goals.filter(g => g.team === 'home' || g.team_id === match.participants?.[0]?.id).length;
+                    const awayGoals = match.goals.filter(g => g.team === 'away' || g.team_id === match.participants?.[1]?.id).length;
+                    homeScore = homeGoals;
+                    awayScore = awayGoals;
+                    console.log('✅ Method 4 success:', { homeScore, awayScore });
+                } else {
+                    console.log('⚠️ No score data found, using defaults');
                 }
                 
                 const newScore = `${homeScore} - ${awayScore}`;
                 const currentScore = scoreElement.textContent;
                 
+                console.log('🎯 Score change:', currentScore, '→', newScore);
+                
                 if (currentScore !== newScore) {
-                    console.log('⚽ Score updated:', currentScore, '→', newScore);
                     scoreElement.textContent = newScore;
                     scoreElement.classList.add('score-changed');
                     setTimeout(() => scoreElement.classList.remove('score-changed'), 1000);
                     
                     // Show goal notification
-                    if (currentScore !== '0 - 0' && newScore !== currentScore) {
+                    if (currentScore !== '0 - 0' && newScore !== currentScore && (homeScore > 0 || awayScore > 0)) {
                         showStatus('success', 'Goal Scored!', `Score updated: ${newScore}`);
                     }
                 }
@@ -2647,61 +2709,86 @@
             const betCount = document.getElementById('betCount');
             const betSummary = document.getElementById('betSummary');
             
-            betCount.textContent = bettingSlip.length;
+    // Calculate totals
+    const totalOdds = bettingSlip.reduce((acc, bet) => acc * bet.odds, 1);
+    const minStake = 1;
+    const maxStake = userData?.balance || 0;
             
-            if (bettingSlip.length === 0) {
-                betSlipContent.innerHTML = `
-                    <div class="text-center py-8 text-gray-500">
-                        <i class="fas fa-plus-circle text-5xl mb-3 text-gradient bg-gradient-to-r from-purple-500 to-pink-500"></i>
-                        <p class="text-lg font-semibold">Add selections to start betting</p>
-                    </div>
-                `;
-                betSummary.classList.add('hidden');
-                return;
-            }
+    // Simple bet slip display
+    let html = '<div class="space-y-2">';
+    bettingSlip.forEach((bet, index) => {
+        html += `
+            <div class="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+                <div class="flex-1">
+                    <div class="font-semibold text-sm">${bet.team}</div>
+                    <div class="text-xs text-gray-600">${bet.market}</div>
+                </div>
+                <div class="text-right">
+                    <div class="font-bold text-purple-600">${bet.odds.toFixed(2)}</div>
+                    <button onclick="removeFromBetSlip('${bet.id}')" 
+                            class="text-red-500 hover:text-red-700 ml-2">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
             
-            let html = '';
-            let totalOdds = 1;
+    // Quick stake buttons
+    html += `
+        <div class="mt-4 p-3 bg-gray-50 rounded-lg">
+            <div class="text-sm font-semibold mb-2">Quick Stake:</div>
+            <div class="grid grid-cols-4 gap-2">
+                <button onclick="setQuickStake(5)" class="stake-quick-btn">$5</button>
+                <button onclick="setQuickStake(10)" class="stake-quick-btn">$10</button>
+                <button onclick="setQuickStake(25)" class="stake-quick-btn">$25</button>
+                <button onclick="setQuickStake(50)" class="stake-quick-btn">$50</button>
+            </div>
+            <div class="mt-3">
+                <input type="number" id="stakeAmount" placeholder="Enter stake" 
+                       class="w-full px-3 py-2 border rounded-lg text-center font-bold"
+                       min="${minStake}" max="${maxStake}" step="1" value="10">
+            </div>
+            <div class="mt-2 text-xs text-gray-600">
+                Potential Win: <span class="font-bold text-green-600">$${(totalOdds * 10).toFixed(2)}</span>
+            </div>
+        </div>
+    `;
             
-            bettingSlip.forEach(bet => {
-                totalOdds *= bet.odds;
-                html += `
-                    <div class="bet-slip-item p-3 rounded-lg mb-2 flex justify-between items-center">
-                        <div class="flex-1">
-                            <div class="font-semibold text-sm">${bet.team}</div>
-                            <div class="text-xs opacity-90">${bet.market}</div>
-                            <div class="text-xs font-bold">${bet.odds.toFixed(2)}</div>
-                        </div>
-                        <button onclick="removeFromBetSlip('${bet.id}')" class="text-white hover:text-red-200 ml-2">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                `;
-            });
+    betSlipContent.innerHTML = html;
             
-            betSlipContent.innerHTML = html;
-            betSummary.classList.remove('hidden');
-            
-            document.getElementById('totalOdds').textContent = totalOdds.toFixed(2);
-            updatePotentialWin();
+    // Set up place bet button
+    if (betSummary) {
+        betSummary.innerHTML = `
+            <button onclick="placeBet()" 
+                    class="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-xl font-bold hover:scale-105 transition">
+                <i class="fas fa-check-circle mr-2"></i>
+                Place Bet (${bettingSlip.length} selection${bettingSlip.length > 1 ? 's' : ''})
+            </button>
+        `;
+    }
+}
+
+// Quick stake function
+function setQuickStake(amount) {
+    const stakeInput = document.getElementById('stakeAmount');
+    if (stakeInput) {
+        stakeInput.value = amount;
+        // Update potential win display
+        const totalOdds = bettingSlip.reduce((acc, bet) => acc * bet.odds, 1);
+        const potentialWin = totalOdds * amount;
+        const winDisplay = document.querySelector('.text-green-600');
+        if (winDisplay) {
+            winDisplay.textContent = `$${potentialWin.toFixed(2)}`;
+        }
+    }
         }
 
-        function updatePotentialWin() {
-            const stake = parseFloat(document.getElementById('stakeAmount').value) || 0;
-            const totalOdds = bettingSlip.reduce((acc, bet) => acc * bet.odds, 1);
-            const potentialWin = stake * totalOdds;
-            
-            document.getElementById('potentialWin').textContent = `$${potentialWin.toFixed(2)}`;
-        }
-
-        // Place Bet
+        // Place Bet Function
         async function placeBet() {
-            if (bettingSlip.length === 0) {
-                showToast('Please add selections to your bet slip', 'error');
-                return;
-            }
-            
-            const stake = parseFloat(document.getElementById('stakeAmount').value);
+            const stakeInput = document.getElementById('stakeAmount');
+            const stake = parseFloat(stakeInput.value);
             
             if (!stake || stake <= 0) {
                 showToast('Please enter a valid stake amount', 'error');
@@ -2735,8 +2822,21 @@
                 
                 // Save bet to Firestore
                 console.log('💾 Saving bet data:', betData);
-                const betRef = await db.collection('bets').add(betData);
-                console.log('✅ Bet saved with ID:', betRef.id);
+                console.log('👤 Current user:', currentUser.uid);
+                console.log('🔥 Firebase db object:', db);
+                
+                try {
+                    const betRef = await db.collection('bets').add(betData);
+                    console.log('✅ Bet saved with ID:', betRef.id);
+                    
+                    // Verify it was saved
+                    const savedBet = await betRef.get();
+                    console.log('🔍 Verified saved bet:', savedBet.data());
+                    
+                } catch (saveError) {
+                    console.error('❌ Error saving bet:', saveError);
+                    throw saveError;
+                }
                 
                 // Update user balance
                 await db.collection('wallets').doc(currentUser.uid).update({
