@@ -35,14 +35,14 @@
             }
             
             .match-card {
-                padding: 0.75rem;
-                margin-bottom: 0.75rem;
+                padding: 0.5rem;
+                margin-bottom: 0.5rem;
                 border-radius: 12px;
             }
             
             .match-teams {
                 flex-direction: column;
-                gap: 0.75rem;
+                gap: 0.5rem;
             }
             
             .team {
@@ -51,33 +51,85 @@
                 text-align: center;
             }
             
+            .team-name {
+                font-size: 0.85rem !important;
+                font-weight: 600 !important;
+            }
+            
             .team-logo-img {
-                width: 40px;
-                height: 40px;
+                width: 30px;
+                height: 30px;
             }
             
             .match-score {
-                font-size: 1.75rem;
-                padding: 12px 20px;
-                margin: 0.5rem 0;
+                font-size: 1.5rem;
+                padding: 8px 16px;
+                margin: 0.25rem 0;
             }
             
             .odds-button {
-                padding: 8px 12px;
-                font-size: 0.85rem;
-                margin: 2px;
+                padding: 6px 10px;
+                font-size: 0.75rem;
+                margin: 1px;
             }
             
-            .odds-button.center-odds {
-                padding: 10px 18px;
-                font-size: 1.1rem;
+            .match-type-btn {
+                padding: 6px 12px !important;
+                font-size: 0.75rem !important;
             }
             
-            .bg-white.rounded-2xl.shadow-2xl {
-                padding: 0.75rem;
-                margin-bottom: 0.75rem;
+            .statistics-dashboard {
+                margin-top: 1rem !important;
             }
             
+            .stat-card {
+                padding: 0.5rem !important;
+            }
+            
+            .stat-card canvas {
+                width: 60px !important;
+                height: 60px !important;
+            }
+        }
+
+        /* Team Icons */
+        .team-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 8px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .match-type-btn {
+            background: #f3f4f6;
+            color: #374151;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .match-type-btn:hover {
+            background: #e5e7eb;
+            transform: translateY(-1px);
+        }
+
+        .match-type-btn.active {
+            background: linear-gradient(45deg, #10b981, #3b82f6);
+            color: white;
+            border-color: #10b981;
+        }
+        
+        .odds-button.center-odds {
+            padding: 10px 18px;
+            font-size: 1.1rem;
+        }
+        
+        .bg-white.rounded-2xl.shadow-2xl {
+            padding: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        @media (max-width: 768px) {
             .text-2xl.font-bold {
                 font-size: 1.125rem;
             }
@@ -756,8 +808,31 @@
                     </div>
                 </div>
 
+                <!-- Match Type Tabs -->
+                <div class="bg-white rounded-2xl shadow-xl p-4 mb-4">
+                    <div class="flex flex-wrap gap-2 justify-center">
+                        <button onclick="switchMatchType('live')" class="match-type-btn active px-4 py-2 rounded-lg font-semibold transition text-sm">
+                            <i class="fas fa-circle text-red-500 mr-2"></i>Live Matches
+                        </button>
+                        <button onclick="switchMatchType('upcoming')" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm">
+                            <i class="fas fa-clock text-blue-500 mr-2"></i>Upcoming
+                        </button>
+                        <button onclick="switchMatchType('finished')" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm">
+                            <i class="fas fa-check-circle text-green-500 mr-2"></i>Finished (24h)
+                        </button>
+                        <button onclick="refreshMatches()" class="match-type-btn px-4 py-2 rounded-lg font-semibold transition text-sm">
+                            <i class="fas fa-sync-alt text-purple-500 mr-2"></i>Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Matches Container -->
+                <div id="matchesContainer" class="space-y-4">
+                    <!-- Matches will be loaded here -->
+                </div>
+
                 <!-- Statistics Dashboard -->
-                <div class="statistics-dashboard">
+                <div class="statistics-dashboard mt-8">
                     <h3 class="text-xl font-bold mb-4 text-gray-800">
                         <i class="fas fa-chart-line mr-2 text-purple-500"></i>Your Statistics
                     </h3>
@@ -779,11 +854,6 @@
                             <div class="text-sm font-semibold mt-2">Monthly Trend</div>
                         </div>
                     </div>
-                </div>
-
-                <!-- Matches Container -->
-                <div id="matchesContainer" class="space-y-4">
-                    <!-- Matches will be loaded here -->
                 </div>
             </div>
 
@@ -1024,6 +1094,7 @@
         let sessionTimer;
         let currentBetType = 'single';
         let chatOpen = false;
+        let chatMessagesShown = false;
 
         // Bet Types
         const BET_TYPES = {
@@ -1815,17 +1886,35 @@
             }
         }
 
-        // Load Finished Matches (Last 24 Hours Only)
+        // Load Finished Matches (Last 24 Hours Only) - Real API Data with Firebase Storage
         async function loadFinishedMatches() {
             currentMatchType = 'finished';
             updateActiveButton('finishedBtn');
-            showStatus('loading', 'Loading Finished Matches', 'Fetching matches from last 24 hours...');
+            showStatus('loading', 'Loading Finished Matches', 'Fetching real matches from last 24 hours...');
 
             try {
                 let allFinishedMatches = [];
                 const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
                 
-                // Method 1: Latest fixtures
+                // First, try to get cached finished matches from Firebase
+                if (currentUser) {
+                    try {
+                        const cachedMatches = await getCachedFinishedMatches();
+                        if (cachedMatches && cachedMatches.length > 0) {
+                            // Filter cached matches to only show last 24 hours
+                            const recentCached = cachedMatches.filter(match => {
+                                const matchTime = new Date(match.finishedAt || match.starting_at);
+                                return matchTime >= twentyFourHoursAgo;
+                            });
+                            allFinishedMatches = allFinishedMatches.concat(recentCached);
+                            console.log('📦 Loaded cached finished matches:', recentCached.length);
+                        }
+                    } catch (error) {
+                        console.log('No cached matches found, fetching from API');
+                    }
+                }
+                
+                // Method 1: Get today's finished matches from live scores API
                 let data = await tryDirectFetch();
                 if (data && data.data) {
                     const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
@@ -1833,39 +1922,145 @@
                         const matchTime = new Date(match.starting_at);
                         return matchTime >= twentyFourHoursAgo;
                     });
+                    
+                    // Store finished matches in Firebase for persistence
+                    for (const match of recentFinished) {
+                        await storeFinishedMatch(match);
+                    }
+                    
                     allFinishedMatches = allFinishedMatches.concat(recentFinished);
                 }
                 
-                // Method 2: Yesterday's fixtures
-                if (allFinishedMatches.length === 0) {
-                    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                    const url = 'https://api.sportmonks.com/v3/football/fixtures/date/' + yesterday + '?api_token=' + API_TOKEN + '&include=participants;state;league;scores;events&per_page=20';
+                // Method 2: Get yesterday's finished matches
+                const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                const yesterdayUrl = 'https://api.sportmonks.com/v3/football/fixtures/date/' + yesterday + '?api_token=' + API_TOKEN + '&include=participants;state;league;scores;events&per_page=20';
+                
+                data = await tryDirectFetchWithUrl(yesterdayUrl);
+                if (data && data.data) {
+                    const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
+                    const recentFinished = finished.filter(match => {
+                        const matchTime = new Date(match.starting_at);
+                        return matchTime >= twentyFourHoursAgo;
+                    });
                     
-                    data = await tryDirectFetchWithUrl(url);
-                    if (data && data.data) {
-                        const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
-                        allFinishedMatches = allFinishedMatches.concat(finished);
+                    // Store yesterday's finished matches
+                    for (const match of recentFinished) {
+                        await storeFinishedMatch(match);
                     }
+                    
+                    allFinishedMatches = allFinishedMatches.concat(recentFinished);
                 }
                 
-                // Sort by most recent first
-                allFinishedMatches.sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at));
+                // Method 3: Get matches from 2 days ago if still within 24 hours
+                const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().split('T')[0];
+                const twoDaysUrl = 'https://api.sportmonks.com/v3/football/fixtures/date/' + twoDaysAgo + '?api_token=' + API_TOKEN + '&include=participants;state;league;scores;events&per_page=20';
                 
-                if (allFinishedMatches.length > 0) {
-                    displayMatches(allFinishedMatches, 'finished');
-                    showStatus('success', 'Finished Matches Loaded', `${allFinishedMatches.length} finished matches from last 24 hours`);
+                data = await tryDirectFetchWithUrl(twoDaysUrl);
+                if (data && data.data) {
+                    const finished = data.data.filter(match => [100, 90, 5].includes(match.state_id));
+                    const recentFinished = finished.filter(match => {
+                        const matchTime = new Date(match.starting_at);
+                        return matchTime >= twentyFourHoursAgo;
+                    });
+                    
+                    allFinishedMatches = allFinishedMatches.concat(recentFinished);
+                }
+                
+                // Remove duplicates and sort by most recent first
+                const uniqueMatches = allFinishedMatches.filter((match, index, self) =>
+                    index === self.findIndex((m) => m.id === match.id)
+                );
+                uniqueMatches.sort((a, b) => new Date(b.starting_at) - new Date(a.starting_at));
+                
+                // Clean up old matches (older than 24 hours)
+                await cleanupOldFinishedMatches();
+                
+                if (uniqueMatches.length > 0) {
+                    displayMatches(uniqueMatches, 'finished');
+                    showStatus('success', 'Finished Matches Loaded', `${uniqueMatches.length} real finished matches from last 24 hours`);
                 } else {
-                    const sampleFinished = generateSampleFinishedMatches();
-                    displayMatches(sampleFinished, 'finished');
-                    showStatus('success', 'Sample Data', 'Showing sample finished matches from last 24 hours');
+                    // Show empty state instead of sample data
+                    displayEmptyFinishedMatches();
+                    showStatus('info', 'No Finished Matches', 'No matches finished in the last 24 hours');
                 }
                 
             } catch (error) {
                 console.error('💥 Error loading finished matches:', error);
-                showStatus('error', 'API Error', 'Using sample data - API unavailable');
-                const sampleFinished = generateSampleFinishedMatches();
-                displayMatches(sampleFinished, 'finished');
+                showStatus('error', 'API Error', 'Unable to load finished matches');
+                displayEmptyFinishedMatches();
             }
+        }
+
+        // Store finished match in Firebase for persistence
+        async function storeFinishedMatch(match) {
+            if (!currentUser || !match.id) return;
+            
+            try {
+                const matchData = {
+                    ...match,
+                    finishedAt: new Date().toISOString(),
+                    storedAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                
+                await db.collection('finishedMatches').doc(`match_${match.id}`).set(matchData);
+                console.log('✅ Stored finished match:', match.id);
+            } catch (error) {
+                console.error('Error storing finished match:', error);
+            }
+        }
+
+        // Get cached finished matches from Firebase
+        async function getCachedFinishedMatches() {
+            if (!currentUser) return [];
+            
+            try {
+                const snapshot = await db.collection('finishedMatches')
+                    .orderBy('storedAt', 'desc')
+                    .limit(50)
+                    .get();
+                
+                return snapshot.docs.map(doc => doc.data());
+            } catch (error) {
+                console.error('Error getting cached matches:', error);
+                return [];
+            }
+        }
+
+        // Clean up old finished matches (older than 24 hours)
+        async function cleanupOldFinishedMatches() {
+            if (!currentUser) return;
+            
+            try {
+                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                const snapshot = await db.collection('finishedMatches')
+                    .where('storedAt', '<', twentyFourHoursAgo)
+                    .get();
+                
+                const batch = db.batch();
+                snapshot.docs.forEach(doc => {
+                    batch.delete(doc.ref);
+                });
+                
+                if (snapshot.docs.length > 0) {
+                    await batch.commit();
+                    console.log('🧹 Cleaned up old finished matches:', snapshot.docs.length);
+                }
+            } catch (error) {
+                console.error('Error cleaning up old matches:', error);
+            }
+        }
+
+        // Display empty state for finished matches
+        function displayEmptyFinishedMatches() {
+            const container = document.getElementById('matchesContainer');
+            container.innerHTML = `
+                <div class="text-center py-12">
+                    <i class="fas fa-check-circle text-6xl text-gray-300 mb-4"></i>
+                    <h3 class="text-xl font-semibold text-gray-600 mb-2">No Finished Matches</h3>
+                    <p class="text-gray-500">No matches have finished in the last 24 hours</p>
+                    <p class="text-sm text-gray-400 mt-2">Check back later for recent results</p>
+                </div>
+            `;
         }
 
         // Helper functions for API calls
@@ -2135,7 +2330,7 @@
                         <div class="team flex items-center space-x-4 flex-1">
                             <img src="${homeLogo}" alt="${homeTeam?.name}" class="team-logo-img">
                             <div>
-                                <div class="font-bold text-lg">${homeTeam?.name || 'Home Team'}</div>
+                                <div class="font-bold text-lg team-name">${homeTeam?.name || 'Home Team'}</div>
                                 <div class="text-sm text-gray-600">Home</div>
                             </div>
                         </div>
@@ -2152,7 +2347,7 @@
                         
                         <div class="team flex items-center space-x-4 flex-1 justify-end">
                             <div class="text-right">
-                                <div class="font-bold text-lg">${awayTeam?.name || 'Away Team'}</div>
+                                <div class="font-bold text-lg team-name">${awayTeam?.name || 'Away Team'}</div>
                                 <div class="text-sm text-gray-600">Away</div>
                             </div>
                             <img src="${awayLogo}" alt="${awayTeam?.name}" class="team-logo-img">
@@ -2205,15 +2400,15 @@
                 await updateOpenBets();
             }, 1000);
             
-            // Update actual scores every 5 seconds as requested
+            // Update actual scores every 4 seconds as requested
             scoreUpdateInterval = setInterval(async () => {
                 if (currentMatchType === 'live') {
                     await fetchAndUpdateLiveScores();
                 }
-            }, 5000); // Every 5 seconds for live score updates
+            }, 4000); // Every 4 seconds for live score updates
         }
 
-        // Fetch and Update Live Scores
+        // Fetch and Update Live Scores with Auto-Finished Match Detection
         async function fetchAndUpdateLiveScores() {
             try {
                 console.log('🔄 Fetching live scores...');
@@ -2221,17 +2416,130 @@
                 const data = await tryDirectFetch();
                 if (data && data.data) {
                     const liveMatches = data.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
+                    const finishedMatches = data.data.filter(match => [100, 90, 5].includes(match.state_id));
                     
+                    // Update live match scores
                     liveMatches.forEach(match => {
                         updateMatchCardScore(match);
                     });
                     
+                    // Check for newly finished matches and store them
+                    if (finishedMatches.length > 0) {
+                        await handleNewlyFinishedMatches(finishedMatches);
+                    }
+                    
                     await checkForNewGoals(liveMatches);
                     
-                    console.log(`✅ Updated ${liveMatches.length} live matches`);
+                    console.log(`✅ Updated ${liveMatches.length} live matches, ${finishedMatches.length} finished matches`);
                 }
             } catch (error) {
                 console.error('Error updating live scores:', error);
+            }
+        }
+
+        // Handle newly finished matches
+        async function handleNewlyFinishedMatches(finishedMatches) {
+            for (const match of finishedMatches) {
+                try {
+                    // Check if this match is already stored
+                    const existingDoc = await db.collection('finishedMatches').doc(`match_${match.id}`).get();
+                    
+                    if (!existingDoc.exists) {
+                        // This is a newly finished match, store it
+                        await storeFinishedMatch(match);
+                        
+                        // Show notification for finished match
+                        const participants = match.participants || [];
+                        const homeTeam = participants.find(p => p.meta?.location === 'home') || participants[0];
+                        const awayTeam = participants.find(p => p.meta?.location === 'away') || participants[1];
+                        const scores = match.scores || [];
+                        
+                        let homeScore = 0;
+                        let awayScore = 0;
+                        if (scores.length > 0) {
+                            const homeScoreObj = scores.find(s => s.participant === 'home' || s.participant === homeTeam?.id);
+                            const awayScoreObj = scores.find(s => s.participant === 'away' || s.participant === awayTeam?.id);
+                            homeScore = homeScoreObj?.score || 0;
+                            awayScore = awayScoreObj?.score || 0;
+                        }
+                        
+                        showStatus('success', 'Match Finished!', `${homeTeam?.name} ${homeScore} - ${awayScore} ${awayTeam?.name}`);
+                        
+                        // Update bets.html if user has bets on this match
+                        await updateBetsForFinishedMatch(match);
+                        
+                        console.log('🏁 Newly finished match detected and stored:', match.id);
+                    }
+                } catch (error) {
+                    console.error('Error handling finished match:', error);
+                }
+            }
+        }
+
+        // Update bets for finished match
+        async function updateBetsForFinishedMatch(match) {
+            if (!currentUser) return;
+            
+            try {
+                const betsSnapshot = await db.collection('bets')
+                    .where('userId', '==', currentUser.uid)
+                    .where('status', '==', 'pending')
+                    .get();
+                
+                const bets = betsSnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                
+                // Check if any bets are on this finished match
+                const relevantBets = bets.filter(bet => {
+                    if (bet.bets && Array.isArray(bet.bets)) {
+                        return bet.bets.some(selection => 
+                            selection.matchId === match.id || 
+                            selection.matchName?.includes(match.participants?.[0]?.name) ||
+                            selection.matchName?.includes(match.participants?.[1]?.name)
+                        );
+                    }
+                    return false;
+                });
+                
+                if (relevantBets.length > 0) {
+                    // Settle these bets (simplified logic)
+                    for (const bet of relevantBets) {
+                        await settleBet(bet.id, match);
+                    }
+                    
+                    showStatus('success', 'Bets Settled!', `${relevantBets.length} bet(s) settled for finished match`);
+                }
+            } catch (error) {
+                console.error('Error updating bets for finished match:', error);
+            }
+        }
+
+        // Simple bet settlement (you can expand this logic)
+        async function settleBet(betId, match) {
+            try {
+                // For demo purposes, randomly settle as won/lost
+                // In real implementation, you'd check actual bet outcomes
+                const isWon = Math.random() > 0.5; // 50% chance to win
+                
+                await db.collection('bets').doc(betId).update({
+                    status: isWon ? 'won' : 'lost',
+                    settledAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    finalScore: `${match.scores?.[0]?.score || 0} - ${match.scores?.[1]?.score || 0}`
+                });
+                
+                // Update user balance if won
+                if (isWon) {
+                    const betDoc = await db.collection('bets').doc(betId).get();
+                    const betData = betDoc.data();
+                    
+                    await db.collection('wallets').doc(currentUser.uid).update({
+                        balance: firebase.firestore.FieldValue.increment(betData.potentialWin || 0)
+                    });
+                }
+            } catch (error) {
+                console.error('Error settling bet:', error);
             }
         }
 
@@ -2461,7 +2769,7 @@
             }
         }
 
-        // Live Chat Functions
+        // Live Chat Functions with Auto-Reply Bot
         function toggleChat() {
             chatOpen = !chatOpen;
             const chatElement = document.getElementById('liveChat');
@@ -2470,6 +2778,12 @@
             if (chatOpen) {
                 chatElement.classList.add('open');
                 toggleBtn.style.display = 'none';
+                
+                // Show welcome message from bot when chat opens
+                if (!chatMessagesShown) {
+                    displayBotMessage("👋 Welcome to X London Support! I'm your automated assistant. How can I help you today?");
+                    chatMessagesShown = true;
+                }
             } else {
                 chatElement.classList.remove('open');
                 toggleBtn.style.display = 'block';
@@ -2477,10 +2791,7 @@
         }
 
         function setupChatListeners() {
-            realtimeDb.ref('chat').on('child_added', (snapshot) => {
-                const message = snapshot.val();
-                displayChatMessage(message);
-            });
+            // Bot doesn't need Firebase listeners - it handles everything locally
         }
 
         function displayChatMessage(message) {
@@ -2496,20 +2807,47 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        function displayBotMessage(message) {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageElement = document.createElement('div');
+            messageElement.className = 'chat-message bot-message';
+            messageElement.innerHTML = `
+                <div class="font-semibold text-sm text-purple-600">🤖 Support Bot</div>
+                <div class="text-sm">${message}</div>
+                <div class="text-xs text-gray-500">${new Date().toLocaleTimeString()}</div>
+            `;
+            chatMessages.appendChild(messageElement);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
         function sendChatMessage() {
             const input = document.getElementById('chatInput');
             const message = input.value.trim();
             
-            if (message) {
-                const messageData = {
-                    user: userData?.username || currentUser.email.split('@')[0],
-                    message: message,
-                    timestamp: firebase.database.ServerValue.TIMESTAMP
-                };
+            if (!message) return;
+            
+            // Display user message
+            displayChatMessage({
+                user: currentUser?.displayName || 'User',
+                message: message,
+                timestamp: new Date().toISOString()
+            });
+            
+            // Clear input
+            input.value = '';
+            
+            // Get bot response
+            const botResponse = getBotResponse(message);
+            
+            // Simulate bot "thinking" delay
+            setTimeout(() => {
+                displayBotMessage(botResponse.message);
                 
-                realtimeDb.ref('chat').push(messageData);
-                input.value = '';
-            }
+                // If email collection is needed, show email input
+                if (botResponse.collectEmail) {
+                    showEmailInput();
+                }
+            }, 1000 + Math.random() * 1000); // 1-2 second delay
         }
 
         function handleChatKeyPress(event) {
@@ -2518,80 +2856,374 @@
             }
         }
 
+        // Bot Response Logic
+        function getBotResponse(userMessage) {
+            const message = userMessage.toLowerCase();
+            
+            // Email collection triggers
+            if (message.includes('email') || message.includes('contact') || message.includes('support')) {
+                return {
+                    message: "📧 For personalized support, please provide your email address. Our team will get back to you within 24 hours. Type your email below or say 'skip' to continue.",
+                    collectEmail: true
+                };
+            }
+            
+            // Betting help
+            if (message.includes('bet') || message.includes('wager') || message.includes('place bet')) {
+                return {
+                    message: "💰 To place a bet: 1) Browse live/upcoming matches 2) Click on odds (Home/Draw/Away) 3) Add stake amount in bet slip 4) Click 'Place Bet'. Need help with specific bets?",
+                    collectEmail: false
+                };
+            }
+            
+            // Account help
+            if (message.includes('account') || message.includes('balance') || message.includes('wallet')) {
+                return {
+                    message: "💳 Account help: • Check balance in top-right • Deposit funds in Wallet section • View bet history in 'My Bets' • Set limits in Responsible Gambling section. What specific help do you need?",
+                    collectEmail: false
+                };
+            }
+            
+            // Withdrawal help
+            if (message.includes('withdraw') || message.includes('cash out') || message.includes('payout')) {
+                return {
+                    message: "💸 Withdrawals: • Go to Wallet section • Click 'Withdraw' • Enter amount • Choose payment method • Min withdrawal: $10 • Processing: 1-3 business days. Need withdrawal help?",
+                    collectEmail: false
+                };
+            }
+            
+            // Odds explanation
+            if (message.includes('odds') || message.includes('price') || message.includes('payout')) {
+                return {
+                    message: "📊 Odds explained: • Decimal odds (e.g., 2.50) = $2.50 return per $1 bet • Lower odds = higher probability • Higher odds = bigger payout • Accumulator odds multiply together. Want odds examples?",
+                    collectEmail: false
+                };
+            }
+            
+            // Live matches
+            if (message.includes('live') || message.includes('scores') || message.includes('real-time')) {
+                return {
+                    message: "⚽ Live matches update every 4 seconds! • Red dot = live match • Scores update automatically • Cash out available on selected live bets. Check the 'Live Matches' tab!",
+                    collectEmail: false
+                };
+            }
+            
+            // Security help
+            if (message.includes('security') || message.includes('safe') || message.includes('protect')) {
+                return {
+                    message: "🔒 Security features: • 2FA authentication • Session timeout (30 min) • Bet limits • SSL encryption • Responsible gambling tools. Your safety is our priority!",
+                    collectEmail: false
+                };
+            }
+            
+            // Responsible gambling
+            if (message.includes('responsible') || message.includes('limit') || message.includes('problem')) {
+                return {
+                    message: "🎯 Responsible gambling: • Set daily/session limits • Self-exclusion option • 18+ age verification • Help resources available. Need to set limits or exclude yourself?",
+                    collectEmail: false
+                };
+            }
+            
+            // Technical issues
+            if (message.includes('error') || message.includes('problem') || message.includes('issue') || message.includes('bug')) {
+                return {
+                    message: "🔧 Technical help: • Refresh page (F5) • Clear browser cache • Check internet connection • Update browser app. If issues persist, please provide your email for human support.",
+                    collectEmail: true
+                };
+            }
+            
+            // General help
+            if (message.includes('help') || message.includes('how') || message.includes('guide')) {
+                return {
+                    message: "📚 I can help with: • Placing bets • Account management • Withdrawals • Odds explanation • Live matches • Security • Responsible gambling • Technical issues. What would you like help with?",
+                    collectEmail: false
+                };
+            }
+            
+            // Greetings
+            if (message.includes('hi') || message.includes('hello') || message.includes('hey')) {
+                return {
+                    message: "👋 Hello! Welcome to X London Support! I'm here to help with betting, account, and technical questions. What can I assist you with today?",
+                    collectEmail: false
+                };
+            }
+            
+            // Thanks
+            if (message.includes('thank') || message.includes('thx') || message.includes('thanks')) {
+                return {
+                    message: "😊 You're welcome! Happy to help. Is there anything else you need assistance with?",
+                    collectEmail: false
+                };
+            }
+            
+            // Goodbye
+            if (message.includes('bye') || message.includes('goodbye') || message.includes('see you')) {
+                return {
+                    message: "👋 Goodbye! Thanks for using X London. Remember to bet responsibly and have fun! Come back anytime you need help.",
+                    collectEmail: false
+                };
+            }
+            
+            // Default response
+            return {
+                message: "🤔 I can help with betting, accounts, withdrawals, odds, live matches, security, and technical issues. Try asking about 'how to bet', 'odds explanation', or 'account help'. What would you like to know?",
+                collectEmail: false
+            };
+        }
+
+        // Email Collection
+        function showEmailInput() {
+            const chatMessages = document.getElementById('chatMessages');
+            const emailElement = document.createElement('div');
+            emailElement.className = 'email-input-container';
+            emailElement.innerHTML = `
+                <div class="text-sm font-semibold text-purple-600 mb-2">📧 Enter your email for support:</div>
+                <div class="flex gap-2">
+                    <input type="email" id="supportEmail" placeholder="your@email.com" 
+                           class="flex-1 px-3 py-2 border rounded-lg text-sm" 
+                           onkeypress="handleEmailKeyPress(event)">
+                    <button onclick="submitSupportEmail()" 
+                            class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-purple-700">
+                        Send
+                    </button>
+                </div>
+                <button onclick="skipEmail()" class="text-xs text-gray-500 mt-2 hover:text-gray-700">Skip for now</button>
+            `;
+            chatMessages.appendChild(emailElement);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Focus on email input
+            setTimeout(() => {
+                document.getElementById('supportEmail').focus();
+            }, 100);
+        }
+
+        function handleEmailKeyPress(event) {
+            if (event.key === 'Enter') {
+                submitSupportEmail();
+            }
+        }
+
+        async function submitSupportEmail() {
+            const emailInput = document.getElementById('supportEmail');
+            const email = emailInput.value.trim();
+            
+            if (!email) {
+                displayBotMessage("⚠️ Please enter a valid email address.");
+                return;
+            }
+            
+            // Basic email validation
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                displayBotMessage("⚠️ Please enter a valid email format (e.g., user@example.com).");
+                return;
+            }
+            
+            try {
+                // Store support request in Firebase
+                await db.collection('supportRequests').add({
+                    email: email,
+                    userId: currentUser?.uid || 'anonymous',
+                    message: 'User requested support via chat bot',
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    status: 'pending'
+                });
+                
+                // Remove email input
+                const emailContainer = document.querySelector('.email-input-container');
+                if (emailContainer) {
+                    emailContainer.remove();
+                }
+                
+                displayBotMessage("✅ Thank you! Your email has been recorded. Our support team will contact you within 24 hours. Is there anything else I can help with?");
+                
+                // Show confirmation
+                showStatus('success', 'Support Request Sent', 'Our team will email you within 24 hours');
+                
+            } catch (error) {
+                console.error('Error saving support request:', error);
+                displayBotMessage("❌ Sorry, there was an error saving your email. Please try again or contact support directly.");
+            }
+        }
+
+        function skipEmail() {
+            const emailContainer = document.querySelector('.email-input-container');
+            if (emailContainer) {
+                emailContainer.remove();
+            }
+            displayBotMessage("No problem! You can continue using the chat. Is there anything else I can help you with?");
+        }
+
         // Statistics Charts
         function initCharts() {
-            // Win/Loss Chart
-            const winLossCtx = document.getElementById('winLossChart').getContext('2d');
-            new Chart(winLossCtx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Wins', 'Losses'],
-                    datasets: [{
-                        data: [65, 35],
-                        backgroundColor: ['#10b981', '#ef4444']
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false
+            // Wait for DOM to be ready
+            setTimeout(() => {
+                try {
+                    // Win/Loss Chart
+                    const winLossCtx = document.getElementById('winLossChart');
+                    if (winLossCtx) {
+                        new Chart(winLossCtx.getContext('2d'), {
+                            type: 'doughnut',
+                            data: {
+                                labels: ['Wins', 'Losses'],
+                                datasets: [{
+                                    data: [65, 35],
+                                    backgroundColor: ['#10b981', '#ef4444']
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: {
+                                        position: 'bottom',
+                                        labels: {
+                                            padding: 10,
+                                            font: {
+                                                size: 11
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    
+                    // Betting Pattern Chart
+                    const patternCtx = document.getElementById('bettingPatternChart');
+                    if (patternCtx) {
+                        new Chart(patternCtx.getContext('2d'), {
+                            type: 'line',
+                            data: {
+                                labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                                datasets: [{
+                                    label: 'Bets',
+                                    data: [3, 5, 2, 8, 4, 6, 9],
+                                    borderColor: '#667eea',
+                                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                                    tension: 0.4
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: {
+                                        display: false
+                                    }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        ticks: {
+                                            font: {
+                                                size: 10
+                                            }
+                                        }
+                                    },
+                                    x: {
+                                        ticks: {
+                                            font: {
+                                                size: 10
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    
+                    // Sports Performance Chart
+                    const sportsCtx = document.getElementById('sportsPerformanceChart');
+                    if (sportsCtx) {
+                        new Chart(sportsCtx.getContext('2d'), {
+                            type: 'bar',
+                            data: {
+                                labels: ['Football', 'Basketball', 'Tennis'],
+                                datasets: [{
+                                    label: 'Win Rate %',
+                                    data: [75, 60, 85],
+                                    backgroundColor: ['#667eea', '#764ba2', '#f093fb']
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: {
+                                        display: false
+                                    }
+                                },
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        ticks: {
+                                            font: {
+                                                size: 10
+                                            }
+                                        }
+                                    },
+                                    x: {
+                                        ticks: {
+                                            font: {
+                                                size: 10
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    
+                    // Monthly Chart
+                    const monthlyCtx = document.getElementById('monthlyChart');
+                    if (monthlyCtx) {
+                        new Chart(monthlyCtx.getContext('2d'), {
+                            type: 'line',
+                            data: {
+                                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                                datasets: [{
+                                    label: 'Profit/Loss $',
+                                    data: [120, -50, 200, 80, -30, 150],
+                                    borderColor: '#10b981',
+                                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                    tension: 0.4
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: {
+                                        display: false
+                                    }
+                                },
+                                scales: {
+                                    y: {
+                                        ticks: {
+                                            font: {
+                                                size: 10
+                                            }
+                                        }
+                                    },
+                                    x: {
+                                        ticks: {
+                                            font: {
+                                                size: 10
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    
+                    console.log('✅ Charts initialized successfully');
+                } catch (error) {
+                    console.error('❌ Error initializing charts:', error);
                 }
-            });
-            
-            // Betting Pattern Chart
-            const patternCtx = document.getElementById('bettingPatternChart').getContext('2d');
-            new Chart(patternCtx, {
-                type: 'line',
-                data: {
-                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-                    datasets: [{
-                        label: 'Bets',
-                        data: [3, 5, 2, 8, 4, 6, 9],
-                        borderColor: '#667eea',
-                        backgroundColor: 'rgba(102, 126, 234, 0.1)'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false
-                }
-            });
-            
-            // Sports Performance Chart
-            const sportsCtx = document.getElementById('sportsPerformanceChart').getContext('2d');
-            new Chart(sportsCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['Football', 'Basketball', 'Tennis'],
-                    datasets: [{
-                        label: 'Win Rate %',
-                        data: [75, 60, 85],
-                        backgroundColor: ['#667eea', '#764ba2', '#f093fb']
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false
-                }
-            });
-            
-            // Monthly Chart
-            const monthlyCtx = document.getElementById('monthlyChart').getContext('2d');
-            new Chart(monthlyCtx, {
-                type: 'line',
-                data: {
-                    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-                    datasets: [{
-                        label: 'Profit/Loss $',
-                        data: [120, -50, 200, 80, -30, 150],
-                        borderColor: '#10b981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false
-                }
-            });
+            }, 1000); // Wait 1 second for DOM to be ready
         }
 
         // Push Notifications
@@ -2747,7 +3379,48 @@
             document.getElementById(activeId).classList.add('ring-2', 'ring-white', 'ring-offset-2', 'ring-offset-purple-500');
         }
 
-        // Refresh Data
+        // Refresh Matches
+function refreshMatches() {
+    showStatus('loading', 'Refreshing...', 'Updating match data');
+    
+    switch(currentMatchType) {
+        case 'live':
+            loadLiveMatches();
+            break;
+        case 'upcoming':
+            loadUpcomingMatches();
+            break;
+        case 'finished':
+            loadFinishedMatches();
+            break;
+    }
+}
+
+// Switch Match Type
+function switchMatchType(type) {
+    currentMatchType = type;
+    
+    // Update button states
+    document.querySelectorAll('.match-type-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    // Load matches for selected type
+    switch(type) {
+        case 'live':
+            loadLiveMatches();
+            break;
+        case 'upcoming':
+            loadUpcomingMatches();
+            break;
+        case 'finished':
+            loadFinishedMatches();
+            break;
+    }
+}
+
+// Refresh Data
         function refreshData() {
             showStatus('loading', 'Refreshing...', 'Updating match data');
             
