@@ -1255,6 +1255,95 @@
             setTimeout(() => balanceElement.classList.remove('balance-update'), 500);
         }
 
+        // Real-time Match State Monitoring - Auto-transition from upcoming to live
+        let upcomingMatchesCache = [];
+        let liveMatchesCache = [];
+
+        async function monitorMatchStates() {
+            console.log('🔍 Monitoring match states for transitions...');
+            
+            try {
+                // Fetch current match data
+                const data = await tryDirectFetch();
+                if (!data || !data.data) {
+                    console.log('❌ No data available');
+                    return;
+                }
+                
+                const currentLiveMatches = data.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
+                const currentUpcomingMatches = data.data.filter(match => match.state_id === 1);
+                
+                console.log('📊 Current states - Live:', currentLiveMatches.length, 'Upcoming:', currentUpcomingMatches.length);
+                
+                // Check for upcoming matches that have gone live
+                const newlyLiveMatches = upcomingMatchesCache.filter(upcomingMatch => {
+                    const nowLive = currentLiveMatches.find(liveMatch => liveMatch.id === upcomingMatch.id);
+                    return nowLive; // Found in current live matches
+                });
+                
+                if (newlyLiveMatches.length > 0) {
+                    console.log('🎯 Found newly live matches:', newlyLiveMatches.length);
+                    newlyLiveMatches.forEach(match => {
+                        console.log('⚽ Match went live:', match.id, match.participants?.[0]?.name, 'vs', match.participants?.[1]?.name);
+                        
+                        // Remove from upcoming cache
+                        upcomingMatchesCache = upcomingMatchesCache.filter(m => m.id !== match.id);
+                        
+                        // Add to live cache
+                        liveMatchesCache.push(match);
+                        
+                        // Show notification
+                        showStatus('success', 'Match Started!', `${match.participants?.[0]?.name} vs ${match.participants?.[1]?.name} is now LIVE!`);
+                    });
+                    
+                    // Refresh current view if we're on live or upcoming tab
+                    if (currentMatchType === 'live' || currentMatchType === 'upcoming') {
+                        console.log('🔄 Refreshing match display for state changes...');
+                        if (currentMatchType === 'live') {
+                            await loadLiveMatches();
+                        } else if (currentMatchType === 'upcoming') {
+                            await loadUpcomingMatches();
+                        }
+                    }
+                }
+                
+                // Update caches
+                upcomingMatchesCache = currentUpcomingMatches;
+                liveMatchesCache = currentLiveMatches;
+                
+            } catch (error) {
+                console.error('❌ Error monitoring match states:', error);
+            }
+        }
+
+        // Enhanced startLiveUpdates with state monitoring
+        function startLiveUpdates() {
+            console.log('🚀 Starting live updates with state monitoring...');
+            
+            // Update countdown timers and UI every second
+            liveUpdateInterval = setInterval(async () => {
+                updateCountdownTimers();
+                
+                if (currentMatchType === 'live') {
+                    await updateLiveScores();
+                }
+                
+                await updateOpenBets();
+                
+                // Monitor match states every 10 seconds
+                if (Date.now() % 10000 < 1000) { // Every 10 seconds
+                    await monitorMatchStates();
+                }
+            }, 1000);
+            
+            // Update actual scores every 4 seconds as requested
+            scoreUpdateInterval = setInterval(async () => {
+                if (currentMatchType === 'live') {
+                    await fetchAndUpdateLiveScores();
+                }
+            }, 4000); // Every 4 seconds for live score updates
+        }
+
         // Load Live Matches - SIMPLE WORKING VERSION
         async function loadLiveMatches() {
             console.log('⚽ Loading live matches...');
@@ -1274,6 +1363,9 @@
                 // Filter live matches (state_id: 2,3,4,5,6)
                 const liveMatches = data.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
                 console.log('📊 Found live matches:', liveMatches.length);
+                
+                // Update cache for monitoring
+                liveMatchesCache = liveMatches;
                 
                 if (liveMatches.length === 0) {
                     showStatus('info', 'No Live Matches', 'No live matches currently available');
@@ -1325,6 +1417,9 @@
                 // Filter upcoming matches (state_id: 1)
                 const upcomingMatches = data.data.filter(match => match.state_id === 1);
                 console.log('📊 Found upcoming matches:', upcomingMatches.length);
+                
+                // Update cache for monitoring
+                upcomingMatchesCache = upcomingMatches;
                 
                 if (upcomingMatches.length === 0) {
                     showStatus('info', 'No Upcoming Matches', 'No upcoming matches found');
