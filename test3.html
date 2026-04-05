@@ -938,6 +938,10 @@
                     await updateOpenBets();
                     await updateBettingHistory();
                     loadUserStats();
+                    
+                    // Add test button for debugging
+                    addTestButton();
+                    
                     console.log('📊 Initial data loaded');
                 }, 1000);
                 
@@ -1004,7 +1008,7 @@
             });
         }
 
-        // Update Open Bets - Shows pending bets with debugging
+        // Update Open Bets - Shows pending bets with enhanced error handling
         async function updateOpenBets() {
             try {
                 console.log('🔄 Updating open bets...');
@@ -1012,8 +1016,25 @@
                 
                 if (!currentUser) {
                     console.log('❌ No current user');
+                    showStatus('warning', 'Not Logged In', 'Please log in to view your bets');
                     return;
                 }
+                
+                // Test Firebase connection first
+                try {
+                    const testSnapshot = await db.collection('wallets').doc(currentUser.uid).get();
+                    if (!testSnapshot.exists) {
+                        console.log('❌ User wallet not found');
+                        showStatus('error', 'User Data Missing', 'Your user profile is not properly set up');
+                        return;
+                    }
+                } catch (testError) {
+                    console.error('❌ Firebase test failed:', testError);
+                    showStatus('error', 'Database Error', 'Cannot connect to betting database');
+                    return;
+                }
+                
+                console.log('🔥 Firebase connection OK, fetching bets...');
                 
                 const betsSnapshot = await db.collection('bets')
                     .where('userId', '==', currentUser.uid)
@@ -1030,13 +1051,105 @@
                 
                 console.log('📝 Open bets data:', openBets);
                 updateOpenBetsDisplay(openBets);
+                
+                // Show success message if bets found
+                if (openBets.length > 0) {
+                    showStatus('success', 'Bets Loaded', `Found ${openBets.length} open bet${openBets.length > 1 ? 's' : ''}`);
+                }
+                
             } catch (error) {
                 console.error('❌ Error updating open bets:', error);
-                showStatus('error', 'Load Error', 'Failed to load open bets');
+                
+                // Show specific error based on error type
+                let errorMessage = 'Failed to load open bets';
+                if (error.code === 'permission-denied') {
+                    errorMessage = 'Permission denied - check Firebase rules';
+                } else if (error.code === 'unavailable') {
+                    errorMessage = 'Database unavailable - please try again';
+                } else if (error.code === 'unauthenticated') {
+                    errorMessage = 'Not authenticated - please log in again';
+                } else {
+                    errorMessage = `Database error: ${error.message}`;
+                }
+                
+                showStatus('error', 'Load Error', errorMessage);
+                
+                // Show empty state with error message
+                const openBetsContainer = document.getElementById('openBets');
+                if (openBetsContainer) {
+                    openBetsContainer.innerHTML = `
+                        <div class="text-center py-6 text-red-600">
+                            <i class="fas fa-exclamation-triangle text-3xl mb-2"></i>
+                            <p class="font-semibold">Failed to load bets</p>
+                            <p class="text-sm mt-2">${errorMessage}</p>
+                            <button onclick="updateOpenBets()" class="mt-3 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                                <i class="fas fa-retry mr-1"></i>Retry
+                            </button>
+                        </div>
+                    `;
+                }
             }
         }
 
-        // Update Open Bets Display with debugging
+        // Test function to create a sample bet for testing
+        async function createTestBet() {
+            if (!currentUser) {
+                showStatus('error', 'Not Logged In', 'Please log in first');
+                return;
+            }
+
+            try {
+                const testBetData = {
+                    userId: currentUser.uid,
+                    userEmail: currentUser.email,
+                    username: userData?.username || currentUser.email.split('@')[0],
+                    selections: [{
+                        id: 'test-selection-1',
+                        matchId: 'test-match-1',
+                        team: 'Test Team',
+                        market: 'Home Win',
+                        odds: 2.5,
+                        timestamp: new Date().toISOString()
+                    }],
+                    stake: 10.00,
+                    totalOdds: 2.5,
+                    potentialWin: 25.00,
+                    betType: 'single',
+                    status: 'pending',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    settledAt: null,
+                    winnings: 0,
+                    isTest: true
+                };
+
+                console.log('🧪 Creating test bet:', testBetData);
+
+                const betRef = await db.collection('bets').add(testBetData);
+                console.log('✅ Test bet created with ID:', betRef.id);
+
+                showStatus('success', 'Test Bet Created', `Test bet ID: ${betRef.id}`);
+                
+                // Refresh open bets
+                await updateOpenBets();
+
+            } catch (error) {
+                console.error('❌ Error creating test bet:', error);
+                showStatus('error', 'Test Failed', `Failed to create test bet: ${error.message}`);
+            }
+        }
+
+        // Add test button to the page
+        function addTestButton() {
+            const openBetsSection = document.querySelector('#openBets').parentElement;
+            if (openBetsSection && !document.getElementById('testBetBtn')) {
+                const testButton = document.createElement('button');
+                testButton.id = 'testBetBtn';
+                testButton.className = 'mt-3 w-full bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600 text-sm';
+                testButton.innerHTML = '<i class="fas fa-flask mr-1"></i>Create Test Bet (Debug)';
+                testButton.onclick = createTestBet;
+                openBetsSection.appendChild(testButton);
+            }
+        }
         function updateOpenBetsDisplay(openBets) {
             console.log('🎨 Updating open bets display with:', openBets);
             const openBetsContainer = document.getElementById('openBets');
