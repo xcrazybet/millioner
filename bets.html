@@ -580,6 +580,20 @@
         <button class="filter-btn" data-filter="cashed_out">CASHED OUT</button>
     </div>
 
+    <!-- Recent Finished Matches -->
+    <div class="finished-matches-section" style="padding: 12px;">
+        <h3 style="color: var(--text); font-size: 16px; margin-bottom: 12px; display: flex; align-items: center;">
+            <i class="fas fa-check-circle" style="color: var(--success); margin-right: 8px;"></i>
+            Recent Finished Matches (Last 24 Hours)
+        </h3>
+        <div id="finishedMatchesContainer" class="space-y-3">
+            <div class="text-center py-6" style="color: var(--text-dim);">
+                <i class="fas fa-hourglass-half text-3xl mb-2"></i>
+                <p>Loading recent finished matches...</p>
+            </div>
+        </div>
+    </div>
+
     <div id="betsContainer" class="bets-container">
         <div class="loading">
             <div class="loading-spinner"></div>
@@ -698,6 +712,9 @@
                 updateCharts();
                 filterBets(currentFilter);
                 
+                // Load finished matches
+                await loadFinishedMatchesForBets();
+                
             } catch (error) {
                 console.error('Load bets error:', error);
                 let errorMessage = error.message;
@@ -726,6 +743,84 @@
                 }, (error) => {
                     console.error('Snapshot error:', error);
                 });
+        }
+
+        // Load Finished Matches for Bets Page
+        async function loadFinishedMatchesForBets() {
+            const container = document.getElementById('finishedMatchesContainer');
+            
+            try {
+                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                
+                // Get finished matches from Firebase
+                const snapshot = await db.collection('finishedMatches')
+                    .where('storedAt', '>=', twentyFourHoursAgo)
+                    .orderBy('storedAt', 'desc')
+                    .limit(10)
+                    .get();
+                
+                const finishedMatches = snapshot.docs.map(doc => doc.data());
+                
+                if (finishedMatches.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center py-6" style="color: var(--text-dim);">
+                            <i class="fas fa-info-circle text-3xl mb-2"></i>
+                            <p>No finished matches in the last 24 hours</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                finishedMatches.forEach(match => {
+                    const participants = match.participants || [];
+                    const homeTeam = participants.find(p => p.meta?.location === 'home') || participants[0];
+                    const awayTeam = participants.find(p => p.meta?.location === 'away') || participants[1];
+                    const scores = match.scores || [];
+                    
+                    let homeScore = 0;
+                    let awayScore = 0;
+                    if (scores.length > 0) {
+                        const homeScoreObj = scores.find(s => s.participant === 'home' || s.participant === homeTeam?.id);
+                        const awayScoreObj = scores.find(s => s.participant === 'away' || s.participant === awayTeam?.id);
+                        homeScore = homeScoreObj?.score || 0;
+                        awayScore = awayScoreObj?.score || 0;
+                    }
+                    
+                    const finishedTime = new Date(match.finishedAt || match.starting_at);
+                    
+                    html += `
+                        <div class="bet-card" style="background: var(--surface); border-left-color: var(--success);">
+                            <div class="bet-header">
+                                <div>
+                                    <div class="font-semibold" style="color: var(--text);">${homeTeam?.name || 'Home Team'} vs ${awayTeam?.name || 'Away Team'}</div>
+                                    <div class="bet-time" style="font-size: 11px; color: var(--text-dim);">
+                                        <i class="fas fa-clock"></i> ${finishedTime.toLocaleString()}
+                                    </div>
+                                </div>
+                                <div class="bet-status" style="background: var(--success); color: #000;">FINISHED</div>
+                            </div>
+                            <div style="text-align: center; padding: 10px;">
+                                <div style="font-size: 18px; font-weight: bold; color: var(--primary);">
+                                    ${homeScore} - ${awayScore}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html;
+                console.log('✅ Loaded finished matches for bets page:', finishedMatches.length);
+                
+            } catch (error) {
+                console.error('Error loading finished matches for bets:', error);
+                container.innerHTML = `
+                    <div class="text-center py-6" style="color: var(--text-dim);">
+                        <i class="fas fa-exclamation-triangle text-3xl mb-2"></i>
+                        <p>Unable to load finished matches</p>
+                    </div>
+                `;
+            }
         }
 
         // Update Stats
