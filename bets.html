@@ -9,6 +9,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
         * {
@@ -83,6 +84,14 @@
 
         .stat-card {
             text-align: center;
+            background: linear-gradient(145deg, var(--surface-light) 0%, var(--surface) 100%);
+            border-radius: 12px;
+            padding: 12px;
+            transition: transform 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
         }
 
         .stat-value {
@@ -144,12 +153,14 @@
             padding: 14px;
             margin-bottom: 10px;
             border-left: 4px solid;
-            transition: transform 0.2s;
+            transition: all 0.3s;
             cursor: pointer;
+            position: relative;
         }
 
         .bet-card:hover {
             transform: translateX(5px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         }
 
         .bet-card.pending { border-left-color: var(--secondary); }
@@ -210,6 +221,19 @@
             border-bottom: none;
         }
 
+        .selection-outcome {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-left: 4px;
+        }
+
+        .selection-outcome.won { background: var(--success); color: #000; }
+        .selection-outcome.lost { background: var(--danger); color: #000; }
+        .selection-outcome.pending { background: var(--secondary); color: #000; }
+
         .bet-footer {
             display: flex;
             justify-content: space-between;
@@ -232,6 +256,27 @@
         .return-value.won { color: var(--success); }
         .return-value.lost { color: var(--danger); }
         .return-value.pending { color: var(--secondary); }
+        .return-value.cashed_out { color: var(--warning); }
+
+        .cash-out-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--warning);
+            color: #000;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .cash-out-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);
+        }
 
         .empty-state {
             text-align: center;
@@ -338,6 +383,78 @@
             }
         }
 
+        /* Statistics Dashboard */
+        .statistics-dashboard {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 20px;
+            margin: 12px;
+        }
+
+        .statistics-dashboard h3 {
+            color: var(--text);
+            font-size: 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 200px;
+            margin-bottom: 16px;
+        }
+
+        /* Bet Details Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 20px;
+            max-width: 400px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .modal-header h2 {
+            color: var(--text);
+            font-size: 18px;
+        }
+
+        .close-btn {
+            background: var(--danger);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
         /* Mobile Responsive */
         @media (max-width: 768px) {
             .stats-grid {
@@ -374,6 +491,15 @@
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 8px;
+            }
+
+            .statistics-dashboard {
+                margin: 8px;
+                padding: 16px;
+            }
+
+            .chart-container {
+                height: 150px;
             }
         }
 
@@ -432,6 +558,20 @@
         </div>
     </div>
 
+    <!-- Statistics Dashboard -->
+    <div class="statistics-dashboard">
+        <h3>
+            <i class="fas fa-chart-line" style="color: var(--primary);"></i>
+            Betting Analytics
+        </h3>
+        <div class="chart-container">
+            <canvas id="performanceChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="profitLossChart"></canvas>
+        </div>
+    </div>
+
     <div class="filter-tabs">
         <button class="filter-btn active" data-filter="all">ALL BETS</button>
         <button class="filter-btn" data-filter="pending">PENDING</button>
@@ -452,10 +592,23 @@
         <a href="bets.html" class="nav-item active"><i class="fas fa-ticket-alt"></i><span>My Bets</span></a>
         <a href="https://xcrazybet.github.io/millioner/" class="nav-item"><i class="fas fa-home"></i><span>Home</span></a>
         <a href="#" class="nav-item"><i class="fas fa-chart-line"></i><span>Stats</span></a>
-        <a href="#" class="nav-item"><i class="fas fa-wallet"></i><span>Wallet</span></a>
+        <a href="dashboard.html" class="nav-item"><i class="fas fa-wallet"></i><span>Wallet</span></a>
     </nav>
 
     <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Bet Details Modal -->
+    <div id="betModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Bet Details</h2>
+                <button class="close-btn" onclick="closeBetModal()">×</button>
+            </div>
+            <div id="modalBody">
+                <!-- Bet details will be inserted here -->
+            </div>
+        </div>
+    </div>
 
     <script>
         // Firebase Config
@@ -474,6 +627,8 @@
 
         let allBets = [];
         let currentFilter = 'all';
+        let performanceChart = null;
+        let profitLossChart = null;
 
         // Check Auth
         auth.onAuthStateChanged(async (user) => {
@@ -482,6 +637,7 @@
                 await loadBalance();
                 await loadAllBets();
                 setupRealtimeListener();
+                initCharts();
             } else {
                 console.log('No user, redirecting...');
                 window.location.href = 'https://xcrazybet.github.io/millioner/login.html';
@@ -495,7 +651,6 @@
                 if (doc.exists) {
                     document.getElementById('balance').textContent = doc.data().balance.toFixed(2);
                 } else {
-                    // Create wallet if doesn't exist
                     await db.collection("wallets").doc(auth.currentUser.uid).set({ balance: 100 });
                     document.getElementById('balance').textContent = '100.00';
                 }
@@ -540,12 +695,12 @@
                 
                 console.log('Loaded bets:', allBets.length);
                 updateStats();
+                updateCharts();
                 filterBets(currentFilter);
                 
             } catch (error) {
                 console.error('Load bets error:', error);
                 let errorMessage = error.message;
-                // Provide helpful message for index error
                 if (errorMessage.includes('index')) {
                     errorMessage = 'Database index is being created. Please wait a moment and refresh page.';
                 }
@@ -566,7 +721,7 @@
                 .where("userId", "==", auth.currentUser.uid)
                 .onSnapshot((snapshot) => {
                     console.log('Real-time update received');
-                    loadAllBets(); // Reload all bets on any change
+                    loadAllBets();
                     loadBalance();
                 }, (error) => {
                     console.error('Snapshot error:', error);
@@ -585,6 +740,138 @@
             document.getElementById('wonBets').textContent = won;
             document.getElementById('lostBets').textContent = lost;
             document.getElementById('pendingBets').textContent = pending;
+        }
+
+        // Initialize Charts
+        function initCharts() {
+            // Performance Chart (Win/Loss Ratio)
+            const perfCtx = document.getElementById('performanceChart').getContext('2d');
+            performanceChart = new Chart(perfCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Won', 'Lost', 'Pending', 'Cashed Out'],
+                    datasets: [{
+                        data: [0, 0, 0, 0],
+                        backgroundColor: ['#4caf50', '#ff4757', '#ff9800', '#ffc107'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#ffffff',
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Profit/Loss Chart
+            const plCtx = document.getElementById('profitLossChart').getContext('2d');
+            profitLossChart = new Chart(plCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Profit/Loss $',
+                        data: [],
+                        borderColor: '#00ff9d',
+                        backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#ffffff',
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#94a3b8',
+                                font: {
+                                    size: 10
+                                }
+                            },
+                            grid: {
+                                color: '#1e293b'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: '#94a3b8',
+                                font: {
+                                    size: 10
+                                }
+                            },
+                            grid: {
+                                color: '#1e293b'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update Charts
+        function updateCharts() {
+            if (!performanceChart || !profitLossChart) return;
+
+            // Update Performance Chart
+            const won = allBets.filter(b => b.status === 'won').length;
+            const lost = allBets.filter(b => b.status === 'lost').length;
+            const pending = allBets.filter(b => b.status === 'pending').length;
+            const cashedOut = allBets.filter(b => b.status === 'cashed_out').length;
+
+            performanceChart.data.datasets[0].data = [won, lost, pending, cashedOut];
+            performanceChart.update();
+
+            // Update Profit/Loss Chart
+            const sortedBets = [...allBets].sort((a, b) => a.createdAtDate - b.createdAtDate);
+            const labels = [];
+            const data = [];
+            let runningTotal = 0;
+
+            sortedBets.forEach(bet => {
+                if (bet.status === 'won') {
+                    runningTotal += (bet.potentialWin - bet.stake);
+                } else if (bet.status === 'lost') {
+                    runningTotal -= bet.stake;
+                } else if (bet.status === 'cashed_out') {
+                    runningTotal += (bet.cashOutValue - bet.stake);
+                }
+
+                if (bet.status !== 'pending') {
+                    labels.push(bet.createdAtDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                    data.push(runningTotal);
+                }
+            });
+
+            // Keep only last 10 data points for readability
+            if (labels.length > 10) {
+                profitLossChart.data.labels = labels.slice(-10);
+                profitLossChart.data.datasets[0].data = data.slice(-10);
+            } else {
+                profitLossChart.data.labels = labels;
+                profitLossChart.data.datasets[0].data = data;
+            }
+
+            profitLossChart.update();
         }
 
         // Filter Bets
@@ -629,23 +916,28 @@
                 html += `<div class="date-header">${date}</div>`;
                 
                 groups[date].forEach(bet => {
-                    // Enhanced selections display
+                    // Enhanced selections display with outcomes
                     const selections = bet.bets || bet.selections || [];
-                    const selectionsHtml = selections.length > 0 ? selections.map(s => `
-                        <div class="selection-item">
-                            <div>
-                                <strong>${s.matchName || 'Unknown Match'}</strong><br>
-                                <span style="font-size: 11px; color: var(--text-dim);">${s.market || 'Market'} - ${s.selection || 'Selection'}</span>
+                    const selectionsHtml = selections.length > 0 ? selections.map(s => {
+                        const outcome = getSelectionOutcome(s, bet);
+                        return `
+                            <div class="selection-item">
+                                <div>
+                                    <strong>${s.matchName || 'Unknown Match'}</strong><br>
+                                    <span style="font-size: 11px; color: var(--text-dim);">${s.market || 'Market'} - ${s.selection || 'Selection'}</span>
+                                    ${outcome ? `<span class="selection-outcome ${outcome}">${outcome.toUpperCase()}</span>` : ''}
+                                </div>
+                                <div style="color: var(--primary); font-weight: 600;">${(s.odds || 0).toFixed(2)}</div>
                             </div>
-                            <div style="color: var(--primary); font-weight: 600;">${(s.odds || 0).toFixed(2)}</div>
-                        </div>
-                    `).join('') : '<div class="selection-item">No selections data</div>';
+                        `;
+                    }).join('') : '<div class="selection-item">No selections data</div>';
                     
                     const returnAmount = bet.potentialWin || (bet.status === 'won' ? (bet.stake || 0) * (bet.totalOdds || 1) : 0);
-                    const returnClass = bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : 'pending';
+                    const returnClass = bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : bet.status === 'cashed_out' ? 'cashed_out' : 'pending';
                     
                     html += `
                         <div class="bet-card ${bet.status || 'pending'}" onclick="showBetDetails('${bet.id}')">
+                            ${bet.status === 'pending' ? `<button class="cash-out-btn" onclick="event.stopPropagation(); cashOutBet('${bet.id}')">CASH OUT</button>` : ''}
                             <div class="bet-header">
                                 <span class="bet-ticket">#${bet.id.substring(0, 15)}</span>
                                 <span class="bet-status ${bet.status || 'pending'}">${(bet.status || 'PENDING').toUpperCase()}</span>
@@ -657,7 +949,8 @@
                                 ${selectionsHtml}
                             </div>
                             <div style="text-align: right; font-size: 12px; margin: 8px 0;">
-                                Total Odds: ${(bet.totalOdds || 1).toFixed(2)}
+                                Total Odds: ${(bet.totalOdds || 1).toFixed(2)} | 
+                                Bet Type: ${(bet.betType || 'single').toUpperCase()}
                             </div>
                             <div class="bet-footer">
                                 <div>
@@ -667,7 +960,7 @@
                                 <div style="text-align: right;">
                                     <div style="font-size: 11px; color: var(--text-dim);">Return</div>
                                     <div class="return-value ${returnClass}">
-                                        ${bet.status === 'won' ? '+' : ''}$${returnAmount.toFixed(2)}
+                                        ${bet.status === 'won' || bet.status === 'cashed_out' ? '+' : ''}$${returnAmount.toFixed(2)}
                                     </div>
                                 </div>
                             </div>
@@ -681,76 +974,111 @@
             container.innerHTML = html;
         }
 
+        // Get Selection Outcome (for display purposes)
+        function getSelectionOutcome(selection, bet) {
+            // This is a simplified version - in a real app, you'd check actual match results
+            if (bet.status === 'won') return 'won';
+            if (bet.status === 'lost') return 'lost';
+            if (bet.status === 'pending') return 'pending';
+            return null;
+        }
+
         // Show Bet Details Modal
         function showBetDetails(betId) {
             const bet = allBets.find(b => b.id === betId);
             if (!bet) return;
             
-            const modal = document.createElement('div');
-            modal.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0,0,0,0.8);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 10000;
-            `;
+            const modal = document.getElementById('betModal');
+            const modalBody = document.getElementById('modalBody');
             
             const selections = bet.bets || bet.selections || [];
-            const selectionsList = selections.map(s => `
-                <div style="padding: 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px;">
-                    <strong>${s.matchName || 'Unknown Match'}</strong><br>
-                    <small style="color: var(--text-dim);">${s.market || 'Market'}: ${s.selection || 'Selection'}</small><br>
-                    <span style="color: var(--primary);">Odds: ${(s.odds || 0).toFixed(2)}</span>
-                </div>
-            `).join('');
+            const selectionsList = selections.map(s => {
+                const outcome = getSelectionOutcome(s, bet);
+                return `
+                    <div style="padding: 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px;">
+                        <strong>${s.matchName || 'Unknown Match'}</strong><br>
+                        <small style="color: var(--text-dim);">${s.market || 'Market'}: ${s.selection || 'Selection'}</small><br>
+                        <span style="color: var(--primary);">Odds: ${(s.odds || 0).toFixed(2)}</span>
+                        ${outcome ? `<span class="selection-outcome ${outcome}">${outcome.toUpperCase()}</span>` : ''}
+                    </div>
+                `;
+            }).join('');
             
-            modal.innerHTML = `
-                <div style="background: var(--surface); border-radius: 16px; padding: 20px; max-width: 400px; width: 90%; max-height: 80vh; overflow-y: auto;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <h2 style="color: var(--text); font-size: 18px;">Bet Details</h2>
-                        <button onclick="this.closest('div').parentElement.remove()" style="background: var(--danger); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer;">×</button>
+            const returnAmount = bet.potentialWin || (bet.status === 'won' ? (bet.stake || 0) * (bet.totalOdds || 1) : 0);
+            const returnClass = bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : bet.status === 'cashed_out' ? 'cashed_out' : 'pending';
+            
+            modalBody.innerHTML = `
+                <div style="margin-bottom: 16px;">
+                    <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Bet ID: ${bet.id}</div>
+                    <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Placed: ${new Date(bet.createdAtDate).toLocaleString()}</div>
+                    <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Status: <span style="color: var(--primary); font-weight: bold;">${(bet.status || 'PENDING').toUpperCase()}</span></div>
+                    <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Bet Type: ${(bet.betType || 'single').toUpperCase()}</div>
+                </div>
+                
+                <div style="margin-bottom: 16px;">
+                    <h3 style="color: var(--text); font-size: 14px; margin-bottom: 8px;">Selections (${selections.length}):</h3>
+                    ${selectionsList}
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                    <div>
+                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Stake</div>
+                        <div style="font-size: 18px; font-weight: bold; color: var(--primary);">$${(bet.stake || 0).toFixed(2)}</div>
                     </div>
-                    
-                    <div style="margin-bottom: 16px;">
-                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Bet ID: ${bet.id}</div>
-                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Placed: ${new Date(bet.createdAtDate).toLocaleString()}</div>
-                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Status: <span style="color: var(--primary); font-weight: bold;">${(bet.status || 'PENDING').toUpperCase()}</span></div>
+                    <div>
+                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Total Odds</div>
+                        <div style="font-size: 18px; font-weight: bold; color: var(--primary);">${(bet.totalOdds || 1).toFixed(2)}</div>
                     </div>
-                    
-                    <div style="margin-bottom: 16px;">
-                        <h3 style="color: var(--text); font-size: 14px; margin-bottom: 8px;">Selections (${selections.length}):</h3>
-                        ${selectionsList}
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
-                        <div>
-                            <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Stake</div>
-                            <div style="font-size: 18px; font-weight: bold; color: var(--primary);">$${(bet.stake || 0).toFixed(2)}</div>
+                </div>
+                
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Potential Return</div>
+                        <div style="font-size: 20px; font-weight: bold; color: ${returnClass === 'won' ? 'var(--success)' : returnClass === 'lost' ? 'var(--danger)' : returnClass === 'cashed_out' ? 'var(--warning)' : 'var(--secondary)'};">
+                            ${bet.status === 'won' || bet.status === 'cashed_out' ? '+' : ''}$${returnAmount.toFixed(2)}
                         </div>
-                        <div>
-                            <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Total Odds</div>
-                            <div style="font-size: 18px; font-weight: bold; color: var(--primary);">${(bet.totalOdds || 1).toFixed(2)}</div>
-                        </div>
                     </div>
-                    
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Potential Return</div>
-                            <div style="font-size: 20px; font-weight: bold; color: ${bet.status === 'won' ? 'var(--success)' : bet.status === 'lost' ? 'var(--danger)' : 'var(--secondary)'};">
-                                ${bet.status === 'won' ? '+' : ''}$${(bet.potentialWin || 0).toFixed(2)}
-                            </div>
-                        </div>
-                        <button onclick="this.closest('div').parentElement.remove()" style="background: var(--primary); color: #000; border: none; padding: 12px 24px; border-radius: 30px; cursor: pointer; font-weight: bold;">Close</button>
-                    </div>
+                    <button onclick="closeBetModal()" style="background: var(--primary); color: #000; border: none; padding: 12px 24px; border-radius: 30px; cursor: pointer; font-weight: bold;">Close</button>
                 </div>
             `;
             
-            document.body.appendChild(modal);
+            modal.classList.add('active');
+        }
+
+        // Close Bet Modal
+        function closeBetModal() {
+            document.getElementById('betModal').classList.remove('active');
+        }
+
+        // Cash Out Bet
+        async function cashOutBet(betId) {
+            const bet = allBets.find(b => b.id === betId);
+            if (!bet) return;
+
+            // Simple cash out calculation (in real app, this would be more complex)
+            const cashOutValue = bet.stake * 0.8; // Return 80% of stake
+
+            if (confirm(`Cash out for $${cashOutValue.toFixed(2)}?`)) {
+                try {
+                    // Update bet status
+                    await db.collection('bets').doc(betId).update({
+                        status: 'cashed_out',
+                        cashOutValue: cashOutValue,
+                        settledAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // Update user balance
+                    await db.collection('wallets').doc(auth.currentUser.uid).update({
+                        balance: firebase.firestore.FieldValue.increment(cashOutValue)
+                    });
+
+                    showToast('Cash out successful!', 'success');
+                    loadBalance();
+                } catch (error) {
+                    console.error('Cash out error:', error);
+                    showToast('Cash out failed', 'error');
+                }
+            }
         }
 
         // Toast
@@ -769,6 +1097,13 @@
             btn.addEventListener('click', () => {
                 filterBets(btn.dataset.filter);
             });
+        });
+
+        // Close modal when clicking outside
+        document.getElementById('betModal').addEventListener('click', (e) => {
+            if (e.target.id === 'betModal') {
+                closeBetModal();
+            }
         });
     </script>
 </body>
