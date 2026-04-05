@@ -52,30 +52,30 @@
             }
             
             .team-name {
-                font-size: 0.85rem !important;
+                font-size: 0.75rem !important;
                 font-weight: 600 !important;
             }
             
             .team-logo-img {
-                width: 30px;
-                height: 30px;
+                width: 25px !important;
+                height: 25px !important;
             }
             
             .match-score {
-                font-size: 1.5rem;
-                padding: 8px 16px;
-                margin: 0.25rem 0;
+                font-size: 1.25rem !important;
+                padding: 6px 12px !important;
+                margin: 0.25rem 0 !important;
             }
             
             .odds-button {
-                padding: 6px 10px;
-                font-size: 0.75rem;
-                margin: 1px;
+                padding: 5px 8px !important;
+                font-size: 0.7rem !important;
+                margin: 1px !important;
             }
             
             .match-type-btn {
-                padding: 6px 12px !important;
-                font-size: 0.75rem !important;
+                padding: 5px 10px !important;
+                font-size: 0.7rem !important;
             }
             
             .statistics-dashboard {
@@ -2408,7 +2408,7 @@
             }, 4000); // Every 4 seconds for live score updates
         }
 
-        // Fetch and Update Live Scores with Auto-Finished Match Detection
+        // Fetch and Update Live Scores with Enhanced Score Parsing
         async function fetchAndUpdateLiveScores() {
             try {
                 console.log('🔄 Fetching live scores...');
@@ -2418,8 +2418,13 @@
                     const liveMatches = data.data.filter(match => [2, 3, 4, 5, 6].includes(match.state_id));
                     const finishedMatches = data.data.filter(match => [100, 90, 5].includes(match.state_id));
                     
+                    console.log('📡 API Response:', data.data.length, 'matches total');
+                    console.log('⚽ Live matches:', liveMatches.length);
+                    console.log('🏁 Finished matches:', finishedMatches.length);
+                    
                     // Update live match scores
                     liveMatches.forEach(match => {
+                        console.log('🔍 Processing live match:', match.id, match);
                         updateMatchCardScore(match);
                     });
                     
@@ -2431,6 +2436,8 @@
                     await checkForNewGoals(liveMatches);
                     
                     console.log(`✅ Updated ${liveMatches.length} live matches, ${finishedMatches.length} finished matches`);
+                } else {
+                    console.log('❌ No data received from API');
                 }
             } catch (error) {
                 console.error('Error updating live scores:', error);
@@ -2543,7 +2550,7 @@
             }
         }
 
-        // Update Match Card Score
+        // Update Match Card Score - Fixed ID and improved score parsing
         function updateMatchCardScore(match) {
             const matchId = `match_${match.id}`;
             const scoreElement = document.getElementById(`score_${matchId}`);
@@ -2553,19 +2560,39 @@
                 let homeScore = 0;
                 let awayScore = 0;
                 
+                console.log('🔍 Updating score for match:', match.id, 'Scores:', scores);
+                
                 if (scores.length > 0) {
-                    const homeScoreObj = scores.find(s => s.participant === 'home');
-                    const awayScoreObj = scores.find(s => s.participant === 'away');
-                    homeScore = homeScoreObj?.score || 0;
-                    awayScore = awayScoreObj?.score || 0;
+                    // Try multiple ways to get home/away scores
+                    const homeScoreObj = scores.find(s => s.participant === 'home') || 
+                                       scores.find(s => s.type === 'home') ||
+                                       scores[0];
+                    const awayScoreObj = scores.find(s => s.participant === 'away') || 
+                                       scores.find(s => s.type === 'away') ||
+                                       scores[1];
+                    
+                    homeScore = parseInt(homeScoreObj?.score) || parseInt(homeScoreObj?.goals) || 0;
+                    awayScore = parseInt(awayScoreObj?.score) || parseInt(awayScoreObj?.goals) || 0;
+                    
+                    console.log('📊 Parsed scores:', { homeScore, awayScore });
                 }
                 
                 const newScore = `${homeScore} - ${awayScore}`;
-                if (scoreElement.textContent !== newScore) {
+                const currentScore = scoreElement.textContent;
+                
+                if (currentScore !== newScore) {
+                    console.log('⚽ Score updated:', currentScore, '→', newScore);
                     scoreElement.textContent = newScore;
                     scoreElement.classList.add('score-changed');
                     setTimeout(() => scoreElement.classList.remove('score-changed'), 1000);
+                    
+                    // Show goal notification
+                    if (currentScore !== '0 - 0' && newScore !== currentScore) {
+                        showStatus('success', 'Goal Scored!', `Score updated: ${newScore}`);
+                    }
                 }
+            } else {
+                console.log('❌ Score element not found for match:', matchId);
             }
         }
 
@@ -2707,7 +2734,9 @@
                 };
                 
                 // Save bet to Firestore
-                await db.collection('bets').add(betData);
+                console.log('💾 Saving bet data:', betData);
+                const betRef = await db.collection('bets').add(betData);
+                console.log('✅ Bet saved with ID:', betRef.id);
                 
                 // Update user balance
                 await db.collection('wallets').doc(currentUser.uid).update({
