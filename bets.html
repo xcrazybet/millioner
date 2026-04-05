@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>📋 My Bets - Xlodon Bet</title>
+    <title>📋 My Bets - Xlondon Bet</title>
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -145,6 +145,7 @@
             margin-bottom: 10px;
             border-left: 4px solid;
             transition: transform 0.2s;
+            cursor: pointer;
         }
 
         .bet-card:hover {
@@ -336,12 +337,76 @@
                 opacity: 1;
             }
         }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 6px;
+                padding: 12px;
+            }
+            
+            .stat-value {
+                font-size: 20px;
+            }
+            
+            .filter-tabs {
+                padding: 0 8px 8px;
+            }
+            
+            .filter-btn {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+            
+            .bet-card {
+                padding: 12px;
+                margin-bottom: 8px;
+            }
+            
+            .bet-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            
+            .bet-footer {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+                gap: 4px;
+                padding: 8px;
+            }
+            
+            .stat-value {
+                font-size: 18px;
+            }
+            
+            .header {
+                padding: 8px 12px;
+            }
+            
+            .logo {
+                font-size: 16px;
+            }
+            
+            .balance-display {
+                padding: 4px 8px;
+                font-size: 14px;
+            }
+        }
     </style>
 </head>
 <body>
     <header class="header">
         <div class="logo">
-            <a href="https://xcrazybet.github.io/millioner/index.html">⚽ Xlodon Bet</a>
+            <a href="betting.html">⚽ Xlondon Bet</a>
         </div>
         <div class="balance-display">
             <i class="fas fa-wallet"></i> $<span id="balance">0.00</span>
@@ -383,7 +448,7 @@
     </div>
 
     <nav class="bottom-nav">
-        <a href="football.html" class="nav-item"><i class="fas fa-futbol"></i><span>Football</span></a>
+        <a href="betting.html" class="nav-item"><i class="fas fa-futbol"></i><span>Football</span></a>
         <a href="bets.html" class="nav-item active"><i class="fas fa-ticket-alt"></i><span>My Bets</span></a>
         <a href="https://xcrazybet.github.io/millioner/" class="nav-item"><i class="fas fa-home"></i><span>Home</span></a>
         <a href="#" class="nav-item"><i class="fas fa-chart-line"></i><span>Stats</span></a>
@@ -439,15 +504,16 @@
             }
         }
 
-        // Load All Bets - FIXED: Removed orderBy to avoid index requirement
+        // Load All Bets - Enhanced for detailed view
         async function loadAllBets() {
             const container = document.getElementById('betsContainer');
             container.innerHTML = '<div class="loading"><div class="loading-spinner"></div><p>Loading your bets...</p></div>';
 
             try {
-                // Removed .orderBy() to avoid needing composite index
-                const snapshot = await db.collection("football_bets")
+                // Get bets from main betting collection
+                const snapshot = await db.collection("bets")
                     .where("userId", "==", auth.currentUser.uid)
+                    .orderBy("createdAt", "desc")
                     .limit(100)
                     .get();
 
@@ -457,10 +523,10 @@
                     const data = doc.data();
                     // Parse date properly
                     let createdAtDate;
-                    if (data.createdAtDate) {
-                        createdAtDate = new Date(data.createdAtDate);
-                    } else if (data.createdAt && data.createdAt.toDate) {
+                    if (data.createdAt && typeof data.createdAt.toDate === 'function') {
                         createdAtDate = data.createdAt.toDate();
+                    } else if (data.createdAtDate) {
+                        createdAtDate = new Date(data.createdAtDate);
                     } else {
                         createdAtDate = new Date();
                     }
@@ -472,9 +538,6 @@
                     });
                 });
                 
-                // Sort on client side instead of server side
-                allBets.sort((a, b) => b.createdAtDate - a.createdAtDate);
-                
                 console.log('Loaded bets:', allBets.length);
                 updateStats();
                 filterBets(currentFilter);
@@ -484,7 +547,7 @@
                 let errorMessage = error.message;
                 // Provide helpful message for index error
                 if (errorMessage.includes('index')) {
-                    errorMessage = 'Database index is being created. Please wait a moment and refresh the page.';
+                    errorMessage = 'Database index is being created. Please wait a moment and refresh page.';
                 }
                 container.innerHTML = `
                     <div class="empty-state">
@@ -497,9 +560,9 @@
             }
         }
 
-        // Setup Real-time Listener - FIXED: Removed orderBy
+        // Setup Real-time Listener
         function setupRealtimeListener() {
-            db.collection("football_bets")
+            db.collection("bets")
                 .where("userId", "==", auth.currentUser.uid)
                 .onSnapshot((snapshot) => {
                     console.log('Real-time update received');
@@ -535,7 +598,7 @@
             });
         }
 
-        // Display Bets
+        // Display Bets - Enhanced with full details
         function displayBets(bets) {
             const container = document.getElementById('betsContainer');
             
@@ -545,7 +608,7 @@
                         <i class="fas fa-ticket-alt"></i>
                         <h3>No bets found</h3>
                         <p>Start betting on football matches</p>
-                        <a href="football.html" class="browse-btn">BROWSE MATCHES</a>
+                        <a href="betting.html" class="browse-btn">BROWSE MATCHES</a>
                     </div>
                 `;
                 return;
@@ -566,21 +629,23 @@
                 html += `<div class="date-header">${date}</div>`;
                 
                 groups[date].forEach(bet => {
-                    const selectionsHtml = bet.selections && bet.selections.length ? bet.selections.map(s => `
+                    // Enhanced selections display
+                    const selections = bet.bets || bet.selections || [];
+                    const selectionsHtml = selections.length > 0 ? selections.map(s => `
                         <div class="selection-item">
                             <div>
                                 <strong>${s.matchName || 'Unknown Match'}</strong><br>
-                                <span style="font-size: 11px; color: var(--text-dim);">${s.market || 'Market'} - ${s.display || s.selection || 'Selection'}</span>
+                                <span style="font-size: 11px; color: var(--text-dim);">${s.market || 'Market'} - ${s.selection || 'Selection'}</span>
                             </div>
                             <div style="color: var(--primary); font-weight: 600;">${(s.odds || 0).toFixed(2)}</div>
                         </div>
                     `).join('') : '<div class="selection-item">No selections data</div>';
                     
-                    const returnAmount = bet.return || (bet.status === 'won' ? (bet.stake || 0) * (bet.totalOdds || 1) : 0);
+                    const returnAmount = bet.potentialWin || (bet.status === 'won' ? (bet.stake || 0) * (bet.totalOdds || 1) : 0);
                     const returnClass = bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : 'pending';
                     
                     html += `
-                        <div class="bet-card ${bet.status || 'pending'}">
+                        <div class="bet-card ${bet.status || 'pending'}" onclick="showBetDetails('${bet.id}')">
                             <div class="bet-header">
                                 <span class="bet-ticket">#${bet.id.substring(0, 15)}</span>
                                 <span class="bet-status ${bet.status || 'pending'}">${(bet.status || 'PENDING').toUpperCase()}</span>
@@ -614,6 +679,78 @@
             });
             
             container.innerHTML = html;
+        }
+
+        // Show Bet Details Modal
+        function showBetDetails(betId) {
+            const bet = allBets.find(b => b.id === betId);
+            if (!bet) return;
+            
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.8);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10000;
+            `;
+            
+            const selections = bet.bets || bet.selections || [];
+            const selectionsList = selections.map(s => `
+                <div style="padding: 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px;">
+                    <strong>${s.matchName || 'Unknown Match'}</strong><br>
+                    <small style="color: var(--text-dim);">${s.market || 'Market'}: ${s.selection || 'Selection'}</small><br>
+                    <span style="color: var(--primary);">Odds: ${(s.odds || 0).toFixed(2)}</span>
+                </div>
+            `).join('');
+            
+            modal.innerHTML = `
+                <div style="background: var(--surface); border-radius: 16px; padding: 20px; max-width: 400px; width: 90%; max-height: 80vh; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h2 style="color: var(--text); font-size: 18px;">Bet Details</h2>
+                        <button onclick="this.closest('div').parentElement.remove()" style="background: var(--danger); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer;">×</button>
+                    </div>
+                    
+                    <div style="margin-bottom: 16px;">
+                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Bet ID: ${bet.id}</div>
+                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Placed: ${new Date(bet.createdAtDate).toLocaleString()}</div>
+                        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Status: <span style="color: var(--primary); font-weight: bold;">${(bet.status || 'PENDING').toUpperCase()}</span></div>
+                    </div>
+                    
+                    <div style="margin-bottom: 16px;">
+                        <h3 style="color: var(--text); font-size: 14px; margin-bottom: 8px;">Selections (${selections.length}):</h3>
+                        ${selectionsList}
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Stake</div>
+                            <div style="font-size: 18px; font-weight: bold; color: var(--primary);">$${(bet.stake || 0).toFixed(2)}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Total Odds</div>
+                            <div style="font-size: 18px; font-weight: bold; color: var(--primary);">${(bet.totalOdds || 1).toFixed(2)}</div>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 4px;">Potential Return</div>
+                            <div style="font-size: 20px; font-weight: bold; color: ${bet.status === 'won' ? 'var(--success)' : bet.status === 'lost' ? 'var(--danger)' : 'var(--secondary)'};">
+                                ${bet.status === 'won' ? '+' : ''}$${(bet.potentialWin || 0).toFixed(2)}
+                            </div>
+                        </div>
+                        <button onclick="this.closest('div').parentElement.remove()" style="background: var(--primary); color: #000; border: none; padding: 12px 24px; border-radius: 30px; cursor: pointer; font-weight: bold;">Close</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
         }
 
         // Toast
