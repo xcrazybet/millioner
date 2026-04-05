@@ -1255,6 +1255,192 @@
             setTimeout(() => balanceElement.classList.remove('balance-update'), 500);
         }
 
+        // Global Betting Standards and Rules
+        const BETTING_RULES = {
+            // Time Restrictions
+            BETTING_CUTOFF_MINUTES: 30, // Stop betting 30 minutes before match starts
+            MIN_STAKE: 1, // Minimum stake amount
+            MAX_STAKE: 10000, // Maximum stake amount
+            MAX_PARLAY_SELECTIONS: 10, // Maximum selections in accumulator
+            
+            // Betting Markets
+            MARKETS: {
+                MATCH_WINNER: '1X2', // 1 (Home Win), X (Draw), 2 (Away Win)
+                OVER_UNDER: 'O/U', // Over/Under goals
+                BOTH_TEAMS_SCORE: 'BTTS', // Both Teams To Score
+                CORRECT_SCORE: 'CS', // Correct Score
+                FIRST_GOALSCORER: 'FGS' // First Goalscorer
+            },
+            
+            // Match States
+            STATES: {
+                NOT_STARTED: 1,
+                LIVE_FIRST_HALF: 2,
+                LIVE_SECOND_HALF: 3,
+                LIVE_EXTRA_TIME: 4,
+                LIVE_PENALTIES: 5,
+                LIVE_INTERRUPTED: 6,
+                FINISHED: 100,
+                POSTPONED: 90,
+                CANCELLED: 5
+            },
+            
+            // Time Zones
+            TIMEZONE: 'UTC',
+            DATE_FORMAT: 'YYYY-MM-DD HH:mm:ss',
+            
+            // Bet Status
+            BET_STATUS: {
+                PENDING: 'pending',
+                WON: 'won',
+                LOST: 'lost',
+                VOID: 'void',
+                CASHED_OUT: 'cashed_out',
+                OPEN: 'open'
+            }
+        };
+
+        // Check if betting is allowed for a match
+        function isBettingAllowed(match) {
+            const now = new Date();
+            const matchTime = new Date(match.starting_at);
+            const timeDiff = matchTime - now;
+            const minutesUntilStart = timeDiff / (1000 * 60);
+            
+            // Check if match is in valid state
+            const validStates = [BETTING_RULES.STATES.NOT_STARTED];
+            if (!validStates.includes(match.state_id)) {
+                return {
+                    allowed: false,
+                    reason: `Match state not allowed for betting (State: ${match.state_id})`
+                };
+            }
+            
+            // Check betting cutoff time
+            if (minutesUntilStart < BETTING_RULES.BETTING_CUTOFF_MINUTES) {
+                return {
+                    allowed: false,
+                    reason: `Betting closed - starts in ${Math.floor(minutesUntilStart)} minutes`
+                };
+            }
+            
+            return {
+                allowed: true,
+                reason: 'Betting allowed',
+                minutesUntilStart: Math.floor(minutesUntilStart)
+            };
+        }
+
+        // Format match time for display
+        function formatMatchTime(match) {
+            const matchTime = new Date(match.starting_at);
+            const now = new Date();
+            const isToday = matchTime.toDateString() === now.toDateString();
+            const isTomorrow = matchTime.toDateString() === new Date(now.getTime() + 24 * 60 * 60 * 1000).toDateString();
+            
+            let timeString = matchTime.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+            
+            let dateString = matchTime.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric'
+            });
+            
+            if (isToday) {
+                dateString = 'Today';
+            } else if (isTomorrow) {
+                dateString = 'Tomorrow';
+            }
+            
+            return {
+                date: dateString,
+                time: timeString,
+                full: matchTime.toLocaleString('en-US'),
+                iso: matchTime.toISOString(),
+                minutesUntilStart: Math.floor((matchTime - now) / (1000 * 60))
+            };
+        }
+
+        // Create Betting Rules Display
+        function createBettingRulesDisplay() {
+            return `
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <h3 class="text-xl font-bold mb-4 text-gray-800">
+                        <i class="fas fa-gavel text-blue-500 mr-2"></i>
+                        Betting Rules & Standards
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="space-y-3">
+                            <div class="flex items-center">
+                                <i class="fas fa-clock text-green-500 mr-3"></i>
+                                <div>
+                                    <div class="font-semibold">Betting Cutoff</div>
+                                    <div class="text-sm text-gray-600">${BETTING_RULES.BETTING_CUTOFF_MINUTES} minutes before kickoff</div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center">
+                                <i class="fas fa-dollar-sign text-green-500 mr-3"></i>
+                                <div>
+                                    <div class="font-semibold">Stake Limits</div>
+                                    <div class="text-sm text-gray-600">$${BETTING_RULES.MIN_STAKE} - $${BETTING_RULES.MAX_STAKE}</div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center">
+                                <i class="fas fa-list text-green-500 mr-3"></i>
+                                <div>
+                                    <div class="font-semibold">Max Selections</div>
+                                    <div class="text-sm text-gray-600">${BETTING_RULES.MAX_PARLAY_SELECTIONS} in accumulator</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="space-y-3">
+                            <div class="flex items-center">
+                                <i class="fas fa-shield-alt text-blue-500 mr-3"></i>
+                                <div>
+                                    <div class="font-semibold">Responsible Gambling</div>
+                                    <div class="text-sm text-gray-600">Set daily limits in profile</div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center">
+                                <i class="fas fa-history text-blue-500 mr-3"></i>
+                                <div>
+                                    <div class="font-semibold">Where to See Bets</div>
+                                    <div class="text-sm text-gray-600">Visit <strong>bets.html</strong> for all your bets</div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center">
+                                <i class="fas fa-chart-line text-blue-500 mr-3"></i>
+                                <div>
+                                    <div class="font-semibold">Live Betting</div>
+                                    <div class="text-sm text-gray-600">Available until kickoff cutoff</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                        <div class="flex items-center">
+                            <i class="fas fa-info-circle text-yellow-600 mr-2"></i>
+                            <div class="text-sm text-yellow-800">
+                                <strong>Important:</strong> All bets are final once placed. 
+                                Live scores update every 4 seconds. 
+                                Settlement occurs automatically when matches finish.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         // Real-time Match State Monitoring - Auto-transition from upcoming to live
         let upcomingMatchesCache = [];
         let liveMatchesCache = [];
