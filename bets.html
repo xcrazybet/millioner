@@ -572,6 +572,31 @@
         </div>
     </div>
 
+    <!-- Statistics Dashboard -->
+    <div class="statistics-dashboard mt-8 bg-white rounded-2xl shadow-xl p-6" style="margin: 16px;">
+        <h3 class="text-xl font-bold mb-4 text-gray-800">
+            <i class="fas fa-chart-line mr-2 text-purple-500"></i>Your Statistics
+        </h3>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="stat-card bg-gray-50 p-4 rounded-lg text-center">
+                <canvas id="winLossChart" width="80" height="80"></canvas>
+                <div class="text-sm font-semibold mt-2">Win/Loss</div>
+            </div>
+            <div class="stat-card bg-gray-50 p-4 rounded-lg text-center">
+                <canvas id="bettingPatternChart" width="80" height="80"></canvas>
+                <div class="text-sm font-semibold mt-2">Patterns</div>
+            </div>
+            <div class="stat-card bg-gray-50 p-4 rounded-lg text-center">
+                <canvas id="sportsPerformanceChart" width="80" height="80"></canvas>
+                <div class="text-sm font-semibold mt-2">Performance</div>
+            </div>
+            <div class="stat-card bg-gray-50 p-4 rounded-lg text-center">
+                <canvas id="monthlyChart" width="80" height="80"></canvas>
+                <div class="text-sm font-semibold mt-2">Monthly</div>
+            </div>
+        </div>
+    </div>
+
     <div class="filter-tabs">
         <button class="filter-btn active" data-filter="all">ALL BETS</button>
         <button class="filter-btn" data-filter="pending">PENDING</button>
@@ -712,6 +737,7 @@
                 
                 console.log('✅ Loaded bets:', allBets.length);
                 updateStats();
+                initCharts();
                 updateCharts();
                 filterBets(currentFilter);
                 
@@ -783,12 +809,43 @@
                     
                     let homeScore = 0;
                     let awayScore = 0;
-                    if (scores.length > 0) {
-                        const homeScoreObj = scores.find(s => s.participant === 'home' || s.participant === homeTeam?.id);
-                        const awayScoreObj = scores.find(s => s.participant === 'away' || s.participant === awayTeam?.id);
-                        homeScore = homeScoreObj?.score || 0;
-                        awayScore = awayScoreObj?.score || 0;
+                    
+                    // Enhanced score parsing for finished matches
+                    if (match.scores && Array.isArray(match.scores) && match.scores.length > 0) {
+                        console.log('📊 Processing finished match scores:', match.id, match.scores);
+                        
+                        // Method 1: participant field
+                        const homeScoreObj = match.scores.find(s => s.participant === 'home');
+                        const awayScoreObj = match.scores.find(s => s.participant === 'away');
+                        
+                        if (homeScoreObj && awayScoreObj) {
+                            homeScore = parseInt(homeScoreObj.score) || parseInt(homeScoreObj.goals) || 0;
+                            awayScore = parseInt(awayScoreObj.score) || parseInt(awayScoreObj.goals) || 0;
+                        } else {
+                            // Method 2: Check by index
+                            homeScore = parseInt(match.scores[0]?.score) || parseInt(match.scores[0]?.goals) || 0;
+                            awayScore = parseInt(match.scores[1]?.score) || parseInt(match.scores[1]?.goals) || 0;
+                        }
+                    } else if (match.score && typeof match.score === 'object') {
+                        // Method 3: Direct score object
+                        homeScore = parseInt(match.score.home) || parseInt(match.score.ht) || parseInt(match.score.localteam_score) || 0;
+                        awayScore = parseInt(match.score.away) || parseInt(match.score.at) || parseInt(match.score.visitorteam_score) || 0;
+                    } else if (match.goals && Array.isArray(match.goals)) {
+                        // Method 4: Goals array
+                        const homeGoals = match.goals.filter(g => g.team === 'home' || g.team_id === match.participants?.[0]?.id).length;
+                        const awayGoals = match.goals.filter(g => g.team === 'away' || g.team_id === match.participants?.[1]?.id).length;
+                        homeScore = homeGoals;
+                        awayScore = awayGoals;
+                    } else if (match.result) {
+                        // Method 5: Result string like "2-1"
+                        const resultMatch = match.result.match(/(\d+)\s*[-:]\s*(\d+)/);
+                        if (resultMatch) {
+                            homeScore = parseInt(resultMatch[1]) || 0;
+                            awayScore = parseInt(resultMatch[2]) || 0;
+                        }
                     }
+                    
+                    console.log('🎯 Final scores for finished match:', match.id, { homeScore, awayScore });
                     
                     const finishedTime = new Date(match.finishedAt || match.starting_at);
                     
@@ -1193,9 +1250,135 @@
         // Filter Event Listeners
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', () => {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
                 filterBets(btn.dataset.filter);
             });
         });
+
+        // Initialize Charts
+        function initCharts() {
+            // Win/Loss Chart
+            const winLossCtx = document.getElementById('winLossChart');
+            if (winLossCtx) {
+                new Chart(winLossCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Won', 'Lost', 'Pending'],
+                        datasets: [{
+                            data: [0, 0, 0],
+                            backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: false,
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+
+            // Betting Pattern Chart
+            const patternCtx = document.getElementById('bettingPatternChart');
+            if (patternCtx) {
+                new Chart(patternCtx, {
+                    type: 'line',
+                    data: {
+                        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+                        datasets: [{
+                            label: 'Bets',
+                            data: [0, 0, 0, 0, 0, 0, 0],
+                            borderColor: '#8b5cf6',
+                            backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: { display: false },
+                            x: { display: false }
+                        }
+                    }
+                });
+            }
+
+            // Performance Chart
+            const perfCtx = document.getElementById('sportsPerformanceChart');
+            if (perfCtx) {
+                new Chart(perfCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Football', 'Basketball', 'Tennis'],
+                        datasets: [{
+                            label: 'Win Rate %',
+                            data: [0, 0, 0],
+                            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b']
+                        }]
+                    },
+                    options: {
+                        responsive: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: { display: false },
+                            x: { display: false }
+                        }
+                    }
+                });
+            }
+
+            // Monthly Chart
+            const monthlyCtx = document.getElementById('monthlyChart');
+            if (monthlyCtx) {
+                new Chart(monthlyCtx, {
+                    type: 'line',
+                    data: {
+                        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                        datasets: [{
+                            label: 'Profit/Loss',
+                            data: [0, 0, 0, 0, 0, 0],
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: { display: false },
+                            x: { display: false }
+                        }
+                    }
+                });
+            }
+        }
+
+        // Update Charts with Real Data
+        function updateCharts() {
+            const wonBets = allBets.filter(b => b.status === 'won').length;
+            const lostBets = allBets.filter(b => b.status === 'lost').length;
+            const pendingBets = allBets.filter(b => b.status === 'pending').length;
+
+            // Update Win/Loss Chart
+            const winLossCtx = document.getElementById('winLossChart');
+            if (winLossCtx && winLossCtx.chart) {
+                winLossCtx.chart.data.datasets[0].data = [wonBets, lostBets, pendingBets];
+                winLossCtx.chart.update();
+            }
+
+            // Update other charts with sample data
+            // In real implementation, you'd calculate actual patterns
+        }
 
         // Close modal when clicking outside
         document.getElementById('betModal').addEventListener('click', (e) => {
