@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>League Standings - Live Widget</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none; /* Prevents text selection on double-click, but not intrusive */
+        }
+
+        body {
+            background: linear-gradient(145deg, #0b1a2e 0%, #07121f 100%);
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        /* Main card container - elegant, modern, responsive */
+        .standings-card {
+            max-width: 1400px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(0px);
+            border-radius: 2rem;
+            box-shadow: 0 25px 45px -12px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(255, 255, 255, 0.05);
+            transition: all 0.2s ease;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* inner wrapper for widget */
+        .widget-container {
+            width: 100%;
+            background: #ffffff;
+            border-radius: 1.5rem;
+            overflow: auto; /* ensures scroll if needed */
+            transition: all 0.2s;
+        }
+
+        /* The widget itself: we will override any pointer-events on the container that leads to redirects,
+           but keep interactive scrolls and internal functionality (if any, but we block all anchor clicks globally).
+           Also we remove any iframe / link behavior. */
+        .widget-area {
+            min-height: 550px;
+            width: 100%;
+            position: relative;
+        }
+
+        /* Ensure widget fills nicely */
+        #widget-mount-point {
+            display: block;
+            width: 100%;
+        }
+
+        /* Hide the original "powered-by" section completely */
+        #powered-by, .powered-by, [id="powered-by"] {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            height: 0 !important;
+            width: 0 !important;
+            overflow: hidden !important;
+            position: absolute !important;
+            pointer-events: none !important;
+        }
+
+        /* Additional class to catch any generated footer or credit link */
+        [class*="powered"], [class*="credit"], [class*="attribution"], 
+        [class*="footer-link"], [class*="branding"], a[href*="365scores"] {
+            display: none !important;
+        }
+
+        /* Block ALL anchor clicks inside the widget area and also any possible redirect from parent elements */
+        .no-click-redirect, .widget-area, .standings-card * {
+            /* We'll use JS event capturing to block navigation, but also CSS pointer-events: none would break scroll.
+               Instead we keep pointer-events auto for usability, but intercept all clicks on links or elements that cause navigation.
+               However, to be extra safe, we add a global overlay? no, we use JS to prevent default on any anchor tag.
+            */
+        }
+
+        /* Make sure the widget looks clean and scrolls nicely on mobile */
+        .widget-container {
+            background: #fff;
+        }
+
+        /* subtle loading animation */
+        .loading-placeholder {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 450px;
+            background: #f8fafc;
+            border-radius: 1.5rem;
+            font-weight: 500;
+            color: #1e293b;
+            gap: 12px;
+            flex-direction: column;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #e2e8f0;
+            border-top: 4px solid #2c5f8a;
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Hide any potential overlays that might cause redirects? we use JS */
+        @media (max-width: 700px) {
+            body {
+                padding: 1rem;
+            }
+            .standings-card {
+                border-radius: 1.25rem;
+            }
+        }
+
+        /* Additional removal for any iframe inside widget? but widget uses JS rendering. Good. */
+        /* Force any link inside widget container to be non-clickable with JS */
+    </style>
+</head>
+<body>
+
+<div class="standings-card">
+    <div class="widget-container">
+        <div class="widget-area" id="widgetArea">
+            <!-- loading indicator -->
+            <div id="loadingIndicator" class="loading-placeholder">
+                <div class="spinner"></div>
+                <div>Loading league standings...</div>
+            </div>
+            <!-- The widget will be injected here by 365scores script -->
+            <div id="dynamicWidgetRoot">
+                <div data-widget-type="entityStandings" 
+                     data-entity-type="league" 
+                     data-entity-id="104" 
+                     data-lang="en" 
+                     data-widget-id="6b484acb-eab2-4a35-a6ce-0ceaed6bfed7"
+                     id="mainWidgetDiv">
+                </div>
+                <!-- The original powered-by div will be created by script but we hide it via CSS and also via JS removal -->
+                <div id="powered-by" style="display:none !important;">Powered by<a id="powered-by-link" href="https://www.365scores.com" target="_blank">365Scores.com</a></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Load the official widget script, but we will override & block redirects after load -->
+<script src="https://widgets.365scores.com/main.js"></script>
+
+<script>
+    (function() {
+        // ------------------------------------------------------------------
+        // STRATEGY: Fully hide any external branding and block any click that
+        // leads to navigation / opening new tabs or redirects to 365scores or any external link.
+        // Also preserve internal widget functionality like scrolling, but no outgoing links.
+        // ------------------------------------------------------------------
+
+        // 1. Immediately after DOM ready, intercept all click events on the document (capture phase)
+        // to prevent any anchor (<a>) or elements with onclick that cause redirect.
+        // Also block window.open, and any target=_blank or href navigation.
+        
+        const blockRedirect = (e) => {
+            let target = e.target;
+            // Climb up to find if any clickable link or element that may cause navigation
+            let linkElement = null;
+            if (target.closest) {
+                linkElement = target.closest('a');
+            } else {
+                // fallback manual climbing
+                let el = target;
+                while (el && el !== document.body) {
+                    if (el.tagName === 'A') {
+                        linkElement = el;
+                        break;
+                    }
+                    el = el.parentElement;
+                }
+            }
+            
+            if (linkElement) {
+                const href = linkElement.getAttribute('href');
+                // If it has an href or any navigation intention, block it
+                if (href && href !== '#' && !href.startsWith('javascript:')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    return false;
+                }
+                // Also block if link has target="_blank" or any click that navigates
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+            
+            // Additionally, check for any synthetic clicks on elements with role="link" or custom redirection
+            if (target.hasAttribute && (target.hasAttribute('data-redirect') || target.getAttribute('onclick')?.includes('location') || target.getAttribute('onclick')?.includes('open'))) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+            
+            // If any parent element with class that contains "clickable" but causes redirect? safer to block only explicit links.
+            // But also block any element that looks like a button with form action? but widget usually uses anchor tags.
+        };
+        
+        // Use capturing phase to ensure we catch clicks before any widget's own handlers.
+        document.addEventListener('click', blockRedirect, true);
+        
+        // Also prevent middle-click / ctrl+click new tab opening via auxiliary events
+        document.addEventListener('auxclick', (e) => {
+            let target = e.target;
+            let link = target.closest ? target.closest('a') : null;
+            if (link && link.href) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        }, true);
+        
+        // Block context menu on links to avoid "open in new tab" from right-click? but that's user decision.
+        // However to be thorough, we can disable context menu only on link elements? Not needed but can be added optionally.
+        // Not mandatory, but avoids right-click -> open link. For better UX we disable contextmenu on anchor tags.
+        document.addEventListener('contextmenu', (e) => {
+            let target = e.target;
+            let link = target.closest ? target.closest('a') : null;
+            if (link && link.href) {
+                e.preventDefault();
+                return false;
+            }
+        }, true);
+        
+        // 2. Hide any "Powered by" or credit elements that might be injected after widget loads (dynamic).
+        // Use MutationObserver to watch for new nodes and remove them if they match powered-by patterns.
+        const hideBrandingAndExternalLinks = () => {
+            // Remove by id
+            const poweredDiv = document.getElementById('powered-by');
+            if (poweredDiv) {
+                poweredDiv.style.display = 'none';
+                poweredDiv.remove(); // completely remove from DOM
+            }
+            
+            // Remove any anchor that points to 365scores.com or similar
+            const allLinks = document.querySelectorAll('a');
+            allLinks.forEach(link => {
+                const href = (link.getAttribute('href') || '').toLowerCase();
+                if (href.includes('365scores.com') || href.includes('365scores') || 
+                    (link.id === 'powered-by-link') || 
+                    (link.innerText && link.innerText.includes('365Scores'))) {
+                    // Remove or hide
+                    link.style.display = 'none';
+                    link.remove(); // destroy the element completely
+                }
+                // Also if link has class or parent with branding
+                if (link.closest && link.closest('#powered-by')) {
+                    link.remove();
+                }
+            });
+            
+            // Remove any div that contains "powered by" text
+            const allDivs = document.querySelectorAll('div, span, footer, small');
+            allDivs.forEach(el => {
+                if (el.innerText && (el.innerText.toLowerCase().includes('powered by') || el.innerText.toLowerCase().includes('365scores'))) {
+                    if (!el.querySelector('table') && !el.querySelector('.standings-table')) { // avoid false positive removing content
+                        el.style.display = 'none';
+                        el.remove();
+                    }
+                }
+                // Check class names
+                if (el.className && typeof el.className === 'string') {
+                    if (el.className.toLowerCase().includes('powered') || el.className.toLowerCase().includes('branding') || el.className.toLowerCase().includes('credit')) {
+                        el.remove();
+                    }
+                }
+            });
+            
+            // Remove any iframe that might have src? widget doesn't use iframe but safety
+            const iframes = document.querySelectorAll('iframe');
+            iframes.forEach(iframe => {
+                if (iframe.src && iframe.src.includes('365scores')) {
+                    iframe.remove();
+                }
+            });
+        };
+        
+        // Run initially after small delay and after widget loads
+        setTimeout(hideBrandingAndExternalLinks, 100);
+        
+        // MutationObserver to continuously clean up any injected branding or links
+        const observer = new MutationObserver((mutations) => {
+            let needsCleanup = false;
+            for (const mutation of mutations) {
+                if (mutation.addedNodes.length > 0) {
+                    needsCleanup = true;
+                    break;
+                }
+                if (mutation.type === 'attributes' && mutation.attributeName === 'href') {
+                    needsCleanup = true;
+                    break;
+                }
+            }
+            if (needsCleanup) {
+                hideBrandingAndExternalLinks();
+                // Additionally, ensure all anchor tags in widget area are stripped from navigation using CSS+JS
+                disableAllRemainingAnchors();
+            }
+        });
+        
+        // Disable anchor navigation for any remaining anchors (override href)
+        const disableAllRemainingAnchors = () => {
+            const anchors = document.querySelectorAll('#widgetArea a, .widget-area a, #dynamicWidgetRoot a, [data-widget-type="entityStandings"] a');
+            anchors.forEach(anchor => {
+                // Remove href but keep styling? But to prevent click we set href="javascript:void(0)" and remove target.
+                if (anchor.getAttribute('href') && anchor.getAttribute('href') !== 'javascript:void(0)') {
+                    anchor.setAttribute('data-original-href', anchor.getAttribute('href'));
+                    anchor.removeAttribute('href');
+                    anchor.style.cursor = 'default';
+                    anchor.style.pointerEvents = 'none'; // actually this makes it unclickable but may affect style
+                    // Better to keep pointer-events: none? but that could affect tooltips but no navigation.
+                    // To keep visual but prevent click: we already have global click prevent, but extra safe.
+                    anchor.style.pointerEvents = 'none';
+                } else {
+                    anchor.style.pointerEvents = 'none';
+                }
+                // Remove target
+                anchor.removeAttribute('target');
+                anchor.setAttribute('aria-disabled', 'true');
+            });
+            
+            // Also any element with onclick redirect
+            const clickableElements = document.querySelectorAll('[onclick]');
+            clickableElements.forEach(el => {
+                const onclickAttr = el.getAttribute('onclick');
+                if (onclickAttr && (onclickAttr.includes('location') || onclickAttr.includes('open') || onclickAttr.includes('href'))) {
+                    el.removeAttribute('onclick');
+                    el.setAttribute('data-onclick-removed', 'true');
+                }
+            });
+        };
+        
+        // Start observing after document ready
+        window.addEventListener('DOMContentLoaded', () => {
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['href', 'style', 'class', 'onclick']
+            });
+            // Initial clean
+            hideBrandingAndExternalLinks();
+            disableAllRemainingAnchors();
+        });
+        
+        // Additional: remove any possible global variable that widget might set for redirects? not needed.
+        // Also override window.open to prevent any new tab from widget scripts
+        const originalOpen = window.open;
+        window.open = function(...args) {
+            // block all opens from widget
+            console.warn('Blocked window.open attempt');
+            return null;
+        };
+        
+        // Also block location.assign / replace if called indirectly? not likely from widget but safe.
+        const originalAssign = location.assign;
+        const originalReplace = location.replace;
+        Object.defineProperty(location, 'assign', {
+            configurable: true,
+            value: function(url) {
+                if (url && url.includes('365scores')) {
+                    console.warn('Blocked location.assign to 365scores');
+                    return;
+                }
+                return originalAssign.call(location, url);
+            }
+        });
+        Object.defineProperty(location, 'replace', {
+            configurable: true,
+            value: function(url) {
+                if (url && url.includes('365scores')) {
+                    console.warn('Blocked location.replace to 365scores');
+                    return;
+                }
+                return originalReplace.call(location, url);
+            }
+        });
+        
+        // 3. Hide the loading indicator when widget content appears.
+        const checkWidgetReady = setInterval(() => {
+            // Look for tables or standings content inside the widget area
+            const widgetContainerDiv = document.querySelector('[data-widget-type="entityStandings"]');
+            if (widgetContainerDiv && widgetContainerDiv.children.length > 0) {
+                const loadingElem = document.getElementById('loadingIndicator');
+                if (loadingElem) {
+                    loadingElem.style.display = 'none';
+                }
+                // also ensure any widget inner loading disappears
+                clearInterval(checkWidgetReady);
+                // run final cleaning after content ready
+                setTimeout(() => {
+                    hideBrandingAndExternalLinks();
+                    disableAllRemainingAnchors();
+                }, 500);
+            }
+            // If widget container has any iframe or table content
+            if (document.querySelector('.standings-table, .entity-standings, .widget-content')) {
+                const loadingElem = document.getElementById('loadingIndicator');
+                if (loadingElem) loadingElem.style.display = 'none';
+            }
+        }, 300);
+        
+        // Final safety: after 3 seconds force cleanup and hide loading
+        setTimeout(() => {
+            const loadingElem = document.getElementById('loadingIndicator');
+            if (loadingElem) loadingElem.style.display = 'none';
+            hideBrandingAndExternalLinks();
+            disableAllRemainingAnchors();
+        }, 4000);
+        
+        // Since the widget script might re-insert powered-by later, we keep observer alive forever.
+        // Also add extra CSS rule to enforce hiding any element with ID powered-by and specific classes.
+        const style = document.createElement('style');
+        style.textContent = `
+            #powered-by, .powered-by, [id="powered-by"], [class*="powered"], [class*="credit-footer"], 
+            a[href*="365scores.com"], a[href*="365scores"], div:contains("Powered by"), .widget-footer {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+                height: 0 !important;
+                width: 0 !important;
+                overflow: hidden !important;
+                position: absolute !important;
+                z-index: -9999 !important;
+            }
+        `;
+        document.head.appendChild(style);
+        
+        // Additional removal: Check for any inserted script that adds event listeners to links?
+        // Override addEventListener for anchor clicks? not needed due to capture phase.
+        
+        // Ensure widget container doesn't have any interactive redirect via data attributes
+        const widgetRoot = document.getElementById('dynamicWidgetRoot');
+        if (widgetRoot) {
+            widgetRoot.style.userSelect = 'auto'; // keep selection but no redirects
+        }
+        
+        // For touch devices, also block long-press menu on links to avoid open in new tab context menu.
+        // Already blocked contextmenu, but we also block 'touchstart' for preventing default? Not needed.
+        
+        console.log('Widget protection active: No redirects, no external branding visible.');
+    })();
+</script>
+
+<!-- Additional style overrides to force hiding and prevent any pointer events on external links only -->
+<style>
+    /* Ultra aggressive hide for any powered-by / credit / footer links generated dynamically */
+    #powered-by,
+    div[id*="powered"],
+    span[id*="powered"],
+    footer[class*="credit"],
+    .attribution,
+    .branding-footer,
+    a[href*="365scores.com"],
+    a[href*="365scores"],
+    a[href*="widgets.365scores"],
+    div:has(> a[href*="365scores"]),
+    .powered-by-365 {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        height: 0 !important;
+        width: 0 !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+        pointer-events: none !important;
+        position: absolute !important;
+        top: -9999px !important;
+        left: -9999px !important;
+    }
+    
+    /* Ensure all links inside widget container lose pointer-events? But we want scroll & internal, 
+       but we can't lose interactions for standings? Actually many widgets have clickable rows that might lead to details,
+       but that also might redirect. Since requirement says "no click allowed to not redirect to the source", 
+       we block any navigation but we also keep any visual only. But if you want to allow team details inside widget? 
+       The requirement only says "no click allowed to not redirect to source", meaning clicks should not go to 365scores.com.
+       However some internal interactions like sorting or expanding might be fine? But safest to block all links.
+       Already done by JS. */
+       
+    /* For perfect UX: show that elements are not clickable for external links */
+    .widget-area a, [data-widget-type] a {
+        cursor: default !important;
+        text-decoration: none !important;
+    }
+    
+    /* Ensure no blue underline on fake links */
+    a, a:hover, a:visited {
+        pointer-events: auto; /* but JS prevents navigation anyway, cursor default */
+        cursor: default;
+    }
+    
+    /* But we also preserve scrolling and table data display */
+    .standings-card {
+        pointer-events: auto;
+    }
+    
+    /* Make sure any interactive dropdown (if any) that does not cause redirect works; but we block redirects only.
+       No interference with internal UI states. */
+</style>
+
+</body>
+</html>
