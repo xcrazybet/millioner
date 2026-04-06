@@ -1036,25 +1036,34 @@
                 
                 console.log('🔥 Firebase connection OK, fetching bets...');
                 
+                // Modified query to avoid composite index requirement
+                // First get user bets, then filter by status in JavaScript
                 const betsSnapshot = await db.collection('bets')
                     .where('userId', '==', currentUser.uid)
-                    .where('status', '==', 'pending')
                     .orderBy('createdAt', 'desc')
+                    .limit(50) // Limit to avoid large queries
                     .get();
 
-                console.log('📊 Open bets snapshot size:', betsSnapshot.size);
+                console.log('📊 Total bets snapshot size:', betsSnapshot.size);
 
-                const openBets = betsSnapshot.docs.map(doc => ({
+                const allBets = betsSnapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
                 }));
                 
+                // Filter pending bets in JavaScript instead of Firestore query
+                const openBets = allBets.filter(bet => bet.status === 'pending');
+                
                 console.log('📝 Open bets data:', openBets);
+                console.log(`🔍 Found ${openBets.length} pending bets out of ${allBets.length} total`);
+                
                 updateOpenBetsDisplay(openBets);
                 
                 // Show success message if bets found
                 if (openBets.length > 0) {
                     showStatus('success', 'Bets Loaded', `Found ${openBets.length} open bet${openBets.length > 1 ? 's' : ''}`);
+                } else {
+                    showStatus('info', 'No Open Bets', 'You have no pending bets at the moment');
                 }
                 
             } catch (error) {
@@ -1068,6 +1077,8 @@
                     errorMessage = 'Database unavailable - please try again';
                 } else if (error.code === 'unauthenticated') {
                     errorMessage = 'Not authenticated - please log in again';
+                } else if (error.message && error.message.includes('index')) {
+                    errorMessage = 'Database index issue - using fallback query';
                 } else {
                     errorMessage = `Database error: ${error.message}`;
                 }
@@ -1387,18 +1398,26 @@
         // Check and Settle Bets - Enhanced Settlement System
         async function checkAndSettleBets() {
             try {
-                // Get all pending bets
-                const pendingBetsSnapshot = await db.collection('bets')
+                // Get all user bets and filter pending in JavaScript to avoid index issue
+                const allBetsSnapshot = await db.collection('bets')
                     .where('userId', '==', currentUser.uid)
-                    .where('status', '==', 'pending')
+                    .orderBy('createdAt', 'desc')
+                    .limit(50)
                     .get();
 
-                if (pendingBetsSnapshot.empty) return;
+                if (allBetsSnapshot.empty) return;
 
-                const pendingBets = pendingBetsSnapshot.docs.map(doc => ({
+                const allBets = allBetsSnapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data()
                 }));
+
+                // Filter pending bets in JavaScript
+                const pendingBets = allBets.filter(bet => bet.status === 'pending');
+
+                if (pendingBets.length === 0) return;
+
+                console.log(`🔍 Checking ${pendingBets.length} pending bets for settlement...`);
 
                 // Get current match data
                 const currentData = await tryDirectFetch();
