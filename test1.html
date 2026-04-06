@@ -2,1336 +2,659 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>X London Betting Platform - Live Sports Betting</title>
-    
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-    
-    <!-- Tailwind CSS -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Bets - X-Bet</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        .bet-card {
+            transition: all 0.3s ease;
+            border-left: 4px solid transparent;
         }
-        
-        :root {
-            --primary: #00ff9d;
-            --primary-dark: #00cc7d;
-            --secondary: #ff9800;
-            --danger: #ff4757;
-            --success: #4caf50;
-            --warning: #ffc107;
-            --bg-dark: #0a0f1a;
-            --bg-surface: #111827;
-            --bg-surface-light: #1a2332;
-            --text: #ffffff;
-            --text-dim: #94a3b8;
-            --border: #1e293b;
+        .bet-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
         }
+        .bet-pending { border-left-color: #f59e0b; }
+        .bet-won { border-left-color: #10b981; }
+        .bet-lost { border-left-color: #ef4444; }
+        .bet-void { border-left-color: #6b7280; }
         
-        body {
-            background: var(--bg-dark);
-            color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            padding-bottom: 70px;
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
         }
+        .status-pending { background: #fef3c7; color: #92400e; }
+        .status-won { background: #d1fae5; color: #065f46; }
+        .status-lost { background: #fee2e2; color: #991b1b; }
+        .status-void { background: #f3f4f6; color: #374151; }
         
-        /* Header */
-        .header {
-            background: var(--bg-surface);
-            padding: 12px 16px;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            border-bottom: 2px solid var(--primary);
-        }
+        .profit-positive { color: #10b981; }
+        .profit-negative { color: #ef4444; }
         
-        /* Match Cards */
-        .match-card {
-            background: var(--bg-surface);
-            border-radius: 16px;
-            padding: 16px;
-            margin-bottom: 12px;
-            transition: all 0.3s;
-            border-left: 4px solid var(--primary);
-        }
-        
-        .match-card:hover {
-            transform: translateX(5px);
-            background: var(--bg-surface-light);
-        }
-        
-        .match-card.disabled {
-            opacity: 0.6;
-            border-left-color: var(--text-dim);
-        }
-        
-        /* Odds Buttons */
-        .odds-btn {
+        .match-score {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            padding: 10px 16px;
-            border-radius: 30px;
             color: white;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.2s;
-            width: 100%;
-        }
-        
-        .odds-btn:hover:not(:disabled) {
-            transform: scale(1.05);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        }
-        
-        .odds-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        /* Live Indicator */
-        .live-indicator {
-            background: var(--danger);
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: bold;
-            animation: pulse 1s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        
-        /* Countdown Timer */
-        .countdown {
-            background: var(--secondary);
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 11px;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
             font-weight: bold;
         }
         
-        .countdown.closed {
-            background: var(--danger);
+        .selection-item {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.375rem;
+            padding: 0.5rem;
+            margin-bottom: 0.25rem;
         }
         
-        /* Score Display */
-        .score-display {
-            font-size: 28px;
-            font-weight: bold;
-            background: rgba(0,0,0,0.5);
-            padding: 8px 20px;
-            border-radius: 12px;
-            display: inline-block;
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+        .bet-card { animation: slideIn 0.5s ease-out; }
         
-        .score-updated {
-            animation: scoreFlash 0.5s ease;
+        .loading-skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
         }
-        
-        @keyframes scoreFlash {
-            0%, 100% { transform: scale(1); color: white; }
-            50% { transform: scale(1.2); color: var(--primary); }
-        }
-        
-        /* Bet Slip */
-        .bet-slip {
-            background: var(--bg-surface);
-            border-radius: 16px;
-            position: sticky;
-            top: 80px;
-        }
-        
-        .bet-slip-item {
-            background: var(--bg-surface-light);
-            padding: 12px;
-            border-radius: 12px;
-            margin-bottom: 8px;
-        }
-        
-        /* Bet Type Buttons */
-        .bet-type-btn {
-            padding: 8px 16px;
-            background: var(--bg-surface-light);
-            border: 1px solid var(--border);
-            border-radius: 30px;
-            color: var(--text-dim);
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 12px;
-        }
-        
-        .bet-type-btn.active {
-            background: var(--primary);
-            color: #000;
-            border-color: var(--primary);
-        }
-        
-        /* Toast */
-        .toast {
-            position: fixed;
-            bottom: 80px;
-            left: 16px;
-            right: 16px;
-            background: var(--bg-surface);
-            padding: 14px;
-            border-radius: 12px;
-            border-left: 4px solid var(--primary);
-            z-index: 1000;
-            animation: slideUp 0.3s ease;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-        }
-        
-        @keyframes slideUp {
-            from {
-                transform: translateY(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-        
-        /* Mobile Navigation */
-        .mobile-nav {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: var(--bg-surface);
-            display: flex;
-            justify-content: space-around;
-            padding: 8px 16px 12px;
-            border-top: 2px solid var(--primary);
-            z-index: 100;
-        }
-        
-        .nav-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-decoration: none;
-            color: var(--text-dim);
-            font-size: 10px;
-            gap: 4px;
-        }
-        
-        .nav-item.active {
-            color: var(--primary);
-        }
-        
-        .nav-item i {
-            font-size: 20px;
-        }
-        
-        /* Loading Spinner */
-        .loading-spinner {
-            border: 3px solid var(--bg-surface-light);
-            border-top: 3px solid var(--primary);
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: var(--bg-surface);
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: var(--primary);
-            border-radius: 10px;
-        }
-        
-        /* Goal Notification */
-        .goal-notification {
-            position: fixed;
-            top: 80px;
-            right: 16px;
-            background: linear-gradient(135deg, var(--success), var(--primary-dark));
-            color: white;
-            padding: 12px 20px;
-            border-radius: 12px;
-            z-index: 1000;
-            animation: slideInRight 0.3s ease;
-            font-weight: bold;
-        }
-        
-        @keyframes slideInRight {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-        
-        /* Responsive */
-        @media (max-width: 768px) {
-            .score-display {
-                font-size: 20px;
-                padding: 4px 12px;
-            }
-            
-            .odds-btn {
-                padding: 8px 12px;
-                font-size: 12px;
-            }
-            
-            .bet-type-btn {
-                padding: 6px 12px;
-                font-size: 11px;
-            }
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
     </style>
 </head>
-<body>
+<body class="bg-gray-50">
     <!-- Header -->
-    <header class="header">
-        <div class="container mx-auto flex justify-between items-center">
-            <div class="flex items-center space-x-4">
-                <h1 class="text-xl font-bold" style="color: var(--primary);">
-                    <i class="fas fa-futbol mr-2"></i>XLondon Bet
-                </h1>
-                <a href="index.html" class="text-gray-400 hover:text-white text-sm">
-                    <i class="fas fa-home"></i>
-                </a>
-            </div>
-            <div class="text-right">
-                <div class="text-xs text-gray-400">Balance</div>
-                <div class="text-xl font-bold" style="color: var(--primary);" id="balance">$0.00</div>
+    <header class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <h1 class="text-2xl font-bold text-indigo-600">X-Bet</h1>
+                    <span class="ml-4 text-gray-600">My Bets</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="text-right">
+                        <div class="text-sm text-gray-600">Balance</div>
+                        <div id="userBalance" class="text-lg font-bold text-green-600">$0.00</div>
+                    </div>
+                    <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600">
+                        <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                    </button>
+                </div>
             </div>
         </div>
     </header>
-    
+
+    <!-- Status Display -->
+    <div id="statusDisplay" class="hidden fixed top-20 right-4 bg-white rounded-lg shadow-lg p-4 z-50 max-w-sm">
+        <div class="flex items-center">
+            <div id="statusIcon" class="mr-3"></div>
+            <div>
+                <div id="statusTitle" class="font-semibold"></div>
+                <div id="statusMessage" class="text-sm text-gray-600"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Main Content -->
-    <main class="container mx-auto px-4 py-4">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Left Column - Matches -->
-            <div class="lg:col-span-2">
-                <!-- Filter Buttons -->
-                <div class="flex gap-2 mb-4 overflow-x-auto pb-2">
-                    <button onclick="loadMatches('live')" id="filterLive" class="filter-btn px-4 py-2 rounded-full text-sm font-semibold" style="background: var(--bg-surface); color: var(--text-dim);">
-                        <i class="fas fa-circle text-red-500 mr-1"></i> LIVE
-                    </button>
-                    <button onclick="loadMatches('upcoming')" id="filterUpcoming" class="filter-btn px-4 py-2 rounded-full text-sm font-semibold" style="background: var(--bg-surface); color: var(--text-dim);">
-                        <i class="fas fa-calendar mr-1"></i> UPCOMING
-                    </button>
-                    <button onclick="loadMatches('finished')" id="filterFinished" class="filter-btn px-4 py-2 rounded-full text-sm font-semibold" style="background: var(--bg-surface); color: var(--text-dim);">
-                        <i class="fas fa-check-circle mr-1"></i> FINISHED (24h)
-                    </button>
-                    <button onclick="refreshData()" class="px-4 py-2 rounded-full text-sm font-semibold" style="background: var(--bg-surface); color: var(--text-dim);">
-                        <i class="fas fa-sync-alt"></i>
-                    </button>
-                </div>
-                
-                <!-- Matches Container -->
-                <div id="matchesContainer">
-                    <div class="loading-spinner"></div>
-                    <div class="text-center text-gray-400">Loading matches...</div>
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Stats Overview -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <div class="flex items-center">
+                    <div class="p-3 bg-blue-100 rounded-lg">
+                        <i class="fas fa-ticket-alt text-blue-600 text-xl"></i>
+                    </div>
+                    <div class="ml-4">
+                        <div class="text-sm text-gray-600">Total Bets</div>
+                        <div id="totalBets" class="text-2xl font-bold text-gray-900">0</div>
+                    </div>
                 </div>
             </div>
             
-            <!-- Right Column - Bet Slip -->
-            <div class="lg:col-span-1">
-                <div class="bet-slip p-4">
-                    <h2 class="text-lg font-bold mb-4" style="color: var(--primary);">
-                        <i class="fas fa-receipt mr-2"></i>Bet Slip
-                        <span id="betCount" class="ml-2 px-2 py-1 rounded-full text-xs" style="background: var(--primary); color: #000;">0</span>
-                    </h2>
-                    
-                    <!-- Bet Type Selector -->
-                    <div class="flex flex-wrap gap-2 mb-4">
-                        <button onclick="selectBetType('single')" class="bet-type-btn active" data-type="single">Single</button>
-                        <button onclick="selectBetType('double')" class="bet-type-btn" data-type="double">Double</button>
-                        <button onclick="selectBetType('treble')" class="bet-type-btn" data-type="treble">Treble</button>
-                        <button onclick="selectBetType('accumulator')" class="bet-type-btn" data-type="accumulator">Accumulator</button>
-                        <button onclick="selectBetType('system')" class="bet-type-btn" data-type="system">System 2/3</button>
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <div class="flex items-center">
+                    <div class="p-3 bg-green-100 rounded-lg">
+                        <i class="fas fa-trophy text-green-600 text-xl"></i>
                     </div>
-                    
-                    <!-- Bet Slip Content -->
-                    <div id="betSlipContent" class="max-h-96 overflow-y-auto mb-4">
-                        <div class="text-center py-8 text-gray-400">
-                            <i class="fas fa-plus-circle text-4xl mb-2"></i>
-                            <p class="text-sm">Click odds to add selections</p>
-                        </div>
-                    </div>
-                    
-                    <!-- Bet Summary -->
-                    <div id="betSummary" style="display: none;">
-                        <div class="border-t border-gray-700 pt-4 space-y-3">
-                            <div class="flex justify-between">
-                                <span class="text-gray-400">Total Odds:</span>
-                                <span id="totalOdds" class="font-bold" style="color: var(--primary);">0.00</span>
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-400">Stake ($):</span>
-                                <input type="number" id="stakeAmount" value="10" min="1" step="1" 
-                                       class="w-32 px-3 py-2 rounded-lg text-right font-bold" 
-                                       style="background: var(--bg-surface-light); border: 1px solid var(--border); color: white;">
-                            </div>
-                            <div class="flex justify-between items-center pt-2">
-                                <span class="text-gray-400">Potential Win:</span>
-                                <span id="potentialWin" class="text-xl font-bold" style="color: var(--success);">$0.00</span>
-                            </div>
-                            <button onclick="placeBet()" id="placeBetBtn" 
-                                    class="w-full py-3 rounded-xl font-bold transition"
-                                    style="background: var(--primary); color: #000;">
-                                <i class="fas fa-check-circle mr-2"></i>PLACE BET
-                            </button>
-                        </div>
+                    <div class="ml-4">
+                        <div class="text-sm text-gray-600">Won</div>
+                        <div id="wonBets" class="text-2xl font-bold text-green-600">0</div>
                     </div>
                 </div>
-                
-                <!-- Finished Matches Preview -->
-                <div class="mt-6 p-4 rounded-lg" style="background: var(--bg-surface);">
-                    <h3 class="font-bold mb-3 text-sm">
-                        <i class="fas fa-history mr-2" style="color: var(--primary);"></i>Recent Finished (24h)
-                    </h3>
-                    <div id="finishedPreview" class="space-y-2 max-h-64 overflow-y-auto">
-                        <div class="text-center text-gray-400 text-sm">Loading...</div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <div class="flex items-center">
+                    <div class="p-3 bg-red-100 rounded-lg">
+                        <i class="fas fa-times-circle text-red-600 text-xl"></i>
+                    </div>
+                    <div class="ml-4">
+                        <div class="text-sm text-gray-600">Lost</div>
+                        <div id="lostBets" class="text-2xl font-bold text-red-600">0</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <div class="flex items-center">
+                    <div class="p-3 bg-purple-100 rounded-lg">
+                        <i class="fas fa-chart-line text-purple-600 text-xl"></i>
+                    </div>
+                    <div class="ml-4">
+                        <div class="text-sm text-gray-600">Profit/Loss</div>
+                        <div id="profitLoss" class="text-2xl font-bold">$0.00</div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- Filters -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center space-x-4">
+                    <label class="text-sm font-medium text-gray-700">Filter:</label>
+                    <select id="statusFilter" onchange="filterBets()" class="border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="all">All Bets</option>
+                        <option value="pending">Pending</option>
+                        <option value="won">Won</option>
+                        <option value="lost">Lost</option>
+                        <option value="void">Void</option>
+                    </select>
+                    <select id="timeFilter" onchange="filterBets()" class="border border-gray-300 rounded-lg px-3 py-2">
+                        <option value="all">All Time</option>
+                        <option value="today">Today</option>
+                        <option value="week">This Week</option>
+                        <option value="month">This Month</option>
+                    </select>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="refreshBets()" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+                        <i class="fas fa-sync-alt mr-2"></i>Refresh
+                    </button>
+                    <button onclick="exportBets()" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600">
+                        <i class="fas fa-download mr-2"></i>Export
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bets Container -->
+        <div id="betsContainer" class="space-y-6">
+            <!-- Loading State -->
+            <div id="loadingState" class="text-center py-12">
+                <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                <p class="mt-4 text-gray-600">Loading your bets...</p>
+            </div>
+            
+            <!-- Empty State -->
+            <div id="emptyState" class="hidden text-center py-12">
+                <i class="fas fa-inbox text-6xl text-gray-400 mb-4"></i>
+                <h3 class="text-xl font-semibold text-gray-600 mb-2">No bets found</h3>
+                <p class="text-gray-500">You haven't placed any bets yet. Start betting to see them here!</p>
+                <a href="betting-enhanced-fixed.html" class="inline-block mt-4 bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600">
+                    <i class="fas fa-plus mr-2"></i>Place Your First Bet
+                </a>
+            </div>
+        </div>
     </main>
-    
-    <!-- Mobile Navigation -->
-    <nav class="mobile-nav">
-        <a href="betting.html" class="nav-item active">
-            <i class="fas fa-futbol"></i>
-            <span>Football</span>
-        </a>
-        <a href="bets.html" class="nav-item">
-            <i class="fas fa-ticket-alt"></i>
-            <span>My Bets</span>
-        </a>
-        <a href="index.html" class="nav-item">
-            <i class="fas fa-home"></i>
-            <span>Home</span>
-        </a>
-        <a href="#" class="nav-item">
-            <i class="fas fa-chart-line"></i>
-            <span>Stats</span>
-        </a>
-        <a href="dashboard.html" class="nav-item">
-            <i class="fas fa-wallet"></i>
-            <span>Wallet</span>
-        </a>
-    </nav>
-    
-    <!-- Toast Container -->
-    <div id="toastContainer"></div>
-    
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
     <script>
-        // ============================================
-        // FIREBASE CONFIGURATION
-        // ============================================
+        // Firebase Configuration
         const firebaseConfig = {
-            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            apiKey: "AIzaSyC7Kl_9f7K2N3M4P5Q6R8S9T1V2W3X4Y7Z0",
             authDomain: "x-bet-prod-jd.firebaseapp.com",
             projectId: "x-bet-prod-jd",
-            storageBucket: "x-bet-prod-jd.firebasestorage.app",
-            messagingSenderId: "499334334535",
-            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+            storageBucket: "x-bet-prod-jd.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:abcdef123456789012345678"
         };
-        
+
+        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
-        
-        // ============================================
-        // GLOBAL VARIABLES
-        // ============================================
+
+        // SportMonks API Configuration
+        const SPORTMONKS_API_TOKEN = 'DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy';
+
+        // Global Variables
         let currentUser = null;
-        let userBalance = 0;
-        let bettingSlip = [];
-        let currentBetType = 'single';
-        let currentFilter = 'live';
-        let liveMatches = [];
-        let scoreUpdateInterval = null;
-        let allMatches = [];
-        
-        // API Configuration
-        const API_TOKEN = 'DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy';
-        
-        // ============================================
-        // AUTHENTICATION
-        // ============================================
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                currentUser = user;
-                await loadUserBalance();
-                await loadMatches('live');
-                startScoreUpdates();
-                await loadFinishedMatchesPreview();
-                console.log('✅ User authenticated:', user.email);
-            } else {
-                window.location.href = 'login.html';
-            }
+        let userData = null;
+        let allBets = [];
+        let filteredBets = [];
+
+        // Initialize App
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initializeApp();
         });
-        
-        // ============================================
-        // LOAD USER BALANCE
-        // ============================================
-        async function loadUserBalance() {
-            try {
-                const doc = await db.collection('wallets').doc(currentUser.uid).get();
-                if (doc.exists) {
-                    userBalance = doc.data().balance || 0;
-                    document.getElementById('balance').textContent = `$${userBalance.toFixed(2)}`;
-                } else {
-                    await db.collection('wallets').doc(currentUser.uid).set({ balance: 100 });
-                    userBalance = 100;
-                    document.getElementById('balance').textContent = '$100.00';
-                }
-            } catch (error) {
-                console.error('Balance error:', error);
-                showToast('Failed to load balance', 'error');
-            }
-        }
-        
-        // ============================================
-        // UPDATE BALANCE DISPLAY
-        // ============================================
-        async function updateBalance(amount) {
-            userBalance = amount;
-            document.getElementById('balance').textContent = `$${userBalance.toFixed(2)}`;
-        }
-        
-        // ============================================
-        // LOAD MATCHES BASED ON FILTER
-        // ============================================
-        async function loadMatches(filter) {
-            currentFilter = filter;
+
+        async function initializeApp() {
+            showStatus('loading', 'Loading...', 'Fetching your betting data');
             
-            // Update active button
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.style.background = 'var(--bg-surface)';
-                btn.style.color = 'var(--text-dim)';
-            });
-            const activeBtn = document.getElementById(`filter${filter.charAt(0).toUpperCase() + filter.slice(1)}`);
-            if (activeBtn) {
-                activeBtn.style.background = 'var(--primary)';
-                activeBtn.style.color = '#000';
-            }
-            
-            const container = document.getElementById('matchesContainer');
-            container.innerHTML = '<div class="loading-spinner"></div><div class="text-center text-gray-400">Loading matches...</div>';
-            
-            try {
-                let matches = [];
-                
-                if (filter === 'live') {
-                    matches = await fetchLiveMatches();
-                } else if (filter === 'upcoming') {
-                    matches = await fetchUpcomingMatches();
-                } else if (filter === 'finished') {
-                    matches = await fetchFinishedMatches();
-                }
-                
-                allMatches = matches;
-                displayMatches(matches, filter);
-                
-            } catch (error) {
-                console.error('Load matches error:', error);
-                container.innerHTML = `
-                    <div class="text-center py-8 text-gray-400">
-                        <i class="fas fa-exclamation-circle text-4xl mb-2"></i>
-                        <p>Failed to load matches</p>
-                        <button onclick="loadMatches('${filter}')" class="mt-4 px-4 py-2 rounded-lg" style="background: var(--primary); color: #000;">RETRY</button>
-                    </div>
-                `;
-            }
-        }
-        
-        // ============================================
-        // FETCH LIVE MATCHES FROM API
-        // ============================================
-        async function fetchLiveMatches() {
-            try {
-                const response = await fetch(`https://api.sportmonks.com/v3/football/livescores?api_token=${API_TOKEN}&include=participants;state;scores&per_page=20`);
-                if (response.ok) {
-                    const data = await response.json();
-                    return data.data || [];
-                }
-            } catch (error) {
-                console.log('API fetch failed, using sample data');
-            }
-            return generateSampleMatches('live');
-        }
-        
-        // ============================================
-        // FETCH UPCOMING MATCHES
-        // ============================================
-        async function fetchUpcomingMatches() {
-            try {
-                const today = new Date().toISOString().split('T')[0];
-                const response = await fetch(`https://api.sportmonks.com/v3/football/fixtures/date/${today}?api_token=${API_TOKEN}&include=participants;state&per_page=20`);
-                if (response.ok) {
-                    const data = await response.json();
-                    return data.data || [];
-                }
-            } catch (error) {
-                console.log('API fetch failed, using sample data');
-            }
-            return generateSampleMatches('upcoming');
-        }
-        
-        // ============================================
-        // FETCH FINISHED MATCHES (LAST 24 HOURS)
-        // ============================================
-        async function fetchFinishedMatches() {
-            try {
-                // Try to get from Firestore cache first
-                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-                const cachedSnapshot = await db.collection('finishedMatches')
-                    .where('finishedAt', '>=', twentyFourHoursAgo)
-                    .orderBy('finishedAt', 'desc')
-                    .limit(20)
-                    .get();
-                
-                if (!cachedSnapshot.empty) {
-                    return cachedSnapshot.docs.map(doc => doc.data());
-                }
-                
-                // If no cache, try API
-                const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                const response = await fetch(`https://api.sportmonks.com/v3/football/fixtures/date/${yesterday}?api_token=${API_TOKEN}&include=participants;scores&per_page=20`);
-                if (response.ok) {
-                    const data = await response.json();
-                    const finished = (data.data || []).filter(m => m.state_id === 100);
-                    
-                    // Cache to Firestore
-                    for (const match of finished) {
-                        await db.collection('finishedMatches').doc(`match_${match.id}`).set({
-                            ...match,
-                            finishedAt: new Date(match.starting_at),
-                            cachedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-                    
-                    return finished;
-                }
-            } catch (error) {
-                console.log('Error fetching finished matches:', error);
-            }
-            return generateSampleMatches('finished');
-        }
-        
-        // ============================================
-        // GENERATE SAMPLE MATCHES (FALLBACK)
-        // ============================================
-        function generateSampleMatches(type) {
-            const teams = [
-                ['Chelsea', 'Arsenal'],
-                ['Manchester United', 'Liverpool'],
-                ['Real Madrid', 'Barcelona'],
-                ['Bayern Munich', 'Borussia Dortmund'],
-                ['PSG', 'Marseille'],
-                ['Juventus', 'AC Milan'],
-                ['Manchester City', 'Tottenham']
-            ];
-            
-            const matches = [];
-            const now = new Date();
-            
-            for (let i = 0; i < 7; i++) {
-                const homeTeam = teams[i % teams.length][0];
-                const awayTeam = teams[i % teams.length][1];
-                
-                let state_id = 1; // Not started
-                let homeScore = 0;
-                let awayScore = 0;
-                let minute = null;
-                
-                if (type === 'live') {
-                    state_id = 2; // 1st half
-                    homeScore = Math.floor(Math.random() * 3);
-                    awayScore = Math.floor(Math.random() * 3);
-                    minute = Math.floor(Math.random() * 45) + 1;
-                } else if (type === 'finished') {
-                    state_id = 100;
-                    homeScore = Math.floor(Math.random() * 5);
-                    awayScore = Math.floor(Math.random() * 5);
-                }
-                
-                const startTime = new Date(now.getTime() + (i - 3) * 60 * 60 * 1000);
-                
-                matches.push({
-                    id: i + 1000,
-                    state_id: state_id,
-                    starting_at: startTime.toISOString(),
-                    minute: minute,
-                    participants: [
-                        { id: i * 2 + 1, name: homeTeam, meta: { location: 'home' } },
-                        { id: i * 2 + 2, name: awayTeam, meta: { location: 'away' } }
-                    ],
-                    scores: type !== 'upcoming' ? [
-                        { participant: 'home', score: homeScore },
-                        { participant: 'away', score: awayScore }
-                    ] : [],
-                    league: { name: ['Premier League', 'La Liga', 'Bundesliga', 'Serie A'][i % 4] }
-                });
-            }
-            
-            return matches;
-        }
-        
-        // ============================================
-        // DISPLAY MATCHES
-        // ============================================
-        function displayMatches(matches, type) {
-            const container = document.getElementById('matchesContainer');
-            
-            if (!matches || matches.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center py-8 text-gray-400">
-                        <i class="fas fa-info-circle text-4xl mb-2"></i>
-                        <p>No ${type} matches available</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            let html = '';
-            
-            matches.forEach(match => {
-                const participants = match.participants || [];
-                const homeTeam = participants.find(p => p.meta?.location === 'home') || participants[0];
-                const awayTeam = participants.find(p => p.meta?.location === 'away') || participants[1];
-                
-                // Get scores
-                let homeScore = 0;
-                let awayScore = 0;
-                const scores = match.scores || [];
-                
-                if (scores.length > 0) {
-                    const homeScoreObj = scores.find(s => s.participant === 'home');
-                    const awayScoreObj = scores.find(s => s.participant === 'away');
-                    homeScore = homeScoreObj?.score || 0;
-                    awayScore = awayScoreObj?.score || 0;
-                }
-                
-                const startTime = new Date(match.starting_at);
-                const now = new Date();
-                const isLive = type === 'live';
-                const isFinished = type === 'finished';
-                const isUpcoming = type === 'upcoming';
-                
-                // Check if betting is allowed (only for upcoming matches not started)
-                const canBet = isUpcoming && match.state_id === 1 && startTime > now;
-                const timeRemaining = canBet ? getTimeRemaining(startTime) : null;
-                const bettingClosed = isUpcoming && !canBet;
-                
-                // Random odds
-                const homeOdds = (1.8 + Math.random() * 1.5).toFixed(2);
-                const drawOdds = (3.0 + Math.random() * 1).toFixed(2);
-                const awayOdds = (2.0 + Math.random() * 2).toFixed(2);
-                
-                html += `
-                    <div class="match-card ${!canBet && isUpcoming ? 'disabled' : ''}" data-match-id="${match.id}" data-home="${homeTeam?.name}" data-away="${awayTeam?.name}">
-                        <div class="flex justify-between items-center mb-3">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs px-2 py-1 rounded" style="background: var(--bg-surface-light);">${match.league?.name || 'Football'}</span>
-                                ${isLive ? `<span class="live-indicator"><i class="fas fa-circle mr-1"></i> LIVE ${match.minute ? match.minute + "'" : ''}</span>` : ''}
-                                ${isUpcoming && canBet ? `<span class="countdown"><i class="far fa-clock mr-1"></i> ${timeRemaining}</span>` : ''}
-                                ${isUpcoming && bettingClosed ? `<span class="countdown closed"><i class="fas fa-lock mr-1"></i> BETTING CLOSED</span>` : ''}
-                                ${isFinished ? `<span class="text-xs" style="color: var(--success);"><i class="fas fa-check-circle mr-1"></i> FINISHED</span>` : ''}
-                            </div>
-                            <div class="text-xs text-gray-400">
-                                ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                        </div>
-                        
-                        <div class="flex items-center justify-between">
-                            <div class="flex-1 text-center">
-                                <div class="font-bold text-sm">${homeTeam?.name || 'Home'}</div>
-                            </div>
-                            <div class="mx-4">
-                                ${isLive || isFinished ? 
-                                    `<div class="score-display" data-match="${match.id}">${homeScore} - ${awayScore}</div>` : 
-                                    `<div class="text-xl font-bold text-gray-500">VS</div>`
-                                }
-                            </div>
-                            <div class="flex-1 text-center">
-                                <div class="font-bold text-sm">${awayTeam?.name || 'Away'}</div>
-                            </div>
-                        </div>
-                        
-                        ${!isFinished && canBet ? `
-                            <div class="grid grid-cols-3 gap-2 mt-4">
-                                <button onclick="addToBetSlip('${match.id}', '${homeTeam?.name}', 'Home Win', ${homeOdds})" class="odds-btn">
-                                    Home<br><span class="text-lg">${homeOdds}</span>
-                                </button>
-                                <button onclick="addToBetSlip('${match.id}', 'Draw', 'Draw', ${drawOdds})" class="odds-btn">
-                                    Draw<br><span class="text-lg">${drawOdds}</span>
-                                </button>
-                                <button onclick="addToBetSlip('${match.id}', '${awayTeam?.name}', 'Away Win', ${awayOdds})" class="odds-btn">
-                                    Away<br><span class="text-lg">${awayOdds}</span>
-                                </button>
-                            </div>
-                        ` : isFinished ? `
-                            <div class="text-center mt-4 text-gray-400 text-sm">
-                                <i class="fas fa-flag-checkered mr-1"></i> Final Score: ${homeScore} - ${awayScore}
-                            </div>
-                        ` : !canBet && isUpcoming ? `
-                            <div class="text-center mt-4 text-gray-500 text-sm">
-                                <i class="fas fa-hourglass-end mr-1"></i> Betting closed
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
-            });
-            
-            container.innerHTML = html;
-        }
-        
-        // ============================================
-        // GET TIME REMAINING FOR BETTING
-        // ============================================
-        function getTimeRemaining(startTime) {
-            const diff = startTime - new Date();
-            if (diff <= 0) return 'Closed';
-            
-            const hours = Math.floor(diff / (1000 * 60 * 60));
-            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-            
-            if (hours > 0) return `${hours}h ${minutes}m`;
-            return `${minutes}m`;
-        }
-        
-        // ============================================
-        // START LIVE SCORE UPDATES (EVERY 4 SECONDS)
-        // ============================================
-        function startScoreUpdates() {
-            if (scoreUpdateInterval) clearInterval(scoreUpdateInterval);
-            
-            scoreUpdateInterval = setInterval(async () => {
-                if (currentFilter === 'live') {
-                    await updateLiveScores();
-                }
-            }, 4000);
-        }
-        
-        // ============================================
-        // UPDATE LIVE SCORES
-        // ============================================
-        async function updateLiveScores() {
-            try {
-                const response = await fetch(`https://api.sportmonks.com/v3/football/livescores?api_token=${API_TOKEN}&include=scores`);
-                if (response.ok) {
-                    const data = await response.json();
-                    const liveMatches = data.data || [];
-                    
-                    for (const match of liveMatches) {
-                        const scores = match.scores || [];
-                        let homeScore = 0;
-                        let awayScore = 0;
-                        
-                        if (scores.length > 0) {
-                            const homeScoreObj = scores.find(s => s.participant === 'home');
-                            const awayScoreObj = scores.find(s => s.participant === 'away');
-                            homeScore = homeScoreObj?.score || 0;
-                            awayScore = awayScoreObj?.score || 0;
-                        }
-                        
-                        // Update score display
-                        const scoreElement = document.querySelector(`.score-display[data-match="${match.id}"]`);
-                        if (scoreElement) {
-                            const oldScore = scoreElement.textContent;
-                            const newScore = `${homeScore} - ${awayScore}`;
-                            
-                            if (oldScore !== newScore) {
-                                scoreElement.textContent = newScore;
-                                scoreElement.classList.add('score-updated');
-                                setTimeout(() => scoreElement.classList.remove('score-updated'), 500);
-                                
-                                // Show goal notification
-                                showGoalNotification(match, newScore);
-                                
-                                // Check if match finished
-                                if (match.state_id === 100) {
-                                    await settleMatchBets(match);
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (error) {
-                console.log('Score update error:', error);
-            }
-        }
-        
-        // ============================================
-        // SHOW GOAL NOTIFICATION
-        // ============================================
-        function showGoalNotification(match, score) {
-            const participants = match.participants || [];
-            const homeTeam = participants[0]?.name || 'Home';
-            const awayTeam = participants[1]?.name || 'Away';
-            
-            const notification = document.createElement('div');
-            notification.className = 'goal-notification';
-            notification.innerHTML = `
-                <i class="fas fa-futbol mr-2"></i>
-                <strong>GOAL!</strong> ${homeTeam} ${score} ${awayTeam}
-            `;
-            document.body.appendChild(notification);
-            
-            setTimeout(() => notification.remove(), 3000);
-        }
-        
-        // ============================================
-        // SETTLE MATCH BETS (AUTO WIN/LOSS)
-        // ============================================
-        async function settleMatchBets(match) {
-            const scores = match.scores || [];
-            let homeScore = 0, awayScore = 0;
-            
-            const homeScoreObj = scores.find(s => s.participant === 'home');
-            const awayScoreObj = scores.find(s => s.participant === 'away');
-            homeScore = homeScoreObj?.score || 0;
-            awayScore = awayScoreObj?.score || 0;
-            
-            let result = '';
-            if (homeScore > awayScore) result = 'Home Win';
-            else if (awayScore > homeScore) result = 'Away Win';
-            else result = 'Draw';
-            
-            // Find all pending bets on this match
-            const betsSnapshot = await db.collection('bets')
-                .where('status', '==', 'pending')
-                .get();
-            
-            for (const betDoc of betsSnapshot.docs) {
-                const bet = betDoc.data();
-                const selections = bet.selections || [];
-                
-                let allSettled = true;
-                let betWon = false;
-                
-                for (const selection of selections) {
-                    if (selection.matchId == match.id) {
-                        // This bet is on this match
-                        if (selection.selection === result) {
-                            betWon = true;
-                        } else {
-                            betWon = false;
-                        }
-                        break;
-                    }
-                }
-                
-                // Update bet status
-                const newStatus = betWon ? 'won' : 'lost';
-                await db.collection('bets').doc(betDoc.id).update({
-                    status: newStatus,
-                    settledAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    finalScore: `${homeScore}-${awayScore}`
-                });
-                
-                // Add winnings to user balance if won
-                if (betWon) {
-                    const userRef = db.collection('wallets').doc(bet.userId);
-                    const userDoc = await userRef.get();
-                    const currentBalance = userDoc.data()?.balance || 0;
-                    await userRef.update({
-                        balance: currentBalance + (bet.potentialWin || 0)
-                    });
-                    
-                    showToast(`🎉 You won $${(bet.potentialWin || 0).toFixed(2)} on ${match.participants?.[0]?.name} vs ${match.participants?.[1]?.name}!`, 'success');
-                }
-            }
-            
-            // Store finished match
-            await db.collection('finishedMatches').doc(`match_${match.id}`).set({
-                ...match,
-                finishedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                finalScore: `${homeScore}-${awayScore}`,
-                result: result
-            });
-        }
-        
-        // ============================================
-        // ADD TO BET SLIP
-        // ============================================
-        function addToBetSlip(matchId, teamName, selection, odds) {
-            // Check if already in slip
-            if (bettingSlip.some(b => b.matchId === matchId && b.selection === selection)) {
-                showToast('Already in bet slip', 'warning');
-                return;
-            }
-            
-            bettingSlip.push({
-                id: Date.now() + Math.random(),
-                matchId: matchId,
-                teamName: teamName,
-                selection: selection,
-                odds: parseFloat(odds)
-            });
-            
-            updateBetSlip();
-            showToast(`Added ${teamName} - ${selection} @ ${odds}`, 'success');
-        }
-        
-        // ============================================
-        // REMOVE FROM BET SLIP
-        // ============================================
-        function removeFromBetSlip(id) {
-            bettingSlip = bettingSlip.filter(b => b.id !== id);
-            updateBetSlip();
-        }
-        
-        // ============================================
-        // UPDATE BET SLIP DISPLAY
-        // ============================================
-        function updateBetSlip() {
-            const container = document.getElementById('betSlipContent');
-            const betCount = document.getElementById('betCount');
-            const betSummary = document.getElementById('betSummary');
-            
-            betCount.textContent = bettingSlip.length;
-            
-            if (bettingSlip.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center py-8 text-gray-400">
-                        <i class="fas fa-plus-circle text-4xl mb-2"></i>
-                        <p class="text-sm">Click odds to add selections</p>
-                    </div>
-                `;
-                betSummary.style.display = 'none';
-                return;
-            }
-            
-            let html = '';
-            bettingSlip.forEach(bet => {
-                html += `
-                    <div class="bet-slip-item">
-                        <div class="flex justify-between items-start">
-                            <div class="flex-1">
-                                <div class="font-semibold text-sm">${bet.teamName}</div>
-                                <div class="text-xs text-gray-400">${bet.selection}</div>
-                                <div class="text-xs" style="color: var(--primary);">Odds: ${bet.odds.toFixed(2)}</div>
-                            </div>
-                            <button onclick="removeFromBetSlip(${bet.id})" class="text-gray-400 hover:text-red-500">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                    </div>
-                `;
-            });
-            
-            container.innerHTML = html;
-            betSummary.style.display = 'block';
-            
-            // Calculate and display totals
-            updateBetTotals();
-        }
-        
-        // ============================================
-        // SELECT BET TYPE
-        // ============================================
-        function selectBetType(type) {
-            currentBetType = type;
-            
-            document.querySelectorAll('.bet-type-btn').forEach(btn => {
-                btn.classList.remove('active');
-                if (btn.dataset.type === type) {
-                    btn.classList.add('active');
-                }
-            });
-            
-            updateBetTotals();
-        }
-        
-        // ============================================
-        // UPDATE BET TOTALS BASED ON BET TYPE
-        // ============================================
-        function updateBetTotals() {
-            const stake = parseFloat(document.getElementById('stakeAmount').value) || 0;
-            let totalOdds = 0;
-            let potentialWin = 0;
-            
-            if (bettingSlip.length === 0) {
-                document.getElementById('totalOdds').textContent = '0.00';
-                document.getElementById('potentialWin').textContent = '$0.00';
-                return;
-            }
-            
-            switch (currentBetType) {
-                case 'single':
-                    totalOdds = bettingSlip[0]?.odds || 0;
-                    potentialWin = stake * totalOdds;
-                    break;
-                    
-                case 'double':
-                    if (bettingSlip.length >= 2) {
-                        totalOdds = bettingSlip[0].odds * bettingSlip[1].odds;
-                        potentialWin = stake * totalOdds;
-                    } else {
-                        totalOdds = 0;
-                        potentialWin = 0;
-                        showToast('Need 2 selections for Double', 'warning');
-                    }
-                    break;
-                    
-                case 'treble':
-                    if (bettingSlip.length >= 3) {
-                        totalOdds = bettingSlip[0].odds * bettingSlip[1].odds * bettingSlip[2].odds;
-                        potentialWin = stake * totalOdds;
-                    } else {
-                        totalOdds = 0;
-                        potentialWin = 0;
-                        showToast('Need 3 selections for Treble', 'warning');
-                    }
-                    break;
-                    
-                case 'accumulator':
-                    if (bettingSlip.length >= 4) {
-                        totalOdds = bettingSlip.reduce((acc, bet) => acc * bet.odds, 1);
-                        potentialWin = stake * totalOdds;
-                    } else {
-                        totalOdds = 0;
-                        potentialWin = 0;
-                        showToast('Need 4+ selections for Accumulator', 'warning');
-                    }
-                    break;
-                    
-                case 'system':
-                    // System 2/3 - all possible doubles from 3 selections
-                    if (bettingSlip.length === 3) {
-                        const combinations = [
-                            [bettingSlip[0], bettingSlip[1]],
-                            [bettingSlip[0], bettingSlip[2]],
-                            [bettingSlip[1], bettingSlip[2]]
-                        ];
-                        
-                        let totalReturn = 0;
-                        combinations.forEach(combo => {
-                            const comboOdds = combo[0].odds * combo[1].odds;
-                            totalReturn += stake * comboOdds;
-                        });
-                        
-                        potentialWin = totalReturn;
-                        totalOdds = potentialWin / stake;
-                    } else {
-                        totalOdds = 0;
-                        potentialWin = 0;
-                        showToast('System 2/3 requires exactly 3 selections', 'warning');
-                    }
-                    break;
-            }
-            
-            document.getElementById('totalOdds').textContent = totalOdds.toFixed(2);
-            document.getElementById('potentialWin').textContent = `$${potentialWin.toFixed(2)}`;
-        }
-        
-        // ============================================
-        // PLACE BET
-        // ============================================
-        async function placeBet() {
-            if (!currentUser) {
-                showToast('Please login first', 'error');
-                return;
-            }
-            
-            if (bettingSlip.length === 0) {
-                showToast('Add selections to bet slip', 'warning');
-                return;
-            }
-            
-            const stake = parseFloat(document.getElementById('stakeAmount').value);
-            if (isNaN(stake) || stake <= 0) {
-                showToast('Enter valid stake amount', 'warning');
-                return;
-            }
-            
-            if (stake > userBalance) {
-                showToast('Insufficient balance', 'error');
-                return;
-            }
-            
-            // Validate bet type requirements
-            let isValid = true;
-            switch (currentBetType) {
-                case 'double':
-                    if (bettingSlip.length < 2) isValid = false;
-                    break;
-                case 'treble':
-                    if (bettingSlip.length < 3) isValid = false;
-                    break;
-                case 'accumulator':
-                    if (bettingSlip.length < 4) isValid = false;
-                    break;
-                case 'system':
-                    if (bettingSlip.length !== 3) isValid = false;
-                    break;
-            }
-            
-            if (!isValid) {
-                showToast(`Invalid number of selections for ${currentBetType}`, 'error');
-                return;
-            }
-            
-            const totalOdds = parseFloat(document.getElementById('totalOdds').textContent);
-            const potentialWin = parseFloat(document.getElementById('potentialWin').textContent.replace('$', ''));
-            
-            try {
-                // Deduct balance
-                const newBalance = userBalance - stake;
-                await db.collection('wallets').doc(currentUser.uid).update({
-                    balance: newBalance
-                });
-                await updateBalance(newBalance);
-                
-                // Save bet to Firestore
-                const betData = {
-                    userId: currentUser.uid,
-                    selections: bettingSlip.map(b => ({
-                        matchId: b.matchId,
-                        teamName: b.teamName,
-                        selection: b.selection,
-                        odds: b.odds
-                    })),
-                    stake: stake,
-                    totalOdds: totalOdds,
-                    potentialWin: potentialWin,
-                    betType: currentBetType,
-                    status: 'pending',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-                
-                await db.collection('bets').add(betData);
-                
-                // Clear bet slip
-                bettingSlip = [];
-                updateBetSlip();
-                
-                showToast(`Bet placed! Potential win: $${potentialWin.toFixed(2)}`, 'success');
-                
-            } catch (error) {
-                console.error('Place bet error:', error);
-                showToast('Failed to place bet', 'error');
-            }
-        }
-        
-        // ============================================
-        // LOAD FINISHED MATCHES PREVIEW
-        // ============================================
-        async function loadFinishedMatchesPreview() {
-            const container = document.getElementById('finishedPreview');
-            
-            try {
-                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-                const snapshot = await db.collection('finishedMatches')
-                    .where('finishedAt', '>=', twentyFourHoursAgo)
-                    .orderBy('finishedAt', 'desc')
-                    .limit(5)
-                    .get();
-                
-                if (snapshot.empty) {
-                    container.innerHTML = '<div class="text-center text-gray-400 text-sm">No finished matches in last 24h</div>';
+            auth.onAuthStateChanged(async (user) => {
+                if (!user) {
+                    window.location.href = 'login.html';
                     return;
                 }
                 
-                let html = '';
-                snapshot.forEach(doc => {
-                    const match = doc.data();
-                    const participants = match.participants || [];
-                    const homeTeam = participants[0]?.name || 'Home';
-                    const awayTeam = participants[1]?.name || 'Away';
-                    const finalScore = match.finalScore || '0-0';
-                    
-                    html += `
-                        <div class="p-2 rounded-lg" style="background: var(--bg-surface-light);">
-                            <div class="flex justify-between text-sm">
-                                <span>${homeTeam}</span>
-                                <span class="font-bold" style="color: var(--primary);">${finalScore}</span>
-                                <span>${awayTeam}</span>
-                            </div>
-                        </div>
-                    `;
-                });
+                currentUser = user;
+                await loadUserData();
+                await loadBets();
+                updateStats();
+                hideStatus();
+            });
+        }
+
+        async function loadUserData() {
+            try {
+                const userDoc = await db.collection('wallets').doc(currentUser.uid).get();
+                if (userDoc.exists) {
+                    userData = userDoc.data();
+                    document.getElementById('userBalance').textContent = `$${userData.balance?.toFixed(2) || '0.00'}`;
+                }
+            } catch (error) {
+                console.error('Error loading user data:', error);
+            }
+        }
+
+        async function loadBets() {
+            try {
+                showStatus('loading', 'Loading Bets', 'Fetching your betting history...');
                 
-                container.innerHTML = html;
+                const betsSnapshot = await db.collection('bets')
+                    .where('userId', '==', currentUser.uid)
+                    .orderBy('createdAt', 'desc')
+                    .limit(100)
+                    .get();
+
+                allBets = betsSnapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+
+                // Update match results for pending bets
+                await updateMatchResults();
+                
+                // Apply initial filter
+                filterBets();
+                
+                hideStatus();
                 
             } catch (error) {
-                console.error('Finished preview error:', error);
-                container.innerHTML = '<div class="text-center text-gray-400 text-sm">Unable to load</div>';
+                console.error('Error loading bets:', error);
+                showStatus('error', 'Load Failed', 'Failed to load your bets');
             }
         }
-        
-        // ============================================
-        // REFRESH DATA
-        // ============================================
-        function refreshData() {
-            loadMatches(currentFilter);
-            loadFinishedMatchesPreview();
-            showToast('Refreshing data...', 'info');
+
+        async function updateMatchResults() {
+            try {
+                // Get current match data from SportMonks API
+                const response = await fetch(`https://api.sportmonks.com/v3/football/fixtures?include=scores;events&api_token=${SPORTMONKS_API_TOKEN}`);
+                const data = await response.json();
+                
+                if (data && data.data) {
+                    const matches = data.data;
+                    
+                    // Update each bet with match results
+                    for (let bet of allBets) {
+                        if (bet.status === 'pending') {
+                            await evaluateBet(bet, matches);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating match results:', error);
+            }
         }
-        
-        // ============================================
-        // SHOW TOAST NOTIFICATION
-        // ============================================
-        function showToast(message, type = 'info') {
-            const container = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = 'toast';
+
+        async function evaluateBet(bet, matches) {
+            try {
+                const selections = bet.selections || [];
+                let allWon = true;
+                let anyLost = false;
+                let allFinished = true;
+
+                // Check each selection
+                for (const selection of selections) {
+                    const match = matches.find(m => m.id == selection.matchId);
+                    
+                    if (!match) {
+                        allFinished = false;
+                        continue;
+                    }
+
+                    const isFinished = [100, 90, 5].includes(match.state_id);
+                    if (!isFinished) {
+                        allFinished = false;
+                        continue;
+                    }
+
+                    // Get match scores
+                    const scores = match.scores || [];
+                    let homeScore = 0, awayScore = 0;
+                    if (scores.length > 0) {
+                        const homeScoreObj = scores.find(s => s.participant === 'home');
+                        const awayScoreObj = scores.find(s => s.participant === 'away');
+                        homeScore = homeScoreObj?.score || 0;
+                        awayScore = awayScoreObj?.score || 0;
+                    }
+
+                    // Determine actual result
+                    const actualResult = homeScore > awayScore ? 'Home Win' : 
+                                       awayScore > homeScore ? 'Away Win' : 'Draw';
+
+                    // Evaluate selection
+                    const won = evaluateSelection(selection, actualResult, homeScore, awayScore);
+                    if (!won) {
+                        anyLost = true;
+                        allWon = false;
+                    }
+                }
+
+                // Update bet status if all matches are finished
+                if (allFinished) {
+                    const newStatus = allWon && !anyLost ? 'won' : 'lost';
+                    const winnings = newStatus === 'won' ? bet.potentialWin : 0;
+                    
+                    // Update in Firestore
+                    await db.collection('bets').doc(bet.id).update({
+                        status: newStatus,
+                        settledAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        winnings: winnings
+                    });
+                    
+                    // Update local data
+                    bet.status = newStatus;
+                    bet.winnings = winnings;
+                    bet.settledAt = new Date();
+                    
+                    // Update user balance if won
+                    if (winnings > 0) {
+                        await db.collection('wallets').doc(currentUser.uid).update({
+                            balance: firebase.firestore.FieldValue.increment(winnings)
+                        });
+                        userData.balance += winnings;
+                        document.getElementById('userBalance').textContent = `$${userData.balance.toFixed(2)}`;
+                    }
+                }
+            } catch (error) {
+                console.error('Error evaluating bet:', error);
+            }
+        }
+
+        function evaluateSelection(selection, actualResult, homeScore, awayScore) {
+            switch (selection.market) {
+                case 'Home Win':
+                    return actualResult === 'Home Win';
+                case 'Away Win':
+                    return actualResult === 'Away Win';
+                case 'Draw':
+                    return actualResult === 'Draw';
+                case 'Over 2.5':
+                    return (homeScore + awayScore) > 2.5;
+                case 'Under 2.5':
+                    return (homeScore + awayScore) <= 2.5;
+                default:
+                    return selection.market === actualResult;
+            }
+        }
+
+        function filterBets() {
+            const statusFilter = document.getElementById('statusFilter').value;
+            const timeFilter = document.getElementById('timeFilter').value;
             
-            const colors = {
-                success: '#4caf50',
-                error: '#ff4757',
-                warning: '#ff9800',
-                info: '#00ff9d'
-            };
+            filteredBets = allBets.filter(bet => {
+                // Status filter
+                if (statusFilter !== 'all' && bet.status !== statusFilter) {
+                    return false;
+                }
+                
+                // Time filter
+                if (timeFilter !== 'all') {
+                    const betDate = bet.createdAt?.toDate() || new Date();
+                    const now = new Date();
+                    
+                    switch (timeFilter) {
+                        case 'today':
+                            return betDate.toDateString() === now.toDateString();
+                        case 'week':
+                            const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                            return betDate >= weekAgo;
+                        case 'month':
+                            const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                            return betDate >= monthAgo;
+                    }
+                }
+                
+                return true;
+            });
             
-            toast.style.borderLeftColor = colors[type] || colors.info;
-            toast.innerHTML = `
-                <div class="flex items-center gap-2">
-                    <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
-                    <span>${message}</span>
+            displayBets();
+        }
+
+        function displayBets() {
+            const container = document.getElementById('betsContainer');
+            const loadingState = document.getElementById('loadingState');
+            const emptyState = document.getElementById('emptyState');
+            
+            // Hide loading state
+            loadingState.classList.add('hidden');
+            
+            if (filteredBets.length === 0) {
+                container.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            
+            emptyState.classList.add('hidden');
+            
+            let html = '';
+            filteredBets.forEach(bet => {
+                html += createBetCard(bet);
+            });
+            
+            container.innerHTML = html;
+        }
+
+        function createBetCard(bet) {
+            const date = bet.createdAt?.toDate() || new Date();
+            const settledDate = bet.settledAt?.toDate() || null;
+            const selections = bet.selections || [];
+            const statusClass = `bet-${bet.status}`;
+            const statusBadgeClass = `status-${bet.status}`;
+            
+            const profitLoss = bet.winnings ? bet.winnings - bet.stake : -bet.stake;
+            const profitClass = profitLoss >= 0 ? 'profit-positive' : 'profit-negative';
+            
+            return `
+                <div class="bet-card ${statusClass} bg-white rounded-xl shadow-md p-6">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="flex-1">
+                            <div class="flex items-center mb-2">
+                                <span class="status-badge ${statusBadgeClass} mr-3">
+                                    ${bet.status}
+                                </span>
+                                <span class="text-sm text-gray-600">
+                                    ${selections.length} Selection${selections.length > 1 ? 's' : ''} • ${bet.betType?.toUpperCase() || 'SINGLE'}
+                                </span>
+                            </div>
+                            <div class="text-xs text-gray-500">
+                                <i class="far fa-clock mr-1"></i>
+                                Placed: ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                            ${settledDate ? `
+                                <div class="text-xs text-gray-500 mt-1">
+                                    <i class="fas fa-check-circle mr-1"></i>
+                                    Settled: ${settledDate.toLocaleDateString()} ${settledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="text-right">
+                            <div class="text-sm text-gray-600 mb-1">Stake</div>
+                            <div class="text-lg font-bold">$${bet.stake?.toFixed(2) || '0.00'}</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Selections -->
+                    <div class="mb-4">
+                        <div class="text-sm font-semibold text-gray-700 mb-2">Selections:</div>
+                        ${selections.map(selection => `
+                            <div class="selection-item">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <span class="font-medium">${selection.team}</span>
+                                        <span class="text-gray-600 ml-2">${selection.market}</span>
+                                    </div>
+                                    <span class="font-bold text-blue-600">${selection.odds}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <!-- Match Results (for finished matches) -->
+                    ${bet.status !== 'pending' ? `
+                        <div class="mb-4">
+                            <div class="text-sm font-semibold text-gray-700 mb-2">Results:</div>
+                            <div class="match-score">
+                                <i class="fas fa-futbol mr-2"></i>
+                                Final results processed
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    <!-- Footer -->
+                    <div class="flex justify-between items-center pt-4 border-t">
+                        <div class="text-sm text-gray-600">
+                            <div>Total Odds: ${bet.totalOdds?.toFixed(2) || '1.00'}</div>
+                            <div>Potential Win: $${bet.potentialWin?.toFixed(2) || '0.00'}</div>
+                        </div>
+                        <div class="text-right">
+                            ${bet.winnings ? `
+                                <div class="text-sm text-gray-600">Winnings</div>
+                                <div class="text-xl font-bold ${profitClass}">
+                                    $${bet.winnings.toFixed(2)}
+                                </div>
+                            ` : bet.status === 'lost' ? `
+                                <div class="text-sm text-gray-600">Lost</div>
+                                <div class="text-xl font-bold profit-negative">
+                                    -$${bet.stake.toFixed(2)}
+                                </div>
+                            ` : `
+                                <div class="text-sm text-gray-600">Potential</div>
+                                <div class="text-xl font-bold">
+                                    $${bet.potentialWin?.toFixed(2) || '0.00'}
+                                </div>
+                            `}
+                        </div>
+                    </div>
                 </div>
             `;
-            
-            container.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
         }
-        
-        // ============================================
-        // STAKE INPUT EVENT
-        // ============================================
-        document.addEventListener('DOMContentLoaded', () => {
-            const stakeInput = document.getElementById('stakeAmount');
-            if (stakeInput) {
-                stakeInput.addEventListener('input', () => updateBetTotals());
+
+        function updateStats() {
+            const total = allBets.length;
+            const won = allBets.filter(bet => bet.status === 'won').length;
+            const lost = allBets.filter(bet => bet.status === 'lost').length;
+            
+            let profitLoss = 0;
+            allBets.forEach(bet => {
+                if (bet.status === 'won') {
+                    profitLoss += (bet.winnings || bet.potentialWin) - bet.stake;
+                } else if (bet.status === 'lost') {
+                    profitLoss -= bet.stake;
+                }
+            });
+            
+            document.getElementById('totalBets').textContent = total;
+            document.getElementById('wonBets').textContent = won;
+            document.getElementById('lostBets').textContent = lost;
+            
+            const profitElement = document.getElementById('profitLoss');
+            profitElement.textContent = `$${profitLoss.toFixed(2)}`;
+            profitElement.className = profitLoss >= 0 ? 'text-2xl font-bold profit-positive' : 'text-2xl font-bold profit-negative';
+        }
+
+        async function refreshBets() {
+            await loadBets();
+            updateStats();
+            showStatus('success', 'Refreshed', 'Your bets have been updated');
+            setTimeout(hideStatus, 3000);
+        }
+
+        function exportBets() {
+            const csvContent = [
+                ['Date', 'Status', 'Type', 'Stake', 'Odds', 'Potential Win', 'Winnings', 'Profit/Loss'],
+                ...allBets.map(bet => {
+                    const date = bet.createdAt?.toDate() || new Date();
+                    const profitLoss = bet.winnings ? bet.winnings - bet.stake : -bet.stake;
+                    return [
+                        date.toLocaleDateString(),
+                        bet.status,
+                        bet.betType || 'single',
+                        bet.stake || 0,
+                        bet.totalOdds || 1,
+                        bet.potentialWin || 0,
+                        bet.winnings || 0,
+                        profitLoss
+                    ].join(',');
+                })
+            ].join('\n');
+            
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `bets-${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+            
+            showStatus('success', 'Exported', 'Your bets have been exported');
+            setTimeout(hideStatus, 3000);
+        }
+
+        function showStatus(type, title, message) {
+            const statusDisplay = document.getElementById('statusDisplay');
+            const statusIcon = document.getElementById('statusIcon');
+            const statusTitle = document.getElementById('statusTitle');
+            const statusMessage = document.getElementById('statusMessage');
+            
+            const icons = {
+                'loading': '<i class="fas fa-spinner fa-spin text-blue-500"></i>',
+                'success': '<i class="fas fa-check-circle text-green-500"></i>',
+                'error': '<i class="fas fa-exclamation-circle text-red-500"></i>',
+                'warning': '<i class="fas fa-exclamation-triangle text-yellow-500"></i>'
+            };
+            
+            statusIcon.innerHTML = icons[type] || icons['loading'];
+            statusTitle.textContent = title;
+            statusMessage.textContent = message;
+            statusDisplay.classList.remove('hidden');
+        }
+
+        function hideStatus() {
+            document.getElementById('statusDisplay').classList.add('hidden');
+        }
+
+        async function logout() {
+            try {
+                await auth.signOut();
+                window.location.href = 'login.html';
+            } catch (error) {
+                console.error('Logout error:', error);
             }
-        });
+        }
     </script>
 </body>
 </html>
