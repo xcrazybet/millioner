@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Millioner - Sports Betting | Live Scores & Odds</title>
+    
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(26, 31, 58, 0.9);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .logo h1 {
+            font-size: 28px;
+            background: linear-gradient(135deg, #fff, #4c00b0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .balance {
+            background: #4c00b0;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+        }
+        
+        .logout-btn {
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            background: #1a1f3a;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        
+        .tab:hover {
+            background: #2a2f4a;
+            transform: translateY(-2px);
+        }
+        
+        .tab.active {
+            background: #4c00b0;
+            box-shadow: 0 4px 15px rgba(76, 0, 176, 0.3);
+        }
+        
+        /* Match Cards */
+        .matches-grid {
+            display: grid;
+            gap: 20px;
+        }
+        
+        .match-card {
+            background: #1a1f3a;
+            border-radius: 15px;
+            padding: 20px;
+            transition: all 0.3s;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .match-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            border-color: #4c00b0;
+        }
+        
+        .match-league {
+            font-size: 12px;
+            color: #4c00b0;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .match-teams {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        
+        .team {
+            flex: 1;
+            text-align: center;
+        }
+        
+        .vs {
+            margin: 0 20px;
+            color: #888;
+            font-size: 14px;
+        }
+        
+        .match-score {
+            text-align: center;
+            font-size: 28px;
+            font-weight: bold;
+            margin: 15px 0;
+            color: #ffd700;
+        }
+        
+        .match-time {
+            text-align: center;
+            color: #888;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        .odds-container {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 15px 0;
+        }
+        
+        .odd-button {
+            background: #2a2f4a;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+        
+        .odd-button:hover {
+            background: #4c00b0;
+            transform: scale(1.05);
+        }
+        
+        .odd-button.selected {
+            background: #4c00b0;
+            box-shadow: 0 0 10px rgba(76,0,176,0.5);
+        }
+        
+        .bet-button {
+            background: linear-gradient(135deg, #4c00b0, #6b00e0);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 15px;
+            width: 100%;
+            font-weight: bold;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        .bet-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(76,0,176,0.4);
+        }
+        
+        .bet-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 18px;
+            color: #888;
+        }
+        
+        .error {
+            color: #ff4444;
+            text-align: center;
+            padding: 20px;
+            background: rgba(255,68,68,0.1);
+            border-radius: 10px;
+        }
+        
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            background: #1a1f3a;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 400px;
+            width: 90%;
+        }
+        
+        .modal input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            background: #2a2f4a;
+            border: 1px solid #4c00b0;
+            color: white;
+            border-radius: 5px;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .match-teams {
+                flex-direction: column;
+                gap: 10px;
+            }
+            .vs {
+                margin: 5px 0;
+            }
+            .odds-container {
+                flex-wrap: wrap;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">
+                <h1>⚽ Millioner Sports</h1>
+            </div>
+            <div class="user-info" id="userInfo">
+                <div class="balance" id="balance">Loading...</div>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" data-tab="live">🔴 Live Now</div>
+            <div class="tab" data-tab="upcoming">📅 Upcoming</div>
+            <div class="tab" data-tab="finished">✅ Finished</div>
+            <div class="tab" data-tab="my-bets">💰 My Bets</div>
+        </div>
+        
+        <!-- Matches Container -->
+        <div id="matches-container" class="matches-grid">
+            <div class="loading">Loading matches...</div>
+        </div>
+    </div>
+    
+    <!-- Bet Modal -->
+    <div id="betModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalMatchName">Place Your Bet</h3>
+            <p>Odds: <span id="modalOdds">0</span>x</p>
+            <input type="number" id="betAmount" placeholder="Enter amount" min="1">
+            <div class="modal-buttons">
+                <button onclick="confirmBet()" style="background:#4c00b0; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer;">Confirm</button>
+                <button onclick="closeModal()" style="background:#ff4444; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase Configuration - REPLACE WITH YOUR ACTUAL CONFIG
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY_FROM_FIREBASE_CONSOLE",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.appspot.com",
+            messagingSenderId: "YOUR_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        
+        let currentTab = 'live';
+        let selectedBet = null;
+        let currentBalance = 0;
+        
+        // Get auth token for API calls
+        async function getAuthToken() {
+            const user = auth.currentUser;
+            if (!user) {
+                window.location.href = '/login.html';
+                return null;
+            }
+            return user.getIdToken();
+        }
+        
+        // Fetch user balance
+        async function fetchBalance() {
+            const token = await getAuthToken();
+            if (!token) return;
+            
+            try {
+                const response = await fetch('/api/user/balance', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+                if (data.success) {
+                    currentBalance = data.balance;
+                    document.getElementById('balance').innerHTML = `💰 $${data.balance.toFixed(2)}`;
+                }
+            } catch (error) {
+                console.error('Balance fetch error:', error);
+            }
+        }
+        
+        // Fetch matches based on tab
+        async function fetchMatches(type) {
+            const token = await getAuthToken();
+            if (!token) return;
+            
+            const container = document.getElementById('matches-container');
+            container.innerHTML = '<div class="loading">Loading matches...</div>';
+            
+            try {
+                let endpoint = '';
+                if (type === 'live') endpoint = '/api/matches/live';
+                else if (type === 'upcoming') endpoint = '/api/matches/upcoming';
+                else if (type === 'finished') endpoint = '/api/matches/finished';
+                else if (type === 'my-bets') {
+                    await fetchMyBets();
+                    return;
+                }
+                
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!response.ok) throw new Error('Failed to fetch');
+                
+                const data = await response.json();
+                displayMatches(data.matches, type);
+            } catch (error) {
+                console.error('Error:', error);
+                container.innerHTML = '<div class="error">Failed to load matches. Please refresh the page.</div>';
+            }
+        }
+        
+        // Display matches
+        function displayMatches(matches, type) {
+            const container = document.getElementById('matches-container');
+            
+            if (!matches || matches.length === 0) {
+                container.innerHTML = '<div class="error">No matches found</div>';
+                return;
+            }
+            
+            container.innerHTML = matches.map(match => `
+                <div class="match-card" data-match-id="${match.id}">
+                    <div class="match-league">🏆 ${match.league?.name || 'International'}</div>
+                    <div class="match-teams">
+                        <div class="team">${match.localTeam?.name || 'Home Team'}</div>
+                        <div class="vs">VS</div>
+                        <div class="team">${match.visitorTeam?.name || 'Away Team'}</div>
+                    </div>
+                    ${type === 'live' ? `
+                        <div class="match-score">
+                            ${match.scores?.localteam_score || 0} - ${match.scores?.visitorteam_score || 0}
+                        </div>
+                        <div class="match-time">⏱️ Live - ${match.time?.minute || 0}' minute</div>
+                    ` : type === 'upcoming' ? `
+                        <div class="match-time">📅 ${new Date(match.starting_at).toLocaleString()}</div>
+                        <div class="odds-container">
+                            <button class="odd-button" onclick="selectBet('${match.id}', '${match.localTeam?.name} vs ${match.visitorTeam?.name}', 'home', 2.1)">🏠 Home Win<br>2.10x</button>
+                            <button class="odd-button" onclick="selectBet('${match.id}', '${match.localTeam?.name} vs ${match.visitorTeam?.name}', 'draw', 3.2)">🤝 Draw<br>3.20x</button>
+                            <button class="odd-button" onclick="selectBet('${match.id}', '${match.localTeam?.name} vs ${match.visitorTeam?.name}', 'away', 2.8)">✈️ Away Win<br>2.80x</button>
+                        </div>
+                    ` : `
+                        <div class="match-score">
+                            Final Score: ${match.scores?.localteam_score || 0} - ${match.scores?.visitorteam_score || 0}
+                        </div>
+                        <div class="match-time">✅ Finished</div>
+                    `}
+                    ${type !== 'finished' && type !== 'live' ? `
+                        <button class="bet-button" onclick="openBetModal()">
+                            Place Bet
+                        </button>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+        
+        // Fetch user's bets
+        async function fetchMyBets() {
+            const token = await getAuthToken();
+            if (!token) return;
+            
+            const container = document.getElementById('matches-container');
+            container.innerHTML = '<div class="loading">Loading your bets...</div>';
+            
+            try {
+                const response = await fetch('/api/user/bets', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await response.json();
+                
+                if (!data.success || data.bets.length === 0) {
+                    container.innerHTML = '<div class="error">No bets placed yet</div>';
+                    return;
+                }
+                
+                container.innerHTML = data.bets.map(bet => `
+                    <div class="match-card">
+                        <div class="match-league">🎲 Bet #${bet.id.slice(0,8)}</div>
+                        <div class="match-teams">
+                            <div class="team">${bet.matchName}</div>
+                        </div>
+                        <div class="match-score">Amount: $${bet.amount}</div>
+                        <div class="match-time">Outcome: ${bet.outcome}</div>
+                        <div class="match-time">Odds: ${bet.odds}x</div>
+                        <div class="match-time">Potential: $${bet.potentialWinnings}</div>
+                        <div class="match-time">Status: ${bet.status}</div>
+                        <div class="match-time">Date: ${bet.createdAt?.toDate().toLocaleString()}</div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error fetching bets:', error);
+                container.innerHTML = '<div class="error">Failed to load your bets</div>';
+            }
+        }
+        
+        // Select bet
+        let currentMatchId, currentMatchName, currentOutcome, currentOdds;
+        
+        function selectBet(matchId, matchName, outcome, odds) {
+            currentMatchId = matchId;
+            currentMatchName = matchName;
+            currentOutcome = outcome;
+            currentOdds = odds;
+            openBetModal();
+        }
+        
+        function openBetModal() {
+            if (!currentMatchId) {
+                alert('Please select an outcome first');
+                return;
+            }
+            document.getElementById('modalMatchName').innerHTML = currentMatchName;
+            document.getElementById('modalOdds').innerHTML = currentOdds;
+            document.getElementById('betModal').style.display = 'flex';
+        }
+        
+        function closeModal() {
+            document.getElementById('betModal').style.display = 'none';
+            document.getElementById('betAmount').value = '';
+        }
+        
+        async function confirmBet() {
+            const amount = parseFloat(document.getElementById('betAmount').value);
+            
+            if (!amount || amount < 1) {
+                alert('Please enter a valid amount (minimum $1)');
+                return;
+            }
+            
+            if (amount > currentBalance) {
+                alert(`Insufficient balance! Your balance is $${currentBalance}`);
+                return;
+            }
+            
+            const token = await getAuthToken();
+            if (!token) return;
+            
+            try {
+                const response = await fetch('/api/place-bet', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        matchId: currentMatchId,
+                        matchName: currentMatchName,
+                        amount: amount,
+                        outcome: currentOutcome,
+                        odds: currentOdds
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`✅ Bet placed successfully!\n\nAmount: $${amount}\nPotential Win: $${(amount * currentOdds).toFixed(2)}`);
+                    closeModal();
+                    fetchBalance();
+                    fetchMatches(currentTab);
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Bet error:', error);
+                alert('Error placing bet. Please try again.');
+            }
+        }
+        
+        // Logout function
+        async function logout() {
+            await auth.signOut();
+            window.location.href = '/login.html';
+        }
+        
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                currentTab = tab.dataset.tab;
+                fetchMatches(currentTab);
+            });
+        });
+        
+        // Check auth state and initialize
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                await fetchBalance();
+                fetchMatches(currentTab);
+                
+                // Auto-refresh live matches every 30 seconds
+                setInterval(() => {
+                    if (currentTab === 'live') {
+                        fetchMatches('live');
+                    }
+                }, 30000);
+                
+                // Refresh balance every minute
+                setInterval(() => {
+                    fetchBalance();
+                }, 60000);
+            }
+        });
+    </script>
+</body>
+</html>
