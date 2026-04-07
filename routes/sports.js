@@ -5,10 +5,20 @@ const admin = require('firebase-admin');
 
 // Initialize Firebase Admin if not already done
 if (!admin.apps.length) {
-  const serviceAccount = require('../serviceAccountKey.json');
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
+  try {
+    // Try to load service account from file
+    const serviceAccount = require('../serviceAccountKey.json');
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    console.log('✅ Firebase Admin initialized');
+  } catch (error) {
+    console.error('❌ Firebase Admin init error:', error.message);
+    // For development without service account
+    admin.initializeApp({
+      projectId: 'x-bet-prod-jd'
+    });
+  }
 }
 
 const db = admin.firestore();
@@ -18,7 +28,7 @@ const verifyToken = async (req, res, next) => {
   const token = req.headers.authorization?.split('Bearer ')[1];
   
   if (!token) {
-    return res.status(401).json({ error: 'No token provided' });
+    return res.status(401).json({ error: 'No token provided. Please login.' });
   }
   
   try {
@@ -27,11 +37,11 @@ const verifyToken = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('Token verification error:', error);
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(401).json({ error: 'Invalid or expired token. Please login again.' });
   }
 };
 
-// GET /api/matches/live - Get live matches
+// GET /api/matches/live
 router.get('/matches/live', verifyToken, async (req, res) => {
   try {
     const matches = await sportmonksService.getLiveMatches();
@@ -43,11 +53,11 @@ router.get('/matches/live', verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Live matches error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch live matches. Please try again.' });
   }
 });
 
-// GET /api/matches/upcoming - Get upcoming matches
+// GET /api/matches/upcoming
 router.get('/matches/upcoming', verifyToken, async (req, res) => {
   try {
     const matches = await sportmonksService.getUpcomingMatches();
@@ -59,11 +69,11 @@ router.get('/matches/upcoming', verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Upcoming matches error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch upcoming matches.' });
   }
 });
 
-// GET /api/matches/finished - Get finished matches
+// GET /api/matches/finished
 router.get('/matches/finished', verifyToken, async (req, res) => {
   try {
     const matches = await sportmonksService.getFinishedMatches();
@@ -75,11 +85,11 @@ router.get('/matches/finished', verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Finished matches error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch finished matches.' });
   }
 });
 
-// GET /api/matches/:id - Get single match details
+// GET /api/matches/:id
 router.get('/matches/:id', verifyToken, async (req, res) => {
   try {
     const match = await sportmonksService.getMatchDetails(req.params.id);
@@ -89,33 +99,26 @@ router.get('/matches/:id', verifyToken, async (req, res) => {
     res.json({ success: true, match });
   } catch (error) {
     console.error('Match details error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch match details.' });
   }
 });
 
-// GET /api/matches/:id/odds - Get odds for a match
-router.get('/matches/:id/odds', verifyToken, async (req, res) => {
-  try {
-    const odds = await sportmonksService.getMatchOdds(req.params.id);
-    res.json({ success: true, odds });
-  } catch (error) {
-    console.error('Odds error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/place-bet - Place a bet
+// POST /api/place-bet
 router.post('/place-bet', verifyToken, async (req, res) => {
   const { matchId, matchName, amount, outcome, odds } = req.body;
   const userId = req.user.uid;
   
   // Validate input
   if (!matchId || !amount || !outcome) {
-    return res.status(400).json({ error: 'Missing required fields' });
+    return res.status(400).json({ error: 'Missing required fields: matchId, amount, outcome' });
   }
   
   if (amount < 1) {
-    return res.status(400).json({ error: 'Minimum bet is 1' });
+    return res.status(400).json({ error: 'Minimum bet amount is $1' });
+  }
+  
+  if (amount > 10000) {
+    return res.status(400).json({ error: 'Maximum bet amount is $10,000' });
   }
   
   try {
@@ -124,14 +127,21 @@ router.post('/place-bet', verifyToken, async (req, res) => {
     const userDoc = await userRef.get();
     
     if (!userDoc.exists) {
-      return res.status(404).json({ error: 'User not found' });
+      // Create user document if it doesn't exist
+      await userRef.set({
+        balance: 1000, // Starting bonus
+        email: req.user.email,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
     }
     
-    const userData = userDoc.data();
+    const userData = userDoc.exists ? userDoc.data() : { balance: 1000 };
     const currentBalance = userData.balance || 0;
     
     if (currentBalance < amount) {
-      return res.status(400).json({ error: 'Insufficient balance' });
+      return res.status(400).json({ 
+        error: `Insufficient balance! Your balance is $${currentBalance.toFixed(2)}` 
+      });
     }
     
     // Deduct amount from wallet
@@ -144,11 +154,11 @@ router.post('/place-bet', verifyToken, async (req, res) => {
       userId,
       matchId,
       matchName,
-      amount,
-      outcome,
+      amount: amount,
+      outcome: outcome,
       odds: odds || 2.0,
-      status: 'pending',
       potentialWinnings: amount * (odds || 2.0),
+      status: 'pending',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
@@ -161,7 +171,7 @@ router.post('/place-bet', verifyToken, async (req, res) => {
       type: 'bet_placed',
       amount: -amount,
       betId: betRef.id,
-      description: `Bet placed on ${matchName}`,
+      description: `Bet placed on ${matchName} - ${outcome}`,
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
     
@@ -169,15 +179,15 @@ router.post('/place-bet', verifyToken, async (req, res) => {
       success: true, 
       betId: betRef.id,
       newBalance: currentBalance - amount,
-      message: 'Bet placed successfully!'
+      message: `Bet placed successfully! You bet $${amount} on ${matchName}`
     });
   } catch (error) {
     console.error('Bet placement error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to place bet. Please try again.' });
   }
 });
 
-// GET /api/user/bets - Get user's bet history
+// GET /api/user/bets
 router.get('/user/bets', verifyToken, async (req, res) => {
   const userId = req.user.uid;
   
@@ -193,14 +203,14 @@ router.get('/user/bets', verifyToken, async (req, res) => {
       bets.push({ id: doc.id, ...doc.data() });
     });
     
-    res.json({ success: true, bets });
+    res.json({ success: true, bets, count: bets.length });
   } catch (error) {
     console.error('Fetch bets error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch your bets.' });
   }
 });
 
-// GET /api/user/balance - Get user's current balance
+// GET /api/user/balance
 router.get('/user/balance', verifyToken, async (req, res) => {
   const userId = req.user.uid;
   
@@ -209,14 +219,39 @@ router.get('/user/balance', verifyToken, async (req, res) => {
     const userDoc = await userRef.get();
     
     if (!userDoc.exists) {
-      return res.status(404).json({ error: 'User not found' });
+      // Create user with starting balance
+      await userRef.set({
+        balance: 1000,
+        email: req.user.email,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      return res.json({ success: true, balance: 1000 });
     }
     
     const balance = userDoc.data().balance || 0;
     res.json({ success: true, balance });
   } catch (error) {
     console.error('Balance error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to fetch balance.' });
+  }
+});
+
+// Test endpoint to verify API is working
+router.get('/test', async (req, res) => {
+  try {
+    const matches = await sportmonksService.getLiveMatches();
+    res.json({ 
+      success: true, 
+      message: 'Sportmonks API is working!',
+      matchCount: matches.length,
+      sampleMatch: matches[0] || null
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      message: 'Sportmonks API test failed. Check your API key.'
+    });
   }
 });
 
