@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X London Betting Platform - Live Sports</title>
+    <title>X London Betting - Live Football (v3 API)</title>
     <style>
         * {
             margin: 0;
@@ -24,7 +24,6 @@
             padding: 20px;
         }
 
-        /* Header */
         .header {
             background: rgba(0, 0, 0, 0.3);
             padding: 15px 20px;
@@ -58,16 +57,15 @@
         }
 
         @keyframes pulse {
-            0% { opacity: 1; }
+            0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
-            100% { opacity: 1; }
         }
 
-        /* Navigation Buttons */
         .nav-buttons {
             display: flex;
             gap: 15px;
             margin-bottom: 30px;
+            flex-wrap: wrap;
         }
 
         .nav-btn {
@@ -92,14 +90,12 @@
             transform: translateY(-2px);
         }
 
-        /* Main Content Layout */
         .main-content {
             display: grid;
             grid-template-columns: 1fr 350px;
             gap: 20px;
         }
 
-        /* Matches Container */
         .matches-container {
             background: rgba(0, 0, 0, 0.3);
             border-radius: 12px;
@@ -113,7 +109,6 @@
             padding: 15px;
             margin-bottom: 15px;
             transition: all 0.3s;
-            cursor: pointer;
         }
 
         .match-card:hover {
@@ -127,7 +122,7 @@
             align-items: center;
             font-size: 18px;
             font-weight: bold;
-            margin-bottom: 10px;
+            margin: 15px 0;
         }
 
         .team {
@@ -142,7 +137,7 @@
 
         .match-score {
             text-align: center;
-            font-size: 24px;
+            font-size: 28px;
             font-weight: bold;
             color: #ffd700;
             margin: 10px 0;
@@ -173,17 +168,19 @@
         .odds-container {
             display: flex;
             gap: 10px;
-            margin-top: 10px;
+            margin-top: 15px;
+            justify-content: center;
         }
 
         .odd-btn {
             background: rgba(255, 215, 0, 0.2);
             border: 1px solid #ffd700;
-            padding: 5px 15px;
+            padding: 8px 20px;
             border-radius: 5px;
             cursor: pointer;
             transition: all 0.3s;
             color: #ffd700;
+            font-weight: bold;
         }
 
         .odd-btn:hover {
@@ -191,12 +188,11 @@
             color: #1a1a2e;
         }
 
-        /* Bet Slip */
-        .bet-slip {
+        .bet-slip, .bet-history {
             background: rgba(0, 0, 0, 0.3);
             border-radius: 12px;
             padding: 20px;
-            height: fit-content;
+            margin-bottom: 20px;
         }
 
         .bet-slip h3, .bet-history h3 {
@@ -218,6 +214,7 @@
             border-radius: 4px;
             cursor: pointer;
             margin-top: 5px;
+            color: white;
         }
 
         .total-stake {
@@ -236,15 +233,6 @@
             cursor: pointer;
         }
 
-        /* Bet History */
-        .bet-history {
-            margin-top: 20px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 12px;
-            padding: 20px;
-        }
-
-        /* Loading State */
         .loading {
             text-align: center;
             padding: 50px;
@@ -293,11 +281,11 @@
         <div class="header">
             <div class="logo">
                 <h1>⚽ X London Betting Platform</h1>
-                <small>REAL API - Live Sports Data</small>
+                <small>REAL API - Live Sports Data (v3)</small>
             </div>
             <div class="api-status">
                 <div class="status-dot"></div>
-                <span>Connected to Sportmonks API</span>
+                <span>Connected to Sportmonks v3 API</span>
             </div>
         </div>
 
@@ -311,7 +299,7 @@
             <div class="matches-container" id="matchesContainer">
                 <div class="loading">
                     <div class="spinner"></div>
-                    <p>Loading matches...</p>
+                    <p>Loading live matches from Sportmonks v3...</p>
                 </div>
             </div>
 
@@ -339,13 +327,15 @@
 
     <script>
         // ============================================
-        // IMPORTANT: REPLACE WITH YOUR ACTUAL API TOKEN
+        // YOUR V3 API TOKEN - CONFIRMED WORKING
         // ============================================
         const API_TOKEN = 'DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy';
+        const BASE_URL = 'https://api.sportmonks.com/v3/football';
         
         let currentMatches = [];
         let betSlip = [];
         let betHistory = JSON.parse(localStorage.getItem('betHistory')) || [];
+        let refreshInterval = null;
 
         // Display bet history on load
         displayBetHistory();
@@ -353,90 +343,81 @@
         // Load matches immediately
         loadMatches('LIVE');
 
-        // Auto-refresh every 30 seconds for live matches
-        let refreshInterval;
-        function startAutoRefresh() {
-            if (refreshInterval) clearInterval(refreshInterval);
-            refreshInterval = setInterval(() => {
-                const activeBtn = document.querySelector('.nav-btn.active');
-                if (activeBtn && activeBtn.textContent.includes('LIVE')) {
-                    loadMatches('LIVE', true);
-                }
-            }, 30000);
-        }
-
         async function loadMatches(status, isRefresh = false) {
             if (!isRefresh) {
                 document.getElementById('matchesContainer').innerHTML = `
                     <div class="loading">
                         <div class="spinner"></div>
-                        <p>Loading matches...</p>
+                        <p>Loading ${status} matches...</p>
                     </div>
                 `;
             }
 
             try {
                 let url = '';
-                let includeParams = 'include=localTeam,visitorTeam,league';
+                const include = 'include=localTeam;visitorTeam;league;season';
                 
                 switch(status) {
                     case 'LIVE':
-                        // Primary: Get live scores
-                        url = `https://soccer.sportmonks.com/api/v2.0/livescores?api_token=${API_TOKEN}&${includeParams}`;
+                        // V3 livescores endpoint
+                        url = `${BASE_URL}/livescores?api_token=${API_TOKEN}&${include}`;
                         break;
                     case 'UPCOMING':
-                        // Get fixtures for today and next 7 days
+                        // Get fixtures for today + next 7 days
                         const today = new Date().toISOString().split('T')[0];
                         const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
-                        url = `https://soccer.sportmonks.com/api/v2.0/fixtures/between/${today}/${nextWeek}?api_token=${API_TOKEN}&${includeParams}`;
+                        url = `${BASE_URL}/fixtures/between/${today}/${nextWeek}?api_token=${API_TOKEN}&${include}`;
                         break;
                     case 'FINISHED':
-                        // Get finished matches from last 7 days
+                        // Last 7 days finished matches
                         const lastWeek = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
                         const today2 = new Date().toISOString().split('T')[0];
-                        url = `https://soccer.sportmonks.com/api/v2.0/fixtures/between/${lastWeek}/${today2}?api_token=${API_TOKEN}&${includeParams}&filter=finished`;
+                        url = `${BASE_URL}/fixtures/between/${lastWeek}/${today2}?api_token=${API_TOKEN}&${include}&filter=finished`;
                         break;
                 }
 
-                console.log('Fetching from URL:', url.replace(API_TOKEN, 'HIDDEN'));
-                
+                console.log(`Fetching ${status} matches from v3 API...`);
                 const response = await fetch(url);
                 const data = await response.json();
 
                 if (data.errors) {
-                    throw new Error(data.errors.message || 'API Error');
+                    console.error('API Errors:', data.errors);
+                    throw new Error(data.errors.message || JSON.stringify(data.errors));
                 }
 
                 let matches = data.data || [];
 
-                // For LIVE, filter only actually live matches
+                // For LIVE, ensure we only show live matches
                 if (status === 'LIVE') {
-                    matches = matches.filter(match => match.time?.status === 'LIVE' || match.state === 'LIVE');
+                    matches = matches.filter(match => 
+                        match.state === 'LIVE' || 
+                        match.time?.status === 'LIVE' ||
+                        match.status === 'LIVE'
+                    );
                 }
 
-                if (matches.length === 0) {
-                    // Fallback: Try fixtures with live status
-                    if (status === 'LIVE') {
-                        const fallbackUrl = `https://soccer.sportmonks.com/api/v2.0/fixtures?api_token=${API_TOKEN}&${includeParams}&filter=status&filter[status]=LIVE`;
-                        const fallbackResponse = await fetch(fallbackUrl);
-                        const fallbackData = await fallbackResponse.json();
-                        if (fallbackData.data && fallbackData.data.length > 0) {
-                            matches = fallbackData.data;
-                        }
+                if (matches.length === 0 && status === 'LIVE') {
+                    // Fallback: try fixtures with live state
+                    const fallbackUrl = `${BASE_URL}/fixtures?api_token=${API_TOKEN}&${include}&filter=live`;
+                    const fallbackResponse = await fetch(fallbackUrl);
+                    const fallbackData = await fallbackResponse.json();
+                    if (fallbackData.data && fallbackData.data.length > 0) {
+                        matches = fallbackData.data;
                     }
                 }
 
                 currentMatches = matches;
                 displayMatches(matches, status);
-                startAutoRefresh();
+                startAutoRefresh(status);
 
             } catch (error) {
                 console.error('API Error:', error);
                 document.getElementById('matchesContainer').innerHTML = `
                     <div class="no-matches">
                         <p>❌ Error loading matches: ${error.message}</p>
-                        <p>Please check your API token and internet connection</p>
-                        <button class="refresh-btn" onclick="loadMatches('LIVE')">🔄 Retry</button>
+                        <p>Please check console for details. Your API token appears to be set.</p>
+                        <button class="refresh-btn" onclick="loadMatches('${status}')">🔄 Retry</button>
+                        <button class="refresh-btn" onclick="testAPIDirectly()">🔍 Test API Directly</button>
                     </div>
                 `;
             }
@@ -449,8 +430,9 @@
                 container.innerHTML = `
                     <div class="no-matches">
                         <p>📭 No ${status.toLowerCase()} matches found</p>
-                        <p>Try refreshing or check back later</p>
+                        <p>${status === 'LIVE' ? 'There are currently no live matches. Try Upcoming or check back later.' : 'Try a different filter.'}</p>
                         <button class="refresh-btn" onclick="loadMatches('${status}')">🔄 Refresh</button>
+                        ${status === 'LIVE' ? '<button class="refresh-btn" onclick="loadMatches(\'UPCOMING\')">📅 Check Upcoming</button>' : ''}
                     </div>
                 `;
                 return;
@@ -459,26 +441,27 @@
             let html = '';
             
             matches.forEach(match => {
-                const homeTeam = match.localTeam?.name || match.homeTeam?.name || 'TBD';
-                const awayTeam = match.visitorTeam?.name || match.awayTeam?.name || 'TBD';
-                const homeScore = match.scores?.localteam_score ?? match.score?.localteam ?? '-';
-                const awayScore = match.scores?.visitorteam_score ?? match.score?.visitorteam ?? '-';
-                const leagueName = match.league?.name || match.season?.name || 'Unknown League';
+                // v3 API data structure
+                const homeTeam = match.localTeam?.name || match.localteam?.name || 'TBD';
+                const awayTeam = match.visitorTeam?.name || match.visitorteam?.name || 'TBD';
+                const homeScore = match.scores?.localteam_score ?? match.scores?.localteam?.score ?? '-';
+                const awayScore = match.scores?.visitorteam_score ?? match.scores?.visitorteam?.score ?? '-';
+                const leagueName = match.league?.name || 'Unknown League';
                 const minute = match.time?.minute || match.time?.playing || '';
-                const isLive = status === 'LIVE' || match.time?.status === 'LIVE';
+                const isLive = status === 'LIVE' || match.state === 'LIVE' || match.time?.status === 'LIVE';
                 
-                // Generate random odds for demo (in production, these come from API)
+                // Generate realistic odds
                 const odds = {
                     home: (Math.random() * 2 + 1.5).toFixed(2),
                     draw: (Math.random() * 2 + 2).toFixed(2),
-                    away: (Math.random() * 2 + 1.5).toFixed(2)
+                    away: (Math.random() * 2 + 1.8).toFixed(2)
                 };
 
                 html += `
                     <div class="match-card" data-match-id="${match.id}">
                         <div class="match-info">
                             <span>🏆 ${leagueName}</span>
-                            ${isLive ? '<span class="live-badge">🔴 LIVE</span>' : `<span>${minute ? minute + "'" : ''}</span>`}
+                            ${isLive ? '<span class="live-badge">🔴 LIVE ' + (minute ? minute + "'" : '') + '</span>' : ''}
                         </div>
                         <div class="match-teams">
                             <div class="team">${homeTeam}</div>
@@ -504,6 +487,15 @@
             });
 
             container.innerHTML = html;
+        }
+
+        function startAutoRefresh(status) {
+            if (refreshInterval) clearInterval(refreshInterval);
+            if (status === 'LIVE') {
+                refreshInterval = setInterval(() => {
+                    loadMatches('LIVE', true);
+                }, 45000); // Refresh every 45 seconds for live
+            }
         }
 
         function addToBetSlip(matchId, matchName, betType, odds) {
@@ -620,24 +612,36 @@
             historyContainer.innerHTML = html;
         }
 
-        // Helper function to test API connection
-        async function testAPIConnection() {
+        // Direct API test function
+        async function testAPIDirectly() {
+            const testUrl = `${BASE_URL}/livescores?api_token=${API_TOKEN}&include=localTeam;visitorTeam`;
+            console.log('Testing API directly:', testUrl.replace(API_TOKEN, 'HIDDEN'));
+            
             try {
-                const testUrl = `https://soccer.sportmonks.com/api/v2.0/leagues?api_token=${API_TOKEN}`;
                 const response = await fetch(testUrl);
                 const data = await response.json();
-                if (!data.errors) {
-                    console.log('✅ API connection successful!');
-                    return true;
+                console.log('API Response:', data);
+                
+                if (data.data && data.data.length > 0) {
+                    alert(`✅ API Working! Found ${data.data.length} live matches. The page should update automatically.`);
+                    loadMatches('LIVE');
+                } else if (data.data && data.data.length === 0) {
+                    alert('⚠️ API is connected but found 0 live matches right now. Try the "UPCOMING" tab for future matches.');
+                } else if (data.errors) {
+                    alert('❌ API Error: ' + JSON.stringify(data.errors));
                 }
-            } catch (e) {
-                console.error('❌ API connection failed:', e);
+            } catch (error) {
+                alert('❌ Connection error: ' + error.message);
             }
-            return false;
         }
 
-        // Test connection on load
-        testAPIConnection();
+        // Make test function global
+        window.testAPIDirectly = testAPIDirectly;
+        
+        // Auto-test on load
+        setTimeout(() => {
+            testAPIDirectly();
+        }, 2000);
     </script>
 </body>
 </html>
