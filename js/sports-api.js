@@ -11,16 +11,41 @@ const SPORTMONKS_CONFIG = {
 // ===== FETCH FUNCTIONS =====
 
 async function fetchFromSportMonks(endpoint, params = '') {
-    const url = `${SPORTMONKS_CONFIG.baseUrl}/${endpoint}?api_token=${SPORTMONKS_CONFIG.token}${params ? '&' + params : ''}`;
+    // Use multiple CORS proxies for reliability
+    const corsProxies = [
+        'https://corsproxy.io/?',           // Most reliable
+        'https://api.allorigins.win/raw?url=',
+        'https://cors-anywhere.herokuapp.com/'
+    ];
     
-    try {
-        const response = await fetch(url);
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('SportMonks API Error:', error);
-        return null;
+    const apiUrl = `${SPORTMONKS_CONFIG.baseUrl}/${endpoint}?api_token=${SPORTMONKS_CONFIG.token}${params ? '&' + params : ''}`;
+    
+    // Try each proxy until one works
+    for (const proxy of corsProxies) {
+        try {
+            const proxyUrl = proxy + encodeURIComponent(apiUrl);
+            console.log('Trying proxy:', proxy.split('/')[2]);
+            
+            const response = await fetch(proxyUrl);
+            
+            if (!response.ok) {
+                console.warn(`Proxy ${proxy.split('/')[2]} failed with status ${response.status}`);
+                continue;
+            }
+            
+            const data = await response.json();
+            console.log(`✅ Proxy ${proxy.split('/')[2]} succeeded`);
+            return data;
+            
+        } catch (error) {
+            console.warn(`Proxy ${proxy.split('/')[2]} error:`, error.message);
+            continue;
+        }
     }
+    
+    console.error('❌ All CORS proxies failed');
+    return null;
+}
 }
 
 async function fetchLiveMatches() {
