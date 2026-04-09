@@ -24,27 +24,43 @@ function waitForProxy() {
 }
 
 // ===== FETCH WITH PROXY =====
-async function fetchFromSportMonks(endpoint, params = '') {
-    await waitForProxy();
+async function async function fetchFromSportMonks(endpoint, params = '') {
+    // Use YOUR Render backend URL (replace with your actual Render URL)
+    const PROXY_URL = 'https://millioner.onrender.com'; // ← UPDATE THIS with your Render URL
     
-    const url = `${SPORTMONKS_CONFIG.baseUrl}/${endpoint}?api_token=${SPORTMONKS_CONFIG.token}${params ? '&' + params : ''}`;
+    let proxyEndpoint = '';
     
-    console.log(`🔄 Fetching: ${endpoint}`);
+    if (endpoint === 'livescores') {
+        proxyEndpoint = '/api/livescores';
+    } else if (endpoint === 'fixtures') {
+        proxyEndpoint = '/api/fixtures';
+    } else if (endpoint.startsWith('fixtures/')) {
+        const id = endpoint.split('/')[1];
+        proxyEndpoint = `/api/fixtures/${id}`;
+    } else if (endpoint === 'leagues') {
+        proxyEndpoint = '/api/leagues';
+    } else {
+        console.error('Unknown endpoint:', endpoint);
+        return null;
+    }
+    
+    const url = `${PROXY_URL}${proxyEndpoint}`;
+    
+    console.log(`🔄 Fetching from proxy: ${url}`);
     
     try {
-        // Use the CORS proxy
-        const data = await corsProxy.fetchJSON(url);
+        const response = await fetch(url);
         
-        if (data && !data.error) {
-            console.log(`✅ Success: ${endpoint}`);
-            return data;
-        } else {
-            console.warn(`⚠️ API returned error for ${endpoint}`);
-            return null;
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
         }
         
+        const data = await response.json();
+        console.log(`✅ Proxy success: ${endpoint}`);
+        return data;
+        
     } catch (error) {
-        console.error(`❌ Failed to fetch ${endpoint}:`, error.message);
+        console.error(`❌ Proxy fetch failed for ${endpoint}:`, error.message);
         return null;
     }
 }
