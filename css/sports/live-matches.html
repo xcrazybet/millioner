@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Live Matches - X Lodon Betting</title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="../css/sports-betting.css">
+    
+    <style>
+        body {
+            background: #0a0f1a;
+            color: white;
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Segoe UI', 'Roboto', sans-serif;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 15px;
+        }
+        
+        .page-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .back-btn {
+            width: 40px;
+            height: 40px;
+            background: #111827;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #00ff9d;
+            text-decoration: none;
+            font-size: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .page-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #ff5252;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(255, 82, 82, 0.1);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+        
+        .auto-refresh {
+            margin-left: auto;
+            color: #a0a8c9;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="sports-header">
+        <h1>
+            <i class="fas fa-futbol"></i>
+            X Lodon Sports
+        </h1>
+        
+        <!-- Tabs -->
+        <div class="sports-tabs">
+            <a href="index.html" class="sports-tab">
+                <i class="fas fa-home"></i>
+                Home
+            </a>
+            <a href="live-matches.html" class="sports-tab active">
+                <i class="fas fa-circle" style="color: #ff5252; font-size: 10px;"></i>
+                Live
+                <span class="badge" id="live-count">0</span>
+            </a>
+            <a href="upcoming-matches.html" class="sports-tab">
+                <i class="fas fa-calendar"></i>
+                Upcoming
+            </a>
+            <a href="finished-matches.html" class="sports-tab">
+                <i class="fas fa-check-circle"></i>
+                Results
+            </a>
+            <a href="my-bets.html" class="sports-tab">
+                <i class="fas fa-ticket-alt"></i>
+                My Bets
+            </a>
+        </div>
+    </header>
+    
+    <div class="container">
+        <!-- Page Header -->
+        <div class="page-header">
+            <a href="index.html" class="back-btn">
+                <i class="fas fa-arrow-left"></i>
+            </a>
+            <div class="page-title">
+                <i class="fas fa-circle" style="color: #ff5252; font-size: 12px;"></i>
+                Live Matches
+            </div>
+            <div class="auto-refresh">
+                <i class="fas fa-sync-alt fa-spin"></i>
+                Live updates
+            </div>
+        </div>
+        
+        <!-- Live Indicator -->
+        <div class="live-indicator">
+            <i class="fas fa-circle" style="color: #ff5252; font-size: 8px;"></i>
+            <span id="live-status">Loading live matches...</span>
+        </div>
+        
+        <!-- Matches Container -->
+        <div id="matches-container">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Loading live matches...</p>
+            </div>
+        </div>
+        
+        <!-- Empty State (hidden by default) -->
+        <div id="empty-state" class="empty-state" style="display: none;">
+            <i class="fas fa-futbol"></i>
+            <p>No live matches at the moment</p>
+            <small>Check back later or browse upcoming matches</small>
+            <br><br>
+            <a href="upcoming-matches.html" class="filter-btn" style="display: inline-block; text-decoration: none;">
+                View Upcoming Matches
+            </a>
+        </div>
+    </div>
+    
+    <!-- Bottom Navigation -->
+    <nav style="display: flex; justify-content: space-around; background: #111827; padding: 12px; border-top: 1px solid rgba(0, 255, 157, 0.2); margin-top: 30px;">
+        <a href="../index.html" style="color: #a0a8c9; text-decoration: none;">
+            <i class="fas fa-home"></i> Home
+        </a>
+        <a href="../games.html" style="color: #a0a8c9; text-decoration: none;">
+            <i class="fas fa-gamepad"></i> Casino
+        </a>
+        <a href="index.html" style="color: #00ff9d; text-decoration: none;">
+            <i class="fas fa-futbol"></i> Sports
+        </a>
+        <a href="../dashboard.html" style="color: #a0a8c9; text-decoration: none;">
+            <i class="fas fa-user"></i> Account
+        </a>
+    </nav>
+    
+    <!-- Scripts -->
+    <script>
+        // Firebase init
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+        
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        
+        let unsubscribe = null;
+        
+        // Auth check
+        auth.onAuthStateChanged((user) => {
+            if (!user) {
+                window.location.href = '../login.html';
+                return;
+            }
+            loadLiveMatches();
+        });
+        
+        function loadLiveMatches() {
+            const container = document.getElementById('matches-container');
+            const emptyState = document.getElementById('empty-state');
+            const liveCount = document.getElementById('live-count');
+            const liveStatus = document.getElementById('live-status');
+            
+            // Real-time listener for live matches
+            unsubscribe = db.collection('sports_matches')
+                .where('status', '==', 'live')
+                .orderBy('startTime', 'desc')
+                .onSnapshot((snapshot) => {
+                    
+                    const count = snapshot.size;
+                    liveCount.textContent = count;
+                    
+                    if (count === 0) {
+                        container.style.display = 'none';
+                        emptyState.style.display = 'block';
+                        liveStatus.textContent = 'No live matches currently';
+                    } else {
+                        container.style.display = 'block';
+                        emptyState.style.display = 'none';
+                        liveStatus.textContent = `${count} live match${count !== 1 ? 'es' : ''} in progress`;
+                        
+                        container.innerHTML = '';
+                        snapshot.forEach(doc => {
+                            const match = doc.data();
+                            container.appendChild(createLiveMatchCard(match));
+                        });
+                    }
+                }, (error) => {
+                    console.error('Error loading live matches:', error);
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error loading matches</p></div>';
+                });
+        }
+        
+        function createLiveMatchCard(match) {
+            const card = document.createElement('div');
+            card.className = 'match-card live';
+            
+            const minute = getMatchMinute(match.startTime);
+            
+            card.innerHTML = `
+                <div class="match-header">
+                    <div class="match-league">
+                        <i class="fas fa-trophy"></i>
+                        ${match.leagueName || 'League'}
+                    </div>
+                    <div class="match-time live">
+                        <span class="match-minute">${minute}'</span>
+                    </div>
+                </div>
+                <div class="match-body">
+                    <div class="team">
+                        <div class="team-logo">${match.homeTeam.name.substring(0, 3).toUpperCase()}</div>
+                        <div class="team-name">${match.homeTeam.name}</div>
+                    </div>
+                    <div class="match-score">
+                        <span class="score-display">${match.score?.home || 0}</span>
+                        <span class="score-separator">-</span>
+                        <span class="score-display">${match.score?.away || 0}</span>
+                    </div>
+                    <div class="team">
+                        <div class="team-logo">${match.awayTeam.name.substring(0, 3).toUpperCase()}</div>
+                        <div class="team-name">${match.awayTeam.name}</div>
+                    </div>
+                </div>
+                <div style="text-align: center; padding: 10px; color: #a0a8c9; font-size: 13px;">
+                    <i class="fas fa-info-circle"></i> Betting closed - Match in progress
+                </div>
+            `;
+            
+            return card;
+        }
+        
+        function getMatchMinute(startTime) {
+            const now = new Date();
+            const start = startTime.toDate();
+            const diffMs = now - start;
+            const diffMins = Math.floor(diffMs / 60000);
+            
+            if (diffMins < 1) return '1';
+            if (diffMins > 90) {
+                if (diffMins > 105) return '90+';
+                return '90';
+            }
+            return diffMins.toString();
+        }
+        
+        // Cleanup listener on page unload
+        window.addEventListener('beforeunload', () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        });
+    </script>
+</body>
+</html>
