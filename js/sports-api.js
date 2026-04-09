@@ -1,90 +1,95 @@
 // ============================================
 // SPORTMONKS API INTEGRATION - X Lodon Betting
+// Using WORKING codetabs.com proxy
 // ============================================
 
 const SPORTMONKS_CONFIG = {
     token: 'DkFdWG9jFZvH8XSEgLrRfGwczABWVg5rlV25GvIRyN06zdPsOI48Nsv9Wooy',
-    baseUrl: 'https://api.sportmonks.com/v3/football'
+    baseUrl: 'https://api.sportmonks.com/v3'
 };
 
-// Wait for proxy to be available
-function waitForProxy() {
-    return new Promise((resolve) => {
-        if (typeof corsProxy !== 'undefined') {
-            resolve();
-        } else {
-            const checkInterval = setInterval(() => {
-                if (typeof corsProxy !== 'undefined') {
-                    clearInterval(checkInterval);
-                    resolve();
-                }
-            }, 100);
+// ===== WORKING PROXY METHOD =====
+async function fetchWithProxy(url) {
+    // Method 1: Try direct fetch first
+    try {
+        console.log('🔄 Trying direct fetch...');
+        const response = await fetch(url, {
+            method: 'GET',
+            mode: 'cors',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('✅ Direct fetch succeeded');
+            return data;
         }
-    });
-}
-
-// ===== FETCH WITH PROXY =====
-async function async function fetchFromSportMonks(endpoint, params = '') {
-    // Use YOUR Render backend URL (replace with your actual Render URL)
-    const PROXY_URL = 'https://millioner.onrender.com'; // ← UPDATE THIS with your Render URL
-    
-    let proxyEndpoint = '';
-    
-    if (endpoint === 'livescores') {
-        proxyEndpoint = '/api/livescores';
-    } else if (endpoint === 'fixtures') {
-        proxyEndpoint = '/api/fixtures';
-    } else if (endpoint.startsWith('fixtures/')) {
-        const id = endpoint.split('/')[1];
-        proxyEndpoint = `/api/fixtures/${id}`;
-    } else if (endpoint === 'leagues') {
-        proxyEndpoint = '/api/leagues';
-    } else {
-        console.error('Unknown endpoint:', endpoint);
-        return null;
+    } catch (e) {
+        console.log('⚠️ Direct fetch failed, trying proxy...');
     }
     
-    const url = `${PROXY_URL}${proxyEndpoint}`;
-    
-    console.log(`🔄 Fetching from proxy: ${url}`);
-    
+    // Method 2: Use codetabs.com proxy (WORKING)
     try {
-        const response = await fetch(url);
+        const proxyUrl = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url);
+        console.log('🔄 Trying codetabs proxy...');
+        
+        const response = await fetch(proxyUrl);
         
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         
         const data = await response.json();
-        console.log(`✅ Proxy success: ${endpoint}`);
+        console.log('✅ Proxy fetch succeeded');
         return data;
         
     } catch (error) {
-        console.error(`❌ Proxy fetch failed for ${endpoint}:`, error.message);
+        console.error('❌ Both fetch methods failed:', error.message);
         return null;
     }
 }
 
+// ===== FETCH FROM SPORTMONKS =====
+async function fetchFromSportMonks(endpoint, params = '') {
+    let url = '';
+    
+    if (endpoint === 'livescores') {
+        url = `${SPORTMONKS_CONFIG.baseUrl}/football/livescores?api_token=${SPORTMONKS_CONFIG.token}&include=league;participants;scores`;
+    } else if (endpoint === 'fixtures') {
+        const today = new Date().toISOString().split('T')[0];
+        const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+        url = `${SPORTMONKS_CONFIG.baseUrl}/football/fixtures/between/${today}/${nextWeek}?api_token=${SPORTMONKS_CONFIG.token}&include=league;participants`;
+    } else if (endpoint.startsWith('fixtures/')) {
+        const id = endpoint.split('/')[1];
+        url = `${SPORTMONKS_CONFIG.baseUrl}/football/fixtures/${id}?api_token=${SPORTMONKS_CONFIG.token}&include=league;participants;scores;odds`;
+    } else if (endpoint === 'leagues') {
+        url = `${SPORTMONKS_CONFIG.baseUrl}/football/leagues?api_token=${SPORTMONKS_CONFIG.token}`;
+    } else {
+        console.error('❌ Unknown endpoint:', endpoint);
+        return null;
+    }
+    
+    console.log(`🔄 Fetching: ${endpoint}`);
+    return await fetchWithProxy(url);
+}
+
 // ===== FETCH FUNCTIONS =====
 async function fetchLiveMatches() {
-    const params = 'include=league;participants;scores';
-    return await fetchFromSportMonks('livescores', params);
+    return await fetchFromSportMonks('livescores');
 }
 
 async function fetchUpcomingFixtures() {
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-    const params = `include=league;participants&filters=startingAt:${today},${tomorrow}`;
-    return await fetchFromSportMonks('fixtures', params);
+    return await fetchFromSportMonks('fixtures');
 }
 
 async function fetchLeagues() {
-    return await fetchFromSportMonks('leagues', '');
+    return await fetchFromSportMonks('leagues');
 }
 
 async function fetchFixtureById(fixtureId) {
-    const params = 'include=league;participants;scores;odds';
-    return await fetchFromSportMonks(`fixtures/${fixtureId}`, params);
+    return await fetchFromSportMonks(`fixtures/${fixtureId}`);
 }
 
 // ===== SYNC TO FIRESTORE =====
@@ -92,13 +97,11 @@ function getMatchStatus(match) {
     const stateId = match.state_id;
     
     // SportMonks state IDs
-    if (stateId === 1) return 'live';
-    if (stateId === 2) return 'live';      // First half
-    if (stateId === 3) return 'live';      // Half time
-    if (stateId === 4) return 'live';      // Second half
-    if (stateId === 5) return 'finished';
-    if (stateId === 6) return 'finished';  // After extra time
-    if (stateId === 7) return 'finished';  // Penalties
+    if (stateId === 1) return 'upcoming';   // Not started
+    if (stateId === 2) return 'live';       // 1st Half
+    if (stateId === 3) return 'live';       // Half Time
+    if (stateId === 4) return 'live';       // 2nd Half
+    if (stateId === 5 || stateId === 90 || stateId === 100) return 'finished';
     if (stateId === 8) return 'cancelled';
     if (stateId === 9) return 'postponed';
     
@@ -107,6 +110,7 @@ function getMatchStatus(match) {
     const startTime = new Date(match.starting_at);
     
     if (now < startTime) return 'upcoming';
+    if (now > startTime && now < new Date(startTime.getTime() + 3 * 60 * 60 * 1000)) return 'live';
     
     return 'upcoming';
 }
@@ -114,44 +118,55 @@ function getMatchStatus(match) {
 function getMatchResult(match) {
     if (!match.scores || match.scores.length < 2) return null;
     
-    const homeScore = match.scores.find(s => s.description === 'CURRENT')?.score?.goals || 
-                     match.scores[0]?.score?.goals || 0;
-    const awayScore = match.scores.find(s => s.description === 'CURRENT')?.score?.goals || 
-                     match.scores[1]?.score?.goals || 0;
+    const homeScore = match.scores[0]?.score?.goals || 0;
+    const awayScore = match.scores[1]?.score?.goals || 0;
     
-    if (homeScore > awayScore) return 'home';
-    if (homeScore < awayScore) return 'away';
-    if (homeScore === awayScore && match.state_id === 5) return 'draw';
+    const stateId = match.state_id;
+    if (stateId === 5 || stateId === 90 || stateId === 100) {
+        if (homeScore > awayScore) return 'home';
+        if (homeScore < awayScore) return 'away';
+        if (homeScore === awayScore) return 'draw';
+    }
     
     return null;
 }
 
+function calculateDefaultOdds(homeName, awayName) {
+    const hash = (homeName + awayName).split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+    
+    const homeOdds = 1.80 + (hash % 20) / 100;
+    const drawOdds = 3.20 + (hash % 15) / 100;
+    const awayOdds = 2.80 + (hash % 25) / 100;
+    
+    return {
+        home: Math.round(homeOdds * 100) / 100,
+        draw: Math.round(drawOdds * 100) / 100,
+        away: Math.round(awayOdds * 100) / 100
+    };
+}
+
 async function syncMatchToFirestore(match) {
     if (!firebase || !firebase.firestore) {
-        console.error('Firebase not initialized');
+        console.error('❌ Firebase not initialized');
         return false;
     }
     
     const db = firebase.firestore();
     const fixtureId = match.id;
     
-    // Get participants
     const participants = match.participants || [];
     const homeTeam = participants.find(p => p.meta?.location === 'home') || participants[0];
     const awayTeam = participants.find(p => p.meta?.location === 'away') || participants[1];
     
     if (!homeTeam || !awayTeam) {
-        console.warn(`Skipping match ${fixtureId}: missing team data`);
+        console.warn(`⚠️ Skipping match ${fixtureId}: missing team data`);
         return false;
     }
     
     const status = getMatchStatus(match);
     const result = getMatchResult(match);
-    
-    // Calculate odds
     const odds = calculateDefaultOdds(homeTeam.name, awayTeam.name);
     
-    // Set expiry for finished matches
     let expiresAt = null;
     if (status === 'finished') {
         expiresAt = new Date();
@@ -175,10 +190,8 @@ async function syncMatchToFirestore(match) {
         startTime: match.starting_at ? new Date(match.starting_at) : new Date(),
         status: status,
         score: {
-            home: match.scores?.find(s => s.description === 'CURRENT')?.score?.goals || 
-                  match.scores?.[0]?.score?.goals || 0,
-            away: match.scores?.find(s => s.description === 'CURRENT')?.score?.goals || 
-                  match.scores?.[1]?.score?.goals || 0
+            home: match.scores?.[0]?.score?.goals || 0,
+            away: match.scores?.[1]?.score?.goals || 0
         },
         odds: odds,
         result: result,
@@ -194,22 +207,6 @@ async function syncMatchToFirestore(match) {
         console.error(`❌ Error syncing match ${fixtureId}:`, error);
         return false;
     }
-}
-
-// Default odds calculator
-function calculateDefaultOdds(homeName, awayName) {
-    // Simple hash-based odds for consistency
-    const hash = (homeName + awayName).split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-    
-    const homeOdds = 1.80 + (hash % 20) / 100;
-    const drawOdds = 3.20 + (hash % 15) / 100;
-    const awayOdds = 2.80 + (hash % 25) / 100;
-    
-    return {
-        home: Math.round(homeOdds * 100) / 100,
-        draw: Math.round(drawOdds * 100) / 100,
-        away: Math.round(awayOdds * 100) / 100
-    };
 }
 
 // ===== SYNC ALL MATCHES =====
@@ -240,8 +237,7 @@ async function syncAllUpcomingMatches() {
         return 0;
     }
     
-    // Limit to 30 matches
-    const upcomingMatches = data.data.slice(0, 30);
+    const upcomingMatches = data.data.slice(0, 50);
     console.log(`📅 Found ${upcomingMatches.length} upcoming matches`);
     
     let synced = 0;
@@ -254,7 +250,7 @@ async function syncAllUpcomingMatches() {
 }
 
 async function syncAllMatches() {
-    console.log('🚀 Starting SportMonks sync...');
+    console.log('🚀 Starting SportMonks sync via codetabs proxy...');
     
     const liveCount = await syncAllLiveMatches();
     const upcomingCount = await syncAllUpcomingMatches();
@@ -264,7 +260,7 @@ async function syncAllMatches() {
     return { live: liveCount, upcoming: upcomingCount };
 }
 
-// ===== LOAD SAMPLE DATA (FALLBACK) =====
+// ===== SAMPLE DATA FALLBACK =====
 async function loadSampleMatches() {
     if (!firebase || !firebase.firestore) return;
     
@@ -315,6 +311,17 @@ async function loadSampleMatches() {
             score: { home: 3, away: 2 },
             result: 'home',
             expiresAt: new Date(Date.now() + 86400000)
+        },
+        {
+            fixtureId: 100005,
+            leagueName: 'Ligue 1',
+            homeTeam: { id: 9, name: 'PSG', logo: '' },
+            awayTeam: { id: 10, name: 'Marseille', logo: '' },
+            startTime: new Date(Date.now() + 10800000),
+            status: 'upcoming',
+            odds: { home: 1.65, draw: 4.00, away: 4.50 },
+            score: { home: 0, away: 0 },
+            result: null
         }
     ];
     
@@ -333,7 +340,7 @@ async function loadSampleMatches() {
 
 // ===== TEST FUNCTION =====
 async function testAPIConnection() {
-    console.log('🔍 Testing SportMonks API connection...');
+    console.log('🔍 Testing SportMonks API connection via codetabs proxy...');
     
     const data = await fetchLiveMatches();
     
@@ -350,17 +357,19 @@ async function testAPIConnection() {
 // ===== AUTO SYNC =====
 let syncInterval = null;
 
-function startAutoSync(intervalSeconds = 60) {
+function startAutoSync(intervalSeconds = 30) {
     if (syncInterval) {
         clearInterval(syncInterval);
     }
     
-    // Test connection and sync
-    testAPIConnection().then(() => {
-        syncAllMatches();
+    testAPIConnection().then((connected) => {
+        if (connected) {
+            syncAllMatches();
+        }
     });
     
     syncInterval = setInterval(() => {
+        console.log('⏰ Auto-sync running...');
         syncAllMatches();
     }, intervalSeconds * 1000);
     
@@ -375,18 +384,19 @@ function stopAutoSync() {
     }
 }
 
-// Auto-start when DOM is ready
-if (document.readyState === 'complete') {
-    startAutoSync(60);
-} else {
-    window.addEventListener('load', () => {
-        startAutoSync(60);
-    });
-}
-
-// Manual sync trigger
+// ===== EXPOSE TO CONSOLE =====
 window.syncNow = syncAllMatches;
 window.testAPI = testAPIConnection;
 window.loadSamples = loadSampleMatches;
 
-console.log('🏈 SportMonks API module loaded');
+// ===== AUTO-START =====
+if (document.readyState === 'complete') {
+    startAutoSync(30);
+} else {
+    window.addEventListener('load', () => {
+        startAutoSync(30);
+    });
+}
+
+console.log('🏈 SportMonks API module loaded (codetabs proxy mode)');
+console.log('💡 Commands: testAPI(), syncNow(), loadSamples()');
