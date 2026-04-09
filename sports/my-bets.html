@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>My Bets - X Lodon Betting</title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="../css/sports-betting.css">
+    <link rel="stylesheet" href="../css/bets-table.css">
+    
+    <style>
+        body {
+            background: #0a0f1a;
+            color: white;
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Segoe UI', 'Roboto', sans-serif;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 15px;
+        }
+        
+        .page-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .back-btn {
+            width: 40px;
+            height: 40px;
+            background: #111827;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #00ff9d;
+            text-decoration: none;
+            font-size: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .page-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #00ff9d;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .stats-summary {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #111827, #1a2332);
+            padding: 18px;
+            border-radius: 15px;
+            text-align: center;
+            border: 1px solid rgba(0, 255, 157, 0.2);
+        }
+        
+        .stat-card.wide {
+            grid-column: span 2;
+        }
+        
+        .stat-label {
+            font-size: 13px;
+            color: #a0a8c9;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #00ff9d;
+        }
+        
+        .stat-value.negative {
+            color: #ff5252;
+        }
+        
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            padding: 10px;
+            background: #111827;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            flex: 1;
+            min-width: 60px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: #a0a8c9;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+        
+        .filter-btn:hover {
+            background: rgba(0, 255, 157, 0.1);
+            color: #00ff9d;
+        }
+        
+        .filter-btn.active {
+            background: #00ff9d;
+            color: #000;
+            border-color: #00ff9d;
+        }
+        
+        .bets-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .bet-card {
+            background: #111827;
+            border-radius: 15px;
+            padding: 15px;
+            border-left: 4px solid #00ff9d;
+            transition: all 0.2s;
+        }
+        
+        .bet-card.won { border-left-color: #4caf50; }
+        .bet-card.lost { border-left-color: #ff5252; }
+        .bet-card.active { border-left-color: #ffc107; }
+        .bet-card.cancelled { border-left-color: #a0a8c9; }
+        
+        .bet-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .bet-match {
+            font-weight: 600;
+            font-size: 15px;
+        }
+        
+        .bet-status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .bet-status-badge.won { background: #4caf50; color: white; }
+        .bet-status-badge.lost { background: #ff5252; color: white; }
+        .bet-status-badge.active { background: #ffc107; color: #000; }
+        .bet-status-badge.cancelled { background: #a0a8c9; color: white; }
+        
+        .bet-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        
+        .bet-detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        
+        .detail-label {
+            font-size: 11px;
+            color: #a0a8c9;
+        }
+        
+        .detail-value {
+            font-size: 15px;
+            font-weight: 600;
+        }
+        
+        .detail-value.positive { color: #4caf50; }
+        .detail-value.negative { color: #ff5252; }
+        
+        .bet-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 12px;
+            color: #a0a8c9;
+        }
+        
+        .cancel-bet-btn {
+            padding: 6px 15px;
+            background: rgba(255, 82, 82, 0.1);
+            border: 1px solid #ff5252;
+            border-radius: 6px;
+            color: #ff5252;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .cancel-bet-btn:hover {
+            background: #ff5252;
+            color: white;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 50px 20px;
+        }
+        
+        .empty-state i {
+            font-size: 56px;
+            color: #a0a8c9;
+            opacity: 0.3;
+            margin-bottom: 20px;
+        }
+        
+        .empty-state p {
+            color: #a0a8c9;
+            font-size: 16px;
+        }
+        
+        .export-section {
+            margin-top: 20px;
+            text-align: right;
+        }
+        
+        .export-btn {
+            background: rgba(0, 255, 157, 0.1);
+            border: 1px solid #00ff9d;
+            color: #00ff9d;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="sports-header">
+        <h1>
+            <i class="fas fa-futbol"></i>
+            X Lodon Sports
+        </h1>
+        
+        <!-- Tabs -->
+        <div class="sports-tabs">
+            <a href="index.html" class="sports-tab">
+                <i class="fas fa-home"></i>
+                Home
+            </a>
+            <a href="live-matches.html" class="sports-tab">
+                <i class="fas fa-circle" style="color: #ff5252; font-size: 10px;"></i>
+                Live
+            </a>
+            <a href="upcoming-matches.html" class="sports-tab">
+                <i class="fas fa-calendar"></i>
+                Upcoming
+            </a>
+            <a href="finished-matches.html" class="sports-tab">
+                <i class="fas fa-check-circle"></i>
+                Results
+            </a>
+            <a href="my-bets.html" class="sports-tab active">
+                <i class="fas fa-ticket-alt"></i>
+                My Bets
+            </a>
+        </div>
+    </header>
+    
+    <div class="container">
+        <!-- Page Header -->
+        <div class="page-header">
+            <a href="index.html" class="back-btn">
+                <i class="fas fa-arrow-left"></i>
+            </a>
+            <div class="page-title">
+                <i class="fas fa-ticket-alt"></i>
+                My Betting History
+            </div>
+        </div>
+        
+        <!-- Stats Summary -->
+        <div class="stats-summary" id="stats-summary">
+            <div class="stat-card">
+                <div class="stat-label"><i class="fas fa-ticket-alt"></i> Total Bets</div>
+                <div class="stat-value" id="total-bets">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label"><i class="fas fa-trophy"></i> Win Rate</div>
+                <div class="stat-value" id="win-rate">0%</div>
+            </div>
+            <div class="stat-card wide">
+                <div class="stat-label"><i class="fas fa-chart-line"></i> Total P/L</div>
+                <div class="stat-value" id="total-pl">$0.00</div>
+            </div>
+        </div>
+        
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+            <div class="filter-btn active" data-filter="all">All</div>
+            <div class="filter-btn" data-filter="active">Active</div>
+            <div class="filter-btn" data-filter="won">Won</div>
+            <div class="filter-btn" data-filter="lost">Lost</div>
+        </div>
+        
+        <!-- Bets List -->
+        <div id="bets-container">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Loading your bets...</p>
+            </div>
+        </div>
+        
+        <!-- Export Button -->
+        <div class="export-section">
+            <button class="export-btn" id="export-btn">
+                <i class="fas fa-download"></i> Export CSV
+            </button>
+        </div>
+    </div>
+    
+    <!-- Bottom Navigation -->
+    <nav style="display: flex; justify-content: space-around; background: #111827; padding: 12px; border-top: 1px solid rgba(0, 255, 157, 0.2); margin-top: 30px;">
+        <a href="../index.html" style="color: #a0a8c9; text-decoration: none;">
+            <i class="fas fa-home"></i> Home
+        </a>
+        <a href="../games.html" style="color: #a0a8c9; text-decoration: none;">
+            <i class="fas fa-gamepad"></i> Casino
+        </a>
+        <a href="index.html" style="color: #00ff9d; text-decoration: none;">
+            <i class="fas fa-futbol"></i> Sports
+        </a>
+        <a href="../dashboard.html" style="color: #a0a8c9; text-decoration: none;">
+            <i class="fas fa-user"></i> Account
+        </a>
+    </nav>
+    
+    <!-- Scripts -->
+    <script>
+        // Firebase init
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+        
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        
+        let currentUser = null;
+        let allBets = [];
+        let currentFilter = 'all';
+        let unsubscribe = null;
+        
+        auth.onAuthStateChanged((user) => {
+            if (!user) {
+                window.location.href = '../login.html';
+                return;
+            }
+            currentUser = user;
+            loadUserBets();
+        });
+        
+        function loadUserBets() {
+            const container = document.getElementById('bets-container');
+            
+            unsubscribe = db.collection('bets')
+                .where('userId', '==', currentUser.uid)
+                .orderBy('placedAt', 'desc')
+                .limit(100)
+                .onSnapshot((snapshot) => {
+                    
+                    allBets = [];
+                    snapshot.forEach(doc => {
+                        allBets.push({
+                            id: doc.id,
+                            ...doc.data()
+                        });
+                    });
+                    
+                    updateStats();
+                    filterBets(currentFilter);
+                    
+                }, (error) => {
+                    console.error('Error loading bets:', error);
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error loading bets</p></div>';
+                });
+        }
+        
+        function updateStats() {
+            const totalBets = allBets.length;
+            const wonBets = allBets.filter(b => b.status === 'won').length;
+            const winRate = totalBets > 0 ? ((wonBets / totalBets) * 100).toFixed(1) : 0;
+            
+            let totalPL = 0;
+            allBets.forEach(bet => {
+                if (bet.status === 'won') {
+                    totalPL += bet.payout - bet.amount;
+                } else if (bet.status === 'lost') {
+                    totalPL -= bet.amount;
+                }
+            });
+            
+            document.getElementById('total-bets').textContent = totalBets;
+            document.getElementById('win-rate').textContent = `${winRate}%`;
+            
+            const plElement = document.getElementById('total-pl');
+            plElement.textContent = `${totalPL >= 0 ? '+' : ''}$${totalPL.toFixed(2)}`;
+            plElement.className = totalPL >= 0 ? 'stat-value' : 'stat-value negative';
+        }
+        
+        function filterBets(filter) {
+            currentFilter = filter;
+            
+            let filteredBets = allBets;
+            if (filter !== 'all') {
+                filteredBets = allBets.filter(b => b.status === filter);
+            }
+            
+            displayBets(filteredBets);
+        }
+        
+        function displayBets(bets) {
+            const container = document.getElementById('bets-container');
+            
+            if (bets.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-ticket-alt"></i>
+                        <p>No bets found</p>
+                        <small>Place your first bet on upcoming matches!</small>
+                        <br><br>
+                        <a href="upcoming-matches.html" class="filter-btn" style="display: inline-block; text-decoration: none;">
+                            Browse Matches
+                        </a>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = '<div class="bets-list"></div>';
+            const listContainer = container.querySelector('.bets-list');
+            
+            bets.forEach(bet => {
+                listContainer.appendChild(createBetCard(bet));
+            });
+        }
+        
+        function createBetCard(bet) {
+            const card = document.createElement('div');
+            card.className = `bet-card ${bet.status}`;
+            
+            const placedDate = bet.placedAt?.toDate() || new Date();
+            const dateStr = placedDate.toLocaleDateString('en-US', { 
+                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+            });
+            
+            const betTypeDisplay = bet.betType === 'home' ? 'Home Win' :
+                                  bet.betType === 'draw' ? 'Draw' :
+                                  bet.betType === 'away' ? 'Away Win' : bet.betType;
+            
+            const statusDisplay = bet.status === 'won' ? 'Won' :
+                                 bet.status === 'lost' ? 'Lost' :
+                                 bet.status === 'active' ? 'Active' : 'Cancelled';
+            
+            let resultDisplay = '';
+            if (bet.status === 'won') {
+                resultDisplay = `<div class="detail-value positive">+$${bet.payout.toFixed(2)}</div>`;
+            } else if (bet.status === 'lost') {
+                resultDisplay = `<div class="detail-value negative">-$${bet.amount.toFixed(2)}</div>`;
+            } else if (bet.status === 'active') {
+                resultDisplay = `<div class="detail-value" style="color: #ffc107;">Pending</div>`;
+            } else {
+                resultDisplay = `<div class="detail-value">Refunded</div>`;
+            }
+            
+            card.innerHTML = `
+                <div class="bet-header">
+                    <div class="bet-match">${bet.matchName}</div>
+                    <div class="bet-status-badge ${bet.status}">${statusDisplay}</div>
+                </div>
+                <div class="bet-details">
+                    <div class="bet-detail-item">
+                        <div class="detail-label">Bet Type</div>
+                        <div class="detail-value">${betTypeDisplay}</div>
+                    </div>
+                    <div class="bet-detail-item">
+                        <div class="detail-label">Odds</div>
+                        <div class="detail-value">${bet.odds.toFixed(2)}x</div>
+                    </div>
+                    <div class="bet-detail-item">
+                        <div class="detail-label">Stake</div>
+                        <div class="detail-value">$${bet.amount.toFixed(2)}</div>
+                    </div>
+                    <div class="bet-detail-item">
+                        <div class="detail-label">${bet.status === 'active' ? 'Potential' : 'Result'}</div>
+                        ${resultDisplay}
+                    </div>
+                </div>
+                <div class="bet-footer">
+                    <span><i class="far fa-clock"></i> ${dateStr}</span>
+                    ${bet.status === 'active' ? 
+                        `<button class="cancel-bet-btn" data-bet-id="${bet.id}">
+                            <i class="fas fa-times"></i> Cancel Bet
+                        </button>` : 
+                        `<span>Bet ID: ${bet.id.substring(0, 8)}...</span>`
+                    }
+                </div>
+            `;
+            
+            // Add cancel listener if active
+            if (bet.status === 'active') {
+                card.querySelector('.cancel-bet-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    cancelBet(bet.id);
+                });
+            }
+            
+            return card;
+        }
+        
+        async function cancelBet(betId) {
+            if (!confirm('Are you sure you want to cancel this bet? Your stake will be refunded.')) {
+                return;
+            }
+            
+            try {
+                // Import cancelBet from betting-engine
+                const result = await cancelBet(betId);
+                
+                if (result.success) {
+                    alert('Bet cancelled and refunded successfully');
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error cancelling bet:', error);
+                alert('Error cancelling bet. Please try again.');
+            }
+        }
+        
+        function exportToCSV() {
+            if (allBets.length === 0) {
+                alert('No bets to export');
+                return;
+            }
+            
+            const headers = ['Date', 'Match', 'Bet Type', 'Stake', 'Odds', 'Status', 'Payout', 'P/L'];
+            const rows = allBets.map(bet => {
+                const date = bet.placedAt?.toDate().toLocaleDateString() || '';
+                const pl = bet.status === 'won' ? (bet.payout - bet.amount).toFixed(2) :
+                          bet.status === 'lost' ? (-bet.amount).toFixed(2) : '0.00';
+                
+                return [
+                    date,
+                    bet.matchName,
+                    bet.betType,
+                    bet.amount.toFixed(2),
+                    bet.odds.toFixed(2),
+                    bet.status,
+                    bet.payout?.toFixed(2) || '0.00',
+                    pl
+                ];
+            });
+            
+            let csv = headers.join(',') + '\n';
+            rows.forEach(row => {
+                csv += row.map(cell => `"${cell}"`).join(',') + '\n';
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `x-lodon-bets-${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+        }
+        
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    filterBets(btn.dataset.filter);
+                });
+            });
+            
+            document.getElementById('export-btn').addEventListener('click', exportToCSV);
+        });
+        
+        window.addEventListener('beforeunload', () => {
+            if (unsubscribe) unsubscribe();
+        });
+    </script>
+</body>
+</html>
