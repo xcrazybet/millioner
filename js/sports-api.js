@@ -1,87 +1,62 @@
 // ============================================
 // SPORTMONKS API INTEGRATION - X Lodon Betting
-// Using WORKING token from live system
+// Uses YOUR Render backend at millioner.onrender.com
 // ============================================
 
-const SPORTMONKS_CONFIG = {
-    token: 'DKFdWG9jFZVh8XSEgLrRfGwcZABwVgsP1vZS5ViRYn86zdPSO148NsV9iwoy',
-    baseUrl: 'https://api.sportmonks.com/v3'
-};
+// Your Render backend URL (already deployed and working)
+const RENDER_BACKEND = 'https://millioner.onrender.com';
 
-// ===== FETCH WITH PROXY (copied from working system) =====
-async function fetchWithProxy(url) {
-    // Method 1: Try codetabs proxy (working in your system)
+// ===== FETCH FROM YOUR RENDER BACKEND =====
+async function fetchFromBackend(endpoint) {
+    const url = `${RENDER_BACKEND}${endpoint}`;
+    
+    console.log(`🔄 Fetching: ${endpoint}`);
+    
     try {
-        const proxyUrl = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url);
-        console.log('🔄 Trying codetabs proxy...');
-        
-        const response = await fetch(proxyUrl);
+        const response = await fetch(url);
         
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         
         const data = await response.json();
-        console.log('✅ Proxy fetch succeeded');
+        console.log(`✅ Success: ${endpoint}`);
         return data;
         
     } catch (error) {
-        console.error('❌ Proxy fetch failed:', error.message);
-        
-        // Fallback: Try direct fetch
-        try {
-            console.log('🔄 Trying direct fetch...');
-            const response = await fetch(url, {
-                method: 'GET',
-                mode: 'cors',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                console.log('✅ Direct fetch succeeded');
-                return data;
-            }
-        } catch (e) {
-            console.error('❌ Direct fetch failed:', e.message);
-        }
-        
+        console.error(`❌ Failed to fetch ${endpoint}:`, error.message);
         return null;
     }
-}
-
-// ===== FETCH FROM SPORTMONKS =====
-async function fetchFromSportMonks(endpoint, params = '') {
-    let url = '';
-    
-    if (endpoint === 'livescores') {
-        url = `${SPORTMONKS_CONFIG.baseUrl}/football/livescores?api_token=${SPORTMONKS_CONFIG.token}&include=state;participants;league;scores`;
-    } else if (endpoint === 'fixtures') {
-        const today = new Date().toISOString().split('T')[0];
-        url = `${SPORTMONKS_CONFIG.baseUrl}/football/fixtures/date/${today}?api_token=${SPORTMONKS_CONFIG.token}&include=participants;state;league;scores`;
-    } else if (endpoint.startsWith('fixtures/')) {
-        const id = endpoint.split('/')[1];
-        url = `${SPORTMONKS_CONFIG.baseUrl}/football/fixtures/${id}?api_token=${SPORTMONKS_CONFIG.token}&include=league;participants;scores;odds`;
-    } else {
-        console.error('❌ Unknown endpoint:', endpoint);
-        return null;
-    }
-    
-    console.log(`🔄 Fetching: ${endpoint}`);
-    return await fetchWithProxy(url);
 }
 
 // ===== FETCH FUNCTIONS =====
 async function fetchLiveMatches() {
-    return await fetchFromSportMonks('livescores');
+    return await fetchFromBackend('/api/livescores');
 }
 
 async function fetchUpcomingFixtures() {
-    return await fetchFromSportMonks('fixtures');
+    const today = new Date().toISOString().split('T')[0];
+    return await fetchFromBackend(`/api/fixtures/date/${today}`);
 }
 
-async function fetchFixtureById(fixtureId) {
-    return await fetchFromSportMonks(`fixtures/${fixtureId}`);
+async function fetchFixturesByDate(date) {
+    return await fetchFromBackend(`/api/fixtures/date/${date}`);
+}
+
+// ===== TEST CONNECTION =====
+async function testAPIConnection() {
+    console.log('🔍 Testing connection to Render backend...');
+    
+    const data = await fetchFromBackend('/api/test');
+    
+    if (data && data.success) {
+        console.log(`✅ BACKEND CONNECTED! ${data.message}`);
+        console.log(`📊 Live matches: ${data.liveMatchesCount}`);
+        return true;
+    } else {
+        console.error('❌ Backend connection failed');
+        return false;
+    }
 }
 
 // ===== SYNC TO FIRESTORE =====
@@ -98,9 +73,7 @@ function getMatchStatus(match) {
     const startTime = new Date(match.starting_at);
     
     if (now < startTime) return 'upcoming';
-    if (now > startTime) return 'live';
-    
-    return 'upcoming';
+    return 'live';
 }
 
 function getMatchResult(match) {
@@ -119,7 +92,7 @@ function getMatchResult(match) {
     return null;
 }
 
-function calculateDefaultOdds(homeName, awayName) {
+function calculateOdds(homeName, awayName) {
     const hash = (homeName + awayName).split('').reduce((a, b) => a + b.charCodeAt(0), 0);
     
     return {
@@ -149,7 +122,7 @@ async function syncMatchToFirestore(match) {
     
     const status = getMatchStatus(match);
     const result = getMatchResult(match);
-    const odds = calculateDefaultOdds(homeTeam.name, awayTeam.name);
+    const odds = calculateOdds(homeTeam.name, awayTeam.name);
     
     let expiresAt = null;
     if (status === 'finished') {
@@ -197,7 +170,7 @@ async function syncMatchToFirestore(match) {
 async function syncAllLiveMatches() {
     const data = await fetchLiveMatches();
     
-    if (!data || !data.data) {
+    if (!data || !data.data || data.data.length === 0) {
         console.log('ℹ️ No live matches found');
         return 0;
     }
@@ -216,7 +189,7 @@ async function syncAllLiveMatches() {
 async function syncAllUpcomingMatches() {
     const data = await fetchUpcomingFixtures();
     
-    if (!data || !data.data) {
+    if (!data || !data.data || data.data.length === 0) {
         console.log('ℹ️ No upcoming matches found');
         return 0;
     }
@@ -233,7 +206,7 @@ async function syncAllUpcomingMatches() {
 }
 
 async function syncAllMatches() {
-    console.log('🚀 Starting SportMonks sync...');
+    console.log('🚀 Starting SportMonks sync via Render backend...');
     
     const liveCount = await syncAllLiveMatches();
     const upcomingCount = await syncAllUpcomingMatches();
@@ -241,47 +214,6 @@ async function syncAllMatches() {
     console.log(`✅ Sync complete: ${liveCount} live, ${upcomingCount} upcoming`);
     
     return { live: liveCount, upcoming: upcomingCount };
-}
-
-// ===== SAMPLE DATA =====
-async function loadSampleMatches() {
-    if (!firebase || !firebase.firestore) return;
-    
-    const db = firebase.firestore();
-    
-    const sampleMatches = [
-        { fixtureId: 100001, leagueName: 'Premier League', homeTeam: { name: 'Arsenal' }, awayTeam: { name: 'Man City' }, startTime: new Date(Date.now() + 3600000), status: 'upcoming', odds: { home: 2.40, draw: 3.30, away: 2.90 }, score: { home: 0, away: 0 } },
-        { fixtureId: 100002, leagueName: 'La Liga', homeTeam: { name: 'Barcelona' }, awayTeam: { name: 'Real Madrid' }, startTime: new Date(Date.now() + 7200000), status: 'upcoming', odds: { home: 2.10, draw: 3.50, away: 3.20 }, score: { home: 0, away: 0 } },
-        { fixtureId: 100003, leagueName: 'Serie A', homeTeam: { name: 'Juventus' }, awayTeam: { name: 'Inter' }, startTime: new Date(), status: 'live', odds: { home: 2.60, draw: 3.10, away: 2.70 }, score: { home: 1, away: 1 } }
-    ];
-    
-    console.log('📦 Loading sample matches...');
-    
-    for (const match of sampleMatches) {
-        await db.collection('sports_matches').doc(match.fixtureId.toString()).set({
-            ...match,
-            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-    }
-    
-    console.log('✅ Sample matches loaded!');
-    return sampleMatches.length;
-}
-
-// ===== TEST FUNCTION =====
-async function testAPIConnection() {
-    console.log('🔍 Testing SportMonks API with working token...');
-    
-    const data = await fetchLiveMatches();
-    
-    if (data && data.data) {
-        console.log(`✅ API CONNECTED! Found ${data.data.length} live matches.`);
-        return true;
-    } else {
-        console.error('❌ API connection failed. Loading sample data...');
-        await loadSampleMatches();
-        return false;
-    }
 }
 
 // ===== AUTO SYNC =====
@@ -295,6 +227,7 @@ function startAutoSync(intervalSeconds = 30) {
     });
     
     syncInterval = setInterval(() => {
+        console.log('⏰ Auto-sync running...');
         syncAllMatches();
     }, intervalSeconds * 1000);
     
@@ -304,7 +237,6 @@ function startAutoSync(intervalSeconds = 30) {
 // ===== EXPOSE TO CONSOLE =====
 window.syncNow = syncAllMatches;
 window.testAPI = testAPIConnection;
-window.loadSamples = loadSampleMatches;
 
 // ===== AUTO-START =====
 if (document.readyState === 'complete') {
@@ -313,5 +245,6 @@ if (document.readyState === 'complete') {
     window.addEventListener('load', () => startAutoSync(30));
 }
 
-console.log('🏈 SportMonks API loaded with WORKING token');
-console.log('💡 Run testAPI() to check connection');
+console.log('🏈 SportMonks API loaded - Using Render Backend');
+console.log(`📡 Backend: ${RENDER_BACKEND}`);
+console.log('💡 Commands: testAPI(), syncNow()');
