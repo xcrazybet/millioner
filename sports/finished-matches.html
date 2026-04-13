@@ -73,4 +73,63 @@
             projectId: "x-bet-prod-jd",
             storageBucket: "x-bet-prod-jd.firebasestorage.app",
             messagingSenderId: "499334334535",
-            appId:
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+        
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth(), db = firebase.firestore();
+        let unsubscribe = null;
+        
+        auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else loadFinished(); });
+        
+        function loadFinished() {
+            const container = document.getElementById('matches-container');
+            const empty = document.getElementById('empty-state');
+            const now = new Date();
+            
+            unsubscribe = db.collection('sports_matches')
+                .where('status', '==', 'finished')
+                .where('expiresAt', '>', now)
+                .orderBy('expiresAt', 'desc')
+                .onSnapshot(snap => {
+                    if (snap.empty) {
+                        container.style.display = 'none';
+                        empty.style.display = 'block';
+                    } else {
+                        container.style.display = 'block';
+                        empty.style.display = 'none';
+                        container.innerHTML = '';
+                        snap.forEach(doc => container.appendChild(createCard(doc.data())));
+                    }
+                }, e => { console.error(e); container.innerHTML = '<p class="empty-state">Error loading results</p>'; });
+        }
+        
+        function createCard(m) {
+            const card = document.createElement('div');
+            card.className = 'match-card';
+            
+            const resultText = m.result === 'home' ? 'Home Win' : m.result === 'draw' ? 'Draw' : m.result === 'away' ? 'Away Win' : 'Unknown';
+            const badgeClass = m.result || '';
+            
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                    <span style="color: #a0a8c9;">${m.leagueName || 'League'}</span>
+                    <span style="color: #a0a8c9;">Final</span>
+                </div>
+                <div class="teams">
+                    <div class="team"><strong>${m.homeTeam?.name || 'Home'}</strong></div>
+                    <div class="score">${m.score?.home || 0} - ${m.score?.away || 0}</div>
+                    <div class="team"><strong>${m.awayTeam?.name || 'Away'}</strong></div>
+                </div>
+                <div style="text-align: center; margin-top: 10px;">
+                    <span class="result-badge ${badgeClass}">${resultText}</span>
+                </div>
+            `;
+            return card;
+        }
+        
+        window.addEventListener('beforeunload', () => unsubscribe?.());
+    </script>
+    <script src="../js/sports-api.js"></script>
+</body>
+</html>
