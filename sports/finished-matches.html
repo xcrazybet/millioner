@@ -10,23 +10,35 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <link rel="stylesheet" href="../css/sports-betting.css">
     <style>
-        body { background: #0a0f1a; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0f1a; color: white; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+        .header { background: #111827; padding: 15px; border-bottom: 2px solid #a0a8c9; position: sticky; top: 0; z-index: 100; }
+        .header h1 { font-size: 20px; display: flex; align-items: center; gap: 10px; }
+        .back-btn { color: #00ff9d; text-decoration: none; margin-right: 10px; }
+        .tabs { display: flex; gap: 5px; margin-top: 10px; overflow-x: auto; }
+        .tab { padding: 10px 15px; background: #1a2332; border-radius: 25px; color: white; text-decoration: none; font-size: 13px; }
+        .tab.active { background: #a0a8c9; color: black; }
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
-        .header { background: #111827; padding: 15px; border-bottom: 2px solid #00ff9d; }
-        .tabs { display: flex; gap: 5px; flex-wrap: wrap; }
-        .tab { padding: 10px 15px; background: #1a2332; border-radius: 8px; color: white; text-decoration: none; }
-        .tab.active { background: #00ff9d; color: black; }
-        .match-card { background: #111827; border-radius: 10px; padding: 15px; margin: 10px 0; border-left: 4px solid #a0a8c9; }
-        .result-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
-        .result-badge.home { background: #4caf50; }
+        .info-banner { background: #ff980022; padding: 12px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ff980044; color: #ff9800; font-size: 13px; }
+        .match-card { background: #111827; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 4px solid #a0a8c9; }
+        .match-league { color: #a0a8c9; font-size: 13px; margin-bottom: 8px; }
+        .match-teams { display: flex; align-items: center; justify-content: space-around; margin: 10px 0; }
+        .team { text-align: center; flex: 1; font-weight: 600; }
+        .score { font-size: 28px; font-weight: bold; }
+        .result-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-top: 8px; }
+        .result-badge.home { background: #4caf50; color: white; }
         .result-badge.draw { background: #ffc107; color: black; }
-        .result-badge.away { background: #2196f3; }
-        .info-banner { background: #ff980022; padding: 12px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ff980044; }
+        .result-badge.away { background: #2196f3; color: white; }
+        .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
+        .date-header { color: #a0a8c9; font-size: 14px; margin: 20px 0 15px; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1><i class="fas fa-futbol"></i> X Lodon Sports</h1>
+        <h1>
+            <a href="betting-sport.html" class="back-btn"><i class="fas fa-arrow-left"></i></a>
+            <i class="fas fa-futbol"></i> X Lodon Sports
+        </h1>
         <div class="tabs">
             <a href="betting-sport.html" class="tab">Home</a>
             <a href="live-matches.html" class="tab">Live</a>
@@ -40,8 +52,9 @@
         <div class="info-banner">
             <i class="fas fa-info-circle"></i> Results displayed for 24 hours after match completion
         </div>
+        
         <div id="matches-container"></div>
-        <div id="empty-state" style="display:none; text-align:center; padding:40px; color:#a0a8c9;">
+        <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-trophy" style="font-size:48px; opacity:0.3;"></i>
             <p>No recent results</p>
         </div>
@@ -63,8 +76,6 @@
         auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else loadResults(); });
         
         function loadResults() {
-            const container = document.getElementById('matches-container');
-            const empty = document.getElementById('empty-state');
             const now = new Date();
             
             db.collection('sports_matches')
@@ -72,14 +83,35 @@
                 .where('expiresAt', '>', now)
                 .orderBy('expiresAt', 'desc')
                 .onSnapshot(snap => {
+                    const container = document.getElementById('matches-container');
+                    const empty = document.getElementById('empty-state');
+                    
                     if (snap.empty) {
                         container.style.display = 'none';
                         empty.style.display = 'block';
                     } else {
                         container.style.display = 'block';
                         empty.style.display = 'none';
+                        
+                        const grouped = {};
+                        snap.forEach(d => {
+                            const m = d.data();
+                            const date = m.startTime.toDate();
+                            const key = date.toDateString();
+                            if (!grouped[key]) grouped[key] = [];
+                            grouped[key].push(m);
+                        });
+                        
                         container.innerHTML = '';
-                        snap.forEach(d => container.appendChild(createCard(d.data())));
+                        
+                        Object.keys(grouped).sort().reverse().forEach(key => {
+                            const header = document.createElement('div');
+                            header.className = 'date-header';
+                            header.innerHTML = `<i class="far fa-calendar"></i> ${new Date(key).toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'})}`;
+                            container.appendChild(header);
+                            
+                            grouped[key].forEach(m => container.appendChild(createCard(m)));
+                        });
                     }
                 });
         }
@@ -88,20 +120,20 @@
             const card = document.createElement('div');
             card.className = 'match-card';
             
-            const resultText = m.result === 'home' ? 'Home Win' : m.result === 'draw' ? 'Draw' : 'Away Win';
+            const resultText = m.result === 'home' ? 'HOME WIN' : m.result === 'draw' ? 'DRAW' : 'AWAY WIN';
             
             card.innerHTML = `
-                <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                    <span style="color:#a0a8c9;">${m.leagueName||''}</span>
-                    <span style="color:#a0a8c9;">Final</span>
+                <div class="match-league"><i class="fas fa-trophy"></i> ${m.leagueName||'League'}</div>
+                <div class="match-teams">
+                    <span class="team">${m.homeTeam?.name||'Home'}</span>
+                    <span class="score">${m.score?.home||0} - ${m.score?.away||0}</span>
+                    <span class="team">${m.awayTeam?.name||'Away'}</span>
                 </div>
-                <div style="display:flex; align-items:center; justify-content:space-around;">
-                    <div><strong>${m.homeTeam?.name||'Home'}</strong></div>
-                    <div style="font-size:24px; font-weight:bold;">${m.score?.home||0}-${m.score?.away||0}</div>
-                    <div><strong>${m.awayTeam?.name||'Away'}</strong></div>
-                </div>
-                <div style="text-align:center; margin-top:10px;">
+                <div style="text-align:center;">
                     <span class="result-badge ${m.result}">${resultText}</span>
+                </div>
+                <div style="color:#a0a8c9; font-size:11px; margin-top:10px; text-align:right;">
+                    <i class="far fa-clock"></i> Final
                 </div>
             `;
             return card;
