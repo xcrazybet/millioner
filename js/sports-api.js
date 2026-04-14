@@ -1,6 +1,6 @@
 // ============================================
-// X LODON SPORTS API - VERSION 3.0
-// Fetches from Render backend - Auto-cleanup
+// X LODON SPORTS API - VERSION 4.0
+// REAL DATA ONLY - NO SAMPLES
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
@@ -51,7 +51,13 @@ async function fetchUpcomingWeek() {
     const from = today.toISOString().split('T')[0];
     const to = nextWeek.toISOString().split('T')[0];
     
+    console.log(`📅 Fetching matches from ${from} to ${to}`);
     return await fetchFixturesBetween(from, to);
+}
+
+// ===== FETCH SPECIFIC DATE RANGE =====
+async function fetchDateRange(fromDate, toDate) {
+    return await fetchFixturesBetween(fromDate, toDate);
 }
 
 // ===== TEST CONNECTION =====
@@ -60,7 +66,7 @@ async function testAPIConnection() {
     const data = await fetchFromBackend('/api/test');
     
     if (data && data.success) {
-        console.log(`✅ BACKEND ONLINE | Live: ${data.liveMatchesCount}`);
+        console.log(`✅ BACKEND ONLINE | Live matches: ${data.liveMatchesCount}`);
         return true;
     }
     console.error('❌ Backend offline');
@@ -120,7 +126,20 @@ async function cleanupOldMatches() {
     let deleted = 0;
     
     try {
-        // Delete old upcoming matches (past date)
+        // Delete ALL sample data (fixtureId >= 100000)
+        const sampleMatches = await db.collection('sports_matches')
+            .where('fixtureId', '>=', 100000)
+            .get();
+        
+        if (!sampleMatches.empty) {
+            const batch = db.batch();
+            sampleMatches.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            deleted += sampleMatches.size;
+            console.log(`🧹 Deleted ${sampleMatches.size} sample matches`);
+        }
+        
+        // Delete old upcoming matches (past date + 6 hours)
         const oldUpcoming = await db.collection('sports_matches')
             .where('status', '==', 'upcoming')
             .where('startTime', '<', sixHoursAgo)
@@ -134,7 +153,7 @@ async function cleanupOldMatches() {
             console.log(`🧹 Deleted ${oldUpcoming.size} old upcoming matches`);
         }
         
-        // Delete expired finished matches (24hr+)
+        // Delete expired finished matches
         const expiredFinished = await db.collection('sports_matches')
             .where('status', '==', 'finished')
             .where('expiresAt', '<', now)
@@ -148,10 +167,9 @@ async function cleanupOldMatches() {
             console.log(`🧹 Deleted ${expiredFinished.size} expired finished matches`);
         }
         
-        // Delete cancelled/postponed older than 6 hours
+        // Delete cancelled/postponed
         const oldCancelled = await db.collection('sports_matches')
             .where('status', 'in', ['cancelled', 'postponed'])
-            .where('startTime', '<', sixHoursAgo)
             .get();
         
         if (!oldCancelled.empty) {
@@ -159,7 +177,7 @@ async function cleanupOldMatches() {
             oldCancelled.forEach(doc => batch.delete(doc.ref));
             await batch.commit();
             deleted += oldCancelled.size;
-            console.log(`🧹 Deleted ${oldCancelled.size} old cancelled matches`);
+            console.log(`🧹 Deleted ${oldCancelled.size} cancelled/postponed matches`);
         }
         
     } catch (error) {
@@ -175,6 +193,12 @@ async function syncMatchToFirestore(match) {
     
     const db = firebase.firestore();
     const fixtureId = match.id;
+    
+    // Skip if this is sample data
+    if (fixtureId >= 100000) {
+        console.warn(`Skipping sample match ${fixtureId}`);
+        return false;
+    }
     
     const participants = match.participants || [];
     const homeTeam = participants.find(p => p.meta?.location === 'home') || participants[0];
@@ -204,11 +228,13 @@ async function syncMatchToFirestore(match) {
         awayTeam: { id: awayTeam.id || 0, name: awayTeam.name || 'Away', logo: awayTeam.image_path || '' },
         startTime: match.starting_at ? new Date(match.starting_at) : new Date(),
         score: { home: match.scores?.[0]?.score?.goals || 0, away: match.scores?.[1]?.score?.goals || 0 },
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        isRealData: true
     };
     
     try {
         await db.collection('sports_matches').doc(fixtureId.toString()).set(matchData, { merge: true });
+        console.log(`📝 ${homeTeam.name} vs ${awayTeam.name} | ${matchData.startTime.toLocaleDateString()} ${matchData.startTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`);
         return true;
     } catch (e) {
         console.error(`Sync error ${fixtureId}:`, e);
@@ -231,7 +257,7 @@ async function syncUpcomingWeekMatches() {
     const data = await fetchUpcomingWeek();
     if (!data?.data) return 0;
     
-    console.log(`📅 ${data.data.length} upcoming (7 days)`);
+    console.log(`📅 ${data.data.length} upcoming matches (next 7 days)`);
     let synced = 0;
     for (const m of data.data) if (await syncMatchToFirestore(m)) synced++;
     return synced;
@@ -246,7 +272,7 @@ async function syncAllMatches() {
     const live = await syncLiveMatches();
     const upcoming = await syncUpcomingWeekMatches();
     
-    console.log(`✅ Done: ${live} live, ${upcoming} upcoming`);
+    console.log(`✅ Done: ${live} live, ${upcoming} upcoming (7 days)`);
     return { live, upcoming };
 }
 
@@ -276,4 +302,4 @@ window.cleanupNow = cleanupOldMatches;
 if (document.readyState === 'complete') startAutoSync(30);
 else window.addEventListener('load', () => startAutoSync(30));
 
-console.log('🏈 Sports API v3.0 | Backend:', BACKEND_URL);
+console.log('🏈 Sports API v4.0 | REAL DATA ONLY | Backend:', BACKEND_URL);
