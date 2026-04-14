@@ -17,18 +17,19 @@
         .tab { padding: 10px 15px; background: #1a2332; border-radius: 8px; color: white; text-decoration: none; font-size: 14px; }
         .tab.active { background: #00ff9d; color: black; }
         .match-card { background: #111827; border-radius: 10px; padding: 15px; margin: 10px 0; border-left: 4px solid #00ff9d; cursor: pointer; }
-        .teams { display: flex; align-items: center; justify-content: space-around; }
+        .match-date-badge { background: #1a2332; padding: 4px 10px; border-radius: 20px; font-size: 12px; color: #00ff9d; }
+        .teams { display: flex; align-items: center; justify-content: space-around; margin: 10px 0; }
         .team { text-align: center; flex: 1; }
         .vs-badge { color: #ff9800; font-weight: bold; padding: 0 10px; }
         .odds { display: flex; gap: 8px; margin-top: 12px; }
         .odd { flex: 1; text-align: center; padding: 8px; background: #1a2332; border-radius: 6px; }
         .odd-value { color: #00ff9d; font-weight: bold; }
-        .section-title { color: #00ff9d; margin: 20px 0 10px; font-size: 18px; }
         .empty-state { text-align: center; padding: 40px; color: #a0a8c9; }
         .back-btn { color: #00ff9d; text-decoration: none; font-size: 20px; margin-right: 15px; }
         .filter-select { width: 100%; padding: 15px; background: #111827; border: 1px solid #ffffff22; border-radius: 10px; color: white; font-size: 16px; margin-bottom: 20px; }
-        .date-header { color: #00ff9d; font-size: 16px; margin: 20px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #00ff9d33; }
-        .league-badge { color: #a0a8c9; font-size: 13px; margin-bottom: 5px; }
+        .date-header { color: #00ff9d; font-size: 16px; margin: 25px 0 15px; padding-bottom: 8px; border-bottom: 1px solid #00ff9d33; display: flex; justify-content: space-between; }
+        .match-time { color: #a0a8c9; font-size: 13px; }
+        .match-full-date { color: #a0a8c9; font-size: 12px; margin-top: 3px; }
     </style>
 </head>
 <body>
@@ -46,7 +47,7 @@
     <div class="container">
         <div style="display: flex; align-items: center; margin-bottom: 15px;">
             <a href="betting-sport.html" class="back-btn"><i class="fas fa-arrow-left"></i></a>
-            <div class="section-title" style="margin: 0;"><i class="fas fa-calendar"></i> Upcoming Matches (Next 7 Days)</div>
+            <div style="font-size: 18px; color: #00ff9d;"><i class="fas fa-calendar"></i> Next 7 Days</div>
         </div>
         
         <select id="league-filter" class="filter-select">
@@ -57,7 +58,6 @@
         <div id="empty-state" class="empty-state" style="display: none;">
             <i class="fas fa-calendar" style="font-size: 48px; opacity: 0.3;"></i>
             <p>No upcoming matches in the next 7 days</p>
-            <a href="betting-sport.html" style="color: #00ff9d;">Back to home →</a>
         </div>
     </div>
     
@@ -68,6 +68,7 @@
         <a href="../dashboard.html" style="color: #a0a8c9; text-decoration: none;"><i class="fas fa-user"></i> Account</a>
     </nav>
     
+    <script src="../js/sports-api.js"></script>
     <script>
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -98,6 +99,7 @@
             
             unsubscribe = db.collection('sports_matches')
                 .where('status', '==', 'upcoming')
+                .where('isRealData', '==', true)
                 .where('startTime', '>=', now)
                 .where('startTime', '<=', nextWeek)
                 .orderBy('startTime', 'asc')
@@ -122,20 +124,18 @@
                         populateFilter();
                         displayMatches(allMatches);
                     }
-                }, e => { console.error(e); container.innerHTML = '<p class="empty-state">Error loading matches</p>'; });
+                }, e => { console.error(e); container.innerHTML = '<p class="empty-state">Error</p>'; });
         }
         
         function populateFilter() {
             const select = document.getElementById('league-filter');
             select.innerHTML = '<option value="all">All Leagues</option>';
-            
             Array.from(leagues).sort().forEach(l => {
                 const opt = document.createElement('option');
                 opt.value = l;
                 opt.textContent = l;
                 select.appendChild(opt);
             });
-            
             select.onchange = (e) => {
                 const filtered = e.target.value === 'all' ? allMatches : allMatches.filter(m => m.leagueName === e.target.value);
                 displayMatches(filtered);
@@ -144,9 +144,8 @@
         
         function displayMatches(matches) {
             const container = document.getElementById('matches-container');
-            
-            // Group by date
             const grouped = {};
+            
             matches.forEach(m => {
                 const dateKey = m.startTime.toDate().toDateString();
                 if (!grouped[dateKey]) grouped[dateKey] = [];
@@ -162,13 +161,13 @@
                 tomorrow.setDate(today.getDate() + 1);
                 
                 let label = date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-                if (date.toDateString() === today.toDateString()) label = '📅 Today - ' + label;
-                else if (date.toDateString() === tomorrow.toDateString()) label = '📅 Tomorrow - ' + label;
+                if (date.toDateString() === today.toDateString()) label = '📅 TODAY - ' + label;
+                else if (date.toDateString() === tomorrow.toDateString()) label = '📅 TOMORROW - ' + label;
                 
-                const dateHeader = document.createElement('div');
-                dateHeader.className = 'date-header';
-                dateHeader.innerHTML = `<i class="fas fa-calendar-day"></i> ${label} (${grouped[dateKey].length} match${grouped[dateKey].length>1?'es':''})`;
-                container.appendChild(dateHeader);
+                const header = document.createElement('div');
+                header.className = 'date-header';
+                header.innerHTML = `<span><i class="fas fa-calendar-day"></i> ${label}</span><span class="match-date-badge">${grouped[dateKey].length} match${grouped[dateKey].length>1?'es':''}</span>`;
+                container.appendChild(header);
                 
                 grouped[dateKey].forEach(m => container.appendChild(createCard(m)));
             });
@@ -179,18 +178,21 @@
             card.className = 'match-card';
             card.onclick = () => location.href = `match-details.html?id=${m.fixtureId}`;
             
-            const time = m.startTime.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const matchDate = m.startTime.toDate();
+            const timeStr = matchDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const fullDateStr = matchDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
             
             card.innerHTML = `
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span class="league-badge"><i class="fas fa-trophy"></i> ${m.leagueName || 'League'}</span>
-                    <span style="color: #00ff9d; font-weight: bold;">${time}</span>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="color: #a0a8c9; font-size: 13px;"><i class="fas fa-trophy"></i> ${m.leagueName || 'League'}</span>
+                    <span class="match-date-badge"><i class="far fa-clock"></i> ${timeStr}</span>
                 </div>
                 <div class="teams">
                     <div class="team"><strong>${m.homeTeam?.name || 'Home'}</strong></div>
                     <div class="vs-badge">VS</div>
                     <div class="team"><strong>${m.awayTeam?.name || 'Away'}</strong></div>
                 </div>
+                <div class="match-full-date"><i class="far fa-calendar-alt"></i> ${fullDateStr}</div>
                 <div class="odds">
                     <div class="odd"><div>Home</div><div class="odd-value">${m.odds?.home?.toFixed(2) || '2.00'}</div></div>
                     <div class="odd"><div>Draw</div><div class="odd-value">${m.odds?.draw?.toFixed(2) || '3.50'}</div></div>
@@ -202,6 +204,5 @@
         
         window.addEventListener('beforeunload', () => { if (unsubscribe) unsubscribe(); });
     </script>
-    <script src="../js/sports-api.js"></script>
 </body>
 </html>
