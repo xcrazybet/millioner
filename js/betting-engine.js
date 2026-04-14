@@ -1,51 +1,40 @@
 // ============================================
-// X LODON BETTING ENGINE - COMPLETE
-// Place bets, cancel bets, settle bets
+// X LODON BETTING ENGINE - PRODUCTION v3.0
+// Single bets, Accumulator, Cashout, Fees
 // ============================================
 
-// ===== PLACE BET =====
-async function placeBet(fixtureId, betType, amount) {
-    console.log(`🎲 PLACE BET: fixture=${fixtureId}, type=${betType}, amount=$${amount}`);
-    
-    // Validation
-    if (!fixtureId) return { success: false, error: 'Match not found' };
-    if (!['home', 'draw', 'away'].includes(betType)) return { success: false, error: 'Invalid bet type' };
-    if (amount < 1) return { success: false, error: 'Minimum bet is $1' };
-    
+const BETTING_CONFIG = {
+    cancelFee: 0.05,      // 5% fee for cancellation
+    cashoutFee: 0.10,     // 10% fee for cashout
+    minBet: 1,
+    maxBet: 1000
+};
+
+// ===== SINGLE BET =====
+async function placeSingleBet(fixtureId, betType, amount) {
     const user = firebase.auth().currentUser;
-    if (!user) return { success: false, error: 'Please login to place bet' };
+    if (!user) return { success: false, error: 'Login required' };
     
     const db = firebase.firestore();
     
     try {
-        // Get match
         const matchDoc = await db.collection('sports_matches').doc(fixtureId.toString()).get();
         if (!matchDoc.exists) return { success: false, error: 'Match not found' };
         
         const match = matchDoc.data();
+        if (match.status !== 'upcoming') return { success: false, error: 'Betting closed' };
         
-        // Validate match status
-        if (match.status === 'live') return { success: false, error: 'Match already started' };
-        if (match.status === 'finished') return { success: false, error: 'Match already finished' };
-        if (match.status === 'cancelled') return { success: false, error: 'Match cancelled' };
-        
-        // Check kickoff time
-        const kickoff = match.startTime.toDate();
-        const now = new Date();
-        if (kickoff - now < 120000) return { success: false, error: 'Betting closed - too close to kickoff' };
-        
-        // Get odds
-        const odds = match.odds?.[betType] || (betType === 'home' ? 2.00 : betType === 'draw' ? 3.50 : 3.80);
+        const odds = match.odds?.[betType] || 2.00;
         const potentialWin = amount * odds;
         
         // Check balance
         const walletRef = db.collection('wallets').doc(user.uid);
         const walletDoc = await walletRef.get();
-        const balance = walletDoc.exists ? (walletDoc.data().balance || 0) : 0;
+        const balance = walletDoc.data()?.balance || 0;
         
         if (balance < amount) return { success: false, error: 'Insufficient balance' };
         
-        // Deduct balance
+        // Deduct
         await walletRef.update({
             balance: balance - amount,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -53,268 +42,320 @@ async function placeBet(fixtureId, betType, amount) {
         
         // Record transaction
         await walletRef.collection('transactions').add({
-            type: 'sports_bet',
+            type: 'bet',
             amount: -amount,
-            description: `Bet: ${match.homeTeam.name} vs ${match.awayTeam.name} (${betType})`,
-            fixtureId: fixtureId,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            beforeBalance: balance,
-            afterBalance: balance - amount
+            description: `Bet: ${match.homeTeam.name} vs ${match.awayTeam.name}`,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
         // Save bet
         const betRef = await db.collection('bets').add({
             userId: user.uid,
-            userEmail: user.email || 'User',
-            fixtureId: fixtureId,
+            userEmail: user.email,
+            fixtureId, betType, amount, odds, potentialWin,
             matchName: `${match.homeTeam.name} vs ${match.awayTeam.name}`,
-            leagueName: match.leagueName || '',
-            betType: betType,
-            amount: amount,
-            odds: odds,
-            potentialWin: potentialWin,
+            betTypeName: betType === 'home' ? 'Home Win' : betType === 'draw' ? 'Draw' : 'Away Win',
             status: 'active',
-            result: null,
-            payout: 0,
+            betCategory: 'single',
             placedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            settledAt: null
+            canCancel: true,
+            canCashout: false
         });
         
-        // Update betting profile
-        const profileRef = db.collection('betting_profiles').doc(user.uid);
-        const profileDoc = await profileRef.get();
+        return { success: true, betId: betRef.id, potentialWin };
         
-        if (profileDoc.exists) {
-            await profileRef.update({
-                totalBets: firebase.firestore.FieldValue.increment(1),
-                totalStaked: firebase.firestore.FieldValue.increment(amount),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        } else {
-            await profileRef.set({
-                userId: user.uid,
-                totalBets: 1,
-                totalWon: 0,
-                totalLost: 0,
-                totalStaked: amount,
-                totalReturns: 0,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        }
-        
-        console.log(`✅ Bet placed! ID: ${betRef.id}`);
-        
-        return {
-            success: true,
-            betId: betRef.id,
-            potentialWin: potentialWin,
-            newBalance: balance - amount,
-            message: `Bet placed! Potential win: $${potentialWin.toFixed(2)}`
-        };
-        
-    } catch (error) {
-        console.error('❌ Place bet error:', error);
-        return { success: false, error: error.message };
+    } catch (e) {
+        console.error('Bet error:', e);
+        return { success: false, error: e.message };
     }
 }
 
-// ===== CANCEL BET =====
-async function cancelBet(betId) {
+// ===== ACCUMULATOR BET =====
+async function placeAccumulatorBet(selections, totalAmount) {
     const user = firebase.auth().currentUser;
-    if (!user) return { success: false, error: 'Not logged in' };
+    if (!user) return { success: false, error: 'Login required' };
+    if (selections.length < 2) return { success: false, error: 'Min 2 selections for accumulator' };
+    
+    const db = firebase.firestore();
+    
+    try {
+        // Calculate total odds
+        let totalOdds = 1;
+        const matchDetails = [];
+        
+        for (const sel of selections) {
+            const matchDoc = await db.collection('sports_matches').doc(sel.fixtureId.toString()).get();
+            if (!matchDoc.exists) return { success: false, error: 'Match not found' };
+            
+            const match = matchDoc.data();
+            if (match.status !== 'upcoming') return { success: false, error: `${match.homeTeam.name} betting closed` };
+            
+            const odds = match.odds?.[sel.betType] || 2.00;
+            totalOdds *= odds;
+            matchDetails.push({ ...sel, matchName: `${match.homeTeam.name} vs ${match.awayTeam.name}`, odds });
+        }
+        
+        const potentialWin = totalAmount * totalOdds;
+        
+        // Check balance
+        const walletRef = db.collection('wallets').doc(user.uid);
+        const walletDoc = await walletRef.get();
+        const balance = walletDoc.data()?.balance || 0;
+        
+        if (balance < totalAmount) return { success: false, error: 'Insufficient balance' };
+        
+        // Deduct
+        await walletRef.update({
+            balance: balance - totalAmount,
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // Save accumulator bet
+        const betRef = await db.collection('bets').add({
+            userId: user.uid,
+            userEmail: user.email,
+            amount: totalAmount,
+            totalOdds,
+            potentialWin,
+            selections: matchDetails,
+            status: 'active',
+            betCategory: 'accumulator',
+            placedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            canCancel: true,
+            canCashout: false
+        });
+        
+        return { success: true, betId: betRef.id, totalOdds, potentialWin };
+        
+    } catch (e) {
+        console.error('Accumulator error:', e);
+        return { success: false, error: e.message };
+    }
+}
+
+// ===== CANCEL BET (with fee) =====
+async function cancelBetWithFee(betId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return { success: false, error: 'Login required' };
     
     const db = firebase.firestore();
     
     try {
         const betRef = db.collection('bets').doc(betId);
         const betDoc = await betRef.get();
-        
         if (!betDoc.exists) return { success: false, error: 'Bet not found' };
         
         const bet = betDoc.data();
         if (bet.userId !== user.uid) return { success: false, error: 'Not your bet' };
-        if (bet.status !== 'active') return { success: false, error: 'Bet already settled' };
+        if (!bet.canCancel) return { success: false, error: 'Cannot cancel - match started' };
         
-        // Check match
-        const matchDoc = await db.collection('sports_matches').doc(bet.fixtureId.toString()).get();
-        if (matchDoc.exists) {
-            const match = matchDoc.data();
-            if (match.status !== 'upcoming') return { success: false, error: 'Match already started' };
+        // Check match status
+        if (bet.betCategory === 'single') {
+            const matchDoc = await db.collection('sports_matches').doc(bet.fixtureId.toString()).get();
+            if (matchDoc.exists && matchDoc.data().status !== 'upcoming') {
+                return { success: false, error: 'Match already started' };
+            }
         }
+        
+        const fee = bet.amount * BETTING_CONFIG.cancelFee;
+        const refundAmount = bet.amount - fee;
         
         // Refund
         const walletRef = db.collection('wallets').doc(user.uid);
         const walletDoc = await walletRef.get();
-        const balance = walletDoc.data().balance || 0;
         
         await walletRef.update({
-            balance: balance + bet.amount,
+            balance: walletDoc.data().balance + refundAmount,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
         await walletRef.collection('transactions').add({
-            type: 'bet_refund',
-            amount: bet.amount,
-            description: `Refund: ${bet.matchName}`,
+            type: 'cancel_refund',
+            amount: refundAmount,
+            fee: fee,
+            description: `Cancelled bet refund (${(BETTING_CONFIG.cancelFee * 100)}% fee)`,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
         await betRef.update({
             status: 'cancelled',
-            settledAt: firebase.firestore.FieldValue.serverTimestamp()
+            cancelFee: fee,
+            refundAmount: refundAmount,
+            cancelledAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        return { success: true, message: 'Bet cancelled and refunded' };
+        return { success: true, refund: refundAmount, fee };
         
-    } catch (error) {
-        console.error('Cancel error:', error);
-        return { success: false, error: error.message };
+    } catch (e) {
+        console.error('Cancel error:', e);
+        return { success: false, error: e.message };
     }
 }
 
-// ===== SETTLE BETS =====
-async function settleBetsForMatch(fixtureId, matchResult) {
-    if (!fixtureId || !matchResult) return { success: false, error: 'Missing data' };
-    if (!['home', 'draw', 'away'].includes(matchResult)) return { success: false, error: 'Invalid result' };
+// ===== CASHOUT (during live match) =====
+async function cashoutBet(betId) {
+    const user = firebase.auth().currentUser;
+    if (!user) return { success: false, error: 'Login required' };
     
     const db = firebase.firestore();
     
     try {
-        const betsSnapshot = await db.collection('bets')
-            .where('fixtureId', '==', fixtureId)
-            .where('status', '==', 'active')
-            .get();
+        const betRef = db.collection('bets').doc(betId);
+        const betDoc = await betRef.get();
+        if (!betDoc.exists) return { success: false, error: 'Bet not found' };
         
-        if (betsSnapshot.empty) {
-            console.log(`No active bets for fixture ${fixtureId}`);
-            return { success: true, settled: 0 };
-        }
+        const bet = betDoc.data();
+        if (!bet.canCashout) return { success: false, error: 'Cashout not available' };
         
-        console.log(`💰 Settling ${betsSnapshot.size} bets...`);
+        // Calculate cashout value (simplified - 70% of potential win minus fee)
+        const cashoutBase = bet.potentialWin * 0.7;
+        const fee = cashoutBase * BETTING_CONFIG.cashoutFee;
+        const cashoutAmount = cashoutBase - fee;
         
-        for (const doc of betsSnapshot.docs) {
-            const bet = doc.data();
-            const betRef = db.collection('bets').doc(doc.id);
-            const won = (bet.betType === matchResult);
-            
-            if (won) {
-                // Pay winner
-                const walletRef = db.collection('wallets').doc(bet.userId);
-                const walletDoc = await walletRef.get();
-                
-                if (walletDoc.exists) {
-                    const balance = walletDoc.data().balance || 0;
-                    await walletRef.update({
-                        balance: balance + bet.potentialWin,
-                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    
-                    await walletRef.collection('transactions').add({
-                        type: 'sports_win',
-                        amount: bet.potentialWin,
-                        description: `Win: ${bet.matchName}`,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                }
-                
-                await betRef.update({
-                    status: 'won',
-                    result: matchResult,
-                    payout: bet.potentialWin,
-                    settledAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-                // Update profile
-                const profileRef = db.collection('betting_profiles').doc(bet.userId);
-                await profileRef.update({
-                    totalWon: firebase.firestore.FieldValue.increment(1),
-                    totalReturns: firebase.firestore.FieldValue.increment(bet.potentialWin),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-            } else {
-                await betRef.update({
-                    status: 'lost',
-                    result: matchResult,
-                    payout: 0,
-                    settledAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-                
-                const profileRef = db.collection('betting_profiles').doc(bet.userId);
-                await profileRef.update({
-                    totalLost: firebase.firestore.FieldValue.increment(1),
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            }
-        }
+        // Credit user
+        const walletRef = db.collection('wallets').doc(user.uid);
+        const walletDoc = await walletRef.get();
         
-        // Update match
-        const expiresAt = new Date();
-        expiresAt.setHours(expiresAt.getHours() + 24);
-        
-        await db.collection('sports_matches').doc(fixtureId.toString()).update({
-            result: matchResult,
-            expiresAt: expiresAt,
+        await walletRef.update({
+            balance: walletDoc.data().balance + cashoutAmount,
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         
-        console.log(`✅ Settled ${betsSnapshot.size} bets`);
-        return { success: true, settled: betsSnapshot.size };
+        await betRef.update({
+            status: 'cashed_out',
+            cashoutAmount,
+            cashoutFee: fee,
+            cashedOutAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
         
-    } catch (error) {
-        console.error('Settle error:', error);
-        return { success: false, error: error.message };
+        return { success: true, amount: cashoutAmount, fee };
+        
+    } catch (e) {
+        console.error('Cashout error:', e);
+        return { success: false, error: e.message };
     }
 }
 
-// ===== GET USER BETS =====
-async function getUserBets(statusFilter = 'all') {
-    const user = firebase.auth().currentUser;
-    if (!user) return [];
-    
+// ===== SETTLE BETS (called automatically) =====
+async function settleBetsForMatch(fixtureId, matchResult) {
     const db = firebase.firestore();
     
     try {
-        let query = db.collection('bets')
-            .where('userId', '==', user.uid)
-            .orderBy('placedAt', 'desc')
-            .limit(100);
+        // Settle single bets
+        const singleBets = await db.collection('bets')
+            .where('fixtureId', '==', fixtureId)
+            .where('status', '==', 'active')
+            .where('betCategory', '==', 'single')
+            .get();
         
-        if (statusFilter !== 'all') {
-            query = query.where('status', '==', statusFilter);
+        for (const doc of singleBets.docs) {
+            const bet = doc.data();
+            const won = bet.betType === matchResult;
+            
+            if (won) {
+                const walletRef = db.collection('wallets').doc(bet.userId);
+                const walletDoc = await walletRef.get();
+                
+                await walletRef.update({
+                    balance: walletDoc.data().balance + bet.potentialWin,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                
+                await doc.ref.update({ status: 'won', payout: bet.potentialWin });
+            } else {
+                await doc.ref.update({ status: 'lost', payout: 0 });
+            }
         }
         
-        const snapshot = await query.get();
-        const bets = [];
-        snapshot.forEach(doc => bets.push({ id: doc.id, ...doc.data() }));
-        return bets;
+        // Update accumulator bets containing this match
+        const accBets = await db.collection('bets')
+            .where('status', '==', 'active')
+            .where('betCategory', '==', 'accumulator')
+            .get();
         
-    } catch (error) {
-        console.error('Get bets error:', error);
-        return [];
+        for (const doc of accBets.docs) {
+            const bet = doc.data();
+            const selection = bet.selections?.find(s => s.fixtureId === fixtureId);
+            
+            if (selection) {
+                const won = selection.betType === matchResult;
+                if (!won) {
+                    // One leg lost = entire accumulator lost
+                    await doc.ref.update({ status: 'lost', payout: 0 });
+                } else {
+                    // Check if all legs are won
+                    let allWon = true;
+                    for (const sel of bet.selections) {
+                        if (sel.fixtureId === fixtureId) continue;
+                        const m = await db.collection('sports_matches').doc(sel.fixtureId.toString()).get();
+                        if (!m.exists || m.data().result !== sel.betType) {
+                            allWon = false;
+                            break;
+                        }
+                    }
+                    
+                    if (allWon) {
+                        const walletRef = db.collection('wallets').doc(bet.userId);
+                        const walletDoc = await walletRef.get();
+                        
+                        await walletRef.update({
+                            balance: walletDoc.data().balance + bet.potentialWin,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        
+                        await doc.ref.update({ status: 'won', payout: bet.potentialWin });
+                    }
+                }
+            }
+        }
+        
+        console.log(`✅ Settled bets for fixture ${fixtureId}`);
+        return { success: true };
+        
+    } catch (e) {
+        console.error('Settle error:', e);
+        return { success: false, error: e.message };
     }
 }
 
-// ===== CHECK ACTIVE BETS COUNT =====
-async function getActiveBetsCount() {
-    const user = firebase.auth().currentUser;
-    if (!user) return 0;
-    
+// ===== UPDATE CASHOUT AVAILABILITY =====
+async function updateCashoutAvailability() {
     const db = firebase.firestore();
-    const snapshot = await db.collection('bets')
-        .where('userId', '==', user.uid)
-        .where('status', '==', 'active')
-        .get();
     
-    return snapshot.size;
+    try {
+        const activeBets = await db.collection('bets')
+            .where('status', '==', 'active')
+            .get();
+        
+        for (const doc of activeBets.docs) {
+            const bet = doc.data();
+            let canCashout = false;
+            
+            if (bet.betCategory === 'single') {
+                const match = await db.collection('sports_matches').doc(bet.fixtureId.toString()).get();
+                if (match.exists && match.data().status === 'live') {
+                    canCashout = true;
+                }
+            }
+            
+            if (bet.canCashout !== canCashout) {
+                await doc.ref.update({ canCashout, canCancel: false });
+            }
+        }
+    } catch (e) {
+        console.error('Cashout update error:', e);
+    }
 }
 
-// Global access
-window.placeBet = placeBet;
-window.cancelBet = cancelBet;
-window.settleBetsForMatch = settleBetsForMatch;
-window.getUserBets = getUserBets;
-window.getActiveBetsCount = getActiveBetsCount;
+// Run cashout update every 10 seconds
+setInterval(updateCashoutAvailability, 10000);
 
-console.log('✅ Betting Engine v2.0 loaded');
+// Global access
+window.placeSingleBet = placeSingleBet;
+window.placeAccumulatorBet = placeAccumulatorBet;
+window.cancelBetWithFee = cancelBetWithFee;
+window.cashoutBet = cashoutBet;
+window.settleBetsForMatch = settleBetsForMatch;
+window.placeBet = placeSingleBet; // Backward compatibility
+
+console.log('✅ Betting Engine v3.0 | Single, Accumulator, Cashout, Fees');
