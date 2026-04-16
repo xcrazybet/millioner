@@ -1,53 +1,35 @@
 // ============================================
-// X LODON SPORTS API - PRODUCTION v5.0
-// Live updates every 5 seconds
+// X LODON SPORTS API - PRODUCTION v7.0 (FIXED)
+// Works with/without indexes, auto-settlement
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
 
-// ===== FETCH WITH RETRY =====
-async function fetchFromBackend(endpoint, retries = 3) {
+// ===== FETCH FROM BACKEND =====
+async function fetchFromBackend(endpoint) {
     const url = `${BACKEND_URL}${endpoint}`;
-    
-    for (let i = 0; i < retries; i++) {
-        try {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            return data;
-        } catch (error) {
-            if (i === retries - 1) {
-                console.error(`❌ ${endpoint}:`, error.message);
-                return null;
-            }
-            await new Promise(r => setTimeout(r, 1000));
-        }
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error(`❌ ${endpoint}:`, error.message);
+        return null;
     }
 }
 
-// ===== FETCH FUNCTIONS =====
 async function fetchLiveMatches() {
     return await fetchFromBackend('/api/livescores');
 }
 
-async function fetchFixturesBetween(fromDate, toDate) {
-    return await fetchFromBackend(`/api/fixtures/between/${fromDate}/${toDate}`);
-}
-
-async function fetchFixtureById(fixtureId) {
-    return await fetchFromBackend(`/api/fixtures/${fixtureId}`);
-}
-
-// ===== FETCH NEXT 7 DAYS =====
 async function fetchUpcomingWeek() {
     const today = new Date();
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + 7);
-    
     const from = today.toISOString().split('T')[0];
     const to = nextWeek.toISOString().split('T')[0];
-    
-    return await fetchFixturesBetween(from, to);
+    return await fetchFromBackend(`/api/fixtures/between/${from}/${to}`);
 }
 
 // ===== STATUS HELPERS =====
@@ -69,11 +51,9 @@ function getMatchStatus(match) {
 function getMatchResult(match) {
     const scores = match.scores || [];
     if (scores.length < 2) return null;
-    
     const home = scores[0]?.score?.goals || 0;
     const away = scores[1]?.score?.goals || 0;
     const stateId = match.state_id;
-    
     if ([5, 90, 100].includes(stateId)) {
         if (home > away) return 'home';
         if (home < away) return 'away';
@@ -91,17 +71,64 @@ function calculateOdds(homeName, awayName) {
     };
 }
 
+// ===== CLEANUP (NO COMPLEX QUERIES) =====
+async function cleanupOldMatches() {
+    if (!firebase?.firestore) return 0;
+    const db = firebase.firestore();
+    const now = new Date();
+    const sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+    let deleted = 0;
+    
+    try {
+        // Fetch all upcoming and filter manually (avoids index requirement)
+        const snapshot = await db.collection('sports_matches')
+            .where('status', '==', 'upcoming')
+            .get();
+            
+        const oldMatches = [];
+        snapshot.forEach(doc => {
+            const m = doc.data();
+            const matchTime = m.startTime?.toDate();
+            if (matchTime && matchTime < sixHoursAgo) {
+                oldMatches.push(doc.ref);
+            }
+        });
+
+        // Also delete sample matches (fixtureId >= 100000)
+        const sampleSnapshot = await db.collection('sports_matches').get();
+        sampleSnapshot.forEach(doc => {
+            const m = doc.data();
+            if (m.fixtureId >= 100000) {
+                oldMatches.push(doc.ref);
+            }
+        });
+
+        // Delete in batches
+        if (oldMatches.length > 0) {
+            const batch = db.batch();
+            oldMatches.forEach(ref => batch.delete(ref));
+            await batch.commit();
+            deleted = oldMatches.length;
+            console.log(`🧹 Deleted ${deleted} old/sample matches`);
+        }
+    } catch (error) {
+        console.error('Cleanup error:', error);
+    }
+    return deleted;
+}
+
 // ===== SYNC TO FIRESTORE =====
 async function syncMatchToFirestore(match) {
     if (!firebase?.firestore) return false;
-    
     const db = firebase.firestore();
     const fixtureId = match.id;
+    
+    // Skip sample data
+    if (fixtureId >= 100000) return false;
     
     const participants = match.participants || [];
     const homeTeam = participants.find(p => p.meta?.location === 'home') || participants[0];
     const awayTeam = participants.find(p => p.meta?.location === 'away') || participants[1];
-    
     if (!homeTeam || !awayTeam) return false;
     
     const status = getMatchStatus(match);
@@ -118,8 +145,8 @@ async function syncMatchToFirestore(match) {
         fixtureId, status, result, odds, expiresAt,
         leagueId: match.league_id || 0,
         leagueName: match.league?.name || 'Unknown League',
-        homeTeam: { id: homeTeam.id || 0, name: homeTeam.name || 'Home', logo: homeTeam.image_path || '' },
-        awayTeam: { id: awayTeam.id || 0, name: awayTeam.name || 'Away', logo: awayTeam.image_path || '' },
+        homeTeam: { id: homeTeam.id || 0, name: homeTeam.name, logo: homeTeam.image_path || '' },
+        awayTeam: { id: awayTeam.id || 0, name: awayTeam.name, logo: awayTeam.image_path || '' },
         startTime: match.starting_at ? new Date(match.starting_at) : new Date(),
         score: { home: match.scores?.[0]?.score?.goals || 0, away: match.scores?.[1]?.score?.goals || 0 },
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -137,43 +164,57 @@ async function syncMatchToFirestore(match) {
 
 // ===== AUTO-SETTLE FINISHED MATCHES =====
 async function settleFinishedMatches() {
-    if (!firebase?.firestore) return;
-    
+    if (!firebase?.firestore) return 0;
     const db = firebase.firestore();
-    const now = new Date();
+    let settled = 0;
     
     try {
         const finishedMatches = await db.collection('sports_matches')
             .where('status', '==', 'finished')
-            .where('result', '!=', null)
             .get();
         
         for (const doc of finishedMatches.docs) {
             const match = doc.data();
+            if (match.betsSettled) continue;
             
-            // Check if bets already settled
-            const settledCheck = await db.collection('bets')
+            let result = match.result;
+            if (!result) {
+                const homeScore = match.score?.home || 0;
+                const awayScore = match.score?.away || 0;
+                if (homeScore > awayScore) result = 'home';
+                else if (homeScore < awayScore) result = 'away';
+                else result = 'draw';
+            }
+            
+            const activeBets = await db.collection('bets')
                 .where('fixtureId', '==', match.fixtureId)
                 .where('status', '==', 'active')
                 .get();
             
-            if (!settledCheck.empty) {
-                console.log(`💰 Settling bets for ${match.homeTeam.name} vs ${match.awayTeam.name}`);
+            if (!activeBets.empty) {
+                console.log(`💰 Settling ${activeBets.size} bets for ${match.homeTeam?.name} vs ${match.awayTeam?.name}`);
                 if (typeof settleBetsForMatch === 'function') {
-                    await settleBetsForMatch(match.fixtureId, match.result);
+                    await settleBetsForMatch(match.fixtureId, result);
                 }
+                settled += activeBets.size;
             }
+            
+            await doc.ref.update({ 
+                result: result, 
+                betsSettled: true,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
         }
     } catch (e) {
-        console.error('Settle error:', e);
+        console.error('Settlement error:', e);
     }
+    return settled;
 }
 
 // ===== SYNC ALL =====
 async function syncLiveMatches() {
     const data = await fetchLiveMatches();
     if (!data?.data) return 0;
-    
     let synced = 0;
     for (const m of data.data) if (await syncMatchToFirestore(m)) synced++;
     return synced;
@@ -182,40 +223,31 @@ async function syncLiveMatches() {
 async function syncUpcomingWeekMatches() {
     const data = await fetchUpcomingWeek();
     if (!data?.data) return 0;
-    
     let synced = 0;
     for (const m of data.data) if (await syncMatchToFirestore(m)) synced++;
     return synced;
 }
 
 async function syncAllMatches() {
-    console.log('🚀 Syncing...');
+    console.log('🚀 Starting full sync...');
+    await cleanupOldMatches();
     const live = await syncLiveMatches();
     const upcoming = await syncUpcomingWeekMatches();
-    await settleFinishedMatches();
-    console.log(`✅ Live: ${live}, Upcoming: ${upcoming}`);
-    return { live, upcoming };
+    const settled = await settleFinishedMatches();
+    console.log(`✅ Sync complete: ${live} live, ${upcoming} upcoming, ${settled} bets settled`);
+    return { live, upcoming, settled };
 }
 
-// ===== LIVE UPDATE LOOP (5 seconds) =====
-let liveUpdateInterval = null;
-
-function startLiveUpdates() {
-    if (liveUpdateInterval) clearInterval(liveUpdateInterval);
-    
+// ===== AUTO SYNC =====
+let syncInterval = null;
+function startAutoSync(seconds = 30) {
+    if (syncInterval) clearInterval(syncInterval);
     syncAllMatches();
-    liveUpdateInterval = setInterval(async () => {
-        await syncLiveMatches();
-        await settleFinishedMatches();
-    }, 5000); // Every 5 seconds
-    
-    console.log('⚡ Live updates every 5 seconds');
+    syncInterval = setInterval(() => syncAllMatches(), seconds * 1000);
+    console.log(`⏰ Auto-sync every ${seconds}s`);
 }
 
-// ===== EXPORT =====
 window.syncNow = syncAllMatches;
-
-if (document.readyState === 'complete') startLiveUpdates();
-else window.addEventListener('load', startLiveUpdates);
-
-console.log('🏈 Sports API v5.0 | Live updates: 5s');
+if (document.readyState === 'complete') startAutoSync(30);
+else window.addEventListener('load', () => startAutoSync(30));
+console.log('🏈 Sports API v7.0 | Fixed queries');
