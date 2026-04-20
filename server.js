@@ -18,7 +18,7 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// ===== FETCH WITH CORRECT HEADERS =====
+// ===== FETCH FUNCTION =====
 async function fetchAPI(endpoint, params = {}) {
     const url = new URL(`${BASE_URL}${endpoint}`);
     Object.entries(params).forEach(([k, v]) => url.searchParams.append(k, v));
@@ -27,9 +27,7 @@ async function fetchAPI(endpoint, params = {}) {
     
     try {
         const response = await fetch(url.toString(), {
-            headers: {
-                'x-apisports-key': API_KEY
-            }
+            headers: { 'x-apisports-key': API_KEY }
         });
         
         const data = await response.json();
@@ -54,15 +52,9 @@ app.get('/api/debug', async (req, res) => {
     res.json(result);
 });
 
-// ===== LIVE SCORES (FIXED - uses 'live' parameter) =====
+// ===== LIVE SCORES =====
 app.get('/api/livescores', async (req, res) => {
     const result = await fetchAPI('/fixtures', { live: 'all' });
-    res.json(result);
-});
-
-// ===== FIXTURES BY DATE (Working) =====
-app.get('/api/fixtures/date/:date', async (req, res) => {
-    const result = await fetchAPI('/fixtures', { date: req.params.date });
     res.json(result);
 });
 
@@ -73,7 +65,13 @@ app.get('/api/fixtures/today', async (req, res) => {
     res.json(result);
 });
 
-// ===== NEXT 7 DAYS (FIXED - uses date range) =====
+// ===== FIXTURES BY DATE =====
+app.get('/api/fixtures/date/:date', async (req, res) => {
+    const result = await fetchAPI('/fixtures', { date: req.params.date });
+    res.json(result);
+});
+
+// ===== NEXT 7 DAYS (FIXED) =====
 app.get('/api/fixtures/week', async (req, res) => {
     const today = new Date();
     const nextWeek = new Date(today);
@@ -81,16 +79,18 @@ app.get('/api/fixtures/week', async (req, res) => {
     
     const from = today.toISOString().split('T')[0];
     const to = nextWeek.toISOString().split('T')[0];
+    const season = today.getFullYear();
     
-    // API-Football supports 'from' and 'to' parameters directly
-    const result = await fetchAPI('/fixtures', { from, to });
+    // API-Football requires season when using from/to
+    const result = await fetchAPI('/fixtures', { from, to, season });
     res.json(result);
 });
 
 // ===== BETWEEN DATES (FIXED) =====
 app.get('/api/fixtures/between/:from/:to', async (req, res) => {
     const { from, to } = req.params;
-    const result = await fetchAPI('/fixtures', { from, to });
+    const season = new Date(from).getFullYear();
+    const result = await fetchAPI('/fixtures', { from, to, season });
     res.json(result);
 });
 
@@ -100,83 +100,25 @@ app.get('/api/leagues', async (req, res) => {
     res.json(result);
 });
 
-// ===== FIXTURES BY LEAGUE =====
-app.get('/api/fixtures/league/:leagueId', async (req, res) => {
-    const today = new Date().toISOString().split('T')[0];
-    const nextWeek = new Date();
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    const to = nextWeek.toISOString().split('T')[0];
-    
-    const result = await fetchAPI('/fixtures', { 
-        league: req.params.leagueId, 
-        from: today, 
-        to: to 
-    });
-    res.json(result);
-});
-
 // ===== SINGLE FIXTURE =====
 app.get('/api/fixtures/:id', async (req, res) => {
     const result = await fetchAPI('/fixtures', { id: req.params.id });
-    res.json({ 
-        success: result.success, 
-        data: result.data?.[0] || null 
-    });
+    res.json({ success: result.success, data: result.data?.[0] || null });
 });
 
-// ===== ODDS =====
+// ===== ODDS (FIXED) =====
 app.get('/api/odds/:fixtureId', async (req, res) => {
     const result = await fetchAPI('/odds', { fixture: req.params.fixtureId });
-    res.json({ 
-        success: result.success, 
-        data: result.data?.[0] || null 
-    });
+    res.json({ success: result.success, data: result.data?.[0] || null });
 });
 
 // ===== TEST =====
 app.get('/api/test', async (req, res) => {
     const result = await fetchAPI('/status');
-    res.json({
-        success: result.success,
-        message: result.success ? '✅ API Working' : '❌ API Failed',
-        account: result.data?.account || null
-    });
+    res.json({ success: result.success, account: result.data?.account || null });
 });
 
 // ===== HEALTH =====
-app.get('/health', (req, res) => {
-    res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
+app.get('/health', (req, res) => res.json({ status: 'healthy' }));
 
-// ===== HOME =====
-app.get('/', (req, res) => {
-    res.json({
-        service: 'X Lodon Sports Proxy',
-        version: '7.0.0',
-        provider: 'API-Football Ultra',
-        endpoints: [
-            '/api/debug',
-            '/api/livescores',
-            '/api/fixtures/today',
-            '/api/fixtures/week',
-            '/api/fixtures/between/:from/:to'
-        ]
-    });
-});
-
-// ===== 404 =====
-app.use((req, res) => {
-    res.status(404).json({ error: 'Endpoint not found' });
-});
-
-// ===== START =====
-app.listen(PORT, () => {
-    console.log(`
-    ╔══════════════════════════════════════════════╗
-    ║     🚀 X LODON SPORTS PROXY v7.0             ║
-    ║     📡 Port: ${PORT}                            ║
-    ║     🎯 API: API-Football (Ultra Plan)        ║
-    ║     ✅ Endpoints: /fixtures?from=&to=        ║
-    ╚══════════════════════════════════════════════╝
-    `);
-});
+app.listen(PORT, () => console.log(`🚀 Server running on ${PORT}`));
