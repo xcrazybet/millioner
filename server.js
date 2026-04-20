@@ -3,7 +3,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ===== API-FOOTBALL CONFIGURATION =====
+// ===== YOUR ACTIVE API KEY =====
 const API_KEY = '2396236d9d5cd07468ce280da8390ad5';
 const BASE_URL = 'https://v3.football.api-sports.io';
 
@@ -18,25 +18,22 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// ===== PROPER FETCH WITH API KEY IN HEADERS =====
+// ===== FETCH WITH CORRECT HEADERS =====
 async function fetchAPI(endpoint, params = {}) {
     const url = new URL(`${BASE_URL}${endpoint}`);
     Object.entries(params).forEach(([k, v]) => url.searchParams.append(k, v));
     
-    console.log(`🔄 Fetching: ${endpoint}`);
+    console.log(`🔄 Fetching: ${endpoint}`, params);
     
     try {
-        // CRITICAL: API-Football requires 'x-rapidapi-key' or 'x-apisports-key'
         const response = await fetch(url.toString(), {
             headers: {
-                'x-rapidapi-key': API_KEY,
-                'x-rapidapi-host': 'v3.football.api-sports.io'
+                'x-apisports-key': API_KEY
             }
         });
         
         const data = await response.json();
         
-        // Check for errors
         if (data.errors && Object.keys(data.errors).length > 0) {
             console.error('❌ API Error:', data.errors);
             return { success: false, data: [], error: data.errors };
@@ -51,108 +48,99 @@ async function fetchAPI(endpoint, params = {}) {
     }
 }
 
-// ===== DEBUG - Shows exactly what's happening =====
+// ===== DEBUG =====
 app.get('/api/debug', async (req, res) => {
-    try {
-        // Test with RapidAPI headers
-        const response = await fetch('https://v3.football.api-sports.io/status', {
-            headers: {
-                'x-rapidapi-key': API_KEY,
-                'x-rapidapi-host': 'v3.football.api-sports.io'
-            }
-        });
-        
-        const data = await response.json();
-        const remaining = response.headers.get('x-ratelimit-requests-remaining');
-        const limit = response.headers.get('x-ratelimit-requests-limit');
-        
-        res.json({
-            success: !data.errors,
-            statusCode: response.status,
-            rateLimit: { remaining, limit },
-            errors: data.errors || null,
-            data: data.response || data
-        });
-    } catch (e) {
-        res.json({ success: false, error: e.message });
-    }
-});
-
-// ===== TEST ENDPOINT =====
-app.get('/api/test', async (req, res) => {
     const result = await fetchAPI('/status');
-    res.json({
-        success: result.success,
-        message: result.success ? '✅ API Working' : '❌ API Failed',
-        error: result.error || null
-    });
+    res.json(result);
 });
 
-// ===== LIVE SCORES =====
+// ===== LIVE SCORES (FIXED - uses 'live' parameter) =====
 app.get('/api/livescores', async (req, res) => {
     const result = await fetchAPI('/fixtures', { live: 'all' });
-    res.json({ success: result.success, data: result.data, count: result.data.length });
+    res.json(result);
+});
+
+// ===== FIXTURES BY DATE (Working) =====
+app.get('/api/fixtures/date/:date', async (req, res) => {
+    const result = await fetchAPI('/fixtures', { date: req.params.date });
+    res.json(result);
 });
 
 // ===== TODAY'S FIXTURES =====
 app.get('/api/fixtures/today', async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     const result = await fetchAPI('/fixtures', { date: today });
-    res.json({ success: result.success, data: result.data, count: result.data.length });
+    res.json(result);
 });
 
-// ===== FIXTURES BY DATE =====
-app.get('/api/fixtures/date/:date', async (req, res) => {
-    const result = await fetchAPI('/fixtures', { date: req.params.date });
-    res.json({ success: result.success, data: result.data, count: result.data.length });
-});
-
-// ===== NEXT 7 DAYS =====
+// ===== NEXT 7 DAYS (FIXED - uses date range) =====
 app.get('/api/fixtures/week', async (req, res) => {
     const today = new Date();
-    let all = [];
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
     
-    for (let i = 0; i < 7; i++) {
-        const date = new Date(today);
-        date.setDate(today.getDate() + i);
-        const dateStr = date.toISOString().split('T')[0];
-        
-        const result = await fetchAPI('/fixtures', { date: dateStr });
-        if (result.data) all = all.concat(result.data);
-        await new Promise(r => setTimeout(r, 300));
-    }
+    const from = today.toISOString().split('T')[0];
+    const to = nextWeek.toISOString().split('T')[0];
     
-    res.json({ success: true, data: all, count: all.length });
+    // API-Football supports 'from' and 'to' parameters directly
+    const result = await fetchAPI('/fixtures', { from, to });
+    res.json(result);
 });
 
-// ===== BETWEEN DATES =====
+// ===== BETWEEN DATES (FIXED) =====
 app.get('/api/fixtures/between/:from/:to', async (req, res) => {
     const { from, to } = req.params;
-    let all = [];
-    
-    const start = new Date(from);
-    const end = new Date(to);
-    
-    for (let d = start; d <= end; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().split('T')[0];
-        const result = await fetchAPI('/fixtures', { date: dateStr });
-        if (result.data) all = all.concat(result.data);
-        await new Promise(r => setTimeout(r, 300));
-    }
-    
-    res.json({ success: true, data: all, count: all.length });
-});
-
-// ===== SINGLE FIXTURE =====
-app.get('/api/fixtures/:id', async (req, res) => {
-    const result = await fetchAPI('/fixtures', { id: req.params.id });
-    res.json({ success: result.success, data: result.data?.[0] || null });
+    const result = await fetchAPI('/fixtures', { from, to });
+    res.json(result);
 });
 
 // ===== LEAGUES =====
 app.get('/api/leagues', async (req, res) => {
     const result = await fetchAPI('/leagues');
-    res.json({ success: result.success, data: result.data, count: result.data.length });
+    res.json(result);
+});
+
+// ===== FIXTURES BY LEAGUE =====
+app.get('/api/fixtures/league/:leagueId', async (req, res) => {
+    const today = new Date().toISOString().split('T')[0];
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const to = nextWeek.toISOString().split('T')[0];
+    
+    const result = await fetchAPI('/fixtures', { 
+        league: req.params.leagueId, 
+        from: today, 
+        to: to 
+    });
+    res.json(result);
+});
+
+// ===== SINGLE FIXTURE =====
+app.get('/api/fixtures/:id', async (req, res) => {
+    const result = await fetchAPI('/fixtures', { id: req.params.id });
+    res.json({ 
+        success: result.success, 
+        data: result.data?.[0] || null 
+    });
+});
+
+// ===== ODDS =====
+app.get('/api/odds/:fixtureId', async (req, res) => {
+    const result = await fetchAPI('/odds', { fixture: req.params.fixtureId });
+    res.json({ 
+        success: result.success, 
+        data: result.data?.[0] || null 
+    });
+});
+
+// ===== TEST =====
+app.get('/api/test', async (req, res) => {
+    const result = await fetchAPI('/status');
+    res.json({
+        success: result.success,
+        message: result.success ? '✅ API Working' : '❌ API Failed',
+        account: result.data?.account || null
+    });
 });
 
 // ===== HEALTH =====
@@ -164,9 +152,15 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
     res.json({
         service: 'X Lodon Sports Proxy',
-        version: '6.0.0',
-        provider: 'API-Football (RapidAPI)',
-        endpoints: ['/api/debug', '/api/test', '/api/livescores', '/api/fixtures/today', '/api/fixtures/week']
+        version: '7.0.0',
+        provider: 'API-Football Ultra',
+        endpoints: [
+            '/api/debug',
+            '/api/livescores',
+            '/api/fixtures/today',
+            '/api/fixtures/week',
+            '/api/fixtures/between/:from/:to'
+        ]
     });
 });
 
@@ -179,10 +173,10 @@ app.use((req, res) => {
 app.listen(PORT, () => {
     console.log(`
     ╔══════════════════════════════════════════════╗
-    ║     🚀 X LODON SPORTS PROXY v6.0             ║
+    ║     🚀 X LODON SPORTS PROXY v7.0             ║
     ║     📡 Port: ${PORT}                            ║
-    ║     🔑 API: API-Football (RapidAPI Headers)  ║
-    ║     ✅ Ready                                  ║
+    ║     🎯 API: API-Football (Ultra Plan)        ║
+    ║     ✅ Endpoints: /fixtures?from=&to=        ║
     ╚══════════════════════════════════════════════╝
     `);
 });
