@@ -1,5 +1,5 @@
 // ============================================
-// X LODON SPORTS API - v8.0 (FULLY WORKING)
+// X LODON SPORTS API - v9.0 (API-FOOTBALL)
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
@@ -33,29 +33,40 @@ async function fetchUpcomingWeek() {
     return await fetchFromBackend(`/api/fixtures/between/${from}/${to}`);
 }
 
-// ===== STATUS HELPERS =====
+async function fetchLeagues() {
+    return await fetchFromBackend('/api/leagues');
+}
+
+// ===== STATUS HELPERS (API-FOOTBALL SPECIFIC) =====
 function getMatchStatus(match) {
-    const stateId = match.state_id;
-    if (stateId === 1) return 'upcoming';
-    if ([2, 3, 4].includes(stateId)) return 'live';
-    if ([5, 90, 100].includes(stateId)) return 'finished';
-    if (stateId === 8) return 'cancelled';
-    if (stateId === 9) return 'postponed';
+    const status = match.fixture?.status?.short;
     
+    if (['TBD', 'NS'].includes(status)) return 'upcoming';
+    if (['1H', 'HT', '2H', 'ET', 'P', 'LIVE'].includes(status)) return 'live';
+    if (['FT', 'AET', 'PEN'].includes(status)) return 'finished';
+    if (status === 'CANC') return 'cancelled';
+    if (status === 'PST') return 'postponed';
+    if (status === 'SUSP') return 'suspended';
+    if (status === 'INT') return 'interrupted';
+    if (status === 'ABD') return 'abandoned';
+    
+    // Fallback to date check
     const now = new Date();
-    const start = new Date(match.starting_at);
+    const start = new Date(match.fixture?.date);
     if (now < start) return 'upcoming';
     if (now > start && now < new Date(start.getTime() + 3 * 60 * 60 * 1000)) return 'live';
     return 'finished';
 }
 
 function getMatchResult(match) {
-    const scores = match.scores || [];
-    if (scores.length < 2) return null;
-    const home = scores[0]?.score?.goals || 0;
-    const away = scores[1]?.score?.goals || 0;
-    const stateId = match.state_id;
-    if ([5, 90, 100].includes(stateId)) {
+    const goals = match.goals;
+    if (!goals) return null;
+    
+    const home = goals.home || 0;
+    const away = goals.away || 0;
+    const status = match.fixture?.status?.short;
+    
+    if (['FT', 'AET', 'PEN'].includes(status)) {
         if (home > away) return 'home';
         if (home < away) return 'away';
         return 'draw';
@@ -72,53 +83,6 @@ function calculateOdds(homeName, awayName) {
     };
 }
 
-// ===== SYNC TO FIRESTORE =====
-async function syncMatchToFirestore(match) {
-    if (!firebase?.firestore) return false;
-    
-    const db = firebase.firestore();
-    const fixtureId = match.id;
-    
-    // Skip sample data
-    if (fixtureId >= 100000) return false;
-    
-    const participants = match.participants || [];
-    const homeTeam = participants.find(p => p.meta?.location === 'home') || participants[0];
-    const awayTeam = participants.find(p => p.meta?.location === 'away') || participants[1];
-    
-    if (!homeTeam || !awayTeam) return false;
-    
-    const status = getMatchStatus(match);
-    const result = getMatchResult(match);
-    const odds = calculateOdds(homeTeam.name, awayTeam.name);
-    
-    let expiresAt = null;
-    if (status === 'finished') {
-        expiresAt = new Date();
-        expiresAt.setHours(expiresAt.getHours() + 24);
-    }
-    
-    const matchData = {
-        fixtureId, status, result, odds, expiresAt,
-        leagueId: match.league_id || 0,
-        leagueName: match.league?.name || 'Unknown League',
-        homeTeam: { id: homeTeam.id || 0, name: homeTeam.name, logo: homeTeam.image_path || '' },
-        awayTeam: { id: awayTeam.id || 0, name: awayTeam.name, logo: awayTeam.image_path || '' },
-        startTime: match.starting_at ? new Date(match.starting_at) : new Date(),
-        score: { home: match.scores?.[0]?.score?.goals || 0, away: match.scores?.[1]?.score?.goals || 0 },
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        isRealData: true
-    };
-    
-    try {
-        await db.collection('sports_matches').doc(fixtureId.toString()).set(matchData, { merge: true });
-        return true;
-    } catch (e) {
-        console.error(`Sync error ${fixtureId}:`, e);
-        return false;
-    }
-}
-
 // ===== CLEANUP OLD/SAMPLE MATCHES =====
 async function cleanupOldMatches() {
     if (!firebase?.firestore) return 0;
@@ -129,7 +93,6 @@ async function cleanupOldMatches() {
     let deleted = 0;
     
     try {
-        // Get all matches and filter manually (avoids index issues)
         const snapshot = await db.collection('sports_matches').get();
         const toDelete = [];
         
@@ -169,6 +132,65 @@ async function cleanupOldMatches() {
     }
     
     return deleted;
+}
+
+// ===== SYNC TO FIRESTORE =====
+async function syncMatchToFirestore(match) {
+    if (!firebase?.firestore) return false;
+    
+    const db = firebase.firestore();
+    const fixture = match.fixture;
+    const teams = match.teams;
+    const goals = match.goals;
+    const league = match.league;
+    
+    const fixtureId = fixture?.id;
+    if (!fixtureId) return false;
+    if (fixtureId >= 100000) return false;
+    if (!teams?.home || !teams?.away) return false;
+    
+    const status = getMatchStatus(match);
+    const result = getMatchResult(match);
+    const odds = calculateOdds(teams.home.name, teams.away.name);
+    
+    let expiresAt = null;
+    if (status === 'finished') {
+        expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
+    }
+    
+    const matchData = {
+        fixtureId, status, result, odds, expiresAt,
+        leagueId: league?.id || 0,
+        leagueName: league?.name || 'Unknown League',
+        homeTeam: { 
+            id: teams.home.id || 0, 
+            name: teams.home.name, 
+            logo: teams.home.logo || '' 
+        },
+        awayTeam: { 
+            id: teams.away.id || 0, 
+            name: teams.away.name, 
+            logo: teams.away.logo || '' 
+        },
+        startTime: fixture.date ? new Date(fixture.date) : new Date(),
+        score: { 
+            home: goals?.home || 0, 
+            away: goals?.away || 0 
+        },
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        isRealData: true,
+        apiProvider: 'api-football'
+    };
+    
+    try {
+        await db.collection('sports_matches').doc(fixtureId.toString()).set(matchData, { merge: true });
+        console.log(`📝 ${teams.home.name} vs ${teams.away.name} (${status})`);
+        return true;
+    } catch (e) {
+        console.error(`Sync error ${fixtureId}:`, e);
+        return false;
+    }
 }
 
 // ===== AUTO-SETTLE FINISHED MATCHES =====
@@ -226,6 +248,7 @@ async function settleFinishedMatches() {
 async function syncLiveMatches() {
     const data = await fetchLiveMatches();
     if (!data?.data) return 0;
+    
     let synced = 0;
     for (const m of data.data) {
         if (await syncMatchToFirestore(m)) synced++;
@@ -236,6 +259,7 @@ async function syncLiveMatches() {
 async function syncUpcomingWeekMatches() {
     const data = await fetchUpcomingWeek();
     if (!data?.data) return 0;
+    
     let synced = 0;
     for (const m of data.data) {
         if (await syncMatchToFirestore(m)) synced++;
@@ -244,7 +268,7 @@ async function syncUpcomingWeekMatches() {
 }
 
 async function syncAllMatches() {
-    console.log('🚀 Starting full sync...');
+    console.log('🚀 Starting full sync with API-Football...');
     
     await cleanupOldMatches();
     const live = await syncLiveMatches();
@@ -268,6 +292,11 @@ function startAutoSync(seconds = 30) {
 
 // ===== EXPORT =====
 window.syncNow = syncAllMatches;
+window.testAPI = async () => {
+    const data = await fetchFromBackend('/api/test');
+    console.log('API Test:', data);
+    return data;
+};
 
 if (document.readyState === 'complete') {
     startAutoSync(30);
@@ -275,4 +304,5 @@ if (document.readyState === 'complete') {
     window.addEventListener('load', () => startAutoSync(30));
 }
 
-console.log('🏈 Sports API v8.0 - Fully Working');
+console.log('🏈 Sports API v9.0 - API-Football Ready');
+console.log('💡 Commands: syncNow(), testAPI()');
