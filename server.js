@@ -42,12 +42,24 @@ async function fetchAPIFootball(endpoint, params = {}) {
             }
         });
         
+        // Log rate limit info
+        const remaining = response.headers.get('x-ratelimit-requests-remaining');
+        const limit = response.headers.get('x-ratelimit-requests-limit');
+        if (remaining) console.log(`📊 Rate Limit: ${remaining}/${limit} remaining`);
+        
         if (!response.ok) {
             console.error(`❌ API Error (${response.status}): ${response.statusText}`);
             return { success: false, data: [], error: `HTTP ${response.status}` };
         }
         
         const data = await response.json();
+        
+        // Check for API errors
+        if (data.errors && Object.keys(data.errors).length > 0) {
+            console.error('❌ API Errors:', data.errors);
+            return { success: false, data: [], error: JSON.stringify(data.errors) };
+        }
+        
         console.log(`✅ Received ${data.response?.length || 0} items`);
         return { success: true, data: data.response || [] };
         
@@ -78,11 +90,36 @@ app.get('/', (req, res) => {
             '/api/livescores/inplay',
             '/api/fixtures/date/:date',
             '/api/fixtures/between/:from/:to',
+            '/api/fixtures/today',
+            '/api/fixtures/week',
             '/api/fixtures/:id',
             '/api/leagues',
+            '/api/debug',
             '/health'
         ]
     });
+});
+
+// ===== DEBUG ENDPOINT =====
+app.get('/api/debug', async (req, res) => {
+    try {
+        const response = await fetch('https://v3.football.api-sports.io/status', {
+            headers: { 'x-apisports-key': API_KEY }
+        });
+        const data = await response.json();
+        const remaining = response.headers.get('x-ratelimit-requests-remaining');
+        const limit = response.headers.get('x-ratelimit-requests-limit');
+        
+        res.json({
+            success: response.ok,
+            status: response.status,
+            rateLimit: { remaining, limit },
+            data: data,
+            apiKeyValid: !data.errors
+        });
+    } catch (e) {
+        res.json({ success: false, error: e.message });
+    }
 });
 
 // ===== API ENDPOINTS =====
@@ -106,18 +143,10 @@ app.get('/api/leagues', async (req, res) => {
 // Get live scores (all live matches)
 app.get('/api/livescores', async (req, res) => {
     const result = await fetchAPIFootball('/fixtures', { live: 'all' });
-    
-    // Enhance with league names if needed
-    const matches = result.data || [];
-    
-    res.json({ 
-        success: result.success, 
-        data: matches, 
-        count: matches.length 
-    });
+    res.json({ success: result.success, data: result.data, count: result.data.length });
 });
 
-// Get in-play matches only (alternative endpoint)
+// Get in-play matches only
 app.get('/api/livescores/inplay', async (req, res) => {
     const result = await fetchAPIFootball('/fixtures', { live: 'all' });
     const liveMatches = (result.data || []).filter(m => 
@@ -133,14 +162,13 @@ app.get('/api/fixtures/date/:date', async (req, res) => {
     res.json({ success: result.success, data: result.data, count: result.data.length });
 });
 
-// Get fixtures between dates (with pagination)
+// Get fixtures between dates
 app.get('/api/fixtures/between/:from/:to', async (req, res) => {
     const { from, to } = req.params;
     let allMatches = [];
     
     console.log(`📅 Fetching fixtures from ${from} to ${to}`);
     
-    // API-Football doesn't have direct "between" endpoint, so we fetch by date range
     const startDate = new Date(from);
     const endDate = new Date(to);
     const dates = [];
@@ -149,39 +177,18 @@ app.get('/api/fixtures/between/:from/:to', async (req, res) => {
         dates.push(new Date(d).toISOString().split('T')[0]);
     }
     
-    // Fetch each date (limit to avoid rate limits)
+    // Fetch each date (limit to 7 days to avoid rate limits)
     for (const date of dates.slice(0, 7)) {
         const result = await fetchAPIFootball('/fixtures', { date });
         if (result.success) {
             allMatches = allMatches.concat(result.data);
         }
         // Small delay to avoid rate limiting
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 200));
     }
     
     console.log(`✅ Total fixtures: ${allMatches.length}`);
     res.json({ success: true, data: allMatches, count: allMatches.length });
-});
-
-// Get single fixture by ID
-app.get('/api/fixtures/:id', async (req, res) => {
-    const { id } = req.params;
-    const result = await fetchAPIFootball('/fixtures', { id });
-    res.json({ 
-        success: result.success, 
-        data: result.data?.[0] || null 
-    });
-});
-
-// Get fixtures by league
-app.get('/api/fixtures/league/:leagueId', async (req, res) => {
-    const { leagueId } = req.params;
-    const today = new Date().toISOString().split('T')[0];
-    const result = await fetchAPIFootball('/fixtures', { 
-        league: leagueId, 
-        date: today 
-    });
-    res.json({ success: result.success, data: result.data, count: result.data.length });
 });
 
 // Get today's fixtures
@@ -212,10 +219,31 @@ app.get('/api/fixtures/week', async (req, res) => {
         if (result.success) {
             allMatches = allMatches.concat(result.data);
         }
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 200));
     }
     
     res.json({ success: true, data: allMatches, count: allMatches.length });
+});
+
+// Get single fixture by ID
+app.get('/api/fixtures/:id', async (req, res) => {
+    const { id } = req.params;
+    const result = await fetchAPIFootball('/fixtures', { id });
+    res.json({ 
+        success: result.success, 
+        data: result.data?.[0] || null 
+    });
+});
+
+// Get fixtures by league
+app.get('/api/fixtures/league/:leagueId', async (req, res) => {
+    const { leagueId } = req.params;
+    const today = new Date().toISOString().split('T')[0];
+    const result = await fetchAPIFootball('/fixtures', { 
+        league: leagueId, 
+        date: today 
+    });
+    res.json({ success: result.success, data: result.data, count: result.data.length });
 });
 
 // Get odds for fixture
