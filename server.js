@@ -3,11 +3,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ===== YOUR ACTIVE API KEY =====
 const API_KEY = '2396236d9d5cd07468ce280da8390ad5';
 const BASE_URL = 'https://v3.football.api-sports.io';
 
-// ===== CORS =====
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -18,7 +16,6 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// ===== FETCH FUNCTION =====
 async function fetchAPI(endpoint, params = {}) {
     const url = new URL(`${BASE_URL}${endpoint}`);
     Object.entries(params).forEach(([k, v]) => url.searchParams.append(k, v));
@@ -46,79 +43,99 @@ async function fetchAPI(endpoint, params = {}) {
     }
 }
 
-// ===== DEBUG =====
+// Health check
+app.get('/health', (req, res) => res.json({ status: 'healthy' }));
+
+// Debug
 app.get('/api/debug', async (req, res) => {
-    const result = await fetchAPI('/status');
-    res.json(result);
+    const status = await fetchAPI('/status');
+    const leagues = await fetchAPI('/leagues', { current: 'true' });
+    const today = new Date().toISOString().split('T')[0];
+    const fixtures = await fetchAPI('/fixtures', { date: today });
+    
+    res.json({
+        status: status.success,
+        leaguesCount: leagues.data?.length || 0,
+        todayFixtures: fixtures.data?.length || 0,
+        sample: fixtures.data?.[0] || null
+    });
 });
 
-// ===== LIVE SCORES =====
+// LIVE SCORES
 app.get('/api/livescores', async (req, res) => {
     const result = await fetchAPI('/fixtures', { live: 'all' });
     res.json(result);
 });
 
-// ===== TODAY'S FIXTURES =====
+// TODAY'S FIXTURES
 app.get('/api/fixtures/today', async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     const result = await fetchAPI('/fixtures', { date: today });
     res.json(result);
 });
 
-// ===== FIXTURES BY DATE =====
+// FIXTURES BY DATE
 app.get('/api/fixtures/date/:date', async (req, res) => {
     const result = await fetchAPI('/fixtures', { date: req.params.date });
     res.json(result);
 });
 
-// ===== NEXT 7 DAYS (FIXED) =====
+// NEXT 7 DAYS - Fetch date by date
 app.get('/api/fixtures/week', async (req, res) => {
     const today = new Date();
-    const nextWeek = new Date(today);
-    nextWeek.setDate(today.getDate() + 7);
+    let allMatches = [];
     
-    const from = today.toISOString().split('T')[0];
-    const to = nextWeek.toISOString().split('T')[0];
-    const season = today.getFullYear();
+    for (let i = 0; i < 7; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + i);
+        const dateStr = date.toISOString().split('T')[0];
+        
+        const result = await fetchAPI('/fixtures', { date: dateStr });
+        if (result.success && result.data) {
+            allMatches = allMatches.concat(result.data);
+        }
+        await new Promise(r => setTimeout(r, 300));
+    }
     
-    // API-Football requires season when using from/to
-    const result = await fetchAPI('/fixtures', { from, to, season });
-    res.json(result);
+    console.log(`📅 Week total: ${allMatches.length} fixtures`);
+    res.json({ success: true, data: allMatches, count: allMatches.length });
 });
 
-// ===== BETWEEN DATES (FIXED) =====
+// BETWEEN DATES
 app.get('/api/fixtures/between/:from/:to', async (req, res) => {
     const { from, to } = req.params;
-    const season = new Date(from).getFullYear();
-    const result = await fetchAPI('/fixtures', { from, to, season });
-    res.json(result);
+    const start = new Date(from);
+    const end = new Date(to);
+    let allMatches = [];
+    
+    for (let d = start; d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        const result = await fetchAPI('/fixtures', { date: dateStr });
+        if (result.success && result.data) {
+            allMatches = allMatches.concat(result.data);
+        }
+        await new Promise(r => setTimeout(r, 300));
+    }
+    
+    res.json({ success: true, data: allMatches, count: allMatches.length });
 });
 
-// ===== LEAGUES =====
+// LEAGUES
 app.get('/api/leagues', async (req, res) => {
     const result = await fetchAPI('/leagues');
     res.json(result);
 });
 
-// ===== SINGLE FIXTURE =====
+// SINGLE FIXTURE
 app.get('/api/fixtures/:id', async (req, res) => {
     const result = await fetchAPI('/fixtures', { id: req.params.id });
     res.json({ success: result.success, data: result.data?.[0] || null });
 });
 
-// ===== ODDS (FIXED) =====
-app.get('/api/odds/:fixtureId', async (req, res) => {
-    const result = await fetchAPI('/odds', { fixture: req.params.fixtureId });
-    res.json({ success: result.success, data: result.data?.[0] || null });
-});
-
-// ===== TEST =====
+// TEST
 app.get('/api/test', async (req, res) => {
     const result = await fetchAPI('/status');
-    res.json({ success: result.success, account: result.data?.account || null });
+    res.json({ success: result.success, message: result.success ? '✅ API Working' : '❌ Failed' });
 });
-
-// ===== HEALTH =====
-app.get('/health', (req, res) => res.json({ status: 'healthy' }));
 
 app.listen(PORT, () => console.log(`🚀 Server running on ${PORT}`));
