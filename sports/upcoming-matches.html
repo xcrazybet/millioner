@@ -12,14 +12,13 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #0a0f1a; color: white; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
-        .header { background: #111827; padding: 12px 15px; border-bottom: 2px solid #00ff9d; position: sticky; top: 0; z-index: 100; }
+        .header { background: #111827; padding: 12px 15px; border-bottom: 2px solid #00ff9d; }
         .header-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         .back-btn { color: #00ff9d; text-decoration: none; font-size: 20px; }
-        .tabs { display: flex; gap: 5px; overflow-x: auto; white-space: nowrap; padding-bottom: 3px; }
+        .tabs { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 3px; }
         .tab { padding: 8px 12px; background: #1a2332; border-radius: 20px; color: white; text-decoration: none; font-size: 12px; }
         .tab.active { background: #00ff9d; color: black; }
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
-        .filter-select { width: 100%; padding: 15px; background: #111827; border: 1px solid #ffffff22; border-radius: 10px; color: white; font-size: 14px; margin-bottom: 20px; }
         .date-header { color: #00ff9d; font-size: 16px; margin: 20px 0 15px; padding-bottom: 8px; border-bottom: 1px solid #00ff9d33; display: flex; justify-content: space-between; }
         .match-card { background: #111827; border-radius: 12px; padding: 15px; margin-bottom: 12px; border-left: 4px solid #00ff9d; cursor: pointer; }
         .match-league { color: #a0a8c9; font-size: 13px; margin-bottom: 8px; }
@@ -31,7 +30,7 @@
         .odd { flex: 1; text-align: center; padding: 8px; background: #1a2332; border-radius: 6px; }
         .odd-value { color: #00ff9d; font-weight: bold; }
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
-        .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; color: #00ff9d; }
+        .sync-btn { background: #00ff9d; color: black; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 15px; }
     </style>
 </head>
 <body>
@@ -50,20 +49,17 @@
     </div>
     
     <div class="container">
-        <div class="debug-bar" id="debug-bar">
-            <i class="fas fa-database"></i> Loading matches...
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <span style="color:#00ff9d;"><i class="fas fa-calendar"></i> Next 7 Days</span>
+            <button onclick="window.syncNow?.()" style="background:#1a2332; color:#00ff9d; border:1px solid #00ff9d; padding:8px 16px; border-radius:20px; cursor:pointer; font-size:12px;">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
         </div>
-        <select id="league-filter" class="filter-select">
-            <option value="all">All Leagues</option>
-        </select>
-        
         <div id="matches-container"></div>
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-calendar" style="font-size:48px; opacity:0.3;"></i>
             <p>No upcoming matches in next 7 days</p>
-            <button onclick="window.syncNow()" style="margin-top:15px; padding:10px 20px; background:#00ff9d; color:black; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">
-                <i class="fas fa-sync-alt"></i> Sync Now
-            </button>
+            <button onclick="window.syncNow?.()" class="sync-btn"><i class="fas fa-sync-alt"></i> Sync Now</button>
         </div>
     </div>
 
@@ -80,7 +76,7 @@
         
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth(), db = firebase.firestore();
-        let allMatches = [], leagues = new Set(), unsubscribe = null;
+        let unsubscribe = null;
         
         auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else loadMatches(); });
         
@@ -88,7 +84,6 @@
             const container = document.getElementById('matches-container');
             const empty = document.getElementById('empty-state');
             const countEl = document.getElementById('upcoming-count');
-            const debugBar = document.getElementById('debug-bar');
             const now = new Date();
             const nextWeek = new Date(now); nextWeek.setDate(now.getDate() + 7);
             
@@ -98,38 +93,28 @@
                 .where('startTime', '<=', nextWeek)
                 .orderBy('startTime', 'asc')
                 .onSnapshot(snap => {
-                    allMatches = []; leagues.clear();
-                    snap.forEach(d => { const m = d.data(); allMatches.push(m); if (m.leagueName) leagues.add(m.leagueName); });
+                    const matches = [];
+                    snap.forEach(d => matches.push(d.data()));
+                    countEl.textContent = matches.length;
                     
-                    countEl.textContent = allMatches.length;
-                    debugBar.innerHTML = `<i class="fas fa-check-circle"></i> Found ${allMatches.length} upcoming matches`;
-                    
-                    if (allMatches.length === 0) { container.style.display = 'none'; empty.style.display = 'block'; }
-                    else { container.style.display = 'block'; empty.style.display = 'none'; populateFilter(); displayMatches(allMatches); }
-                }, e => { console.error(e); debugBar.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Error: ${e.message}`; });
-        }
-        
-        function populateFilter() {
-            const select = document.getElementById('league-filter');
-            select.innerHTML = '<option value="all">All Leagues</option>';
-            Array.from(leagues).sort().forEach(l => { const o = document.createElement('option'); o.value = l; o.textContent = l; select.appendChild(o); });
-            select.onchange = e => displayMatches(e.target.value === 'all' ? allMatches : allMatches.filter(m => m.leagueName === e.target.value));
-        }
-        
-        function displayMatches(matches) {
-            const container = document.getElementById('matches-container');
-            const grouped = {};
-            matches.forEach(m => { const k = m.startTime.toDate().toDateString(); if (!grouped[k]) grouped[k] = []; grouped[k].push(m); });
-            container.innerHTML = '';
-            Object.keys(grouped).sort().forEach(k => {
-                const d = new Date(k); const today = new Date(); today.setHours(0,0,0,0);
-                const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
-                let label = d.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
-                if (d.toDateString() === today.toDateString()) label = '📅 TODAY - ' + label;
-                else if (d.toDateString() === tomorrow.toDateString()) label = '📅 TOMORROW - ' + label;
-                container.innerHTML += `<div class="date-header"><span>${label}</span><span>${grouped[k].length} matches</span></div>`;
-                grouped[k].forEach(m => container.appendChild(createCard(m)));
-            });
+                    if (matches.length === 0) { container.style.display = 'none'; empty.style.display = 'block'; }
+                    else {
+                        container.style.display = 'block'; empty.style.display = 'none';
+                        const grouped = {};
+                        matches.forEach(m => { const k = m.startTime.toDate().toDateString(); if (!grouped[k]) grouped[k] = []; grouped[k].push(m); });
+                        container.innerHTML = '';
+                        Object.keys(grouped).sort().forEach(k => {
+                            const d = new Date(k);
+                            const today = new Date(); today.setHours(0,0,0,0);
+                            const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+                            let label = d.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
+                            if (d.toDateString() === today.toDateString()) label = '📅 TODAY - ' + label;
+                            else if (d.toDateString() === tomorrow.toDateString()) label = '📅 TOMORROW - ' + label;
+                            container.innerHTML += `<div class="date-header"><span>${label}</span><span>${grouped[k].length} matches</span></div>`;
+                            grouped[k].forEach(m => container.appendChild(createCard(m)));
+                        });
+                    }
+                }, e => { console.error(e); container.innerHTML = '<div class="empty-state">Error: ' + e.message + '</div>'; });
         }
         
         function createCard(m) {
