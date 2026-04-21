@@ -1,7 +1,7 @@
 // ============================================
-// js/sports-api.js - COMPLETE v19.0
+// js/sports-api.js - COMPLETE v20.0
 // X Lodon Sports - API-Football Integration
-// Auto-settlement, Cleanup, Caching, Full Functions
+// Auto-settlement, Cleanup, Caching, Force Status Update
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
@@ -173,6 +173,64 @@ async function syncMatchToFirestore(match) {
     } catch (error) { console.error(`Sync error ${fixtureId}:`, error); return false; }
 }
 
+// ===== FORCE UPDATE MATCH STATUS BY TIME (FIXES STUCK MATCHES) =====
+async function forceUpdateMatchStatusByTime() {
+    if (!firebase?.firestore) return 0;
+    const db = firebase.firestore();
+    const now = new Date();
+    let updated = 0;
+    
+    try {
+        // Get all upcoming matches
+        const snapshot = await db.collection('sports_matches')
+            .where('status', '==', 'upcoming')
+            .get();
+        
+        const batch = db.batch();
+        
+        snapshot.forEach(doc => {
+            const match = doc.data();
+            const startTime = match.startTime?.toDate ? match.startTime.toDate() : new Date(match.startTime);
+            
+            // If match should have started, update to live
+            if (startTime <= now) {
+                console.log(`⏰ Force updating to LIVE: ${match.homeTeam?.name} vs ${match.awayTeam?.name}`);
+                batch.update(doc.ref, { 
+                    status: 'live', 
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp() 
+                });
+                updated++;
+            }
+        });
+        
+        if (updated > 0) {
+            await batch.commit();
+            console.log(`✅ Force updated ${updated} matches from upcoming to live`);
+        }
+        
+        // Also check finished matches that need settlement
+        const finishedSnapshot = await db.collection('sports_matches')
+            .where('status', '==', 'finished')
+            .where('betsSettled', '==', false)
+            .get();
+        
+        for (const doc of finishedSnapshot.docs) {
+            const match = doc.data();
+            let result = match.result;
+            if (!result) {
+                const h = match.score?.home || 0, a = match.score?.away || 0;
+                result = h > a ? 'home' : h < a ? 'away' : 'draw';
+            }
+            await settleBetsForMatch(match.fixtureId, result);
+        }
+        
+    } catch (error) {
+        console.error('Force update error:', error);
+    }
+    
+    return updated;
+}
+
 // ===== SETTLE BETS FOR MATCH =====
 async function settleBetsForMatch(fixtureId, result) {
     if (!firebase?.firestore) return 0;
@@ -220,9 +278,10 @@ async function syncAllMatches() {
     await cleanupOldMatches();
     const live = await syncLiveMatches();
     const upcoming = await syncUpcomingWeekMatches();
+    const forceUpdated = await forceUpdateMatchStatusByTime();
     const settled = await checkAndSettleAllFinishedMatches();
-    console.log(`✅ Sync complete: ${live} live, ${upcoming} upcoming, ${settled} bets settled`);
-    return { live, upcoming, settled };
+    console.log(`✅ Sync complete: ${live} live, ${upcoming} upcoming, ${forceUpdated} force-updated, ${settled} settled`);
+    return { live, upcoming, forceUpdated, settled };
 }
 
 // ===== DATA RETRIEVAL HELPERS =====
@@ -234,17 +293,47 @@ async function getUserBettingStats(userId) { if (!firebase?.firestore) return { 
 
 // ===== AUTO SYNC =====
 let syncInterval = null;
-function startAutoSync(seconds = 60) { if(syncInterval)clearInterval(syncInterval); syncAllMatches(); syncInterval=setInterval(syncAllMatches,seconds*1000); console.log(`⏰ Auto-sync every ${seconds}s`); }
-function stopAutoSync() { if(syncInterval){ clearInterval(syncInterval); syncInterval=null; } }
+let forceUpdateInterval = null;
+
+function startAutoSync(seconds = 60) {
+    if (syncInterval) clearInterval(syncInterval);
+    if (forceUpdateInterval) clearInterval(forceUpdateInterval);
+    
+    syncAllMatches();
+    syncInterval = setInterval(() => syncAllMatches(), seconds * 1000);
+    
+    // Force status update every 30 seconds (fixes stuck matches)
+    forceUpdateInterval = setInterval(() => forceUpdateMatchStatusByTime(), 30000);
+    
+    console.log(`⏰ Auto-sync every ${seconds}s | Force update every 30s`);
+}
+
+function stopAutoSync() {
+    if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+    if (forceUpdateInterval) { clearInterval(forceUpdateInterval); forceUpdateInterval = null; }
+}
 
 // ===== EXPORTS =====
-window.syncNow = syncAllMatches; window.testAPI = testAPIConnection; window.cleanupNow = cleanupOldMatches;
-window.settleNow = checkAndSettleAllFinishedMatches; window.settleBetsForMatch = settleBetsForMatch; window.clearCache = ()=>localStorage.clear();
-window.getMatchesByDateRange = getMatchesByDateRange; window.getMatchesByLeague = getMatchesByLeague;
-window.getUserActiveBets = getUserActiveBets; window.getUserBetHistory = getUserBetHistory; window.getUserBettingStats = getUserBettingStats;
-window.formatMatchDate = formatMatchDate; window.formatMatchTime = formatMatchTime;
-window.getMinutesUntilKickoff = getMinutesUntilKickoff; window.getMatchMinute = getMatchMinute;
+window.syncNow = syncAllMatches;
+window.testAPI = testAPIConnection;
+window.cleanupNow = cleanupOldMatches;
+window.settleNow = checkAndSettleAllFinishedMatches;
+window.settleBetsForMatch = settleBetsForMatch;
+window.forceUpdateStatus = forceUpdateMatchStatusByTime;
+window.clearCache = () => localStorage.clear();
+
+window.getMatchesByDateRange = getMatchesByDateRange;
+window.getMatchesByLeague = getMatchesByLeague;
+window.getUserActiveBets = getUserActiveBets;
+window.getUserBetHistory = getUserBetHistory;
+window.getUserBettingStats = getUserBettingStats;
+
+window.formatMatchDate = formatMatchDate;
+window.formatMatchTime = formatMatchTime;
+window.getMinutesUntilKickoff = getMinutesUntilKickoff;
+window.getMatchMinute = getMatchMinute;
 
 if (document.readyState === 'complete') startAutoSync(60);
-else window.addEventListener('load', ()=>startAutoSync(60));
-console.log('🏈 Sports API v19.0 | Full Settlement Ready');
+else window.addEventListener('load', () => startAutoSync(60));
+
+console.log('🏈 Sports API v20.0 | Force Status Update Active');
