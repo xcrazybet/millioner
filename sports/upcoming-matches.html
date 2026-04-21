@@ -18,24 +18,23 @@
         .header-left { display: flex; align-items: center; gap: 10px; }
         .back-btn { color: #00ff9d; text-decoration: none; font-size: 20px; }
         .lang-toggle { background: #1a2332; border: 1px solid #00ff9d; color: #00ff9d; padding: 5px 12px; border-radius: 20px; font-size: 14px; cursor: pointer; }
-        .tabs { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 3px; }
-        .tab { padding: 8px 12px; background: #1a2332; border-radius: 20px; color: white; text-decoration: none; font-size: 12px; white-space: nowrap; }
+        .tabs { display: flex; gap: 5px; overflow-x: auto; white-space: nowrap; padding-bottom: 3px; }
+        .tab { padding: 8px 12px; background: #1a2332; border-radius: 20px; color: white; text-decoration: none; font-size: 12px; }
         .tab.active { background: #00ff9d; color: black; }
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
         
-        /* Date Picker Styles */
         .date-selector { display: flex; gap: 8px; margin-bottom: 15px; overflow-x: auto; padding-bottom: 5px; }
         .date-btn { padding: 10px 16px; background: #1a2332; border: 1px solid #ffffff22; border-radius: 25px; color: white; font-size: 13px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
         .date-btn.active { background: #00ff9d; color: black; border-color: #00ff9d; }
         .date-btn i { margin-right: 5px; }
-        .calendar-input { display: none; }
+        .calendar-input { position: absolute; opacity: 0; width: 0; height: 0; }
         .custom-date-btn { background: #00ff9d22; border-color: #00ff9d; color: #00ff9d; }
         
         .filter-row { display: flex; gap: 10px; margin-bottom: 15px; }
         .filter-select { flex: 1; padding: 12px; background: #111827; border: 1px solid #ffffff22; border-radius: 10px; color: white; font-size: 14px; }
         
         .info-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; color: #a0a8c9; font-size: 13px; }
-        .load-more-btn { background: transparent; border: 1px dashed #00ff9d; color: #00ff9d; padding: 12px; border-radius: 10px; width: 100%; cursor: pointer; margin-top: 15px; }
+        .refresh-btn { background: transparent; border: 1px solid #00ff9d; color: #00ff9d; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 12px; }
         
         .match-card { background: #111827; border-radius: 12px; padding: 15px; margin-bottom: 10px; border-left: 4px solid #00ff9d; cursor: pointer; transition: transform 0.15s; }
         .match-card:active { transform: scale(0.99); }
@@ -57,6 +56,8 @@
         .loading-skeleton { text-align: center; padding: 30px; }
         .skeleton-card { background: #1a2332; border-radius: 12px; padding: 15px; margin-bottom: 10px; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+        
+        .status-badge { position: absolute; top: 10px; right: 10px; font-size: 10px; padding: 2px 8px; border-radius: 10px; background: #ff5252; color: white; }
         
         .arabic { font-family: 'Tajawal', sans-serif; }
     </style>
@@ -84,7 +85,7 @@
         <div class="date-selector" id="date-selector">
             <button class="date-btn active" data-date="today"><i class="far fa-calendar-check"></i> <span class="en">Today</span><span class="ar" style="display:none;">اليوم</span></button>
             <button class="date-btn" data-date="tomorrow"><i class="far fa-calendar"></i> <span class="en">Tomorrow</span><span class="ar" style="display:none;">الغد</span></button>
-            <button class="date-btn custom-date-btn" onclick="document.getElementById('custom-date').click()"><i class="fas fa-calendar-alt"></i> <span class="en">Pick Date</span><span class="ar" style="display:none;">اختر تاريخ</span></button>
+            <button class="date-btn custom-date-btn" onclick="openDatePicker()"><i class="fas fa-calendar-alt"></i> <span class="en">Pick Date</span><span class="ar" style="display:none;">اختر تاريخ</span></button>
             <input type="date" id="custom-date" class="calendar-input" min="" max="">
         </div>
         
@@ -98,7 +99,7 @@
         <!-- Info Bar -->
         <div class="info-bar">
             <span id="selected-date-display"><i class="far fa-calendar"></i> <span class="en">Today</span><span class="ar" style="display:none;">اليوم</span></span>
-            <span id="match-count-display">0 <span class="en">matches</span><span class="ar" style="display:none;">مباراة</span></span>
+            <button class="refresh-btn" onclick="refreshMatches()"><i class="fas fa-sync-alt"></i> <span class="en">Refresh</span></button>
         </div>
         
         <!-- Matches Container -->
@@ -106,21 +107,15 @@
             <div class="loading-skeleton">
                 <div class="skeleton-card" style="height:120px;"></div>
                 <div class="skeleton-card" style="height:120px;"></div>
-                <div class="skeleton-card" style="height:120px;"></div>
             </div>
         </div>
-        
-        <!-- Load More Button -->
-        <button class="load-more-btn" id="load-more-btn" style="display:none;" onclick="loadMoreDays()">
-            <i class="fas fa-plus"></i> <span class="en">Load Next Day</span><span class="ar" style="display:none;">تحميل اليوم التالي</span>
-        </button>
         
         <!-- Empty State -->
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-calendar-times" style="font-size:48px; opacity:0.3;"></i>
             <p><span class="en">No matches on this date</span><span class="ar" style="display:none;">لا توجد مباريات في هذا التاريخ</span></p>
             <button onclick="window.syncNow?.()" style="margin-top:15px; padding:10px 20px; background:#00ff9d; color:black; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">
-                <i class="fas fa-sync-alt"></i> <span class="en">Refresh</span><span class="ar" style="display:none;">تحديث</span>
+                <i class="fas fa-sync-alt"></i> <span class="en">Sync Now</span>
             </button>
         </div>
     </div>
@@ -141,6 +136,12 @@
             document.documentElement.dir = 'rtl';
         }
         
+        // Date Picker Functions
+        function openDatePicker() {
+            const input = document.getElementById('custom-date');
+            input.click();
+        }
+        
         // Firebase Config
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -154,10 +155,8 @@
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth(), db = firebase.firestore();
         
-        let currentDate = new Date();
-        currentDate.setHours(0, 0, 0, 0);
-        let loadedDays = 1;
-        let allMatches = [], leagues = new Set(), countdownInterval;
+        let currentDate = new Date(); currentDate.setHours(0, 0, 0, 0);
+        let allMatches = [], leagues = new Set(), countdownInterval, statusCheckInterval;
         let cachedLeagues = JSON.parse(localStorage.getItem('cachedLeagues') || '[]');
         
         // Set date picker min/max
@@ -171,6 +170,14 @@
         function initialize() {
             setupDatePicker();
             loadMatchesForDate(currentDate);
+            
+            // Force status check every 30 seconds
+            statusCheckInterval = setInterval(async () => {
+                if (typeof forceUpdateStatus === 'function') {
+                    const updated = await forceUpdateStatus();
+                    if (updated > 0) loadMatchesForDate(currentDate);
+                }
+            }, 30000);
         }
         
         function setupDatePicker() {
@@ -183,7 +190,6 @@
                     if (dateType === 'today') currentDate = new Date(today);
                     else if (dateType === 'tomorrow') { currentDate = new Date(today); currentDate.setDate(today.getDate() + 1); }
                     
-                    loadedDays = 1;
                     loadMatchesForDate(currentDate);
                     updateDateDisplay();
                 });
@@ -193,7 +199,6 @@
                 if (e.target.value) {
                     document.querySelectorAll('.date-btn').forEach(b => b.classList.remove('active'));
                     currentDate = new Date(e.target.value);
-                    loadedDays = 1;
                     loadMatchesForDate(currentDate);
                     updateDateDisplay();
                 }
@@ -213,14 +218,11 @@
             display.innerHTML = `<i class="far fa-calendar"></i> ${label}`;
         }
         
-        async function loadMatchesForDate(date, append = false) {
+        async function loadMatchesForDate(date) {
             const container = document.getElementById('matches-container');
             const empty = document.getElementById('empty-state');
-            const loadMoreBtn = document.getElementById('load-more-btn');
             
-            if (!append) {
-                container.innerHTML = '<div class="loading-skeleton"><div class="skeleton-card" style="height:120px;"></div></div>';
-            }
+            container.innerHTML = '<div class="loading-skeleton"><div class="skeleton-card" style="height:120px;"></div></div>';
             
             const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
             const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
@@ -232,57 +234,25 @@
                 .orderBy('startTime', 'asc')
                 .get();
             
-            const matches = [];
-            snapshot.forEach(d => { const m = d.data(); matches.push(m); if (m.leagueName) leagues.add(m.leagueName); });
+            allMatches = []; leagues.clear();
+            snapshot.forEach(d => { const m = d.data(); allMatches.push(m); if (m.leagueName) leagues.add(m.leagueName); });
             
-            if (!append) {
-                allMatches = matches;
-                container.innerHTML = '';
-            } else {
-                allMatches = [...allMatches, ...matches];
-            }
-            
-            document.getElementById('match-count-display').innerHTML = `${allMatches.length} <span class="en">matches</span><span class="ar" style="display:none;">مباراة</span>`;
+            document.getElementById('upcoming-count').textContent = allMatches.length;
             
             if (allMatches.length === 0) {
                 container.style.display = 'none';
                 empty.style.display = 'block';
-                loadMoreBtn.style.display = 'none';
             } else {
                 container.style.display = 'block';
                 empty.style.display = 'none';
                 populateLeagueFilter();
                 renderMatches();
-                
-                // Show load more if less than 3 days loaded and within 7 days
-                const daysFromToday = Math.floor((currentDate - today) / (1000 * 60 * 60 * 24));
-                loadMoreBtn.style.display = (loadedDays < 3 && daysFromToday + loadedDays < 7) ? 'block' : 'none';
-            }
-            
-            // Background pre-load next day
-            if (!append && loadedDays === 1) {
-                setTimeout(() => preloadNextDay(), 2000);
             }
         }
         
-        async function preloadNextDay() {
-            const nextDate = new Date(currentDate); nextDate.setDate(currentDate.getDate() + 1);
-            if (nextDate <= maxDate) {
-                console.log('🔄 Background pre-loading:', nextDate.toDateString());
-                const endOfDay = new Date(nextDate); endOfDay.setHours(23, 59, 59, 999);
-                await db.collection('sports_matches')
-                    .where('status', '==', 'upcoming')
-                    .where('startTime', '>=', nextDate)
-                    .where('startTime', '<=', endOfDay)
-                    .get();
-            }
-        }
-        
-        function loadMoreDays() {
-            currentDate.setDate(currentDate.getDate() + 1);
-            loadedDays++;
-            loadMatchesForDate(currentDate, true);
-            updateDateDisplay();
+        function refreshMatches() {
+            loadMatchesForDate(currentDate);
+            if (typeof forceUpdateStatus === 'function') forceUpdateStatus();
         }
         
         function populateLeagueFilter() {
@@ -307,15 +277,13 @@
         function renderMatches(matchesToRender = allMatches) {
             const container = document.getElementById('matches-container');
             container.innerHTML = '';
-            
             matchesToRender.forEach(m => container.appendChild(createCard(m)));
             startCountdowns(matchesToRender);
         }
         
         function getTeamColor(name) {
             const hash = (name || 'Team').split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-            const hue = hash % 360;
-            return `hsl(${hue}, 65%, 45%)`;
+            return `hsl(${hash % 360}, 65%, 45%)`;
         }
         
         function createCard(m) {
@@ -357,22 +325,35 @@
         function startCountdowns(matches) {
             if (countdownInterval) clearInterval(countdownInterval);
             countdownInterval = setInterval(() => {
+                let needsRefresh = false;
                 matches.forEach(m => {
                     const el = document.getElementById(`cd-${m.fixtureId}`);
                     if (el) {
                         const diff = m.startTime.toDate() - new Date();
-                        if (diff <= 0) { el.textContent = '00:00:00'; }
-                        else {
+                        if (diff <= 0) { 
+                            el.textContent = '00:00:00';
+                            needsRefresh = true;
+                        } else {
                             const h = Math.floor(diff / 3600000), mn = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
                             el.textContent = `${h.toString().padStart(2,'0')}:${mn.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
                         }
                     }
                 });
+                // If any countdown reached 0, refresh to move to live
+                if (needsRefresh) {
+                    if (typeof forceUpdateStatus === 'function') forceUpdateStatus();
+                    setTimeout(() => loadMatchesForDate(currentDate), 2000);
+                }
             }, 1000);
         }
         
-        window.loadMoreDays = loadMoreDays;
-        window.addEventListener('beforeunload', () => { if (countdownInterval) clearInterval(countdownInterval); });
+        window.refreshMatches = refreshMatches;
+        window.openDatePicker = openDatePicker;
+        
+        window.addEventListener('beforeunload', () => {
+            if (countdownInterval) clearInterval(countdownInterval);
+            if (statusCheckInterval) clearInterval(statusCheckInterval);
+        });
     </script>
 </body>
 </html>
