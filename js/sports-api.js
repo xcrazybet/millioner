@@ -1,55 +1,72 @@
 // ============================================
-// js/sports-api.js - v27.0 FIXED
-// Handles API failures gracefully
+// js/sports-api.js - v28.0 FIXED UPCOMING
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
 const SYNC_INTERVAL = 60000;
 const FORCE_UPDATE_INTERVAL = 30000;
 
-// ===== FETCH WITH TIMEOUT & RETRY =====
+// ===== FETCH WITH TIMEOUT =====
 async function fetchFromBackend(endpoint, retries = 2) {
     for (let i = 0; i < retries; i++) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             
             const url = BACKEND_URL + endpoint;
+            console.log(`🔄 Fetching: ${endpoint}`);
             const response = await fetch(url, { signal: controller.signal });
             clearTimeout(timeoutId);
             
             if (!response.ok) throw new Error('HTTP ' + response.status);
             const data = await response.json();
+            console.log(`✅ ${endpoint}: ${data.data?.length || 0} items`);
             return data;
         } catch (error) {
-            console.warn(`⚠️ Fetch attempt ${i+1} failed for ${endpoint}:`, error.message);
-            if (i === retries - 1) {
-                console.error(`❌ All retries failed for ${endpoint}`);
-                return { success: false, data: [], error: error.message };
-            }
-            await new Promise(r => setTimeout(r, 1000));
+            console.warn(`⚠️ Attempt ${i+1} failed for ${endpoint}:`, error.message);
+            if (i === retries - 1) return { success: false, data: [], error: error.message };
+            await new Promise(r => setTimeout(r, 2000));
         }
     }
 }
 
-// ===== FETCH FUNCTIONS WITH FALLBACK =====
+// ===== FETCH FUNCTIONS =====
 async function fetchLiveMatches() { 
     return await fetchFromBackend('/api/livescores'); 
 }
 
 async function fetchUpcomingWeek() { 
-    // Try the week endpoint
-    const result = await fetchFromBackend('/api/fixtures/week');
+    // Try multiple date formats
+    const today = new Date();
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
     
-    // If failed, try today's matches as fallback
+    const from = today.toISOString().split('T')[0];
+    const to = nextWeek.toISOString().split('T')[0];
+    
+    // Try the between endpoint
+    console.log(`📅 Fetching upcoming: ${from} to ${to}`);
+    let result = await fetchFromBackend('/api/fixtures/between/' + from + '/' + to);
+    
+    // If that fails, try fetching date by date
     if (!result.success || !result.data || result.data.length === 0) {
-        console.log('⚠️ Week endpoint failed, trying today...');
-        const today = new Date().toISOString().split('T')[0];
-        const todayResult = await fetchFromBackend('/api/fixtures/date/' + today);
-        if (todayResult.success && todayResult.data) {
-            return todayResult;
+        console.log('⚠️ Between endpoint failed, trying individual dates...');
+        let allMatches = [];
+        for (let i = 0; i < 7; i++) {
+            const date = new Date(today);
+            date.setDate(today.getDate() + i);
+            const dateStr = date.toISOString().split('T')[0];
+            const dayResult = await fetchFromBackend('/api/fixtures/date/' + dateStr);
+            if (dayResult.success && dayResult.data) {
+                allMatches = allMatches.concat(dayResult.data);
+            }
+            await new Promise(r => setTimeout(r, 500));
+        }
+        if (allMatches.length > 0) {
+            return { success: true, data: allMatches };
         }
     }
+    
     return result;
 }
 
@@ -199,6 +216,7 @@ async function syncMatchToFirestore(match) {
     
     try {
         await db.collection('sports_matches').doc(String(fixtureId)).set(matchData, { merge: true });
+        console.log(`📝 Synced: ${teams.home.name} vs ${teams.away.name} (${status})`);
         return true;
     } catch(e) { return false; }
 }
@@ -214,13 +232,14 @@ async function syncLiveMatches() {
 async function syncUpcomingMatches() {
     const data = await fetchUpcomingWeek();
     if (!data?.success || !data.data) return 0;
+    console.log(`📅 Found ${data.data.length} upcoming matches`);
     let synced = 0;
-    for (const m of data.data.slice(0, 50)) if (await syncMatchToFirestore(m)) synced++;
+    for (const m of data.data) if (await syncMatchToFirestore(m)) synced++;
     return synced;
 }
 
 async function syncAllMatches() {
-    console.log('🚀 Syncing...');
+    console.log('🚀 Starting sync...');
     const live = await syncLiveMatches();
     const upcoming = await syncUpcomingMatches();
     console.log(`✅ Live: ${live}, Upcoming: ${upcoming}`);
@@ -247,7 +266,7 @@ async function settleBetsForMatch(fixtureId, result) {
             }
             settled++;
         }
-        await db.collection('sports_matches').doc(String(fixtureId)).update({ betsSettled: true });
+        if (settled > 0) await db.collection('sports_matches').doc(String(fixtureId)).update({ betsSettled: true });
     } catch(e) {}
     return settled;
 }
@@ -314,4 +333,4 @@ setTimeout(() => {
     startAutoSync();
 }, 500);
 
-console.log('🏈 Sports API v27.0 - Fixed');
+console.log('🏈 Sports API v28.0 - Upcoming Fixed');
