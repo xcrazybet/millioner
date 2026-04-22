@@ -33,8 +33,7 @@
         .team { text-align: center; flex: 1; font-weight: 600; font-size: 16px; }
         .score { font-size: 36px; font-weight: bold; letter-spacing: 8px; }
         .timer-box { text-align: center; margin: 10px 0; }
-        .half-badge { background: #ff5252; padding: 4px 15px; border-radius: 20px; font-size: 13px; display: inline-block; }
-        .remain-time { color: #a0a8c9; font-size: 12px; margin-top: 5px; }
+        .timer-badge { background: #ff5252; padding: 4px 15px; border-radius: 20px; font-size: 14px; font-weight: 600; display: inline-block; }
         .info-row { text-align: center; color: #ff5252; font-size: 12px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ffffff11; }
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
         .arabic { font-family: 'Tajawal', sans-serif; }
@@ -92,7 +91,7 @@
         
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth(), db = firebase.firestore();
-        let unsubscribe = null, timerInterval = null;
+        let unsubscribe = null, timerInterval = null, liveMatches = [];
         
         auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else loadLive(); });
         
@@ -101,38 +100,58 @@
             const empty = document.getElementById('empty-state');
             
             unsubscribe = db.collection('sports_matches').where('status', '==', 'live').onSnapshot(snap => {
-                const matches = []; snap.forEach(d => matches.push(d.data()));
-                document.getElementById('live-count').textContent = matches.length;
-                document.getElementById('match-count').textContent = matches.length;
+                liveMatches = []; snap.forEach(d => liveMatches.push(d.data()));
+                document.getElementById('live-count').textContent = liveMatches.length;
+                document.getElementById('match-count').textContent = liveMatches.length;
                 
-                if (matches.length === 0) { container.style.display = 'none'; empty.style.display = 'block'; }
-                else { container.style.display = 'block'; empty.style.display = 'none'; container.innerHTML = ''; matches.sort((a,b) => b.startTime?.toDate() - a.startTime?.toDate()).forEach(m => container.appendChild(createCard(m))); }
+                if (liveMatches.length === 0) { container.style.display = 'none'; empty.style.display = 'block'; }
+                else { container.style.display = 'block'; empty.style.display = 'none'; renderMatches(); }
                 startTimer();
             });
         }
         
+        function renderMatches() {
+            const container = document.getElementById('matches-container');
+            container.innerHTML = '';
+            liveMatches.sort((a,b) => b.startTime?.toDate() - a.startTime?.toDate()).forEach(m => container.appendChild(createCard(m)));
+        }
+        
         function createCard(m) {
             const card = document.createElement('div'); card.className = 'match-card';
-            const timerId = 'timer-' + m.fixtureId;
+            card.dataset.fixtureId = m.fixtureId;
+            card.dataset.startTime = m.startTime.toDate().toISOString();
+            
+            const timer = getLiveTimer(m.startTime);
+            
             card.innerHTML = `
                 <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.leagueName||'League'}<span class="live-tag"><i class="fas fa-circle"></i> LIVE</span></div>
                 <div class="match-teams"><div class="team">${m.homeTeam?.name||'Home'}</div><div class="score">${m.score?.home||0} - ${m.score?.away||0}</div><div class="team">${m.awayTeam?.name||'Away'}</div></div>
-                <div class="timer-box"><span class="half-badge" id="${timerId}">1st Half</span><div class="remain-time" id="remain-${m.fixtureId}"></div></div>
+                <div class="timer-box"><span class="timer-badge" id="timer-${m.fixtureId}">${timer}</span></div>
                 <div class="info-row"><i class="fas fa-info-circle"></i> <span class="en">Betting closed</span><span class="ar" style="display:none;">الرهان مغلق</span></div>
             `;
             return card;
         }
         
+        function getLiveTimer(startTime) {
+            if (!startTime) return 'LIVE';
+            try {
+                const now = new Date();
+                const start = startTime.toDate ? startTime.toDate() : new Date(startTime);
+                const diff = Math.floor((now - start) / 60000);
+                
+                if (diff < 45) return `1st Half • ${diff}'`;
+                if (diff < 60) return `HT • ${diff}'`;
+                if (diff < 105) return `2nd Half • ${diff - 15}'`;
+                return `90+'`;
+            } catch(e) { return 'LIVE'; }
+        }
+        
         function startTimer() {
             if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
-                document.querySelectorAll('[id^="timer-"]').forEach(el => {
-                    const fixtureId = el.id.replace('timer-', '');
-                    const match = document.querySelector(`[data-fixture="${fixtureId}"]`);
-                    if (typeof getMatchHalfAndMinute === 'function') {
-                        // Need to get match startTime from somewhere - simplified for now
-                        el.textContent = 'LIVE';
-                    }
+                liveMatches.forEach(m => {
+                    const el = document.getElementById('timer-' + m.fixtureId);
+                    if (el) el.textContent = getLiveTimer(m.startTime);
                 });
             }, 30000);
         }
