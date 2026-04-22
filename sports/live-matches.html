@@ -24,16 +24,26 @@
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
         .live-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
         .live-badge { background: #ff5252; padding: 8px 16px; border-radius: 25px; font-weight: 600; }
+        .refresh-btn { background: transparent; border: 1px solid #00ff9d; color: #00ff9d; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 12px; }
+        .league-group { margin-bottom: 25px; }
+        .league-header { color: #00ff9d; font-size: 16px; font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #00ff9d33; display: flex; justify-content: space-between; cursor: pointer; }
+        .league-header i { transition: transform 0.3s; }
+        .league-header.collapsed i { transform: rotate(-90deg); }
+        .league-matches { transition: max-height 0.3s; }
+        .league-matches.collapsed { display: none; }
         .match-card { background: #111827; border-radius: 16px; padding: 18px; margin-bottom: 15px; border: 1px solid #ff525233; position: relative; overflow: hidden; }
         .match-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #ff5252; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-        .match-league { color: #a0a8c9; font-size: 13px; margin-bottom: 12px; }
+        .match-league { color: #a0a8c9; font-size: 13px; margin-bottom: 12px; display: flex; align-items: center; }
         .live-tag { background: #ff5252; padding: 2px 10px; border-radius: 15px; font-size: 11px; margin-left: 8px; }
         .match-teams { display: flex; align-items: center; justify-content: space-around; margin: 15px 0; }
-        .team { text-align: center; flex: 1; font-weight: 600; font-size: 16px; }
+        .team { text-align: center; flex: 1; }
+        .team-name { font-weight: 600; font-size: 16px; }
         .score { font-size: 36px; font-weight: bold; letter-spacing: 8px; }
-        .timer-box { text-align: center; margin: 10px 0; }
-        .timer-badge { background: #ff5252; padding: 4px 15px; border-radius: 20px; font-size: 14px; font-weight: 600; display: inline-block; }
+        .timer-section { background: #1a2332; border-radius: 10px; padding: 12px; margin-top: 15px; }
+        .timer-row { display: flex; justify-content: space-between; color: #a0a8c9; font-size: 13px; margin-bottom: 5px; }
+        .timer-value { color: white; font-weight: 600; }
+        .timer-badge { background: #ff5252; padding: 4px 12px; border-radius: 20px; font-size: 14px; font-weight: 600; display: inline-block; }
         .info-row { text-align: center; color: #ff5252; font-size: 12px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ffffff11; }
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
         .arabic { font-family: 'Tajawal', sans-serif; }
@@ -60,12 +70,12 @@
     <div class="container">
         <div class="live-header">
             <span class="live-badge"><i class="fas fa-circle"></i> <span class="en">LIVE MATCHES</span><span class="ar" style="display:none;">مباريات مباشرة</span> <span id="match-count">0</span></span>
-            <span style="color:#a0a8c9; font-size:12px;"><i class="fas fa-sync-alt fa-spin"></i> <span class="en">Live</span></span>
+            <button class="refresh-btn" onclick="refreshLive()"><i class="fas fa-sync-alt"></i> <span class="en">Refresh</span></button>
         </div>
         <div id="matches-container"></div>
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-futbol" style="font-size:48px; opacity:0.3;"></i>
-            <p><span class="en">No live matches</span><span class="ar" style="display:none;">لا توجد مباريات مباشرة</span></p>
+            <p><span class="en">No live matches at the moment</span><span class="ar" style="display:none;">لا توجد مباريات مباشرة حالياً</span></p>
         </div>
     </div>
 
@@ -112,38 +122,40 @@
         
         function renderMatches() {
             const container = document.getElementById('matches-container');
+            const grouped = {};
+            liveMatches.forEach(m => { const l = m.leagueName || 'Other'; if (!grouped[l]) grouped[l] = []; grouped[l].push(m); });
+            
             container.innerHTML = '';
-            liveMatches.sort((a,b) => b.startTime?.toDate() - a.startTime?.toDate()).forEach(m => container.appendChild(createCard(m)));
+            Object.keys(grouped).sort().forEach(league => {
+                const group = document.createElement('div'); group.className = 'league-group';
+                group.innerHTML = `<div class="league-header" onclick="toggleLeague(this)"><span>${league} (${grouped[league].length})</span><i class="fas fa-chevron-down"></i></div><div class="league-matches" id="league-${league.replace(/\s/g,'')}"></div>`;
+                container.appendChild(group);
+                const matchesDiv = group.querySelector('.league-matches');
+                grouped[league].sort((a,b) => b.startTime?.toDate() - a.startTime?.toDate()).forEach(m => matchesDiv.appendChild(createCard(m)));
+            });
         }
+        
+        function toggleLeague(el) { el.classList.toggle('collapsed'); el.nextElementSibling.classList.toggle('collapsed'); }
         
         function createCard(m) {
             const card = document.createElement('div'); card.className = 'match-card';
-            card.dataset.fixtureId = m.fixtureId;
-            card.dataset.startTime = m.startTime.toDate().toISOString();
-            
-            const timer = getLiveTimer(m.startTime);
+            const timer = typeof getLiveTimer === 'function' ? getLiveTimer(m.startTime) : 'LIVE';
+            const startTime = m.startTime?.toDate() || new Date();
+            const endTime = new Date(startTime.getTime() + 105 * 60000);
+            const elapsed = typeof getMatchMinute === 'function' ? getMatchMinute(m.startTime) : 0;
             
             card.innerHTML = `
                 <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.leagueName||'League'}<span class="live-tag"><i class="fas fa-circle"></i> LIVE</span></div>
-                <div class="match-teams"><div class="team">${m.homeTeam?.name||'Home'}</div><div class="score">${m.score?.home||0} - ${m.score?.away||0}</div><div class="team">${m.awayTeam?.name||'Away'}</div></div>
-                <div class="timer-box"><span class="timer-badge" id="timer-${m.fixtureId}">${timer}</span></div>
-                <div class="info-row"><i class="fas fa-info-circle"></i> <span class="en">Betting closed</span><span class="ar" style="display:none;">الرهان مغلق</span></div>
+                <div class="match-teams"><div class="team"><span class="team-name">${m.homeTeam?.name||'Home'}</span></div><div class="score">${m.score?.home||0} - ${m.score?.away||0}</div><div class="team"><span class="team-name">${m.awayTeam?.name||'Away'}</span></div></div>
+                <div class="timer-section">
+                    <div class="timer-row"><span><i class="far fa-clock"></i> <span class="en">Timer</span><span class="ar" style="display:none;">الوقت</span></span><span class="timer-value"><span class="timer-badge" id="timer-${m.fixtureId}">${timer}</span></span></div>
+                    <div class="timer-row"><span><i class="fas fa-play"></i> <span class="en">Started</span><span class="ar" style="display:none;">بدأت</span></span><span class="timer-value">${startTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
+                    <div class="timer-row"><span><i class="fas fa-stop"></i> <span class="en">Ends ~</span><span class="ar" style="display:none;">تنتهي ~</span></span><span class="timer-value">${endTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
+                    <div class="timer-row"><span><i class="fas fa-hourglass-half"></i> <span class="en">Elapsed</span><span class="ar" style="display:none;">انقضى</span></span><span class="timer-value">${elapsed} <span class="en">mins</span><span class="ar" style="display:none;">دقيقة</span></span></div>
+                </div>
+                <div class="info-row"><i class="fas fa-info-circle"></i> <span class="en">Betting closed - Match in progress</span><span class="ar" style="display:none;">الرهان مغلق - المباراة جارية</span></div>
             `;
             return card;
-        }
-        
-        function getLiveTimer(startTime) {
-            if (!startTime) return 'LIVE';
-            try {
-                const now = new Date();
-                const start = startTime.toDate ? startTime.toDate() : new Date(startTime);
-                const diff = Math.floor((now - start) / 60000);
-                
-                if (diff < 45) return `1st Half • ${diff}'`;
-                if (diff < 60) return `HT • ${diff}'`;
-                if (diff < 105) return `2nd Half • ${diff - 15}'`;
-                return `90+'`;
-            } catch(e) { return 'LIVE'; }
         }
         
         function startTimer() {
@@ -151,11 +163,13 @@
             timerInterval = setInterval(() => {
                 liveMatches.forEach(m => {
                     const el = document.getElementById('timer-' + m.fixtureId);
-                    if (el) el.textContent = getLiveTimer(m.startTime);
+                    if (el && typeof getLiveTimer === 'function') el.textContent = getLiveTimer(m.startTime);
                 });
             }, 30000);
         }
         
+        function refreshLive() { if (typeof syncNow === 'function') syncNow(); }
+        window.toggleLeague = toggleLeague; window.refreshLive = refreshLive;
         window.addEventListener('beforeunload', () => { if (unsubscribe) unsubscribe(); if (timerInterval) clearInterval(timerInterval); });
     </script>
 </body>
