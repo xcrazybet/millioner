@@ -32,12 +32,6 @@
         .league-select { flex: 1; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 10px; color: white; font-size: 14px; }
         .refresh-btn { background: transparent; border: 1px solid #00ff9d; color: #00ff9d; padding: 10px 15px; border-radius: 10px; cursor: pointer; }
         
-        .league-group { margin-bottom: 25px; }
-        .league-header { color: #00ff9d; font-size: 16px; font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #00ff9d33; display: flex; justify-content: space-between; cursor: pointer; }
-        .league-header i { transition: transform 0.3s; }
-        .league-header.collapsed i { transform: rotate(-90deg); }
-        .league-matches.collapsed { display: none; }
-        
         .match-card { background: #111827; border-radius: 12px; padding: 15px; margin-bottom: 10px; border-left: 4px solid #00ff9d; cursor: pointer; }
         .match-teams { display: flex; align-items: center; justify-content: space-around; margin: 10px 0; }
         .team { text-align: center; flex: 1; }
@@ -45,7 +39,6 @@
         .team-name { font-weight: 600; font-size: 13px; }
         .vs { color: #ff9800; font-weight: bold; }
         .countdown-box { background: #1a2332; border-radius: 8px; padding: 10px; margin-top: 10px; text-align: center; }
-        .countdown-label { color: #a0a8c9; font-size: 11px; }
         .countdown-value { color: #00ff9d; font-size: 18px; font-weight: bold; }
         .match-time { color: #a0a8c9; font-size: 12px; margin-top: 5px; }
         .odds { display: flex; gap: 8px; margin-top: 12px; }
@@ -127,7 +120,6 @@
             await loadLeagues();
             setupTabs();
             loadMatches();
-            setInterval(() => { if (typeof forceUpdate === 'function') forceUpdate(); }, 30000);
         }
         
         async function loadLeagues() {
@@ -140,21 +132,13 @@
         }
         
         function setupTabs() {
-            document.querySelectorAll('.date-tab[data-tab]').forEach(t => {
-                t.addEventListener('click', function() {
-                    document.querySelectorAll('.date-tab').forEach(x => x.classList.remove('active'));
-                    this.classList.add('active');
-                    currentDate = this.dataset.tab;
-                    loadMatches();
-                });
-            });
-            document.getElementById('calendar-input').addEventListener('change', function(e) {
-                if (e.target.value) {
-                    document.querySelectorAll('.date-tab').forEach(x => x.classList.remove('active'));
-                    currentDate = e.target.value;
-                    loadMatches();
-                }
-            });
+            document.querySelectorAll('.date-tab[data-tab]').forEach(t => t.addEventListener('click', function() {
+                document.querySelectorAll('.date-tab').forEach(x => x.classList.remove('active'));
+                this.classList.add('active');
+                currentDate = this.dataset.tab;
+                loadMatches();
+            }));
+            document.getElementById('calendar-input').addEventListener('change', e => { if(e.target.value) { document.querySelectorAll('.date-tab').forEach(x => x.classList.remove('active')); currentDate = e.target.value; loadMatches(); } });
         }
         
         function openCalendar() { document.getElementById('calendar-input').click(); }
@@ -163,7 +147,7 @@
         async function loadMatches() {
             const container = document.getElementById('matches-container');
             const empty = document.getElementById('empty-state');
-            container.innerHTML = '<div class="loading" style="padding:30px;text-align:center;">Loading...</div>';
+            container.innerHTML = '<div style="padding:30px;text-align:center;">Loading...</div>';
             
             let startDate, endDate;
             if (currentDate === 'today') { const r = typeof getTodayRange === 'function' ? getTodayRange() : null; startDate = r?.start || new Date(); endDate = r?.end || new Date(); }
@@ -175,28 +159,19 @@
             if (leagueId) query = query.where('leagueId', '==', parseInt(leagueId));
             query = query.orderBy('startTime');
             
-            const snap = await query.get();
-            allMatches = []; snap.forEach(d => allMatches.push(d.data()));
-            
-            if (allMatches.length === 0) { container.style.display = 'none'; empty.style.display = 'block'; return; }
-            container.style.display = 'block'; empty.style.display = 'none';
-            
-            const grouped = {};
-            allMatches.forEach(m => { const l = m.leagueName || 'Other'; if (!grouped[l]) grouped[l] = []; grouped[l].push(m); });
-            
-            container.innerHTML = '';
-            Object.keys(grouped).sort().forEach(league => {
-                const group = document.createElement('div'); group.className = 'league-group';
-                group.innerHTML = `<div class="league-header" onclick="toggleLeague(this)"><span>${league} (${grouped[league].length})</span><i class="fas fa-chevron-down"></i></div><div class="league-matches" id="league-${league.replace(/\s/g,'')}"></div>`;
-                container.appendChild(group);
-                const matchesDiv = group.querySelector('.league-matches');
-                grouped[league].forEach(m => matchesDiv.appendChild(createCard(m)));
-            });
-            
-            startCountdowns();
+            try {
+                const snap = await query.get();
+                allMatches = []; snap.forEach(d => allMatches.push(d.data()));
+                
+                if (allMatches.length === 0) { container.style.display = 'none'; empty.style.display = 'block'; return; }
+                container.style.display = 'block'; empty.style.display = 'none';
+                container.innerHTML = '';
+                allMatches.forEach(m => container.appendChild(createCard(m)));
+                startCountdowns();
+            } catch(e) {
+                container.innerHTML = '<div class="empty-state">Error loading matches</div>';
+            }
         }
-        
-        function toggleLeague(el) { el.classList.toggle('collapsed'); el.nextElementSibling.classList.toggle('collapsed'); }
         
         function getTeamColor(name) { let hash = 0; for (let i=0; i<name.length; i++) hash += name.charCodeAt(i); return 'hsl(' + (hash % 360) + ', 65%, 45%)'; }
         
@@ -212,7 +187,6 @@
                     <div class="team"><div class="team-initials" style="background:${getTeamColor(m.awayTeam.name)}">${m.awayTeam.name.substring(0,2).toUpperCase()}</div><div class="team-name">${m.awayTeam.name}</div></div>
                 </div>
                 <div class="countdown-box">
-                    <div class="countdown-label"><i class="far fa-clock"></i> <span class="en">Starts in</span><span class="ar" style="display:none;">يبدأ خلال</span></div>
                     <div class="countdown-value" id="${id}">--:--:--</div>
                     <div class="match-time">${time.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                 </div>
@@ -235,7 +209,6 @@
             }, 1000);
         }
         
-        window.toggleLeague = toggleLeague;
         window.openCalendar = openCalendar;
         window.refreshMatches = refreshMatches;
         window.addEventListener('beforeunload', () => { if (countdownInterval) clearInterval(countdownInterval); });
