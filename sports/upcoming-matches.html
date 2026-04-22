@@ -223,6 +223,7 @@
         .match-card:hover {
             transform: translateY(-2px);
             border-color: #00ff9d;
+            box-shadow: 0 4px 12px rgba(0, 255, 157, 0.15);
         }
 
         .match-teams {
@@ -238,8 +239,8 @@
         }
 
         .team-logo {
-            width: 55px;
-            height: 55px;
+            width: 60px;
+            height: 60px;
             margin: 0 auto 8px;
             display: flex;
             align-items: center;
@@ -289,9 +290,10 @@
 
         .countdown-value {
             color: #00ff9d;
-            font-size: 22px;
+            font-size: 24px;
             font-weight: 800;
             font-family: monospace;
+            letter-spacing: 2px;
         }
 
         .match-time {
@@ -329,14 +331,13 @@
             color: #9ca3af;
         }
 
-        .debug-info {
-            background: #1a1f2e;
-            padding: 10px;
-            border-radius: 10px;
-            font-size: 11px;
-            color: #ff9800;
-            margin-bottom: 15px;
-            display: none;
+        .stats-badge {
+            background: #00ff9d20;
+            color: #00ff9d;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-left: 10px;
         }
 
         [dir="rtl"] .back-btn i {
@@ -364,9 +365,9 @@
     
     <div class="container">
         <div class="date-tabs">
-            <button class="date-tab active" data-tab="today"><span class="en">📅 Today</span><span class="ar" style="display:none;">📅 اليوم</span></button>
-            <button class="date-tab" data-tab="tomorrow"><span class="en">⏩ Tomorrow</span><span class="ar" style="display:none;">⏩ الغد</span></button>
-            <button class="date-tab" data-tab="picker" onclick="openCalendar()"><i class="fas fa-calendar-alt"></i> <span class="en">Pick Date</span><span class="ar" style="display:none;">اختر تاريخ</span></button>
+            <button class="date-tab active" data-date="today"><span class="en">📅 Today</span><span class="ar" style="display:none;">📅 اليوم</span></button>
+            <button class="date-tab" data-date="tomorrow"><span class="en">⏩ Tomorrow</span><span class="ar" style="display:none;">⏩ الغد</span></button>
+            <button class="date-tab" id="pickDateBtn"><i class="fas fa-calendar-alt"></i> <span class="en">Pick Date</span><span class="ar" style="display:none;">اختر تاريخ</span></button>
             <input type="date" id="calendar-input" class="calendar-input">
         </div>
         
@@ -377,7 +378,6 @@
             <button class="refresh-btn" onclick="refreshMatches()"><i class="fas fa-sync-alt"></i></button>
         </div>
         
-        <div id="debug-info" class="debug-info"></div>
         <div id="matches-container"><div class="loading"><i class="fas fa-spinner fa-pulse"></i> <span class="en">Loading matches...</span><span class="ar" style="display:none;">جاري التحميل...</span></div></div>
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-calendar-times" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></i>
@@ -401,11 +401,11 @@
         const db = firebase.firestore();
         
         // Global State
-        let currentStartDate = null;
-        let currentEndDate = null;
+        let currentView = 'today';
+        let selectedDate = null;
         let allMatches = [];
         let countdownInterval = null;
-        let currentDateLabel = 'today';
+        let currentFilterLeague = 'all';
         
         // Language Toggle
         function toggleLanguage() {
@@ -429,11 +429,14 @@
         
         async function initApp() {
             await loadLeagues();
-            setupDateTabs();
+            setupDateButtons();
             await loadMatches();
+            setInterval(() => {
+                if (typeof forceUpdateStatus === 'function') forceUpdateStatus();
+            }, 30000);
         }
         
-        // Load Leagues
+        // Load Leagues from API
         async function loadLeagues() {
             const select = document.getElementById('league-select');
             try {
@@ -441,10 +444,13 @@
                 const data = await response.json();
                 if (data.success && Array.isArray(data.data)) {
                     data.data.forEach(league => {
-                        if (league.name) {
+                        if (league.league && league.league.name) {
                             const option = document.createElement('option');
-                            option.value = league.id;
-                            option.textContent = league.name;
+                            option.value = league.league.id;
+                            option.textContent = league.league.name;
+                            if (league.league.logo) {
+                                option.setAttribute('data-logo', league.league.logo);
+                            }
                             select.appendChild(option);
                         }
                     });
@@ -452,139 +458,133 @@
             } catch (error) {
                 console.warn('League API error:', error);
             }
-            select.onchange = () => loadMatches();
+            select.onchange = () => {
+                currentFilterLeague = select.value;
+                renderMatches();
+            };
         }
         
-        // Setup Date Tabs - FIXED VERSION
-        function setupDateTabs() {
-            const todayBtn = document.querySelector('[data-tab="today"]');
-            const tomorrowBtn = document.querySelector('[data-tab="tomorrow"]');
+        // Setup Date Buttons
+        function setupDateButtons() {
+            const todayBtn = document.querySelector('[data-date="today"]');
+            const tomorrowBtn = document.querySelector('[data-date="tomorrow"]');
+            const pickDateBtn = document.getElementById('pickDateBtn');
             const calendarInput = document.getElementById('calendar-input');
             
             todayBtn.addEventListener('click', () => {
-                setActiveTab(todayBtn);
-                currentDateLabel = 'today';
+                setActiveDateButton(todayBtn);
+                currentView = 'today';
+                selectedDate = null;
+                calendarInput.value = '';
                 loadMatches();
             });
             
             tomorrowBtn.addEventListener('click', () => {
-                setActiveTab(tomorrowBtn);
-                currentDateLabel = 'tomorrow';
+                setActiveDateButton(tomorrowBtn);
+                currentView = 'tomorrow';
+                selectedDate = null;
+                calendarInput.value = '';
                 loadMatches();
+            });
+            
+            pickDateBtn.addEventListener('click', () => {
+                calendarInput.click();
             });
             
             calendarInput.addEventListener('change', (e) => {
                 if (e.target.value) {
-                    setActiveTab(null);
-                    currentDateLabel = e.target.value;
+                    setActiveDateButton(null);
+                    currentView = 'custom';
+                    selectedDate = new Date(e.target.value);
                     loadMatches();
                 }
             });
         }
         
-        function setActiveTab(activeTab) {
-            document.querySelectorAll('.date-tab').forEach(tab => {
-                tab.classList.remove('active');
+        function setActiveDateButton(activeBtn) {
+            document.querySelectorAll('.date-tab').forEach(btn => {
+                btn.classList.remove('active');
             });
-            if (activeTab) activeTab.classList.add('active');
-        }
-        
-        function openCalendar() {
-            document.getElementById('calendar-input').click();
+            if (activeBtn) activeBtn.classList.add('active');
         }
         
         function refreshMatches() {
             loadMatches();
         }
         
-        // CRITICAL FIX: Get date range with proper UTC handling
+        // Get Date Range (Fixed for all timezones)
         function getDateRange() {
             const now = new Date();
             let startDate, endDate;
             
-            if (currentDateLabel === 'today') {
-                // Today from 00:00:00 to 23:59:59
+            if (currentView === 'today') {
                 startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
                 endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
             } 
-            else if (currentDateLabel === 'tomorrow') {
-                // Tomorrow from 00:00:00 to 23:59:59
+            else if (currentView === 'tomorrow') {
                 const tomorrow = new Date(now);
                 tomorrow.setDate(now.getDate() + 1);
                 startDate = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 0, 0, 0);
                 endDate = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 23, 59, 59);
             } 
-            else if (currentDateLabel && currentDateLabel !== 'today' && currentDateLabel !== 'tomorrow') {
-                // Custom date from calendar
-                const selectedDate = new Date(currentDateLabel);
+            else if (currentView === 'custom' && selectedDate) {
                 startDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0);
                 endDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 23, 59, 59);
             }
             
-            console.log('Date Range:', {
-                label: currentDateLabel,
-                start: startDate,
-                end: endDate,
-                startISO: startDate?.toISOString(),
-                endISO: endDate?.toISOString()
-            });
-            
             return { startDate, endDate };
         }
         
-        // Load matches with fixed query
+        // Load Matches from Firestore
         async function loadMatches() {
             const container = document.getElementById('matches-container');
             const emptyDiv = document.getElementById('empty-state');
-            const debugDiv = document.getElementById('debug-info');
             
             container.style.display = 'block';
-            container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-pulse"></i> Loading...</div>';
+            container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-pulse"></i> Loading matches...</div>';
             emptyDiv.style.display = 'none';
-            debugDiv.style.display = 'none';
             
             const range = getDateRange();
-            if (!range || !range.startDate || !range.endDate) {
-                console.error('Invalid date range');
-                return;
-            }
+            if (!range) return;
             
             const { startDate, endDate } = range;
-            const leagueFilter = document.getElementById('league-select').value;
             
             try {
-                // Build query - FIX: Use proper Firestore Timestamp comparison
+                // Create Firestore timestamps
+                const startTimestamp = firebase.firestore.Timestamp.fromDate(startDate);
+                const endTimestamp = firebase.firestore.Timestamp.fromDate(endDate);
+                
+                console.log(`Querying matches from ${startDate.toLocaleString()} to ${endDate.toLocaleString()}`);
+                
+                // Build query - get ALL matches in date range regardless of status
+                // Then filter for upcoming only
                 let query = db.collection('sports_matches')
-                    .where('status', '==', 'upcoming');
+                    .where('startTime', '>=', startTimestamp)
+                    .where('startTime', '<=', endTimestamp);
                 
-                // Add date filters
-                query = query.where('startTime', '>=', firebase.firestore.Timestamp.fromDate(startDate));
-                query = query.where('startTime', '<=', firebase.firestore.Timestamp.fromDate(endDate));
+                const snapshot = await query.orderBy('startTime', 'asc').get();
                 
-                // Add league filter if needed
-                if (leagueFilter && leagueFilter !== 'all') {
-                    query = query.where('leagueId', '==', parseInt(leagueFilter));
-                }
-                
-                query = query.orderBy('startTime', 'asc');
-                
-                const snapshot = await query.get();
                 allMatches = [];
-                
                 snapshot.forEach(doc => {
                     const match = doc.data();
-                    if (match.homeTeam && match.awayTeam && match.startTime) {
+                    // Filter for upcoming matches (status === 'upcoming' or startTime > now)
+                    const matchTime = match.startTime?.toDate();
+                    const isUpcoming = match.status === 'upcoming' || (matchTime && matchTime > new Date());
+                    
+                    if (match.homeTeam && match.awayTeam && match.startTime && isUpcoming) {
                         match.id = doc.id;
                         allMatches.push(match);
                     }
                 });
                 
-                console.log(`Found ${allMatches.length} matches for ${currentDateLabel}`);
+                console.log(`Found ${allMatches.length} upcoming matches for ${currentView}`);
                 
-                // Show debug info
-                if (allMatches.length === 0) {
-                    debugDiv.style.display = 'block';
-                    debugDiv.innerHTML = `📊 Debug: No matches found for ${currentDateLabel}. Date range: ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`;
+                // Apply league filter
+                if (currentFilterLeague !== 'all') {
+                    const filtered = allMatches.filter(m => m.leagueId == currentFilterLeague);
+                    if (filtered.length > 0) {
+                        allMatches = filtered;
+                    }
                 }
                 
                 if (allMatches.length === 0) {
@@ -605,8 +605,9 @@
         
         function renderMatches() {
             const container = document.getElementById('matches-container');
-            const grouped = {};
             
+            // Group by league
+            const grouped = {};
             allMatches.forEach(match => {
                 const leagueName = match.leagueName || 'Other Leagues';
                 if (!grouped[leagueName]) grouped[leagueName] = [];
@@ -615,13 +616,14 @@
             
             container.innerHTML = '';
             
+            // Sort leagues alphabetically
             Object.keys(grouped).sort().forEach(league => {
                 const leagueDiv = document.createElement('div');
                 leagueDiv.className = 'league-group';
                 const leagueKey = league.replace(/[^a-zA-Z0-9]/g, '_');
                 leagueDiv.innerHTML = `
                     <div class="league-header" onclick="toggleLeague(this)">
-                        <span><i class="fas fa-trophy"></i> ${league} (${grouped[league].length})</span>
+                        <span><i class="fas fa-trophy"></i> ${league} <span class="stats-badge">${grouped[league].length} matches</span></span>
                         <i class="fas fa-chevron-down"></i>
                     </div>
                     <div class="league-matches" id="league-${leagueKey}"></div>
@@ -644,12 +646,12 @@
             
             const matchTime = match.startTime.toDate();
             const formattedTime = matchTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            const formattedDate = matchTime.toLocaleDateString();
+            const formattedDate = matchTime.toLocaleDateString([], { month: 'short', day: 'numeric' });
             const countdownId = `cd_${match.id}`;
             
             // Team logos with fallback
-            const homeLogo = match.homeTeam?.logo || `https://ui-avatars.com/api/?background=00ff9d&color=000&name=${encodeURIComponent(match.homeTeam?.name?.substring(0,2) || 'T1')}`;
-            const awayLogo = match.awayTeam?.logo || `https://ui-avatars.com/api/?background=00ff9d&color=000&name=${encodeURIComponent(match.awayTeam?.name?.substring(0,2) || 'T2')}`;
+            const homeLogo = match.homeTeam?.logo || `https://ui-avatars.com/api/?background=1a2332&color=00ff9d&name=${encodeURIComponent(match.homeTeam?.name?.substring(0,2) || 'T1')}`;
+            const awayLogo = match.awayTeam?.logo || `https://ui-avatars.com/api/?background=1a2332&color=00ff9d&name=${encodeURIComponent(match.awayTeam?.name?.substring(0,2) || 'T2')}`;
             
             card.innerHTML = `
                 <div class="match-teams">
@@ -670,7 +672,7 @@
                 <div class="countdown-box">
                     <div class="countdown-label"><i class="far fa-clock"></i> STARTS IN</div>
                     <div class="countdown-value" id="${countdownId}">--:--:--</div>
-                    <div class="match-time"><i class="far fa-calendar-alt"></i> ${formattedDate} at ${formattedTime}</div>
+                    <div class="match-time"><i class="far fa-calendar-alt"></i> ${formattedDate} • ${formattedTime}</div>
                 </div>
                 <div class="odds">
                     <div class="odd">1 <span class="odd-value">${match.odds?.home || '2.00'}</span></div>
@@ -692,22 +694,20 @@
                 const now = new Date().getTime();
                 let needRefresh = false;
                 
-                document.querySelectorAll('.match-card').forEach(card => {
-                    const matchTimeAttr = card.getAttribute('data-match-time');
-                    if (matchTimeAttr) {
-                        const diff = parseInt(matchTimeAttr) - now;
-                        const countdownSpan = card.querySelector('.countdown-value');
-                        
-                        if (countdownSpan) {
-                            if (diff <= 0) {
-                                countdownSpan.textContent = '00:00:00';
-                                needRefresh = true;
-                            } else {
-                                const hours = Math.floor(diff / 3600000);
-                                const minutes = Math.floor((diff % 3600000) / 60000);
-                                const seconds = Math.floor((diff % 60000) / 1000);
-                                countdownSpan.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-                            }
+                allMatches.forEach(match => {
+                    const matchTime = match.startTime.toDate().getTime();
+                    const diff = matchTime - now;
+                    const countdownSpan = document.getElementById(`cd_${match.id}`);
+                    
+                    if (countdownSpan) {
+                        if (diff <= 0) {
+                            countdownSpan.textContent = '00:00:00';
+                            needRefresh = true;
+                        } else {
+                            const hours = Math.floor(diff / 3600000);
+                            const minutes = Math.floor((diff % 3600000) / 60000);
+                            const seconds = Math.floor((diff % 60000) / 1000);
+                            countdownSpan.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
                         }
                     }
                 });
@@ -721,6 +721,7 @@
             countdownInterval = setInterval(updateCountdowns, 1000);
         }
         
+        // Global functions
         window.toggleLeague = function(element) {
             element.classList.toggle('collapsed');
             const matchesDiv = element.nextElementSibling;
@@ -729,7 +730,6 @@
             }
         };
         
-        window.openCalendar = openCalendar;
         window.refreshMatches = refreshMatches;
         window.toggleLanguage = toggleLanguage;
         
