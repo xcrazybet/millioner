@@ -28,16 +28,15 @@
         .date-tab.active { background: #00ff9d; color: black; }
         .calendar-input { position: absolute; opacity: 0; width: 0; height: 0; }
         
-        .league-section { margin-bottom: 20px; }
-        .league-select { width: 100%; padding: 15px; background: #111827; border: 1px solid #ffffff22; border-radius: 10px; color: white; font-size: 14px; margin-bottom: 15px; }
-        .show-all-btn { width: 100%; padding: 12px; background: transparent; border: 2px dashed #00ff9d; border-radius: 10px; color: #00ff9d; font-weight: 600; cursor: pointer; }
+        .league-section { margin-bottom: 15px; }
+        .league-select { width: 100%; padding: 15px; background: #111827; border: 1px solid #ffffff22; border-radius: 10px; color: white; font-size: 14px; }
         
         .league-group { margin-bottom: 25px; }
         .league-header { color: #00ff9d; font-size: 16px; font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #00ff9d33; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
         .league-header i { transition: transform 0.3s; }
         .league-header.collapsed i { transform: rotate(-90deg); }
         .league-matches { transition: max-height 0.3s; overflow: hidden; }
-        .league-matches.collapsed { max-height: 0; }
+        .league-matches.collapsed { display: none; }
         
         .match-card { background: #111827; border-radius: 12px; padding: 15px; margin-bottom: 10px; border-left: 4px solid #00ff9d; cursor: pointer; }
         .match-teams { display: flex; align-items: center; justify-content: space-around; margin: 10px 0; }
@@ -45,13 +44,17 @@
         .team-initials { width: 40px; height: 40px; margin: 0 auto 5px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; }
         .team-name { font-weight: 600; font-size: 13px; }
         .vs { color: #ff9800; font-weight: bold; }
-        .match-time { color: #a0a8c9; font-size: 12px; margin-top: 8px; }
+        .countdown-box { background: #1a2332; border-radius: 8px; padding: 10px; margin-top: 10px; text-align: center; }
+        .countdown-label { color: #a0a8c9; font-size: 11px; }
+        .countdown-value { color: #00ff9d; font-size: 18px; font-weight: bold; }
+        .match-time { color: #a0a8c9; font-size: 12px; margin-top: 5px; }
         .odds { display: flex; gap: 8px; margin-top: 12px; }
         .odd { flex: 1; text-align: center; padding: 8px; background: #0a0f1a; border-radius: 6px; }
         .odd-value { color: #00ff9d; font-weight: bold; }
         
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
         .loading { text-align: center; padding: 30px; color: #a0a8c9; }
+        .refresh-btn { background: transparent; border: 1px solid #00ff9d; color: #00ff9d; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 12px; }
         .arabic { font-family: 'Tajawal', sans-serif; }
     </style>
 </head>
@@ -81,14 +84,15 @@
             <input type="date" id="calendar-input" class="calendar-input">
         </div>
         
-        <div class="league-section">
-            <select id="league-select" class="league-select">
-                <option value=""><span class="en">-- Select League --</span><span class="ar" style="display:none;">-- اختر الدوري --</span></option>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <select id="league-select" class="league-select" style="flex:1; margin-right:10px;">
+                <option value=""><span class="en">All Leagues</span><span class="ar" style="display:none;">جميع الدوريات</span></option>
             </select>
-            <button class="show-all-btn" onclick="loadAllLeagues()"><i class="fas fa-globe"></i> <span class="en">Show All Leagues</span><span class="ar" style="display:none;">عرض جميع الدوريات</span></button>
+            <button class="refresh-btn" onclick="refreshMatches()"><i class="fas fa-sync-alt"></i></button>
         </div>
         
-        <div id="matches-container"><div class="loading"><span class="en">Select a league to view matches</span><span class="ar" style="display:none;">اختر الدوري لعرض المباريات</span></div></div>
+        <div id="matches-container"><div class="loading"><span class="en">Loading matches...</span><span class="ar" style="display:none;">جاري التحميل...</span></div></div>
+        <div id="empty-state" class="empty-state" style="display:none;"><span class="en">No matches found</span><span class="ar" style="display:none;">لا توجد مباريات</span></div>
     </div>
 
     <script src="../js/sports-api.js"></script>
@@ -114,31 +118,35 @@
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth(), db = firebase.firestore();
         
-        let currentDate = 'today', allMatches = [], selectedLeague = '';
+        let currentDate = 'today', allMatches = [], countdownInterval;
         
         auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else init(); });
         
         async function init() {
             await loadLeagues();
             setupTabs();
+            loadMatches();
             setInterval(() => { if (typeof forceUpdateStatus === 'function') forceUpdateStatus(); }, 30000);
         }
         
         async function loadLeagues() {
             const select = document.getElementById('league-select');
-            if (typeof getLeagues === 'function') {
-                const leagues = await getLeagues();
-                leagues.sort((a,b) => (a.name||'').localeCompare(b.name||''));
-                leagues.forEach(l => {
-                    if (l.name) {
-                        const opt = document.createElement('option');
-                        opt.value = l.id;
-                        opt.textContent = l.name;
-                        select.appendChild(opt);
-                    }
-                });
-            }
-            select.onchange = function() { if (this.value) { selectedLeague = this.value; loadMatches(); } };
+            try {
+                const response = await fetch('https://millioner.onrender.com/api/leagues');
+                const data = await response.json();
+                if (data.success && data.data) {
+                    data.data.sort((a,b) => (a.name||'').localeCompare(b.name||''));
+                    data.data.forEach(l => {
+                        if (l.name) {
+                            const opt = document.createElement('option');
+                            opt.value = l.id;
+                            opt.textContent = l.name;
+                            select.appendChild(opt);
+                        }
+                    });
+                }
+            } catch(e) { console.error('Error loading leagues:', e); }
+            select.onchange = () => loadMatches();
         }
         
         function setupTabs() {
@@ -147,36 +155,36 @@
                     document.querySelectorAll('.date-tab').forEach(x => x.classList.remove('active'));
                     this.classList.add('active');
                     currentDate = this.dataset.tab;
-                    if (selectedLeague) loadMatches();
+                    loadMatches();
                 });
             });
             document.getElementById('calendar-input').addEventListener('change', function(e) {
                 if (e.target.value) {
                     document.querySelectorAll('.date-tab').forEach(x => x.classList.remove('active'));
                     currentDate = e.target.value;
-                    if (selectedLeague) loadMatches();
+                    loadMatches();
                 }
             });
         }
         
         function openCalendar() { document.getElementById('calendar-input').click(); }
-        
-        async function loadAllLeagues() {
-            selectedLeague = '';
-            document.getElementById('league-select').value = '';
-            await loadMatches();
-        }
+        function refreshMatches() { loadMatches(); if (typeof syncNow === 'function') syncNow(); }
         
         async function loadMatches() {
             const container = document.getElementById('matches-container');
+            const empty = document.getElementById('empty-state');
             container.innerHTML = '<div class="loading">Loading...</div>';
+            container.style.display = 'block';
+            empty.style.display = 'none';
             
             let startDate, endDate;
+            const today = new Date(); today.setHours(0,0,0,0);
+            
             if (currentDate === 'today') {
-                startDate = new Date(); startDate.setHours(0,0,0,0);
-                endDate = new Date(); endDate.setHours(23,59,59,999);
+                startDate = today;
+                endDate = new Date(today); endDate.setHours(23,59,59,999);
             } else if (currentDate === 'tomorrow') {
-                startDate = new Date(); startDate.setDate(startDate.getDate()+1); startDate.setHours(0,0,0,0);
+                startDate = new Date(today); startDate.setDate(today.getDate()+1);
                 endDate = new Date(startDate); endDate.setHours(23,59,59,999);
             } else {
                 startDate = new Date(currentDate); startDate.setHours(0,0,0,0);
@@ -184,14 +192,16 @@
             }
             
             let query = db.collection('sports_matches').where('status', '==', 'upcoming').where('startTime', '>=', startDate).where('startTime', '<=', endDate);
-            if (selectedLeague) query = query.where('leagueId', '==', parseInt(selectedLeague));
+            const leagueId = document.getElementById('league-select').value;
+            if (leagueId) query = query.where('leagueId', '==', parseInt(leagueId));
             query = query.orderBy('startTime');
             
             const snap = await query.get();
             allMatches = []; snap.forEach(d => allMatches.push(d.data()));
             
             if (allMatches.length === 0) {
-                container.innerHTML = '<div class="empty-state">No matches found</div>';
+                container.style.display = 'none';
+                empty.style.display = 'block';
                 return;
             }
             
@@ -206,6 +216,8 @@
                 const matchesDiv = group.querySelector('.league-matches');
                 grouped[league].forEach(m => matchesDiv.appendChild(createCard(m)));
             });
+            
+            startCountdowns();
         }
         
         function toggleLeague(el) {
@@ -222,21 +234,44 @@
             const card = document.createElement('div'); card.className = 'match-card';
             card.onclick = () => location.href = 'match-details.html?id=' + m.fixtureId;
             const time = m.startTime.toDate();
+            const id = 'cd-' + m.fixtureId;
             card.innerHTML = `
                 <div class="match-teams">
                     <div class="team"><div class="team-initials" style="background:${getTeamColor(m.homeTeam.name)}">${m.homeTeam.name.substring(0,2).toUpperCase()}</div><div class="team-name">${m.homeTeam.name}</div></div>
                     <div class="vs">VS</div>
                     <div class="team"><div class="team-initials" style="background:${getTeamColor(m.awayTeam.name)}">${m.awayTeam.name.substring(0,2).toUpperCase()}</div><div class="team-name">${m.awayTeam.name}</div></div>
                 </div>
-                <div class="match-time"><i class="far fa-clock"></i> ${time.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                <div class="countdown-box">
+                    <div class="countdown-label"><i class="far fa-clock"></i> <span class="en">Starts in</span><span class="ar" style="display:none;">يبدأ خلال</span></div>
+                    <div class="countdown-value" id="${id}">--:--:--</div>
+                    <div class="match-time">${time.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                </div>
                 <div class="odds"><div class="odd">1 <span class="odd-value">${m.odds?.home||'2.00'}</span></div><div class="odd">X <span class="odd-value">${m.odds?.draw||'3.50'}</span></div><div class="odd">2 <span class="odd-value">${m.odds?.away||'3.80'}</span></div></div>
             `;
             return card;
         }
         
-        window.loadAllLeagues = loadAllLeagues;
-        window.openCalendar = openCalendar;
+        function startCountdowns() {
+            if (countdownInterval) clearInterval(countdownInterval);
+            countdownInterval = setInterval(() => {
+                allMatches.forEach(m => {
+                    const el = document.getElementById('cd-' + m.fixtureId);
+                    if (el) {
+                        const diff = m.startTime.toDate() - new Date();
+                        if (diff <= 0) { el.textContent = '00:00:00'; refreshMatches(); }
+                        else {
+                            const h = Math.floor(diff / 3600000), mn = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
+                            el.textContent = `${h.toString().padStart(2,'0')}:${mn.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+                        }
+                    }
+                });
+            }, 1000);
+        }
+        
         window.toggleLeague = toggleLeague;
+        window.openCalendar = openCalendar;
+        window.refreshMatches = refreshMatches;
+        window.addEventListener('beforeunload', () => { if (countdownInterval) clearInterval(countdownInterval); });
     </script>
 </body>
 </html>
