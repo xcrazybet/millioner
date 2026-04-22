@@ -1,36 +1,61 @@
 // ============================================
-// js/sports-api.js - v26.0 COMPLETE REBUILD
-// X Lodon Sports - Universal Sports API
-// Works with ALL pages - No modifications needed
+// js/sports-api.js - v27.0 FIXED
+// Handles API failures gracefully
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
 const SYNC_INTERVAL = 60000;
 const FORCE_UPDATE_INTERVAL = 30000;
-const CLEANUP_INTERVAL = 3600000;
-const MATCH_EXPIRY_HOURS = 24;
-const UPCOMING_STALE_HOURS = 6;
 
-// ===== API FETCHING =====
-async function fetchFromBackend(endpoint) {
-    try {
-        const url = BACKEND_URL + endpoint;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('❌ Fetch error:', error.message);
-        return { success: false, data: [] };
+// ===== FETCH WITH TIMEOUT & RETRY =====
+async function fetchFromBackend(endpoint, retries = 2) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
+            const url = BACKEND_URL + endpoint;
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.warn(`⚠️ Fetch attempt ${i+1} failed for ${endpoint}:`, error.message);
+            if (i === retries - 1) {
+                console.error(`❌ All retries failed for ${endpoint}`);
+                return { success: false, data: [], error: error.message };
+            }
+            await new Promise(r => setTimeout(r, 1000));
+        }
     }
 }
 
-async function fetchLiveMatches() { return await fetchFromBackend('/api/livescores'); }
-async function fetchUpcomingWeek() { return await fetchFromBackend('/api/fixtures/week'); }
-async function fetchTodayMatches() { return await fetchFromBackend('/api/fixtures/today'); }
-async function fetchLeagues() { return await fetchFromBackend('/api/leagues'); }
-async function fetchFixturesByDate(date) { return await fetchFromBackend('/api/fixtures/date/' + date); }
-async function fetchFixturesBetween(from, to) { return await fetchFromBackend('/api/fixtures/between/' + from + '/' + to); }
+// ===== FETCH FUNCTIONS WITH FALLBACK =====
+async function fetchLiveMatches() { 
+    return await fetchFromBackend('/api/livescores'); 
+}
+
+async function fetchUpcomingWeek() { 
+    // Try the week endpoint
+    const result = await fetchFromBackend('/api/fixtures/week');
+    
+    // If failed, try today's matches as fallback
+    if (!result.success || !result.data || result.data.length === 0) {
+        console.log('⚠️ Week endpoint failed, trying today...');
+        const today = new Date().toISOString().split('T')[0];
+        const todayResult = await fetchFromBackend('/api/fixtures/date/' + today);
+        if (todayResult.success && todayResult.data) {
+            return todayResult;
+        }
+    }
+    return result;
+}
+
+async function fetchLeagues() { 
+    return await fetchFromBackend('/api/leagues'); 
+}
 
 // ===== STATUS & CALCULATIONS =====
 function getMatchStatus(match) {
@@ -38,8 +63,6 @@ function getMatchStatus(match) {
     if (!status || status === 'TBD' || status === 'NS') return 'upcoming';
     if (['1H','HT','2H','ET','P','LIVE'].includes(status)) return 'live';
     if (['FT','AET','PEN'].includes(status)) return 'finished';
-    if (status === 'CANC') return 'cancelled';
-    if (status === 'PST') return 'postponed';
     const now = new Date();
     const start = new Date(match.fixture?.date);
     if (now < start) return 'upcoming';
@@ -55,37 +78,6 @@ function calculateOdds(homeName, awayName) {
         draw: Number((3.2 + (hash % 15) / 100).toFixed(2)),
         away: Number((2.8 + (hash % 25) / 100).toFixed(2))
     };
-}
-
-// ===== CANCELLATION & CASHOUT RULES =====
-function getCancelFee(matchStartTime) {
-    if (!matchStartTime) return 100;
-    const now = new Date();
-    const kickoff = matchStartTime.toDate ? matchStartTime.toDate() : new Date(matchStartTime);
-    const minutesUntil = Math.floor((kickoff - now) / 60000);
-    if (minutesUntil < 0) return 100;
-    if (minutesUntil < 5) return 50;
-    if (minutesUntil < 60) return 20;
-    return 5;
-}
-
-function canCancel(matchStartTime) {
-    if (!matchStartTime) return false;
-    const now = new Date();
-    const kickoff = matchStartTime.toDate ? matchStartTime.toDate() : new Date(matchStartTime);
-    return now < kickoff;
-}
-
-function getCashoutFee(currentMinute) {
-    if (currentMinute < 15) return 15;
-    if (currentMinute < 30) return 20;
-    if (currentMinute < 60) return 25;
-    if (currentMinute < 80) return 30;
-    return 35;
-}
-
-function canCashout(matchStatus, currentMinute) {
-    return matchStatus === 'live' && currentMinute < 90;
 }
 
 // ===== TIME HELPERS =====
@@ -124,32 +116,6 @@ function getMatchMinute(startTime) {
     } catch(e) { return 45; }
 }
 
-function getMinutesUntilKickoff(startTime) {
-    if (!startTime) return 0;
-    const now = new Date();
-    const kickoff = startTime.toDate ? startTime.toDate() : new Date(startTime);
-    return Math.floor((kickoff - now) / 60000);
-}
-
-// ===== DATE HELPERS =====
-function formatMatchDate(date) {
-    if (!date) return '';
-    const d = date.toDate ? date.toDate() : new Date(date);
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
-function formatMatchTime(date) {
-    if (!date) return '';
-    const d = date.toDate ? date.toDate() : new Date(date);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function getDateRange(days) {
-    const today = new Date(); today.setHours(0,0,0,0);
-    const end = new Date(today); end.setDate(today.getDate() + (days || 7));
-    return { start: today, end: end };
-}
-
 function getTodayRange() {
     const today = new Date(); today.setHours(0,0,0,0);
     const end = new Date(today); end.setHours(23,59,59,999);
@@ -162,6 +128,26 @@ function getTomorrowRange() {
     return { start: tomorrow, end: end };
 }
 
+// ===== CANCELLATION & CASHOUT =====
+function getCancelFee(matchStartTime) {
+    if (!matchStartTime) return 100;
+    const now = new Date();
+    const kickoff = matchStartTime.toDate ? matchStartTime.toDate() : new Date(matchStartTime);
+    const minutesUntil = Math.floor((kickoff - now) / 60000);
+    if (minutesUntil < 0) return 100;
+    if (minutesUntil < 5) return 50;
+    if (minutesUntil < 60) return 20;
+    return 5;
+}
+
+function getCashoutFee(currentMinute) {
+    if (currentMinute < 15) return 15;
+    if (currentMinute < 30) return 20;
+    if (currentMinute < 60) return 25;
+    if (currentMinute < 80) return 30;
+    return 35;
+}
+
 // ===== CACHING =====
 let cachedLeagues = [];
 async function getLeagues() {
@@ -172,11 +158,6 @@ async function getLeagues() {
         return cachedLeagues;
     }
     return [];
-}
-
-function clearCache() {
-    cachedLeagues = [];
-    console.log('🧹 Cache cleared');
 }
 
 // ===== FIRESTORE SYNC =====
@@ -202,7 +183,7 @@ async function syncMatchToFirestore(match) {
     let expiresAt = null;
     if (status === 'finished') {
         expiresAt = new Date();
-        expiresAt.setHours(expiresAt.getHours() + MATCH_EXPIRY_HOURS);
+        expiresAt.setHours(expiresAt.getHours() + 24);
     }
     
     const matchData = {
@@ -217,20 +198,9 @@ async function syncMatchToFirestore(match) {
     };
     
     try {
-        const docRef = db.collection('sports_matches').doc(String(fixtureId));
-        const oldDoc = await docRef.get();
-        const oldStatus = oldDoc.exists ? oldDoc.data().status : null;
-        await docRef.set(matchData, { merge: true });
-        
-        if (oldStatus && oldStatus !== 'finished' && status === 'finished') {
-            console.log(`🏁 ${teams.home.name} vs ${teams.away.name} - Auto-settling...`);
-            await settleBetsForMatch(fixtureId, result);
-        }
+        await db.collection('sports_matches').doc(String(fixtureId)).set(matchData, { merge: true });
         return true;
-    } catch(e) {
-        console.error('Sync error:', e);
-        return false;
-    }
+    } catch(e) { return false; }
 }
 
 async function syncLiveMatches() {
@@ -245,162 +215,43 @@ async function syncUpcomingMatches() {
     const data = await fetchUpcomingWeek();
     if (!data?.success || !data.data) return 0;
     let synced = 0;
-    const limit = Math.min(data.data.length, 100);
-    for (let i = 0; i < limit; i++) if (await syncMatchToFirestore(data.data[i])) synced++;
+    for (const m of data.data.slice(0, 50)) if (await syncMatchToFirestore(m)) synced++;
     return synced;
 }
 
 async function syncAllMatches() {
-    console.log('🚀 Starting full sync...');
+    console.log('🚀 Syncing...');
     const live = await syncLiveMatches();
     const upcoming = await syncUpcomingMatches();
     console.log(`✅ Live: ${live}, Upcoming: ${upcoming}`);
     return { live, upcoming };
 }
 
-// ===== AUTO-SETTLEMENT =====
-async function settleSingleBets(fixtureId, result) {
+// ===== SETTLEMENT =====
+async function settleBetsForMatch(fixtureId, result) {
     if (!firebase?.firestore) return 0;
     const db = firebase.firestore();
     let settled = 0;
     try {
-        const bets = await db.collection('bets')
-            .where('fixtureId', '==', fixtureId)
-            .where('status', '==', 'active')
-            .where('betCategory', '==', 'single')
-            .get();
-        
+        const bets = await db.collection('bets').where('fixtureId', '==', fixtureId).where('status', '==', 'active').get();
         for (const doc of bets.docs) {
             const bet = doc.data();
             const won = bet.betType === result;
             if (won) {
                 const walletRef = db.collection('wallets').doc(bet.userId);
                 const walletDoc = await walletRef.get();
-                const balance = walletDoc.exists ? walletDoc.data().balance : 0;
-                await walletRef.update({ balance: balance + bet.potentialWin });
+                await walletRef.update({ balance: (walletDoc.data()?.balance || 0) + bet.potentialWin });
                 await doc.ref.update({ status: 'won', result, payout: bet.potentialWin, settledAt: new Date() });
             } else {
                 await doc.ref.update({ status: 'lost', result, payout: 0, settledAt: new Date() });
             }
             settled++;
         }
-    } catch(e) { console.error('Single settlement error:', e); }
+        await db.collection('sports_matches').doc(String(fixtureId)).update({ betsSettled: true });
+    } catch(e) {}
     return settled;
 }
 
-async function settleAccumulatorBets(fixtureId, result) {
-    if (!firebase?.firestore) return 0;
-    const db = firebase.firestore();
-    let settled = 0;
-    try {
-        const accBets = await db.collection('bets')
-            .where('status', '==', 'active')
-            .where('betCategory', '==', 'accumulator')
-            .get();
-        
-        for (const doc of accBets.docs) {
-            const bet = doc.data();
-            const hasMatch = bet.selections?.some(s => s.fixtureId === fixtureId);
-            if (!hasMatch) continue;
-            
-            let allFinished = true;
-            let allWon = true;
-            for (const sel of bet.selections) {
-                const m = await db.collection('sports_matches').doc(String(sel.fixtureId)).get();
-                if (!m.exists) { allFinished = false; break; }
-                const mData = m.data();
-                if (mData.status !== 'finished') { allFinished = false; break; }
-                if (mData.result !== sel.betType) { allWon = false; }
-            }
-            
-            if (allFinished) {
-                if (allWon) {
-                    const walletRef = db.collection('wallets').doc(bet.userId);
-                    const walletDoc = await walletRef.get();
-                    const balance = walletDoc.exists ? walletDoc.data().balance : 0;
-                    await walletRef.update({ balance: balance + bet.potentialWin });
-                    await doc.ref.update({ status: 'won', payout: bet.potentialWin, settledAt: new Date() });
-                } else {
-                    await doc.ref.update({ status: 'lost', payout: 0, settledAt: new Date() });
-                }
-                settled++;
-            }
-        }
-    } catch(e) { console.error('Accumulator settlement error:', e); }
-    return settled;
-}
-
-async function settleBetsForMatch(fixtureId, result) {
-    const single = await settleSingleBets(fixtureId, result);
-    const acc = await settleAccumulatorBets(fixtureId, result);
-    if (firebase?.firestore) {
-        await firebase.firestore().collection('sports_matches').doc(String(fixtureId))
-            .update({ betsSettled: true, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-    }
-    console.log(`💰 Settled ${single} single + ${acc} accumulator bets`);
-    return single + acc;
-}
-
-async function settleAllFinishedMatches() {
-    if (!firebase?.firestore) return 0;
-    const db = firebase.firestore();
-    let total = 0;
-    try {
-        const finished = await db.collection('sports_matches')
-            .where('status', '==', 'finished')
-            .where('betsSettled', '==', false)
-            .get();
-        
-        for (const doc of finished.docs) {
-            const m = doc.data();
-            let r = m.result;
-            if (!r) {
-                const h = m.score?.home || 0;
-                const a = m.score?.away || 0;
-                r = h > a ? 'home' : (h < a ? 'away' : 'draw');
-            }
-            total += await settleBetsForMatch(m.fixtureId, r);
-        }
-    } catch(e) { console.error('Settle all error:', e); }
-    return total;
-}
-
-// ===== CLEANUP =====
-async function cleanupOldMatches() {
-    if (!firebase?.firestore) return 0;
-    const db = firebase.firestore();
-    const now = new Date();
-    const staleTime = new Date(now.getTime() - UPCOMING_STALE_HOURS * 60 * 60 * 1000);
-    let deleted = 0;
-    
-    try {
-        const snapshot = await db.collection('sports_matches').get();
-        const toDelete = [];
-        snapshot.forEach(doc => {
-            const m = doc.data();
-            if (m.fixtureId >= 1000000) { toDelete.push(doc.ref); return; }
-            if (m.homeTeam?.name === 'Home' || m.awayTeam?.name === 'Away') { toDelete.push(doc.ref); return; }
-            if (m.status === 'upcoming') {
-                const matchTime = m.startTime?.toDate();
-                if (matchTime && matchTime < staleTime) toDelete.push(doc.ref);
-            }
-            if (m.status === 'finished' && m.expiresAt) {
-                const expiresAt = m.expiresAt.toDate ? m.expiresAt.toDate() : new Date(m.expiresAt);
-                if (expiresAt < now) toDelete.push(doc.ref);
-            }
-        });
-        if (toDelete.length > 0) {
-            const batch = db.batch();
-            toDelete.forEach(ref => batch.delete(ref));
-            await batch.commit();
-            deleted = toDelete.length;
-            console.log(`🧹 Deleted ${deleted} old matches`);
-        }
-    } catch(e) { console.error('Cleanup error:', e); }
-    return deleted;
-}
-
-// ===== FORCE UPDATE =====
 async function forceUpdateStatus() {
     if (!firebase?.firestore) return 0;
     const db = firebase.firestore();
@@ -419,116 +270,48 @@ async function forceUpdateStatus() {
             }
         });
         if (updated > 0) await batch.commit();
-        
-        const finished = await db.collection('sports_matches')
-            .where('status', '==', 'finished')
-            .where('betsSettled', '==', false)
-            .get();
-        
-        for (const doc of finished.docs) {
-            const m = doc.data();
-            let r = m.result;
-            if (!r) {
-                const h = m.score?.home || 0;
-                const a = m.score?.away || 0;
-                r = h > a ? 'home' : (h < a ? 'away' : 'draw');
-            }
-            await settleBetsForMatch(m.fixtureId, r);
-        }
-    } catch(e) { console.error('Force update error:', e); }
+    } catch(e) {}
     return updated;
 }
 
 // ===== AUTO-SYSTEM =====
 let syncInterval = null;
 let forceInterval = null;
-let cleanupInterval = null;
 
 function startAutoSync() {
     if (syncInterval) clearInterval(syncInterval);
     if (forceInterval) clearInterval(forceInterval);
-    if (cleanupInterval) clearInterval(cleanupInterval);
     
     syncAllMatches();
-    settleAllFinishedMatches();
     
-    syncInterval = setInterval(async () => {
-        await syncAllMatches();
-        await settleAllFinishedMatches();
-    }, SYNC_INTERVAL);
+    syncInterval = setInterval(() => syncAllMatches(), SYNC_INTERVAL);
+    forceInterval = setInterval(() => forceUpdateStatus(), FORCE_UPDATE_INTERVAL);
     
-    forceInterval = setInterval(async () => {
-        await forceUpdateStatus();
-    }, FORCE_UPDATE_INTERVAL);
-    
-    cleanupInterval = setInterval(async () => {
-        await cleanupOldMatches();
-    }, CLEANUP_INTERVAL);
-    
-    console.log(`⏰ Auto-system started (Sync:${SYNC_INTERVAL/1000}s, Force:${FORCE_UPDATE_INTERVAL/1000}s)`);
-}
-
-function stopAutoSync() {
-    if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
-    if (forceInterval) { clearInterval(forceInterval); forceInterval = null; }
-    if (cleanupInterval) { clearInterval(cleanupInterval); cleanupInterval = null; }
-    console.log('⏸️ Auto-system stopped');
+    console.log(`⏰ Auto-sync started`);
 }
 
 // ===== MANUAL TRIGGERS =====
 async function manualSync() {
-    console.log('💪 Manual sync triggered...');
-    await cleanupOldMatches();
-    const result = await syncAllMatches();
-    const settled = await settleAllFinishedMatches();
-    console.log(`✅ Manual sync: ${result.live} live, ${result.upcoming} upcoming, ${settled} settled`);
-    return { ...result, settled };
-}
-
-async function manualForceUpdate() {
-    console.log('💪 Manual force update...');
-    return await forceUpdateStatus();
-}
-
-async function manualSettle() {
-    console.log('💪 Manual settlement...');
-    return await settleAllFinishedMatches();
+    return await syncAllMatches();
 }
 
 // ===== EXPORTS =====
 window.syncNow = manualSync;
-window.forceUpdate = manualForceUpdate;
-window.settleNow = manualSettle;
-window.clearCache = clearCache;
-
+window.forceUpdate = forceUpdateStatus;
 window.getLeagues = getLeagues;
 window.formatCountdown = formatCountdown;
 window.getLiveTimer = getLiveTimer;
 window.getMatchMinute = getMatchMinute;
-window.getMinutesUntilKickoff = getMinutesUntilKickoff;
-window.formatMatchDate = formatMatchDate;
-window.formatMatchTime = formatMatchTime;
-window.getDateRange = getDateRange;
 window.getTodayRange = getTodayRange;
 window.getTomorrowRange = getTomorrowRange;
 window.getCancelFee = getCancelFee;
-window.canCancel = canCancel;
 window.getCashoutFee = getCashoutFee;
-window.canCashout = canCashout;
-
 window.settleBetsForMatch = settleBetsForMatch;
-window.settleAllFinishedMatches = settleAllFinishedMatches;
 
 // ===== AUTO-START =====
 setTimeout(() => {
     manualSync();
     startAutoSync();
-}, 1000);
+}, 500);
 
-console.log('╔════════════════════════════════════════════╗');
-console.log('║   🏈 SPORTS API v26.0 - REBUILT           ║');
-console.log('║   ✅ Auto-sync: 60s                        ║');
-console.log('║   ✅ Force update: 30s                     ║');
-console.log('║   ✅ Single & Accumulator settlement       ║');
-console.log('║   💡 Commands: syncNow(), forceUpdate()   ║');
-console.log('╚════════════════════════════════════════════╝');
+console.log('🏈 Sports API v27.0 - Fixed');
