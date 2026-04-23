@@ -98,6 +98,7 @@
         .timestamp-row { display: flex; align-items: center; gap: 5px; margin-top: 3px; }
         .timestamp-row i { width: 14px; }
         .settlement-timer { color: #ff9800; font-weight: 600; }
+        .settled-time { color: #4caf50; }
         
         .action-buttons { display: flex; gap: 8px; margin-top: 12px; }
         .cancel-btn, .cashout-btn { padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
@@ -241,7 +242,7 @@
             db.collection('bets').where('userId', '==', auth.currentUser.uid).orderBy('placedAt', 'desc').onSnapshot(async snap => {
                 allBets = []; snap.forEach(d => allBets.push({ id: d.id, ...d.data() }));
                 
-                // Pre-load match data
+                // Pre-load match data for settlement status
                 for (const bet of allBets) {
                     if (bet.fixtureId && !matchCache[bet.fixtureId]) {
                         const m = await db.collection('sports_matches').doc(String(bet.fixtureId)).get();
@@ -321,9 +322,10 @@
                             bet.status === 'lost' ? 'Lost' : 
                             bet.status === 'cashed_out' ? 'Cashed Out' : 'Cancelled';
             
-            if (bet.status === 'active' && match?.status === 'finished') {
+            // Check if match is finished but bet still active = pending settlement
+            const isPending = bet.status === 'active' && match?.status === 'finished';
+            if (isPending) {
                 statusText = 'Pending';
-                card.classList.add('pending');
             }
             
             let matchDisplay = '';
@@ -341,13 +343,20 @@
             else if (bet.status === 'cashed_out') payoutDisplay = (bet.cashoutAmount || 0).toFixed(2);
             else payoutDisplay = (bet.potentialWin || 0).toFixed(2);
             
+            // Settlement timer for pending bets
             let timerHtml = '';
-            if (bet.status === 'active' && match?.status === 'finished') {
-                timerHtml = `<div class="timestamp-row"><i class="fas fa-hourglass-half"></i> <span class="settlement-timer">Settling in ${secondsUntilCheck}s...</span></div>`;
+            if (isPending) {
+                timerHtml = `<div class="timestamp-row"><i class="fas fa-hourglass-half"></i> <span class="settlement-timer">⏳ Settling soon (check in ${secondsUntilCheck}s)</span></div>`;
+            }
+            
+            // Settled time display
+            let settledHtml = '';
+            if (settled) {
+                settledHtml = `<div class="timestamp-row"><i class="fas fa-check-circle" style="color:#4caf50;"></i> <span class="settled-time">✅ Settled: ${formatTime(settled)}</span></div>`;
             }
             
             let actionHtml = '';
-            if (bet.status === 'active') {
+            if (bet.status === 'active' && !isPending) {
                 actionHtml = `<div class="action-buttons" onclick="event.stopPropagation()">
                     <button class="cancel-btn" onclick="cancelBet('${bet.id}')"><i class="fas fa-times"></i> Cancel</button>
                     ${bet.canCashout ? `<button class="cashout-btn" onclick="cashoutBet('${bet.id}')"><i class="fas fa-hand-holding-usd"></i> Cash Out</button>` : ''}
@@ -361,7 +370,7 @@
                             <i class="fas ${isAcc ? 'fa-layer-group' : 'fa-ticket-alt'}"></i> ${isAcc ? 'Acc' : 'Single'}
                         </span>
                     </div>
-                    <span class="bet-status ${bet.status}">${statusText}</span>
+                    <span class="bet-status ${isPending ? 'pending' : bet.status}">${statusText}</span>
                 </div>
                 <div class="bet-matches">${matchDisplay}</div>
                 <div class="bet-footer">
@@ -369,8 +378,8 @@
                     <div class="bet-payout"><span class="payout-label">${bet.status==='active'?'Potential':'Payout'}</span><span class="payout-value ${bet.status}">$${payoutDisplay}</span></div>
                 </div>
                 <div class="bet-timestamps">
-                    <div class="timestamp-row"><i class="far fa-calendar-plus"></i> ${formatTime(placed)}</div>
-                    ${settled ? `<div class="timestamp-row"><i class="far fa-calendar-check"></i> Settled: ${formatTime(settled)}</div>` : ''}
+                    <div class="timestamp-row"><i class="far fa-calendar-plus"></i> 📅 Placed: ${formatTime(placed)}</div>
+                    ${settledHtml}
                     ${timerHtml}
                 </div>
                 ${actionHtml}
@@ -401,6 +410,8 @@
                             bet.status === 'lost' ? 'Lost' : 
                             bet.status === 'cashed_out' ? 'Cashed Out' : 'Cancelled';
             
+            const isPending = bet.status === 'active' && match?.status === 'finished';
+            
             let matchStatus = match ? match.status : 'unknown';
             let matchScore = match ? `${match.score?.home || 0} - ${match.score?.away || 0}` : '-';
             
@@ -422,15 +433,16 @@
             
             body.innerHTML = `
                 <div class="modal-section">
-                    <h4><span class="en">Bet Information</span></h4>
+                    <h4>📋 Bet Information</h4>
                     <div class="modal-item"><span class="label">Type</span><span class="value">${isAcc ? 'Accumulator (' + (bet.selections?.length || 0) + ')' : 'Single'}</span></div>
-                    <div class="modal-item"><span class="label">Status</span><span class="value ${bet.status}">${statusText}</span></div>
+                    <div class="modal-item"><span class="label">Status</span><span class="value ${isPending ? 'pending' : bet.status}">${isPending ? 'Pending Settlement' : statusText}</span></div>
                     <div class="modal-item"><span class="label">Placed</span><span class="value">${placed.toLocaleString()}</span></div>
                     ${settled ? `<div class="modal-item"><span class="label">Settled</span><span class="value">${settled.toLocaleString()}</span></div>` : ''}
+                    ${isPending ? `<div class="modal-item"><span class="label">Settlement</span><span class="value" style="color:#ff9800;">⏳ In progress</span></div>` : ''}
                 </div>
                 ${!isAcc ? `
                 <div class="modal-section">
-                    <h4><span class="en">Match Information</span></h4>
+                    <h4>⚽ Match Information</h4>
                     <div class="modal-item"><span class="label">Match</span><span class="value">${bet.matchName || 'Match'}</span></div>
                     <div class="modal-item"><span class="label">Status</span><span class="value">${matchStatus}</span></div>
                     <div class="modal-item"><span class="label">Score</span><span class="value">${matchScore}</span></div>
@@ -439,21 +451,19 @@
                 </div>
                 ` : `
                 <div class="modal-section">
-                    <h4><span class="en">Selections</span></h4>
+                    <h4>🎲 Selections</h4>
                     ${selectionsHtml}
                     <div class="modal-item"><span class="label">Total Odds</span><span class="value" style="color:#ff9800;">${bet.totalOdds?.toFixed(2) || '1.00'}</span></div>
                 </div>
                 `}
                 <div class="modal-section">
-                    <h4><span class="en">Financial</span></h4>
+                    <h4>💰 Financial</h4>
                     <div class="modal-item"><span class="label">Stake</span><span class="value">$${(bet.amount||0).toFixed(2)}</span></div>
                     <div class="modal-item"><span class="label">${bet.status==='active'?'Potential':'Payout'}</span><span class="value ${bet.status}">$${payoutDisplay}</span></div>
-                    ${bet.cancelFee ? `<div class="modal-item"><span class="label">Cancel Fee</span><span class="value">$${bet.cancelFee.toFixed(2)}</span></div>` : ''}
-                    ${bet.cashoutFee ? `<div class="modal-item"><span class="label">Cashout Fee</span><span class="value">$${bet.cashoutFee.toFixed(2)}</span></div>` : ''}
                 </div>
             `;
             
-            document.getElementById('modal-title').textContent = isAcc ? 'Accumulator Bet Details' : 'Single Bet Details';
+            document.getElementById('modal-title').textContent = isAcc ? '🎲 Accumulator Bet Details' : '🎯 Single Bet Details';
             modal.classList.add('show');
         }
         
@@ -465,25 +475,26 @@
         
         function startSettlementTimer() {
             if (settlementTimer) clearInterval(settlementTimer);
-            settlementTimer = setInterval(() => {
+            settlementTimer = setInterval(async () => {
                 secondsUntilCheck--;
                 if (secondsUntilCheck <= 0) {
                     secondsUntilCheck = 30;
-                    checkSettlements();
+                    await checkSettlements();
                 }
                 document.getElementById('next-check').textContent = secondsUntilCheck + 's';
                 document.getElementById('settlement-progress').style.width = ((30 - secondsUntilCheck) / 30 * 100) + '%';
-                
-                document.querySelectorAll('.settlement-timer').forEach(el => {
-                    el.textContent = `Settling in ${secondsUntilCheck}s...`;
-                });
             }, 1000);
         }
         
         async function checkSettlements() {
+            console.log('🔍 Checking for settlements...');
+            
+            // Try to call settlement function
             if (typeof settleNow === 'function') {
-                await settleNow();
+                const settled = await settleNow();
+                if (settled > 0) console.log(`✅ Settled ${settled} bets`);
             }
+            
             // Refresh match cache
             for (const bet of allBets) {
                 if (bet.fixtureId) {
@@ -491,32 +502,36 @@
                     if (m.exists) matchCache[bet.fixtureId] = m.data();
                 }
             }
-            secondsUntilCheck = 30;
+            
+            // Force refresh display
+            filterBets(currentFilter);
+            updateStats();
         }
         
         async function forceSettleAll() {
             if (typeof settleAllFinishedMatches === 'function') {
                 const settled = await settleAllFinishedMatches();
-                alert(`Settled ${settled} bets`);
-                secondsUntilCheck = 30;
+                alert(`✅ Settled ${settled} bets`);
+                await checkSettlements();
             } else {
-                alert('Settlement function not available');
+                alert('❌ Settlement function not available');
             }
         }
         
         window.cancelBet = async id => {
             if (!confirm('Cancel this bet? Fee applies.')) return;
-            try { const r = await cancelBetWithFee(id); alert(r.success ? `Refunded: $${r.refund.toFixed(2)}` : r.error); }
-            catch(e) { alert('Error cancelling bet'); }
+            try { const r = await cancelBetWithFee(id); alert(r.success ? `✅ Refunded: $${r.refund.toFixed(2)}` : `❌ ${r.error}`); }
+            catch(e) { alert('❌ Error cancelling bet'); }
         };
         window.cashoutBet = async id => {
             if (!confirm('Cash out this bet?')) return;
-            try { const r = await cashoutBet(id); alert(r.success ? `Cashed out: $${r.amount.toFixed(2)}` : r.error); }
-            catch(e) { alert('Error cashing out'); }
+            try { const r = await cashoutBet(id); alert(r.success ? `✅ Cashed out: $${r.amount.toFixed(2)}` : `❌ ${r.error}`); }
+            catch(e) { alert('❌ Error cashing out'); }
         };
         window.checkSettlements = checkSettlements;
         window.forceSettleAll = forceSettleAll;
         window.closeModal = closeModal;
+        window.showBetDetails = showBetDetails;
         
         document.querySelectorAll('.filter-btn').forEach(b => b.addEventListener('click', function() {
             document.querySelectorAll('.filter-btn').forEach(x => x.classList.remove('active'));
