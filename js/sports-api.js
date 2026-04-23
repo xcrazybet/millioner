@@ -1,5 +1,6 @@
 // ============================================
-// js/sports-api.js - v28.0 FIXED UPCOMING
+// js/sports-api.js - v28.1 ENHANCED
+// Based on your working v28.0 + Settlement Fixes
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
@@ -36,7 +37,6 @@ async function fetchLiveMatches() {
 }
 
 async function fetchUpcomingWeek() { 
-    // Try multiple date formats
     const today = new Date();
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + 7);
@@ -44,11 +44,9 @@ async function fetchUpcomingWeek() {
     const from = today.toISOString().split('T')[0];
     const to = nextWeek.toISOString().split('T')[0];
     
-    // Try the between endpoint
     console.log(`📅 Fetching upcoming: ${from} to ${to}`);
     let result = await fetchFromBackend('/api/fixtures/between/' + from + '/' + to);
     
-    // If that fails, try fetching date by date
     if (!result.success || !result.data || result.data.length === 0) {
         console.log('⚠️ Between endpoint failed, trying individual dates...');
         let allMatches = [];
@@ -215,8 +213,17 @@ async function syncMatchToFirestore(match) {
     };
     
     try {
-        await db.collection('sports_matches').doc(String(fixtureId)).set(matchData, { merge: true });
+        const docRef = db.collection('sports_matches').doc(String(fixtureId));
+        const oldDoc = await docRef.get();
+        const oldStatus = oldDoc.exists ? oldDoc.data().status : null;
+        await docRef.set(matchData, { merge: true });
         console.log(`📝 Synced: ${teams.home.name} vs ${teams.away.name} (${status})`);
+        
+        // 🆕 ENHANCEMENT: Auto-settle if match just became finished
+        if (oldStatus && oldStatus !== 'finished' && status === 'finished') {
+            console.log(`🏁 Auto-settling: ${teams.home.name} vs ${teams.away.name}`);
+            await settleBetsForMatch(fixtureId, result);
+        }
         return true;
     } catch(e) { return false; }
 }
@@ -246,13 +253,18 @@ async function syncAllMatches() {
     return { live, upcoming };
 }
 
-// ===== SETTLEMENT =====
+// ===== SETTLEMENT (ENHANCED) =====
 async function settleBetsForMatch(fixtureId, result) {
     if (!firebase?.firestore) return 0;
     const db = firebase.firestore();
     let settled = 0;
     try {
-        const bets = await db.collection('bets').where('fixtureId', '==', fixtureId).where('status', '==', 'active').get();
+        // Settle single bets
+        const bets = await db.collection('bets')
+            .where('fixtureId', '==', fixtureId)
+            .where('status', '==', 'active')
+            .get();
+        
         for (const doc of bets.docs) {
             const bet = doc.data();
             const won = bet.betType === result;
@@ -266,9 +278,74 @@ async function settleBetsForMatch(fixtureId, result) {
             }
             settled++;
         }
-        if (settled > 0) await db.collection('sports_matches').doc(String(fixtureId)).update({ betsSettled: true });
-    } catch(e) {}
+        
+        // 🆕 ENHANCEMENT: Settle accumulator bets containing this match
+        const accBets = await db.collection('bets')
+            .where('status', '==', 'active')
+            .where('betCategory', '==', 'accumulator')
+            .get();
+        
+        for (const doc of accBets.docs) {
+            const bet = doc.data();
+            const hasMatch = bet.selections?.some(s => s.fixtureId === fixtureId);
+            if (!hasMatch) continue;
+            
+            let allFinished = true;
+            let allWon = true;
+            for (const sel of bet.selections) {
+                const m = await db.collection('sports_matches').doc(String(sel.fixtureId)).get();
+                if (!m.exists) { allFinished = false; break; }
+                const mData = m.data();
+                if (mData.status !== 'finished') { allFinished = false; break; }
+                if (mData.result !== sel.betType) { allWon = false; }
+            }
+            
+            if (allFinished) {
+                if (allWon) {
+                    const walletRef = db.collection('wallets').doc(bet.userId);
+                    const walletDoc = await walletRef.get();
+                    await walletRef.update({ balance: (walletDoc.data()?.balance || 0) + bet.potentialWin });
+                    await doc.ref.update({ status: 'won', payout: bet.potentialWin, settledAt: new Date() });
+                } else {
+                    await doc.ref.update({ status: 'lost', payout: 0, settledAt: new Date() });
+                }
+                settled++;
+            }
+        }
+        
+        if (settled > 0) {
+            await db.collection('sports_matches').doc(String(fixtureId)).update({ betsSettled: true });
+            console.log(`💰 Settled ${settled} bets for fixture ${fixtureId}`);
+        }
+    } catch(e) { console.error('Settlement error:', e); }
     return settled;
+}
+
+// 🆕 ENHANCEMENT: Settle all finished matches (called by forceUpdate)
+async function settleAllFinishedMatches() {
+    if (!firebase?.firestore) return 0;
+    const db = firebase.firestore();
+    let total = 0;
+    try {
+        const finished = await db.collection('sports_matches')
+            .where('status', '==', 'finished')
+            .where('betsSettled', '==', false)
+            .get();
+        
+        console.log(`🔍 Found ${finished.size} unsettled finished matches`);
+        
+        for (const doc of finished.docs) {
+            const m = doc.data();
+            let r = m.result;
+            if (!r) {
+                const h = m.score?.home || 0;
+                const a = m.score?.away || 0;
+                r = h > a ? 'home' : (h < a ? 'away' : 'draw');
+            }
+            total += await settleBetsForMatch(m.fixtureId, r);
+        }
+    } catch(e) { console.error('Settle all error:', e); }
+    return total;
 }
 
 async function forceUpdateStatus() {
@@ -278,6 +355,7 @@ async function forceUpdateStatus() {
     let updated = 0;
     
     try {
+        // Update upcoming → live
         const snapshot = await db.collection('sports_matches').where('status', '==', 'upcoming').get();
         const batch = db.batch();
         snapshot.forEach(doc => {
@@ -289,6 +367,11 @@ async function forceUpdateStatus() {
             }
         });
         if (updated > 0) await batch.commit();
+        
+        // 🆕 ENHANCEMENT: Auto-settle all finished matches
+        const settled = await settleAllFinishedMatches();
+        if (settled > 0) console.log(`✅ Force update settled ${settled} bets`);
+        
     } catch(e) {}
     return updated;
 }
@@ -306,7 +389,7 @@ function startAutoSync() {
     syncInterval = setInterval(() => syncAllMatches(), SYNC_INTERVAL);
     forceInterval = setInterval(() => forceUpdateStatus(), FORCE_UPDATE_INTERVAL);
     
-    console.log(`⏰ Auto-sync started`);
+    console.log(`⏰ Auto-sync started (Sync:${SYNC_INTERVAL/1000}s, Force:${FORCE_UPDATE_INTERVAL/1000}s)`);
 }
 
 // ===== MANUAL TRIGGERS =====
@@ -314,9 +397,14 @@ async function manualSync() {
     return await syncAllMatches();
 }
 
+async function manualSettle() {
+    return await settleAllFinishedMatches();
+}
+
 // ===== EXPORTS =====
 window.syncNow = manualSync;
 window.forceUpdate = forceUpdateStatus;
+window.settleNow = manualSettle;  // 🆕 ENHANCEMENT: Manual settlement trigger
 window.getLeagues = getLeagues;
 window.formatCountdown = formatCountdown;
 window.getLiveTimer = getLiveTimer;
@@ -326,6 +414,7 @@ window.getTomorrowRange = getTomorrowRange;
 window.getCancelFee = getCancelFee;
 window.getCashoutFee = getCashoutFee;
 window.settleBetsForMatch = settleBetsForMatch;
+window.settleAllFinishedMatches = settleAllFinishedMatches;  // 🆕 ENHANCEMENT: Exported
 
 // ===== AUTO-START =====
 setTimeout(() => {
@@ -333,4 +422,4 @@ setTimeout(() => {
     startAutoSync();
 }, 500);
 
-console.log('🏈 Sports API v28.0 - Upcoming Fixed');
+console.log('🏈 Sports API v28.1 - Enhanced with Auto-Settlement');
