@@ -39,12 +39,15 @@
         .guide-card .value.orange { color: #ff9800; }
         .guide-card .value.blue { color: #2196f3; }
         
-        /* Supported Leagues */
+        /* Supported Leagues - All Leagues Grid */
         .leagues-section { margin-bottom: 20px; }
-        .leagues-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; }
-        .league-item { background: #111827; padding: 10px 15px; border-radius: 25px; display: flex; align-items: center; gap: 8px; white-space: nowrap; border: 1px solid #ffffff11; }
-        .league-item img { width: 24px; height: 24px; object-fit: contain; }
-        .league-item span { font-size: 13px; }
+        .leagues-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-height: 200px; overflow-y: auto; padding-right: 5px; }
+        .leagues-grid::-webkit-scrollbar { width: 4px; }
+        .leagues-grid::-webkit-scrollbar-thumb { background: #00ff9d33; border-radius: 4px; }
+        .league-item { background: #111827; padding: 8px 10px; border-radius: 8px; display: flex; align-items: center; gap: 6px; border: 1px solid #ffffff11; }
+        .league-item img { width: 20px; height: 20px; object-fit: contain; }
+        .league-item span { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .league-item i { color: #00ff9d; font-size: 14px; }
         
         /* Quick Stats */
         .quick-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
@@ -82,6 +85,7 @@
         
         @media (max-width: 480px) {
             .guide-cards { grid-template-columns: repeat(2, 1fr); }
+            .leagues-grid { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
@@ -157,14 +161,15 @@
             </div>
         </div>
         
-        <!-- SUPPORTED LEAGUES -->
+        <!-- SUPPORTED LEAGUES - ALL LEAGUES GRID -->
         <div class="leagues-section">
             <div class="guide-title">
                 <i class="fas fa-trophy"></i> 
-                <span class="en">Supported Leagues</span>
-                <span class="ar" style="display:none;">الدوريات المدعومة</span>
+                <span class="en">All Supported Leagues</span>
+                <span class="ar" style="display:none;">جميع الدوريات المدعومة</span>
+                <span id="leagues-count" style="margin-left:auto; font-size:12px; color:#a0a8c9;"></span>
             </div>
-            <div class="leagues-scroll" id="leagues-list">
+            <div class="leagues-grid" id="leagues-grid">
                 <div class="league-item"><i class="fas fa-spinner fa-spin"></i> <span class="en">Loading...</span><span class="ar" style="display:none;">جاري التحميل...</span></div>
             </div>
         </div>
@@ -198,13 +203,13 @@
             <a href="live-matches.html">
                 <span class="en">View All</span>
                 <span class="ar" style="display:none;">عرض الكل</span> 
-                <i class="fas fa-arrow-left" style="display:none;"></i>
                 <i class="fas fa-arrow-right" class="en"></i>
+                <i class="fas fa-arrow-left" style="display:none;" class="ar"></i>
             </a>
         </div>
         <div id="live-container"><div class="empty-state"><span class="en">Loading live matches...</span><span class="ar" style="display:none;">جاري تحميل المباريات المباشرة...</span></div></div>
         
-        <!-- TOP 5 UPCOMING MATCHES -->
+        <!-- TOP 5 UPCOMING MATCHES (FROM API - EARLIEST FIRST) -->
         <div class="section-title">
             <h3>
                 <i class="fas fa-calendar"></i> 
@@ -214,8 +219,8 @@
             <a href="upcoming-matches.html">
                 <span class="en">View All</span>
                 <span class="ar" style="display:none;">عرض الكل</span> 
-                <i class="fas fa-arrow-left" style="display:none;"></i>
                 <i class="fas fa-arrow-right" class="en"></i>
+                <i class="fas fa-arrow-left" style="display:none;" class="ar"></i>
             </a>
         </div>
         <div id="upcoming-container"><div class="empty-state"><span class="en">Loading upcoming matches...</span><span class="ar" style="display:none;">جاري تحميل المباريات القادمة...</span></div></div>
@@ -236,18 +241,8 @@
             document.querySelectorAll('.ar').forEach(el => el.style.display = isEn ? '' : 'none');
             document.documentElement.dir = isEn ? 'rtl' : 'ltr';
             localStorage.setItem('lang', isEn ? 'ar' : 'en');
-            
-            // Update arrow direction for RTL
-            document.querySelectorAll('.fa-arrow-right').forEach(el => {
-                if (isEn) { el.classList.remove('fa-arrow-right'); el.classList.add('fa-arrow-left'); }
-                else { el.classList.remove('fa-arrow-left'); el.classList.add('fa-arrow-right'); }
-            });
         }
-        
-        // Initialize language from storage
-        if (localStorage.getItem('lang') === 'ar') { 
-            setTimeout(() => toggleLanguage(), 10); 
-        }
+        if (localStorage.getItem('lang') === 'ar') { setTimeout(() => toggleLanguage(), 10); }
         
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -270,7 +265,7 @@
             document.getElementById('user-email').textContent = u.email || '';
             
             await loadBalance();
-            loadSupportedLeagues();
+            loadAllLeagues();
             loadCounts();
             loadTopLiveMatches();
             loadTopUpcomingMatches();
@@ -284,35 +279,32 @@
             } catch(e) { console.error('Balance error:', e); }
         }
         
-        async function loadSupportedLeagues() {
-            const container = document.getElementById('leagues-list');
+        async function loadAllLeagues() {
+            const grid = document.getElementById('leagues-grid');
+            const countSpan = document.getElementById('leagues-count');
             try {
                 if (typeof getLeagues === 'function') {
                     const leagues = await getLeagues();
                     if (leagues.length === 0) { 
-                        container.innerHTML = '<div class="league-item"><span class="en">No leagues loaded</span><span class="ar" style="display:none;">لا توجد دوريات</span></div>'; 
+                        grid.innerHTML = '<div class="league-item"><span class="en">No leagues loaded</span><span class="ar" style="display:none;">لا توجد دوريات</span></div>'; 
                         return; 
                     }
-                    container.innerHTML = '';
-                    leagues.slice(0, 15).forEach(l => {
+                    countSpan.textContent = `(${leagues.length} ${document.querySelector('.en').style.display !== 'none' ? 'leagues' : 'دوري'})`;
+                    grid.innerHTML = '';
+                    // Show ALL leagues in grid
+                    leagues.forEach(l => {
                         if (l.name) {
                             const item = document.createElement('div');
                             item.className = 'league-item';
                             item.innerHTML = `${l.logo ? `<img src="${l.logo}" onerror="this.style.display='none'">` : '<i class="fas fa-futbol" style="color:#00ff9d;"></i>'}<span>${l.name}</span>`;
-                            container.appendChild(item);
+                            grid.appendChild(item);
                         }
                     });
-                    if (leagues.length > 15) {
-                        const more = document.createElement('div');
-                        more.className = 'league-item';
-                        more.innerHTML = `<span class="en">+${leagues.length - 15} more</span><span class="ar" style="display:none;">+${leagues.length - 15} أخرى</span>`;
-                        container.appendChild(more);
-                    }
                 } else {
-                    container.innerHTML = '<div class="league-item"><span class="en">Leagues loading...</span><span class="ar" style="display:none;">جاري تحميل الدوريات...</span></div>';
+                    grid.innerHTML = '<div class="league-item"><span class="en">Leagues loading...</span><span class="ar" style="display:none;">جاري التحميل...</span></div>';
                 }
             } catch(e) { 
-                container.innerHTML = '<div class="league-item"><span class="en">Error loading leagues</span><span class="ar" style="display:none;">خطأ في تحميل الدوريات</span></div>'; 
+                grid.innerHTML = '<div class="league-item"><span class="en">Error loading leagues</span><span class="ar" style="display:none;">خطأ في التحميل</span></div>'; 
             }
         }
         
@@ -330,7 +322,7 @@
         }
         
         function loadTopLiveMatches() {
-            db.collection('sports_matches').where('status', '==', 'live').limit(5).onSnapshot(snap => {
+            db.collection('sports_matches').where('status', '==', 'live').orderBy('startTime', 'desc').limit(5).onSnapshot(snap => {
                 const container = document.getElementById('live-container');
                 const matches = []; snap.forEach(d => { const m = d.data(); if (m.fixtureId < 1000000) matches.push(m); });
                 
@@ -339,15 +331,15 @@
                     return; 
                 }
                 container.innerHTML = '';
-                matches.sort((a,b) => b.startTime?.toDate() - a.startTime?.toDate()).forEach(m => container.appendChild(createLiveCard(m)));
+                matches.forEach(m => container.appendChild(createLiveCard(m)));
                 document.getElementById('live-count').textContent = matches.length;
                 document.getElementById('quick-live').textContent = matches.length;
             });
         }
         
         function loadTopUpcomingMatches() {
-            const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7);
-            db.collection('sports_matches').where('status', '==', 'upcoming').where('startTime', '>=', new Date()).where('startTime', '<=', nextWeek).orderBy('startTime').limit(5).onSnapshot(snap => {
+            // Get earliest 5 upcoming matches (topest from API)
+            db.collection('sports_matches').where('status', '==', 'upcoming').where('startTime', '>=', new Date()).orderBy('startTime', 'asc').limit(5).onSnapshot(snap => {
                 const container = document.getElementById('upcoming-container');
                 const matches = []; snap.forEach(d => { const m = d.data(); if (m.fixtureId < 1000000) matches.push(m); });
                 
