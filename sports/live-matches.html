@@ -35,6 +35,8 @@
         .timer-badge { background: #ff5252; padding: 4px 15px; border-radius: 20px; font-size: 13px; display: inline-block; margin-top: 8px; }
         .info-row { text-align: center; color: #ff5252; font-size: 12px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ffffff11; }
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
+        .debug-info { background: #1a2332; padding: 8px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; color: #a0a8c9; }
+        .arabic { font-family: 'Tajawal', sans-serif; }
     </style>
 </head>
 <body>
@@ -42,33 +44,41 @@
         <div class="header-top">
             <div class="header-left">
                 <a href="betting-sport.html" class="back-btn"><i class="fas fa-arrow-left"></i></a>
-                <h1 style="font-size:18px;"><i class="fas fa-futbol"></i> X Lodon Sports</h1>
+                <h1 style="font-size:18px;"><i class="fas fa-futbol"></i> <span class="en">X Lodon Sports</span><span class="ar" style="display:none;">إكس لودون سبورت</span></h1>
             </div>
-            <button class="lang-toggle" onclick="toggleLanguage()">🇸🇦 عربي</button>
+            <button class="lang-toggle" onclick="toggleLanguage()"><span class="en">🇸🇦 عربي</span><span class="ar" style="display:none;">🇬🇧 English</span></button>
         </div>
         <div class="tabs">
-            <a href="betting-sport.html" class="tab">Home</a>
-            <a href="live-matches.html" class="tab active">Live <span id="live-count">0</span></a>
-            <a href="upcoming-matches.html" class="tab">Upcoming</a>
-            <a href="finished-matches.html" class="tab">Results</a>
-            <a href="my-bets.html" class="tab">My Bets</a>
+            <a href="betting-sport.html" class="tab"><span class="en">Home</span><span class="ar" style="display:none;">الرئيسية</span></a>
+            <a href="live-matches.html" class="tab active"><span class="en">Live</span><span class="ar" style="display:none;">مباشر</span> <span id="live-count">0</span></a>
+            <a href="upcoming-matches.html" class="tab"><span class="en">Upcoming</span><span class="ar" style="display:none;">قادم</span></a>
+            <a href="finished-matches.html" class="tab"><span class="en">Results</span><span class="ar" style="display:none;">النتائج</span></a>
+            <a href="my-bets.html" class="tab"><span class="en">My Bets</span><span class="ar" style="display:none;">رهاناتي</span></a>
         </div>
     </div>
     
     <div class="container">
         <div class="live-header">
-            <span class="live-badge"><i class="fas fa-circle"></i> LIVE MATCHES <span id="match-count">0</span></span>
+            <span class="live-badge"><i class="fas fa-circle"></i> <span class="en">LIVE MATCHES</span><span class="ar" style="display:none;">مباريات مباشرة</span> <span id="match-count">0</span></span>
         </div>
+        <div class="debug-info" id="debug-info"><i class="fas fa-database"></i> <span id="debug-text">Loading...</span></div>
         <div id="matches-container"></div>
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-futbol" style="font-size:48px; opacity:0.3;"></i>
-            <p>No live matches at the moment</p>
+            <p><span class="en">No live matches at the moment</span><span class="ar" style="display:none;">لا توجد مباريات مباشرة حالياً</span></p>
         </div>
     </div>
 
     <script src="../js/sports-api.js"></script>
     <script>
-        function toggleLanguage() { location.reload(); }
+        function toggleLanguage() {
+            var isEn = document.querySelector('.en').style.display !== 'none';
+            document.querySelectorAll('.en').forEach(el => el.style.display = isEn ? 'none' : '');
+            document.querySelectorAll('.ar').forEach(el => el.style.display = isEn ? '' : 'none');
+            document.documentElement.dir = isEn ? 'rtl' : 'ltr';
+            localStorage.setItem('lang', isEn ? 'ar' : 'en');
+        }
+        if (localStorage.getItem('lang') === 'ar') { toggleLanguage(); }
         
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -88,23 +98,32 @@
         function loadLive() {
             const container = document.getElementById('matches-container');
             const empty = document.getElementById('empty-state');
-            const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+            const debugText = document.getElementById('debug-text');
             
             unsubscribe = db.collection('sports_matches').where('status', '==', 'live').onSnapshot(snap => {
-                // Filter: only matches from last 3 hours (removes finished/stuck matches)
+                // 🆕 FIXED: No time filter - show ALL live matches
                 liveMatches = [];
                 snap.forEach(d => {
                     const m = d.data();
-                    const matchTime = m.startTime?.toDate() || new Date();
-                    if (matchTime > threeHoursAgo) liveMatches.push(m);
+                    // Only filter out sample data
+                    if (m.fixtureId < 1000000) liveMatches.push(m);
                 });
                 
+                debugText.textContent = `Found ${liveMatches.length} live matches in database`;
                 document.getElementById('live-count').textContent = liveMatches.length;
                 document.getElementById('match-count').textContent = liveMatches.length;
                 
-                if (liveMatches.length === 0) { container.style.display = 'none'; empty.style.display = 'block'; }
-                else { container.style.display = 'block'; empty.style.display = 'none'; renderMatches(); }
+                if (liveMatches.length === 0) { 
+                    container.style.display = 'none'; 
+                    empty.style.display = 'block'; 
+                } else { 
+                    container.style.display = 'block'; 
+                    empty.style.display = 'none'; 
+                    renderMatches(); 
+                }
                 startTimer();
+            }, error => {
+                debugText.textContent = `Error: ${error.message}`;
             });
         }
         
@@ -112,16 +131,20 @@
             const container = document.getElementById('matches-container');
             container.innerHTML = '';
             liveMatches.sort((a,b) => b.startTime?.toDate() - a.startTime?.toDate()).forEach(m => {
-                const card = document.createElement('div'); card.className = 'match-card';
-                const timer = typeof getLiveTimer === 'function' ? getLiveTimer(m.startTime) : 'LIVE';
-                card.innerHTML = `
-                    <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.leagueName||'League'}<span class="live-tag"><i class="fas fa-circle"></i> LIVE</span></div>
-                    <div class="match-teams"><div class="team">${m.homeTeam?.name||'Home'}</div><div class="score">${m.score?.home||0} - ${m.score?.away||0}</div><div class="team">${m.awayTeam?.name||'Away'}</div></div>
-                    <div style="text-align:center;"><span class="timer-badge" id="timer-${m.fixtureId}">${timer}</span></div>
-                    <div class="info-row"><i class="fas fa-info-circle"></i> Betting closed - Match in progress</div>
-                `;
-                container.appendChild(card);
+                container.appendChild(createCard(m));
             });
+        }
+        
+        function createCard(m) {
+            const card = document.createElement('div'); card.className = 'match-card';
+            const timer = typeof getLiveTimer === 'function' ? getLiveTimer(m.startTime) : 'LIVE';
+            card.innerHTML = `
+                <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.leagueName||'League'}<span class="live-tag"><i class="fas fa-circle"></i> LIVE</span></div>
+                <div class="match-teams"><div class="team">${m.homeTeam?.name||'Home'}</div><div class="score">${m.score?.home||0} - ${m.score?.away||0}</div><div class="team">${m.awayTeam?.name||'Away'}</div></div>
+                <div style="text-align:center;"><span class="timer-badge" id="timer-${m.fixtureId}">${timer}</span></div>
+                <div class="info-row"><i class="fas fa-info-circle"></i> <span class="en">Betting closed - Match in progress</span><span class="ar" style="display:none;">الرهان مغلق - المباراة جارية</span></div>
+            `;
+            return card;
         }
         
         function startTimer() {
