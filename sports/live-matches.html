@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Live - X Lodon | مباشر</title>
+    <title>Live - X Lodon</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -13,17 +13,14 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #0a0f1a; color: white; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
         .header { background: #111827; padding: 12px 15px; border-bottom: 2px solid #ff5252; position: sticky; top: 0; z-index: 100; }
-        .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+        .header-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         .back-btn { color: #00ff9d; text-decoration: none; font-size: 20px; }
-        .tabs { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 3px; }
+        .tabs { display: flex; gap: 5px; overflow-x: auto; white-space: nowrap; padding-bottom: 3px; }
         .tab { padding: 8px 12px; background: #1a2332; border-radius: 20px; color: white; text-decoration: none; font-size: 12px; }
         .tab.active { background: #ff5252; color: white; }
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
-        .live-header { display: flex; justify-content: space-between; margin-bottom: 15px; }
+        .live-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
         .live-badge { background: #ff5252; padding: 8px 16px; border-radius: 25px; font-weight: 600; }
-        .refresh-btn { background: transparent; border: 1px solid #00ff9d; color: #00ff9d; padding: 8px 16px; border-radius: 20px; cursor: pointer; }
-        .sync-btn { background: transparent; border: 1px solid #ff9800; color: #ff9800; padding: 8px 16px; border-radius: 20px; cursor: pointer; }
-        
         .match-card { background: #111827; border-radius: 16px; padding: 18px; margin-bottom: 15px; border: 1px solid #ff525233; position: relative; overflow: hidden; }
         .match-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #ff5252; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -32,9 +29,10 @@
         .match-teams { display: flex; align-items: center; justify-content: space-around; margin: 15px 0; }
         .team { text-align: center; flex: 1; font-weight: 600; font-size: 16px; }
         .score { font-size: 36px; font-weight: bold; letter-spacing: 8px; }
-        .timer-badge { background: #ff5252; padding: 4px 15px; border-radius: 20px; font-size: 13px; display: inline-block; margin-top: 8px; }
+        .minute-badge { background: #ff5252; padding: 4px 15px; border-radius: 20px; font-size: 13px; display: inline-block; margin-top: 8px; }
         .info-row { text-align: center; color: #ff5252; font-size: 12px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ffffff11; }
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
+        .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; color: #00ff9d; }
     </style>
 </head>
 <body>
@@ -55,21 +53,18 @@
     <div class="container">
         <div class="live-header">
             <span class="live-badge"><i class="fas fa-circle"></i> LIVE MATCHES <span id="match-count">0</span></span>
-            <div style="display:flex; gap:8px;">
-                <button class="sync-btn" onclick="forceSync()"><i class="fas fa-cloud-download-alt"></i> Sync API</button>
-                <button class="refresh-btn" onclick="checkDirect()"><i class="fas fa-search"></i> Check Now</button>
-            </div>
+            <span style="color:#a0a8c9; font-size:12px;"><i class="fas fa-sync-alt fa-spin"></i> Real-time</span>
         </div>
-        
-        <div id="debug-info" style="background:#1a2332; padding:10px; border-radius:8px; margin-bottom:15px; font-size:12px; color:#a0a8c9;">
-            <i class="fas fa-info-circle"></i> <span id="debug-text">Loading...</span>
+        <div class="debug-bar" id="debug-bar">
+            <i class="fas fa-database"></i> Loading matches...
         </div>
-        
         <div id="matches-container"></div>
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-futbol" style="font-size:48px; opacity:0.3;"></i>
             <p>No live matches at the moment</p>
-            <button onclick="forceSync()" style="margin-top:15px; padding:10px 20px; background:#00ff9d; color:black; border:none; border-radius:8px; cursor:pointer;">Sync Now</button>
+            <button onclick="window.syncNow?.()" style="margin-top:15px; padding:10px 20px; background:#00ff9d; color:black; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">
+                <i class="fas fa-sync-alt"></i> Sync Now
+            </button>
         </div>
     </div>
 
@@ -88,82 +83,58 @@
         const auth = firebase.auth(), db = firebase.firestore();
         let unsubscribe = null;
         
-        auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else loadAll(); });
+        auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else loadLive(); });
         
-        function loadAll() {
-            // 🔥 FIX: Get ALL matches first, filter in code
-            unsubscribe = db.collection('sports_matches').onSnapshot(snap => {
-                const allMatches = [];
-                const liveMatches = [];
-                
+        function loadLive() {
+            const container = document.getElementById('matches-container');
+            const empty = document.getElementById('empty-state');
+            const debugBar = document.getElementById('debug-bar');
+            
+            unsubscribe = db.collection('sports_matches').where('status', '==', 'live').onSnapshot(snap => {
+                const matches = [];
                 snap.forEach(d => {
                     const m = d.data();
-                    allMatches.push(m);
-                    if (m.status === 'live' && m.fixtureId && m.fixtureId < 1000000) {
-                        liveMatches.push(m);
-                    }
+                    if (m.fixtureId && m.fixtureId < 1000000) matches.push(m);
                 });
                 
-                document.getElementById('debug-text').textContent = 
-                    `Total in DB: ${allMatches.length} | Live: ${liveMatches.length} | Upcoming: ${allMatches.filter(m=>m.status==='upcoming').length} | Finished: ${allMatches.filter(m=>m.status==='finished').length}`;
+                debugBar.innerHTML = `<i class="fas fa-check-circle"></i> Found ${matches.length} live matches`;
+                document.getElementById('live-count').textContent = matches.length;
+                document.getElementById('match-count').textContent = matches.length;
                 
-                document.getElementById('live-count').textContent = liveMatches.length;
-                document.getElementById('match-count').textContent = liveMatches.length;
-                
-                const container = document.getElementById('matches-container');
-                const empty = document.getElementById('empty-state');
-                
-                if (liveMatches.length === 0) {
+                if (matches.length === 0) {
                     container.style.display = 'none';
                     empty.style.display = 'block';
                 } else {
                     container.style.display = 'block';
                     empty.style.display = 'none';
                     container.innerHTML = '';
-                    liveMatches.sort((a,b) => b.startTime?.toDate() - a.startTime?.toDate()).forEach(m => {
-                        container.appendChild(createCard(m));
-                    });
+                    matches.sort((a,b) => b.startTime?.toDate() - a.startTime?.toDate()).forEach(m => container.appendChild(createCard(m)));
                 }
-            }, error => {
-                document.getElementById('debug-text').textContent = 'Error: ' + error.message;
-                console.error('Query error:', error);
+            }, e => {
+                console.error(e);
+                debugBar.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Error: ${e.message}`;
             });
         }
         
         function createCard(m) {
             const card = document.createElement('div');
             card.className = 'match-card';
-            const timer = typeof getLiveTimer === 'function' ? getLiveTimer(m.startTime) : 'LIVE';
+            const min = getMinute(m.startTime);
             card.innerHTML = `
                 <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.leagueName||'League'}<span class="live-tag"><i class="fas fa-circle"></i> LIVE</span></div>
                 <div class="match-teams"><div class="team">${m.homeTeam?.name||'Home'}</div><div class="score">${m.score?.home||0} - ${m.score?.away||0}</div><div class="team">${m.awayTeam?.name||'Away'}</div></div>
-                <div style="text-align:center;"><span class="timer-badge">${timer}</span></div>
+                <div style="text-align:center;"><span class="minute-badge">${min}'</span></div>
                 <div class="info-row"><i class="fas fa-info-circle"></i> Betting closed - Match in progress</div>
             `;
             return card;
         }
         
-        function forceSync() {
-            if (typeof syncNow === 'function') {
-                document.getElementById('debug-text').textContent = 'Syncing from API...';
-                syncNow().then(() => {
-                    document.getElementById('debug-text').textContent = 'Sync complete! Refreshing...';
-                    setTimeout(() => location.reload(), 1500);
-                });
-            }
-        }
-        
-        function checkDirect() {
-            // Check API directly
-            fetch('https://millioner.onrender.com/api/livescores')
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('debug-text').textContent = 
-                        `API Live Matches: ${d.count || 0} | DB Total will update shortly`;
-                })
-                .catch(e => {
-                    document.getElementById('debug-text').textContent = 'API Error: ' + e.message;
-                });
+        function getMinute(start) {
+            if (!start) return '45';
+            try {
+                const diff = Math.floor((new Date() - start.toDate()) / 60000);
+                return diff < 1 ? '1' : diff > 90 ? '90+' : diff;
+            } catch { return '45'; }
         }
         
         window.addEventListener('beforeunload', () => { if (unsubscribe) unsubscribe(); });
