@@ -1,350 +1,162 @@
-const express = require('express');
-const path = require('path');
-const app = express();
-const PORT = process.env.PORT || 3000;
+// ============================================
+// js/sports-api.js - v32.0 FORCE LIVE SYNC
+// ============================================
 
-const API_KEY = '2396236d9d5cd07468ce280da8390ad5';
-const BASE_URL = 'https://v3.football.api-sports.io';
+const BACKEND_URL = 'https://millioner.onrender.com';
+const SYNC_INTERVAL = 120000;
+const FORCE_UPDATE_INTERVAL = 60000;
 
-// ===== CORS =====
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', '*');
-    if (req.method === 'OPTIONS') return res.sendStatus(200);
-    next();
-});
-
-app.use(express.json());
-
-// ===== CACHE SYSTEM =====
-const cache = new Map();
-const CACHE_TTL = 60000;
-
-function getCached(key) {
-    const item = cache.get(key);
-    if (item && Date.now() - item.timestamp < CACHE_TTL) {
-        console.log(`📦 Cache hit: ${key}`);
-        return item.data;
-    }
-    return null;
+// ===== FETCH =====
+async function fetchFromBackend(endpoint) {
+    try { const r = await fetch(BACKEND_URL + endpoint); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
+    catch(e) { console.error('Fetch error:', e.message); return { success: false, data: [] }; }
 }
 
-function setCache(key, data) {
-    cache.set(key, { data, timestamp: Date.now() });
-    if (cache.size > 200) {
-        const now = Date.now();
-        for (const [k, v] of cache) {
-            if (now - v.timestamp > CACHE_TTL * 3) cache.delete(k);
-        }
-    }
-}
+async function fetchLiveMatches() { return await fetchFromBackend('/api/livescores'); }
+async function fetchUpcomingWeek() { return await fetchFromBackend('/api/fixtures/week'); }
+async function fetchLeagues() { return await fetchFromBackend('/api/leagues'); }
+async function fetchOdds(fixtureId) { return await fetchFromBackend('/api/odds/' + fixtureId); }
+async function fetchMatchEvents(fixtureId) { return await fetchFromBackend('/api/fixtures/events/' + fixtureId); }
+async function fetchMatchStats(fixtureId) { return await fetchFromBackend('/api/fixtures/statistics/' + fixtureId); }
+async function fetchPredictions(fixtureId) { return await fetchFromBackend('/api/predictions/' + fixtureId); }
 
-// ===== FETCH WITH RETRY, TIMEOUT & CACHE =====
-async function fetchAPI(endpoint, params = {}, useCache = true) {
-    const cacheKey = endpoint + '_' + JSON.stringify(params);
-    
-    if (useCache) {
-        const cached = getCached(cacheKey);
-        if (cached) return cached;
-    }
-    
-    const url = new URL(`${BASE_URL}${endpoint}`);
-    Object.entries(params).forEach(([k, v]) => url.searchParams.append(k, v));
-    
-    console.log(`🔄 Fetching: ${endpoint}`);
-    
-    for (let i = 0; i < 3; i++) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000);
-            
-            const response = await fetch(url.toString(), {
-                headers: { 'x-apisports-key': API_KEY },
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-            
-            if (response.status === 429) {
-                const wait = 2000 * (i + 1);
-                console.warn(`⚠️ Rate limited, waiting ${wait}ms...`);
-                await new Promise(r => setTimeout(r, wait));
-                continue;
-            }
-            
-            if (!response.ok) throw new Error('HTTP ' + response.status);
-            
-            const data = await response.json();
-            
-            if (data.errors && Object.keys(data.errors).length > 0) {
-                console.error('❌ API Error:', data.errors);
-                return { success: false, data: [], error: data.errors };
-            }
-            
-            const result = {
-                success: true,
-                data: data.response || [],
-                count: (data.response || []).length,
-                rateLimit: {
-                    remaining: response.headers.get('x-ratelimit-requests-remaining'),
-                    limit: response.headers.get('x-ratelimit-requests-limit')
-                }
-            };
-            
-            if (useCache) setCache(cacheKey, result);
-            
-            console.log(`✅ ${endpoint}: ${result.count} items`);
-            return result;
-            
-        } catch (error) {
-            console.warn(`⚠️ Attempt ${i+1} failed: ${error.message}`);
-            if (i === 2) return { success: false, data: [], error: error.message };
-            await new Promise(r => setTimeout(r, 1000 * (i + 1)));
-        }
-    }
-}
+// ===== STATUS =====
+function getMatchStatus(m) { const s=m.fixture?.status?.short; if(!s||s==='TBD'||s==='NS') return 'upcoming'; if(['1H','HT','2H','ET','P','LIVE'].includes(s)) return 'live'; if(['FT','AET','PEN'].includes(s)) return 'finished'; return 'upcoming'; }
 
-// ===== ROOT =====
-app.get('/', (req, res) => {
-    res.json({
-        service: 'X Lodon Sports Proxy',
-        version: '4.0.0',
-        provider: 'API-Football',
-        cache: 'Active (60s TTL)',
-        endpoints: [
-            '/api/debug',
-            '/api/livescores',
-            '/api/livescores/inplay',
-            '/api/fixtures/today',
-            '/api/fixtures/week',
-            '/api/fixtures/date/:date',
-            '/api/fixtures/between/:from/:to',
-            '/api/fixtures/:id',
-            '/api/fixtures/events/:fixtureId',
-            '/api/fixtures/statistics/:fixtureId',
-            '/api/fixtures/h2h/:team1/:team2',
-            '/api/odds/:fixtureId',
-            '/api/predictions/:fixtureId',
-            '/api/leagues',
-            '/api/test',
-            '/api/clear-cache',
-            '/health'
-        ]
-    });
-});
+function calculateOdds(h,a) { let x=0; const s=h+a; for(let i=0;i<s.length;i++) x+=s.charCodeAt(i); return { home:+(1.8+(x%20)/100).toFixed(2), draw:+(3.2+(x%15)/100).toFixed(2), away:+(2.8+(x%25)/100).toFixed(2) }; }
 
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        cacheSize: cache.size
-    });
-});
+// ===== HELPERS =====
+function formatCountdown(t) { if(!t) return '00:00:00'; const d=new Date(t)-new Date(); if(d<=0) return '00:00:00'; const h=Math.floor(d/3600000),m=Math.floor((d%3600000)/60000),s=Math.floor((d%60000)/1000); return `${h.padStart(2,'0')}:${m.padStart(2,'0')}:${s.padStart(2,'0')}`; }
+function getLiveTimer(t) { if(!t) return 'LIVE'; try { const d=Math.floor((new Date()-(t.toDate?t.toDate():new Date(t)))/60000); if(d<45) return `1st Half • ${d}'`; if(d<60) return `HT • ${d}'`; if(d<105) return `2nd Half • ${d-15}'`; return "90+'"; } catch(e){return 'LIVE';} }
+function getMatchMinute(t) { if(!t) return 45; try { return Math.floor((new Date()-(t.toDate?t.toDate():new Date(t)))/60000); } catch(e){return 45;} }
+function getTodayRange() { const t=new Date(); t.setHours(0,0,0,0); return {start:t, end:new Date(t.getTime()+86400000-1)}; }
+function getTomorrowRange() { const t=new Date(); t.setDate(t.getDate()+1); t.setHours(0,0,0,0); return {start:t, end:new Date(t.getTime()+86400000-1)}; }
+function getCancelFee(t) { if(!t) return 100; const m=Math.floor(((t.toDate?t.toDate():new Date(t))-new Date())/60000); if(m<0) return 100; if(m<5) return 50; if(m<60) return 20; return 5; }
+function getCashoutFee(m) { if(m<15) return 15; if(m<30) return 20; if(m<60) return 25; if(m<80) return 30; return 35; }
 
-// ===== DEBUG =====
-app.get('/api/debug', async (req, res) => {
+let cachedLeagues=[];
+async function getLeagues() { if(cachedLeagues.length) return cachedLeagues; const d=await fetchLeagues(); if(d?.success&&d.data) cachedLeagues=d.data.sort((a,b)=>(a.name||'').localeCompare(b.name||'')); return cachedLeagues; }
+
+// ===== SYNC (FORCE LIVE) =====
+async function syncMatchToFirestore(match) {
+    if(!firebase?.firestore) return false;
+    const db=firebase.firestore();
+    const f=match.fixture||{}, t=match.teams||{}, g=match.goals||{}, l=match.league||{}, id=f.id;
+    if(!id) return false;
+    const hn=t.home?.name||('Team '+(t.home?.id||'Home'));
+    const an=t.away?.name||('Team '+(t.away?.id||'Away'));
+    const status=getMatchStatus(match);
+    const odds=calculateOdds(hn,an);
+    let result=null, expiresAt=null;
+    if(status==='finished') { const hg=g.home||0, ag=g.away||0; result=hg>ag?'home':hg<ag?'away':'draw'; expiresAt=new Date(); expiresAt.setHours(expiresAt.getHours()+24); }
+    
+    const data = {
+        fixtureId: id, status, odds, result, expiresAt,
+        leagueId: l.id||0, leagueName: l.name||'Unknown League',
+        homeTeam: { id: t.home?.id||0, name: hn, logo: t.home?.logo||'' },
+        awayTeam: { id: t.away?.id||0, name: an, logo: t.away?.logo||'' },
+        startTime: f.date ? new Date(f.date) : new Date(),
+        score: { home: g.home||0, away: g.away||0 },
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    
     try {
-        const [status, leagues, fixtures] = await Promise.all([
-            fetchAPI('/status', {}, false),
-            fetchAPI('/leagues', {}, false),
-            fetchAPI('/fixtures', { date: new Date().toISOString().split('T')[0] }, false)
-        ]);
+        const ref = db.collection('sports_matches').doc(String(id));
+        const old = await ref.get();
+        const oldStatus = old.exists ? old.data().status : null;
         
-        res.json({
-            apiStatus: status.success,
-            account: status.data?.account || null,
-            subscription: status.data?.subscription || null,
-            leaguesCount: leagues.count || 0,
-            todayFixtures: fixtures.count || 0,
-            rateLimit: fixtures.rateLimit || null,
-            sample: fixtures.data?.[0] || null,
-            cacheSize: cache.size
-        });
-    } catch(e) {
-        res.json({ error: e.message });
-    }
-});
-
-// ===== LIVE SCORES =====
-app.get('/api/livescores', async (req, res) => {
-    const result = await fetchAPI('/fixtures', { live: 'all' });
-    res.json(result);
-});
-
-app.get('/api/livescores/inplay', async (req, res) => {
-    const result = await fetchAPI('/fixtures', { live: 'all' });
-    if (result.success) {
-        result.data = result.data.filter(m =>
-            ['1H','HT','2H','ET','P','LIVE'].includes(m.fixture?.status?.short)
-        );
-        result.count = result.data.length;
-    }
-    res.json(result);
-});
-
-// ===== FIXTURES =====
-app.get('/api/fixtures/today', async (req, res) => {
-    const today = new Date().toISOString().split('T')[0];
-    const result = await fetchAPI('/fixtures', { date: today });
-    res.json(result);
-});
-
-app.get('/api/fixtures/date/:date', async (req, res) => {
-    const result = await fetchAPI('/fixtures', { date: req.params.date });
-    res.json(result);
-});
-
-app.get('/api/fixtures/week', async (req, res) => {
-    const cacheKey = 'week_' + new Date().toISOString().split('T')[0];
-    const cached = getCached(cacheKey);
-    if (cached) return res.json(cached);
-    
-    const today = new Date();
-    let allMatches = [];
-    
-    // Fetch 7 days in parallel (3 at a time to respect rate limits)
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-        const date = new Date(today);
-        date.setDate(today.getDate() + i);
-        days.push(date.toISOString().split('T')[0]);
-    }
-    
-    for (let i = 0; i < days.length; i += 3) {
-        const batch = days.slice(i, i + 3);
-        const results = await Promise.all(
-            batch.map(date => fetchAPI('/fixtures', { date }, false))
-        );
-        for (const result of results) {
-            if (result.success && result.data) {
-                allMatches = allMatches.concat(result.data);
-            }
+        // 🔥 FORCE SET status to 'live' if API says it's live
+        // This ensures matches that transition from upcoming->live are updated immediately
+        await ref.set(data, { merge: true });
+        
+        if (status === 'live') {
+            console.log(`🔴 LIVE: ${hn} vs ${an}`);
         }
-    }
-    
-    const response = { success: true, data: allMatches, count: allMatches.length };
-    setCache(cacheKey, response);
-    
-    console.log(`📅 Week total: ${allMatches.length} fixtures`);
-    res.json(response);
-});
-
-app.get('/api/fixtures/between/:from/:to', async (req, res) => {
-    const { from, to } = req.params;
-    const start = new Date(from);
-    const end = new Date(to);
-    let allMatches = [];
-    
-    const days = [];
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        days.push(new Date(d).toISOString().split('T')[0]);
-    }
-    
-    for (let i = 0; i < days.length; i += 3) {
-        const batch = days.slice(i, i + 3);
-        const results = await Promise.all(
-            batch.map(date => fetchAPI('/fixtures', { date }, false))
-        );
-        for (const result of results) {
-            if (result.success && result.data) {
-                allMatches = allMatches.concat(result.data);
-            }
+        
+        if (oldStatus && oldStatus !== 'finished' && status === 'finished') {
+            console.log(`🏁 Auto-settling: ${hn} vs ${an}`);
+            await settleBetsForMatch(id, result);
         }
+        return true;
+    } catch(e) { return false; }
+}
+
+async function syncLiveMatches() {
+    const d = await fetchLiveMatches();
+    if (!d?.success || !d.data) return 0;
+    let s = 0;
+    for (const m of d.data.slice(0, 30)) {
+        if (await syncMatchToFirestore(m)) s++;
     }
-    
-    res.json({ success: true, data: allMatches, count: allMatches.length });
-});
+    return s;
+}
 
-app.get('/api/fixtures/:id', async (req, res) => {
-    const result = await fetchAPI('/fixtures', { id: req.params.id });
-    res.json({ success: result.success, data: result.data?.[0] || null });
-});
+async function syncUpcomingMatches() { const d=await fetchUpcomingWeek(); if(!d?.success||!d.data) return 0; let s=0; for(const m of d.data.slice(0,30)) if(await syncMatchToFirestore(m)) s++; return s; }
+async function syncAllMatches() { const l=await syncLiveMatches(); const u=await syncUpcomingMatches(); console.log(`✅ Live: ${l}, Upcoming: ${u}`); return {live:l, upcoming:u}; }
 
-// ===== MATCH EVENTS (Yellow/Red Cards, Goals, Subs) =====
-app.get('/api/fixtures/events/:fixtureId', async (req, res) => {
-    const result = await fetchAPI('/fixtures/events', { fixture: req.params.fixtureId });
-    res.json(result);
-});
+// ===== SETTLEMENT =====
+async function settleBetsForMatch(fixtureId, result) {
+    if(!firebase?.firestore) return 0;
+    const db=firebase.firestore(); let settled=0;
+    try {
+        const bets=await db.collection('bets').where('fixtureId','==',fixtureId).where('status','==','active').get();
+        for(const doc of bets.docs) {
+            const bet=doc.data(); let won=false;
+            if(['home','draw','away'].includes(bet.betType)) { won=bet.betType===result; }
+            else if(bet.betType==='over25'||bet.betType==='under25') { const tg=(bet.matchScore?.home||0)+(bet.matchScore?.away||0); won=(bet.betType==='over25'&&tg>2.5)||(bet.betType==='under25'&&tg<2.5); }
+            else if(bet.betType==='btts_yes'||bet.betType==='btts_no') { const bs=(bet.matchScore?.home>0&&bet.matchScore?.away>0); won=(bet.betType==='btts_yes'&&bs)||(bet.betType==='btts_no'&&!bs); }
+            else if(bet.betType==='1X') { won=(result==='home'||result==='draw'); }
+            else if(bet.betType==='12') { won=(result==='home'||result==='away'); }
+            else if(bet.betType==='X2') { won=(result==='draw'||result==='away'); }
+            if(won) { const w=await db.collection('wallets').doc(bet.userId).get(); await w.ref.update({ balance:(w.data()?.balance||0)+bet.potentialWin }); await doc.ref.update({ status:'won', result, payout:bet.potentialWin, settledAt:new Date() }); }
+            else { await doc.ref.update({ status:'lost', result, payout:0, settledAt:new Date() }); }
+            settled++;
+        }
+        if(settled>0) await db.collection('sports_matches').doc(String(fixtureId)).update({ betsSettled:true });
+    } catch(e) {}
+    return settled;
+}
 
-// ===== MATCH STATISTICS (Corners, Possession, Shots) =====
-app.get('/api/fixtures/statistics/:fixtureId', async (req, res) => {
-    const result = await fetchAPI('/fixtures/statistics', { fixture: req.params.fixtureId });
-    res.json(result);
-});
+async function settleAllFinishedMatches() {
+    if(!firebase?.firestore) return 0;
+    const db=firebase.firestore(); let total=0;
+    try { const finished=await db.collection('sports_matches').where('status','==','finished').get(); for(const doc of finished.docs) { const m=doc.data(); if(m.betsSettled) continue; let r=m.result; if(!r) { const h=m.score?.home||0, a=m.score?.away||0; r=h>a?'home':h<a?'away':'draw'; } total+=await settleBetsForMatch(m.fixtureId,r); } } catch(e) {}
+    return total;
+}
 
-// ===== HEAD TO HEAD =====
-app.get('/api/fixtures/h2h/:team1/:team2', async (req, res) => {
-    const result = await fetchAPI('/fixtures/headtohead', {
-        h2h: `${req.params.team1}-${req.params.team2}`
-    });
-    res.json(result);
-});
+async function forceUpdateStatus() {
+    if(!firebase?.firestore) return 0;
+    const db=firebase.firestore(); const now=new Date(); let updated=0;
+    try {
+        const snap=await db.collection('sports_matches').where('status','==','upcoming').limit(30).get();
+        const batch=db.batch();
+        snap.forEach(d=>{ const m=d.data(); if((m.startTime?.toDate?m.startTime.toDate():new Date(m.startTime))<=now) { batch.update(d.ref,{status:'live'}); updated++; } });
+        if(updated) await batch.commit();
+        await settleAllFinishedMatches();
+    } catch(e) {}
+    return updated;
+}
 
-// ===== ODDS =====
-app.get('/api/odds/:fixtureId', async (req, res) => {
-    const result = await fetchAPI('/odds', { fixture: req.params.fixtureId });
-    res.json({ success: result.success, data: result.data?.[0] || null });
-});
+let si,fi;
+function startAutoSync() { if(si)clearInterval(si); if(fi)clearInterval(fi); syncAllMatches(); si=setInterval(syncAllMatches,SYNC_INTERVAL); fi=setInterval(forceUpdateStatus,FORCE_UPDATE_INTERVAL); }
 
-// ===== PREDICTIONS =====
-app.get('/api/predictions/:fixtureId', async (req, res) => {
-    const result = await fetchAPI('/predictions', { fixture: req.params.fixtureId });
-    res.json({ success: result.success, data: result.data?.[0] || null });
-});
+window.syncNow = syncAllMatches;
+window.forceUpdate = forceUpdateStatus;
+window.settleNow = settleAllFinishedMatches;
+window.settleAllFinishedMatches = settleAllFinishedMatches;
+window.getLeagues = getLeagues;
+window.formatCountdown = formatCountdown;
+window.getLiveTimer = getLiveTimer;
+window.getMatchMinute = getMatchMinute;
+window.getTodayRange = getTodayRange;
+window.getTomorrowRange = getTomorrowRange;
+window.getCancelFee = getCancelFee;
+window.getCashoutFee = getCashoutFee;
+window.settleBetsForMatch = settleBetsForMatch;
+window.fetchOdds = fetchOdds;
+window.fetchMatchEvents = fetchMatchEvents;
+window.fetchMatchStats = fetchMatchStats;
+window.fetchPredictions = fetchPredictions;
 
-// ===== LEAGUES =====
-app.get('/api/leagues', async (req, res) => {
-    const result = await fetchAPI('/leagues');
-    res.json(result);
-});
-
-// ===== TEST =====
-app.get('/api/test', async (req, res) => {
-    const result = await fetchAPI('/status', {}, false);
-    res.json({
-        success: result.success,
-        message: result.success ? '✅ API Working' : '❌ Failed',
-        cacheSize: cache.size
-    });
-});
-
-// ===== CLEAR CACHE =====
-app.get('/api/clear-cache', (req, res) => {
-    cache.clear();
-    res.json({ success: true, message: 'Cache cleared', cacheSize: 0 });
-});
-
-// ===== CACHE STATS =====
-app.get('/api/cache-stats', (req, res) => {
-    const items = [];
-    for (const [key, value] of cache) {
-        items.push({
-            key: key.substring(0, 60),
-            age: Math.floor((Date.now() - value.timestamp) / 1000) + 's'
-        });
-    }
-    res.json({ cacheSize: cache.size, items: items.slice(0, 20) });
-});
-
-// ===== 404 =====
-app.use((req, res) => {
-    res.status(404).json({ error: 'Endpoint not found' });
-});
-
-// ===== START =====
-app.listen(PORT, () => {
-    console.log(`
-    ╔══════════════════════════════════════════════════╗
-    ║     🚀 X LODON SPORTS PROXY v4.0                  ║
-    ╠══════════════════════════════════════════════════╣
-    ║  📡 Port: ${PORT}                                    ║
-    ║  🎯 API: API-Football                             ║
-    ║  📦 Cache: Active (60s TTL)                       ║
-    ║  🔄 Retries: 3 with backoff                       ║
-    ║  ⚡ Parallel: Batch fetching                       ║
-    ║  📊 Endpoints: 20+                                ║
-    ║  ✅ Production Ready                               ║
-    ╚══════════════════════════════════════════════════╝
-    `);
-});
+setTimeout(()=>{syncAllMatches(); startAutoSync();},500);
+console.log('🏈 Sports API v32.0 - Force Live Sync Active');
