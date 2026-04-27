@@ -1,13 +1,11 @@
 // ============================================
-// js/sports-api.js - v33.0 SUPABASE + FIREBASE
-// Match data → Supabase | Wallet → Firebase
+// js/sports-api.js - v34.0 SUPABASE
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
 const SYNC_INTERVAL = 120000;
 const FORCE_UPDATE_INTERVAL = 60000;
 
-// ===== FETCH =====
 async function fetchFromBackend(endpoint) {
     try { const r = await fetch(BACKEND_URL + endpoint); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
     catch(e) { console.error('Fetch error:', e.message); return { success: false, data: [] }; }
@@ -16,16 +14,11 @@ async function fetchFromBackend(endpoint) {
 async function fetchLiveMatches() { return await fetchFromBackend('/api/livescores'); }
 async function fetchUpcomingWeek() { return await fetchFromBackend('/api/fixtures/week'); }
 async function fetchLeagues() { return await fetchFromBackend('/api/leagues'); }
-async function fetchOdds(fixtureId) { return await fetchFromBackend('/api/odds/' + fixtureId); }
-async function fetchMatchEvents(fixtureId) { return await fetchFromBackend('/api/fixtures/events/' + fixtureId); }
-async function fetchMatchStats(fixtureId) { return await fetchFromBackend('/api/fixtures/statistics/' + fixtureId); }
 
-// ===== STATUS =====
 function getMatchStatus(m) { const s=m.fixture?.status?.short; if(!s||s==='TBD'||s==='NS') return 'upcoming'; if(['1H','HT','2H','ET','P','LIVE'].includes(s)) return 'live'; if(['FT','AET','PEN'].includes(s)) return 'finished'; return 'upcoming'; }
 
 function calculateOdds(h,a) { let x=0; const s=h+a; for(let i=0;i<s.length;i++) x+=s.charCodeAt(i); return { home:+(1.8+(x%20)/100).toFixed(2), draw:+(3.2+(x%15)/100).toFixed(2), away:+(2.8+(x%25)/100).toFixed(2) }; }
 
-// ===== HELPERS =====
 function formatCountdown(t) { if(!t) return '00:00:00'; const d=new Date(t)-new Date(); if(d<=0) return '00:00:00'; const h=Math.floor(d/3600000),m=Math.floor((d%3600000)/60000),s=Math.floor((d%60000)/1000); return `${h.padStart(2,'0')}:${m.padStart(2,'0')}:${s.padStart(2,'0')}`; }
 function getLiveTimer(t) { if(!t) return 'LIVE'; try { const d=Math.floor((new Date()-(t.toDate?t.toDate():new Date(t)))/60000); if(d<45) return `1st Half • ${d}'`; if(d<60) return `HT • ${d}'`; if(d<105) return `2nd Half • ${d-15}'`; return "90+'"; } catch(e){return 'LIVE';} }
 function getMatchMinute(t) { if(!t) return 45; try { return Math.floor((new Date()-(t.toDate?t.toDate():new Date(t)))/60000); } catch(e){return 45;} }
@@ -57,12 +50,9 @@ async function syncMatchToDatabase(match) {
         score: { home: g.home||0, away: g.away||0 }
     };
     
-    // Save to Supabase
     if (window.supaDB) {
         const saved = await window.supaDB.upsertMatch(matchData);
-        if (saved) console.log(`📝 Supabase: ${hn} vs ${an} (${status})`);
-        
-        if (status === 'finished') {
+        if (saved && status === 'finished') {
             await settleBetsForMatch(id, result);
         }
         return saved;
@@ -74,22 +64,30 @@ async function syncLiveMatches() { const d=await fetchLiveMatches(); if(!d?.succ
 async function syncUpcomingMatches() { const d=await fetchUpcomingWeek(); if(!d?.success||!d.data) return 0; let s=0; for(const m of d.data.slice(0,30)) if(await syncMatchToDatabase(m)) s++; return s; }
 async function syncAllMatches() { const l=await syncLiveMatches(); const u=await syncUpcomingMatches(); console.log(`✅ Live: ${l}, Upcoming: ${u}`); return {live:l, upcoming:u}; }
 
-// ===== SETTLEMENT (Uses Firebase Wallet + Supabase Bets) =====
+// ===== SETTLEMENT =====
 async function settleBetsForMatch(fixtureId, result) {
-    const bets = window.supaDB ? await window.supaDB.getActiveBets(fixtureId) : [];
+    if (!window.supaDB) return 0;
+    const bets = await window.supaDB.getActiveBets(fixtureId);
     let settled = 0;
     
     for (const bet of bets) {
         let won = false;
         if (['home','draw','away'].includes(bet.bet_type)) { won = bet.bet_type === result; }
         else if (bet.bet_type === 'over25' || bet.bet_type === 'under25') {
-            const match = window.supaDB ? (await supabase.from('sports_matches').select('*').eq('fixture_id', fixtureId).single())?.data : null;
+            const { data: match } = await supaClient.from('sports_matches').select('score').eq('fixture_id', fixtureId).single();
             const tg = (match?.score?.home || 0) + (match?.score?.away || 0);
             won = (bet.bet_type === 'over25' && tg > 2.5) || (bet.bet_type === 'under25' && tg < 2.5);
         }
+        else if (bet.bet_type === 'btts_yes' || bet.bet_type === 'btts_no') {
+            const { data: match } = await supaClient.from('sports_matches').select('score').eq('fixture_id', fixtureId).single();
+            const bs = (match?.score?.home > 0 && match?.score?.away > 0);
+            won = (bet.bet_type === 'btts_yes' && bs) || (bet.bet_type === 'btts_no' && !bs);
+        }
+        else if (bet.bet_type === '1X') { won = (result === 'home' || result === 'draw'); }
+        else if (bet.bet_type === '12') { won = (result === 'home' || result === 'away'); }
+        else if (bet.bet_type === 'X2') { won = (result === 'draw' || result === 'away'); }
         
         if (won) {
-            // 🔥 FIREBASE WALLET - Update balance
             if (firebase?.firestore) {
                 const db = firebase.firestore();
                 const w = await db.collection('wallets').doc(bet.user_id).get();
@@ -102,17 +100,14 @@ async function settleBetsForMatch(fixtureId, result) {
         settled++;
     }
     
-    if (settled > 0) {
-        await supabase.from('sports_matches').update({ bets_settled: true }).eq('fixture_id', fixtureId);
+    if (settled > 0 && supaClient) {
+        await supaClient.from('sports_matches').update({ bets_settled: true }).eq('fixture_id', fixtureId);
     }
+    console.log(`💰 Settled ${settled} bets`);
     return settled;
 }
 
-let si,fi;
-function startAutoSync() { if(si)clearInterval(si); if(fi)clearInterval(fi); syncAllMatches(); si=setInterval(syncAllMatches,SYNC_INTERVAL); fi=setInterval(syncAllMatches,FORCE_UPDATE_INTERVAL); }
-
-window.syncNow = syncAllMatches;
-window.settleNow = async () => {
+async function settleAllFinishedMatches() {
     if (!window.supaDB) return 0;
     const matches = await window.supaDB.getUnsettledMatches();
     let total = 0;
@@ -122,8 +117,13 @@ window.settleNow = async () => {
         total += await settleBetsForMatch(m.fixture_id, r);
     }
     return total;
-};
+}
 
+let si,fi;
+function startAutoSync() { if(si)clearInterval(si); if(fi)clearInterval(fi); syncAllMatches(); si=setInterval(syncAllMatches,SYNC_INTERVAL); fi=setInterval(settleAllFinishedMatches,FORCE_UPDATE_INTERVAL); }
+
+window.syncNow = syncAllMatches;
+window.settleNow = settleAllFinishedMatches;
 window.getLeagues = getLeagues;
 window.formatCountdown = formatCountdown;
 window.getLiveTimer = getLiveTimer;
@@ -133,6 +133,7 @@ window.getTomorrowRange = getTomorrowRange;
 window.getCancelFee = getCancelFee;
 window.getCashoutFee = getCashoutFee;
 window.settleBetsForMatch = settleBetsForMatch;
+window.settleAllFinishedMatches = settleAllFinishedMatches;
 
-setTimeout(()=>{syncAllMatches(); startAutoSync();},500);
-console.log('🏈 Sports API v33.0 - Supabase + Firebase Hybrid');
+setTimeout(() => { syncAllMatches(); startAutoSync(); }, 1000);
+console.log('🏈 Sports API v34.0 - Supabase Ready');
