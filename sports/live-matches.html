@@ -21,7 +21,6 @@
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
         .live-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
         .live-badge { background: #ff5252; padding: 8px 16px; border-radius: 25px; font-weight: 600; }
-        .refresh-btn { background: transparent; border: 1px solid #00ff9d; color: #00ff9d; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 12px; }
         .match-card { background: #111827; border-radius: 16px; padding: 18px; margin-bottom: 15px; border: 1px solid #ff525233; position: relative; overflow: hidden; }
         .match-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #ff5252; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -54,7 +53,7 @@
     <div class="container">
         <div class="live-header">
             <span class="live-badge"><i class="fas fa-circle"></i> LIVE MATCHES <span id="match-count">0</span></span>
-            <button class="refresh-btn" onclick="forceSync()"><i class="fas fa-sync-alt"></i> Sync & Refresh</button>
+            <span style="color:#a0a8c9; font-size:12px;"><i class="fas fa-sync-alt fa-spin"></i> Real-time</span>
         </div>
         <div class="debug-bar" id="debug-bar">
             <i class="fas fa-database"></i> Loading matches...
@@ -63,7 +62,7 @@
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-futbol" style="font-size:48px; opacity:0.3;"></i>
             <p>No live matches at the moment</p>
-            <button onclick="forceSync()" style="margin-top:15px; padding:10px 20px; background:#00ff9d; color:black; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">
+            <button onclick="window.syncNow?.()" style="margin-top:15px; padding:10px 20px; background:#00ff9d; color:black; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">
                 <i class="fas fa-sync-alt"></i> Sync Now
             </button>
         </div>
@@ -91,19 +90,18 @@
             const empty = document.getElementById('empty-state');
             const debugBar = document.getElementById('debug-bar');
             
-            // 🔥 FIX: Get ALL sports_matches and filter client-side
-            // This avoids the index requirement
+            // Get ALL matches and filter locally for 'live' status
             unsubscribe = db.collection('sports_matches').onSnapshot(snap => {
                 const matches = [];
                 snap.forEach(d => {
                     const m = d.data();
-                    // Filter for live matches only
+                    // Strict filter: status must be exactly 'live'
                     if (m.status === 'live' && m.fixtureId && m.fixtureId < 1000000) {
                         matches.push(m);
                     }
                 });
                 
-                debugBar.innerHTML = `<i class="fas fa-check-circle"></i> Found ${matches.length} live matches (Total in DB: ${snap.size})`;
+                debugBar.innerHTML = `<i class="fas fa-check-circle"></i> Found ${matches.length} live matches (Total DB: ${snap.size})`;
                 document.getElementById('live-count').textContent = matches.length;
                 document.getElementById('match-count').textContent = matches.length;
                 
@@ -141,16 +139,6 @@
                 const diff = Math.floor((new Date() - start.toDate()) / 60000);
                 return diff < 1 ? '1' : diff > 90 ? '90+' : diff;
             } catch { return '45'; }
-        }
-        
-        function forceSync() {
-            if (typeof syncNow === 'function') {
-                debugBar.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing from API...';
-                syncNow().then(() => {
-                    debugBar.innerHTML = '<i class="fas fa-check-circle"></i> Sync complete! Refreshing data...';
-                    // The onSnapshot listener will automatically update
-                });
-            }
         }
         
         window.addEventListener('beforeunload', () => { if (unsubscribe) unsubscribe(); });
