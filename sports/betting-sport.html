@@ -9,6 +9,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <link rel="stylesheet" href="../css/sports-betting.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -51,7 +52,7 @@
         /* Top 20 Leagues Grid */
         .leagues-section { margin-bottom: 20px; }
         .leagues-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-        .league-item { background: #111827; padding: 10px 8px; border-radius: 10px; display: flex; flex-direction: column; align-items: center; text-align: center; border: 1px solid #ffffff11; }
+        .league-item { background: #111827; padding: 10px 8px; border-radius: 10px; display: flex; flex-direction: column; align-items: center; text-align: center; border: 1px solid #ffffff11; cursor: pointer; }
         .league-item img { width: 36px; height: 36px; object-fit: contain; margin-bottom: 5px; }
         .league-item i { font-size: 36px; color: #00ff9d; margin-bottom: 5px; }
         .league-item span { font-size: 10px; line-height: 1.2; }
@@ -188,7 +189,7 @@
             </div>
         </div>
         
-        <!-- DETAILED STEPS - HOW TO OPEN/CLOSE ORDERS -->
+        <!-- DETAILED STEPS -->
         <div class="steps-section">
             <div class="steps-title">
                 <i class="fas fa-question-circle"></i>
@@ -253,7 +254,7 @@
             </div>
         </div>
         
-        <!-- TOP 5 LIVE MATCHES -->
+        <!-- TOP LIVE MATCHES -->
         <div class="section-title">
             <h3>
                 <i class="fas fa-circle" style="color: #ff5252; font-size: 10px;"></i> 
@@ -264,9 +265,9 @@
                 <span class="en">View All</span><span class="ar" style="display:none;">عرض الكل</span> →
             </a>
         </div>
-        <div id="live-container"><div class="empty-state">Loading...</div></div>
+        <div id="live-container"><div class="empty-state">Loading live matches...</div></div>
         
-        <!-- TOP 5 UPCOMING MATCHES -->
+        <!-- TOP UPCOMING MATCHES -->
         <div class="section-title">
             <h3>
                 <i class="fas fa-calendar"></i> 
@@ -277,7 +278,7 @@
                 <span class="en">View All</span><span class="ar" style="display:none;">عرض الكل</span> →
             </a>
         </div>
-        <div id="upcoming-container"><div class="empty-state">Loading...</div></div>
+        <div id="upcoming-container"><div class="empty-state">Loading upcoming matches...</div></div>
     </div>
     
     <div class="bottom-nav">
@@ -287,9 +288,10 @@
         <a href="../dashboard.html" class="nav-item"><i class="fas fa-user"></i><span>Account</span></a>
     </div>
     
+    <script src="../js/supabase-client.js"></script>
     <script src="../js/sports-api.js"></script>
     <script>
-        // Top 20 most popular leagues (by ID from API-Football)
+        // Top 20 most popular leagues
         const TOP_LEAGUES = [
             { id: 39, name: 'Premier League', logo: 'https://media.api-sports.io/football/leagues/39.png' },
             { id: 140, name: 'La Liga', logo: 'https://media.api-sports.io/football/leagues/140.png' },
@@ -332,7 +334,7 @@
         };
         
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth(), db = firebase.firestore();
+        const auth = firebase.auth();
         let currentUser = null;
         
         auth.onAuthStateChanged(async u => {
@@ -351,6 +353,7 @@
         
         async function loadBalance() {
             try {
+                const db = firebase.firestore();
                 const wallet = await db.collection('wallets').doc(currentUser.uid).get();
                 const balance = wallet.exists ? (wallet.data().balance || 0) : 0;
                 document.getElementById('balance-display').textContent = '$' + balance.toFixed(2);
@@ -371,48 +374,76 @@
         
         async function loadCounts() {
             try {
-                const liveSnap = await db.collection('sports_matches').where('status', '==', 'live').get();
-                const upcomingSnap = await db.collection('sports_matches').where('status', '==', 'upcoming').where('startTime', '>=', new Date()).get();
-                const activeSnap = await db.collection('bets').where('userId', '==', currentUser.uid).where('status', '==', 'active').get();
+                if (window.supaDB) {
+                    const live = await window.supaDB.getLiveMatches();
+                    const all = await window.supaDB.getAllMatches();
+                    const upcoming = all.filter(m => m.status === 'upcoming');
+                    
+                    document.getElementById('live-count').textContent = live.length;
+                    document.getElementById('quick-live').textContent = live.length;
+                    document.getElementById('quick-upcoming').textContent = upcoming.length;
+                }
                 
-                document.getElementById('live-count').textContent = liveSnap.size;
-                document.getElementById('quick-live').textContent = liveSnap.size;
-                document.getElementById('quick-upcoming').textContent = upcomingSnap.size;
-                document.getElementById('quick-active').textContent = activeSnap.size;
+                // Active bets count from Supabase
+                if (currentUser && window.supaDB) {
+                    const bets = await window.supaDB.getUserBets(currentUser.uid);
+                    const active = bets.filter(b => b.status === 'active').length;
+                    document.getElementById('quick-active').textContent = active;
+                }
             } catch(e) { console.error('Counts error:', e); }
         }
         
-        function loadTopLiveMatches() {
-            db.collection('sports_matches').where('status', '==', 'live').orderBy('startTime', 'desc').limit(5).onSnapshot(snap => {
-                const container = document.getElementById('live-container');
-                const matches = []; snap.forEach(d => { const m = d.data(); if (m.fixtureId < 1000000) matches.push(m); });
-                
-                if (matches.length === 0) { container.innerHTML = '<div class="empty-state">No live matches</div>'; return; }
-                container.innerHTML = '';
-                matches.forEach(m => container.appendChild(createLiveCard(m)));
-                document.getElementById('live-count').textContent = matches.length;
-                document.getElementById('quick-live').textContent = matches.length;
-            });
+        async function loadTopLiveMatches() {
+            const container = document.getElementById('live-container');
+            if (!window.supaDB) {
+                container.innerHTML = '<div class="empty-state">Supabase not connected</div>';
+                return;
+            }
+            
+            const matches = await window.supaDB.getLiveMatches();
+            const top5 = matches.slice(0, 5);
+            
+            if (top5.length === 0) {
+                container.innerHTML = '<div class="empty-state">No live matches</div>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            top5.forEach(m => container.appendChild(createLiveCard(m)));
+            document.getElementById('live-count').textContent = matches.length;
+            document.getElementById('quick-live').textContent = matches.length;
         }
         
-        function loadTopUpcomingMatches() {
-            db.collection('sports_matches').where('status', '==', 'upcoming').where('startTime', '>=', new Date()).orderBy('startTime', 'asc').limit(5).onSnapshot(snap => {
-                const container = document.getElementById('upcoming-container');
-                const matches = []; snap.forEach(d => { const m = d.data(); if (m.fixtureId < 1000000) matches.push(m); });
-                
-                if (matches.length === 0) { container.innerHTML = '<div class="empty-state">No upcoming matches</div>'; return; }
-                container.innerHTML = '';
-                matches.forEach(m => container.appendChild(createUpcomingCard(m)));
-                document.getElementById('quick-upcoming').textContent = matches.length;
-            });
+        async function loadTopUpcomingMatches() {
+            const container = document.getElementById('upcoming-container');
+            if (!window.supaDB) {
+                container.innerHTML = '<div class="empty-state">Supabase not connected</div>';
+                return;
+            }
+            
+            const now = new Date();
+            const nextWeek = new Date(); nextWeek.setDate(now.getDate() + 7);
+            const matches = await window.supaDB.getUpcomingByDate(now, nextWeek);
+            const top5 = matches.slice(0, 5);
+            
+            if (top5.length === 0) {
+                container.innerHTML = '<div class="empty-state">No upcoming matches</div>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            top5.forEach(m => container.appendChild(createUpcomingCard(m)));
+            document.getElementById('quick-upcoming').textContent = matches.length;
         }
         
         function createLiveCard(m) {
             const card = document.createElement('div'); card.className = 'match-card live';
-            card.onclick = () => location.href = `match-details.html?id=${m.fixtureId}`;
+            card.onclick = () => location.href = `match-details.html?id=${m.fixture_id}`;
+            const homeName = m.home_team?.name || 'Home';
+            const awayName = m.away_team?.name || 'Away';
             card.innerHTML = `
-                <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.leagueName||'League'}</div>
-                <div class="match-teams"><span class="team">${m.homeTeam?.name||'Home'}</span><span class="score">${m.score?.home||0} - ${m.score?.away||0}</span><span class="team">${m.awayTeam?.name||'Away'}</span></div>
+                <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.league_name||'League'}</div>
+                <div class="match-teams"><span class="team">${homeName}</span><span class="score">${m.score?.home||0} - ${m.score?.away||0}</span><span class="team">${awayName}</span></div>
                 <div style="display:flex; justify-content:space-between; margin-top:5px;"><span class="live-badge"><i class="fas fa-circle"></i> LIVE</span></div>
             `;
             return card;
@@ -420,11 +451,13 @@
         
         function createUpcomingCard(m) {
             const card = document.createElement('div'); card.className = 'match-card';
-            card.onclick = () => location.href = `match-details.html?id=${m.fixtureId}`;
-            const time = m.startTime.toDate();
+            card.onclick = () => location.href = `match-details.html?id=${m.fixture_id}`;
+            const time = new Date(m.start_time);
+            const homeName = m.home_team?.name || 'Home';
+            const awayName = m.away_team?.name || 'Away';
             card.innerHTML = `
-                <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.leagueName||'League'}</div>
-                <div class="match-teams"><span class="team">${m.homeTeam?.name||'Home'}</span><span style="color:#ff9800;">VS</span><span class="team">${m.awayTeam?.name||'Away'}</span></div>
+                <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.league_name||'League'}</div>
+                <div class="match-teams"><span class="team">${homeName}</span><span style="color:#ff9800;">VS</span><span class="team">${awayName}</span></div>
                 <div style="display:flex; justify-content:space-between; margin-top:5px;"><span class="match-time"><i class="far fa-calendar"></i> ${time.toLocaleDateString()}</span><span class="match-time"><i class="far fa-clock"></i> ${time.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
                 <div class="odds-preview"><div class="odd-preview">1 <span>${m.odds?.home||'2.00'}</span></div><div class="odd-preview">X <span>${m.odds?.draw||'3.50'}</span></div><div class="odd-preview">2 <span>${m.odds?.away||'3.80'}</span></div></div>
             `;
