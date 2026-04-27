@@ -17,13 +17,17 @@
         .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
         .header-left { display: flex; align-items: center; gap: 10px; }
         .back-btn { color: #00ff9d; text-decoration: none; font-size: 20px; }
-        .lang-toggle { background: #1a2332; border: 1px solid #00ff9d; color: #00ff9d; padding: 5px 12px; border-radius: 20px; font-size: 14px; cursor: pointer; }
+        .lang-toggle { background: #1a2332; border: 1px solid #00ff9d; color: #00ff9d; padding: 5px 12px; border-radius: 20px; cursor: pointer; }
         .tabs { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 3px; }
         .tab { padding: 8px 12px; background: #1a2332; border-radius: 20px; color: white; text-decoration: none; font-size: 12px; }
         .tab.active { background: #ff5252; color: white; }
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
-        .live-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .live-header { display: flex; justify-content: space-between; margin-bottom: 15px; }
         .live-badge { background: #ff5252; padding: 8px 16px; border-radius: 25px; font-weight: 600; }
+        .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; }
+        .debug-bar.success { border-left: 4px solid #4caf50; }
+        .debug-bar.warning { border-left: 4px solid #ff9800; }
+        .debug-bar.error { border-left: 4px solid #ff5252; }
         .match-card { background: #111827; border-radius: 16px; padding: 18px; margin-bottom: 15px; border: 1px solid #ff525233; position: relative; overflow: hidden; }
         .match-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #ff5252; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -34,8 +38,8 @@
         .score { font-size: 36px; font-weight: bold; letter-spacing: 8px; }
         .timer-badge { background: #ff5252; padding: 4px 15px; border-radius: 20px; font-size: 13px; display: inline-block; margin-top: 8px; }
         .info-row { text-align: center; color: #ff5252; font-size: 12px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ffffff11; }
+        .refresh-btn { background: transparent; border: 1px solid #00ff9d; color: #00ff9d; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 12px; }
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
-        .debug-info { background: #1a2332; padding: 8px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; color: #a0a8c9; }
         .arabic { font-family: 'Tajawal', sans-serif; }
     </style>
 </head>
@@ -60,8 +64,11 @@
     <div class="container">
         <div class="live-header">
             <span class="live-badge"><i class="fas fa-circle"></i> <span class="en">LIVE MATCHES</span><span class="ar" style="display:none;">مباريات مباشرة</span> <span id="match-count">0</span></span>
+            <button class="refresh-btn" onclick="forceRefresh()"><i class="fas fa-sync-alt"></i> <span class="en">Refresh</span></button>
         </div>
-        <div class="debug-info" id="debug-info"><i class="fas fa-database"></i> <span id="debug-text">Loading...</span></div>
+        <div class="debug-bar warning" id="debug-bar">
+            <i class="fas fa-database"></i> <span id="debug-text">Checking for live matches...</span>
+        </div>
         <div id="matches-container"></div>
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-futbol" style="font-size:48px; opacity:0.3;"></i>
@@ -71,14 +78,7 @@
 
     <script src="../js/sports-api.js"></script>
     <script>
-        function toggleLanguage() {
-            var isEn = document.querySelector('.en').style.display !== 'none';
-            document.querySelectorAll('.en').forEach(el => el.style.display = isEn ? 'none' : '');
-            document.querySelectorAll('.ar').forEach(el => el.style.display = isEn ? '' : 'none');
-            document.documentElement.dir = isEn ? 'rtl' : 'ltr';
-            localStorage.setItem('lang', isEn ? 'ar' : 'en');
-        }
-        if (localStorage.getItem('lang') === 'ar') { toggleLanguage(); }
+        function toggleLanguage() { location.reload(); }
         
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -93,38 +93,43 @@
         const auth = firebase.auth(), db = firebase.firestore();
         let unsubscribe = null, timerInterval = null, liveMatches = [];
         
-        auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else loadLive(); });
+        auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else loadLiveMatches(); });
         
-        function loadLive() {
+        function loadLiveMatches() {
             const container = document.getElementById('matches-container');
             const empty = document.getElementById('empty-state');
+            const debugBar = document.getElementById('debug-bar');
             const debugText = document.getElementById('debug-text');
             
-            unsubscribe = db.collection('sports_matches').where('status', '==', 'live').onSnapshot(snap => {
-                // 🆕 FIXED: No time filter - show ALL live matches
-                liveMatches = [];
-                snap.forEach(d => {
-                    const m = d.data();
-                    // Only filter out sample data
-                    if (m.fixtureId < 1000000) liveMatches.push(m);
+            // 🔥 FIX: Query ALL matches with status 'live'
+            unsubscribe = db.collection('sports_matches')
+                .where('status', '==', 'live')
+                .onSnapshot(snap => {
+                    liveMatches = [];
+                    snap.forEach(d => {
+                        const m = d.data();
+                        if (m.fixtureId < 1000000) liveMatches.push(m);
+                    });
+                    
+                    debugText.textContent = `Found ${liveMatches.length} live matches in database`;
+                    debugBar.className = liveMatches.length > 0 ? 'debug-bar success' : 'debug-bar warning';
+                    
+                    document.getElementById('live-count').textContent = liveMatches.length;
+                    document.getElementById('match-count').textContent = liveMatches.length;
+                    
+                    if (liveMatches.length === 0) { 
+                        container.style.display = 'none'; 
+                        empty.style.display = 'block'; 
+                    } else { 
+                        container.style.display = 'block'; 
+                        empty.style.display = 'none'; 
+                        renderMatches(); 
+                    }
+                    startLiveTimer();
+                }, error => {
+                    debugText.textContent = `Error: ${error.message}`;
+                    debugBar.className = 'debug-bar error';
                 });
-                
-                debugText.textContent = `Found ${liveMatches.length} live matches in database`;
-                document.getElementById('live-count').textContent = liveMatches.length;
-                document.getElementById('match-count').textContent = liveMatches.length;
-                
-                if (liveMatches.length === 0) { 
-                    container.style.display = 'none'; 
-                    empty.style.display = 'block'; 
-                } else { 
-                    container.style.display = 'block'; 
-                    empty.style.display = 'none'; 
-                    renderMatches(); 
-                }
-                startTimer();
-            }, error => {
-                debugText.textContent = `Error: ${error.message}`;
-            });
         }
         
         function renderMatches() {
@@ -147,7 +152,7 @@
             return card;
         }
         
-        function startTimer() {
+        function startLiveTimer() {
             if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
                 liveMatches.forEach(m => {
@@ -155,6 +160,14 @@
                     if (el && typeof getLiveTimer === 'function') el.textContent = getLiveTimer(m.startTime);
                 });
             }, 30000);
+        }
+        
+        function forceRefresh() {
+            if (typeof syncNow === 'function') {
+                syncNow().then(() => {
+                    setTimeout(() => loadLiveMatches(), 1000);
+                });
+            }
         }
         
         window.addEventListener('beforeunload', () => { if (unsubscribe) unsubscribe(); if (timerInterval) clearInterval(timerInterval); });
