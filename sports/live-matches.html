@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <link rel="stylesheet" href="../css/sports-betting.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -56,18 +56,19 @@
             <span style="color:#a0a8c9; font-size:12px;"><i class="fas fa-sync-alt fa-spin"></i> Real-time</span>
         </div>
         <div class="debug-bar" id="debug-bar">
-            <i class="fas fa-database"></i> Loading matches...
+            <i class="fas fa-database"></i> Loading matches from Supabase...
         </div>
         <div id="matches-container"></div>
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-futbol" style="font-size:48px; opacity:0.3;"></i>
             <p>No live matches at the moment</p>
             <button onclick="window.syncNow?.()" style="margin-top:15px; padding:10px 20px; background:#00ff9d; color:black; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">
-                <i class="fas fa-sync-alt"></i> Sync Now
+                Sync Now
             </button>
         </div>
     </div>
 
+    <script src="../js/supabase-client.js"></script>
     <script src="../js/sports-api.js"></script>
     <script>
         const firebaseConfig = {
@@ -80,68 +81,64 @@
         };
         
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth(), db = firebase.firestore();
-        let unsubscribe = null;
+        const auth = firebase.auth();
         
         auth.onAuthStateChanged(u => { if (!u) location.href = '../login.html'; else loadLive(); });
         
-        function loadLive() {
+        async function loadLive() {
             const container = document.getElementById('matches-container');
             const empty = document.getElementById('empty-state');
             const debugBar = document.getElementById('debug-bar');
             
-            // Get ALL matches and filter locally for 'live' status
-            unsubscribe = db.collection('sports_matches').onSnapshot(snap => {
-                const matches = [];
-                snap.forEach(d => {
-                    const m = d.data();
-                    // Strict filter: status must be exactly 'live'
-                    if (m.status === 'live' && m.fixtureId && m.fixtureId < 1000000) {
-                        matches.push(m);
-                    }
-                });
-                
-                debugBar.innerHTML = `<i class="fas fa-check-circle"></i> Found ${matches.length} live matches (Total DB: ${snap.size})`;
-                document.getElementById('live-count').textContent = matches.length;
-                document.getElementById('match-count').textContent = matches.length;
-                
-                if (matches.length === 0) {
-                    container.style.display = 'none';
-                    empty.style.display = 'block';
-                } else {
-                    container.style.display = 'block';
-                    empty.style.display = 'none';
-                    container.innerHTML = '';
-                    matches.sort((a,b) => b.startTime?.toDate() - a.startTime?.toDate()).forEach(m => container.appendChild(createCard(m)));
-                }
-            }, e => {
-                console.error(e);
-                debugBar.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Error: ${e.message}`;
-            });
+            if (!window.supaDB) {
+                debugBar.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Supabase not connected';
+                return;
+            }
+            
+            // Get live matches from Supabase
+            const matches = await window.supaDB.getLiveMatches();
+            
+            debugBar.innerHTML = `<i class="fas fa-check-circle"></i> Found ${matches.length} live matches (Supabase)`;
+            document.getElementById('live-count').textContent = matches.length;
+            document.getElementById('match-count').textContent = matches.length;
+            
+            if (matches.length === 0) {
+                container.style.display = 'none';
+                empty.style.display = 'block';
+            } else {
+                container.style.display = 'block';
+                empty.style.display = 'none';
+                container.innerHTML = '';
+                matches.forEach(m => container.appendChild(createCard(m)));
+            }
+            
+            // Refresh every 30 seconds
+            setTimeout(loadLive, 30000);
         }
         
         function createCard(m) {
             const card = document.createElement('div');
             card.className = 'match-card';
-            const min = getMinute(m.startTime);
+            const min = getMinute(m.start_time);
+            const homeName = m.home_team?.name || 'Home';
+            const awayName = m.away_team?.name || 'Away';
+            const homeScore = m.score?.home || 0;
+            const awayScore = m.score?.away || 0;
+            
             card.innerHTML = `
-                <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.leagueName||'League'}<span class="live-tag"><i class="fas fa-circle"></i> LIVE</span></div>
-                <div class="match-teams"><div class="team">${m.homeTeam?.name||'Home'}</div><div class="score">${m.score?.home||0} - ${m.score?.away||0}</div><div class="team">${m.awayTeam?.name||'Away'}</div></div>
+                <div class="match-league"><i class="fas fa-trophy" style="color:#ff9800;"></i> ${m.league_name||'League'}<span class="live-tag"><i class="fas fa-circle"></i> LIVE</span></div>
+                <div class="match-teams"><div class="team">${homeName}</div><div class="score">${homeScore} - ${awayScore}</div><div class="team">${awayName}</div></div>
                 <div style="text-align:center;"><span class="minute-badge">${min}'</span></div>
-                <div class="info-row"><i class="fas fa-info-circle"></i> Betting closed - Match in progress</div>
+                <div class="info-row"><i class="fas fa-info-circle"></i> Betting closed</div>
             `;
             return card;
         }
         
         function getMinute(start) {
             if (!start) return '45';
-            try {
-                const diff = Math.floor((new Date() - start.toDate()) / 60000);
-                return diff < 1 ? '1' : diff > 90 ? '90+' : diff;
-            } catch { return '45'; }
+            try { const diff = Math.floor((new Date() - new Date(start)) / 60000); return diff < 1 ? '1' : diff > 90 ? '90+' : diff; }
+            catch { return '45'; }
         }
-        
-        window.addEventListener('beforeunload', () => { if (unsubscribe) unsubscribe(); });
     </script>
 </body>
 </html>
