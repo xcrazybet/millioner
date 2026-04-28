@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <link rel="stylesheet" href="../css/sports-betting.css">
     <style>
@@ -22,6 +23,7 @@
         .tab { padding: 8px 12px; background: #1a2332; border-radius: 20px; color: white; text-decoration: none; font-size: 12px; }
         .tab.active { background: #ff5252; color: white; }
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
+        .balance-bar { background: #111827; padding: 10px 15px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #00ff9d33; }
         .live-header { display: flex; justify-content: space-between; margin-bottom: 15px; }
         .live-badge { background: #ff5252; padding: 8px 16px; border-radius: 25px; font-weight: 600; }
         .match-card { background: #111827; border-radius: 16px; padding: 18px; margin-bottom: 15px; border: 1px solid #ff525233; position: relative; overflow: hidden; }
@@ -73,6 +75,10 @@
     </div>
     
     <div class="container">
+        <div class="balance-bar">
+            <span><i class="fas fa-wallet"></i> <span class="en">Balance</span></span>
+            <span style="color:#00ff9d;font-weight:bold;font-size:18px;" id="balance-display">$0.00</span>
+        </div>
         <div class="live-header">
             <span class="live-badge"><i class="fas fa-circle"></i> <span class="en">LIVE MATCHES</span> <span id="match-count">0</span></span>
         </div>
@@ -84,7 +90,6 @@
     </div>
 
     <script src="../js/supabase-client.js"></script>
-    <script src="../js/sports-api.js"></script>
     <script>
         function toggleLanguage() {
             var isEn = document.querySelector('.en').style.display !== 'none';
@@ -100,15 +105,31 @@
         
         let liveMatches=[], timerInterval=null;
         
-        firebase.auth().onAuthStateChanged(u => { if(!u) location.href='../login.html'; else loadLive(); });
+        firebase.auth().onAuthStateChanged(u => { if(!u) location.href='../login.html'; else init(); });
+        
+        async function init(){
+            await loadBalance();
+            loadLive();
+        }
+        
+        async function loadBalance(){
+            try {
+                const db = firebase.firestore();
+                const w = await db.collection('wallets').doc(firebase.auth().currentUser.uid).get();
+                document.getElementById('balance-display').textContent = '$' + (w.exists ? (w.data().balance||0) : 0).toFixed(2);
+            } catch(e){}
+        }
         
         async function loadLive(){
             const container=document.getElementById('matches-container');
             const empty=document.getElementById('empty-state');
-            
             if(!window.supaDB) return;
             
             liveMatches = await window.supaDB.getLiveMatches();
+            // 🔥 FIX: Filter out matches older than 3.5 hours (definitely finished)
+            const threeHalfHoursAgo = new Date(Date.now() - 3.5 * 60 * 60 * 1000);
+            liveMatches = liveMatches.filter(m => new Date(m.start_time) > threeHalfHoursAgo);
+            
             document.getElementById('live-count').textContent = liveMatches.length;
             document.getElementById('match-count').textContent = liveMatches.length;
             
@@ -117,6 +138,7 @@
             
             liveMatches.forEach(m => fetchMatchEvents(m.fixture_id));
             startTimer();
+            setTimeout(loadLive, 30000);
         }
         
         async function fetchMatchEvents(fixtureId){
