@@ -25,6 +25,7 @@
         
         .selector-bar { display: flex; gap: 10px; margin-bottom: 15px; }
         .league-select { flex: 1; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; }
+        .search-input { flex: 2; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; }
         
         .day-tabs { display: flex; gap: 5px; margin-bottom: 15px; overflow-x: auto; padding-bottom: 5px; }
         .day-tab { padding: 10px 16px; background: #1a2332; border: none; border-radius: 25px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
@@ -44,12 +45,24 @@
         .match-time-col .time { font-weight: bold; color: #00ff9d; }
         .match-time-col .countdown { font-size: 11px; color: #a0a8c9; }
         .team-col { flex: 1; display: flex; align-items: center; gap: 8px; }
+        .team-col img { width: 24px; height: 24px; object-fit: contain; }
         .team-col .names { font-weight: 500; }
         .team-col .names .vs { color: #ff9800; margin: 0 5px; }
         .odds-col { display: flex; gap: 5px; }
         .odd-mini { padding: 4px 8px; background: #0a0f1a; border-radius: 4px; font-size: 12px; text-align: center; min-width: 40px; }
         .odd-mini span { color: #00ff9d; font-weight: bold; }
         .bet-btn { padding: 6px 14px; background: #00ff9d; color: black; border: none; border-radius: 20px; font-size: 11px; font-weight: 600; cursor: pointer; }
+        
+        .bet-slip { position: fixed; bottom: 0; left: 0; right: 0; background: #111827; border-top: 2px solid #ff9800; padding: 15px; z-index: 1000; max-height: 200px; overflow-y: auto; }
+        .slip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .slip-title { color: #ff9800; font-weight: 600; }
+        .slip-clear { color: #ff5252; font-size: 12px; cursor: pointer; }
+        .slip-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #ffffff11; font-size: 12px; }
+        .slip-remove { color: #ff5252; cursor: pointer; }
+        .slip-total { display: flex; justify-content: space-between; padding: 10px 0; }
+        .slip-total-odds { color: #ff9800; font-weight: bold; font-size: 16px; }
+        .slip-place-btn { width: 100%; padding: 12px; background: #ff9800; color: black; border: none; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; }
+        .slip-place-btn:disabled { opacity: 0.5; }
         
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
         .arabic { font-family: 'Tajawal', sans-serif; }
@@ -75,11 +88,9 @@
     
     <div class="container">
         <div class="selector-bar">
-            <select id="league-filter" class="league-select" onchange="filterMatches()">
-                <option value="all">All Leagues</option>
-            </select>
+            <select id="league-filter" class="league-select"><option value="all">All Leagues</option></select>
+            <input type="text" id="search-input" class="search-input" placeholder="Search league or team..." oninput="filterMatches()">
         </div>
-        
         <div class="day-tabs" id="day-tabs">
             <button class="day-tab active" data-days="0">Today</button>
             <button class="day-tab" data-days="1">Tomorrow</button>
@@ -89,12 +100,21 @@
             <button class="day-tab" data-days="5"></button>
             <button class="day-tab" data-days="6"></button>
         </div>
-        
-        <div id="matches-container"><div style="text-align:center; padding:30px;">Loading...</div></div>
+        <div id="matches-container"><div style="text-align:center;padding:30px;">Loading...</div></div>
+    </div>
+    
+    <div class="bet-slip" id="bet-slip" style="display:none;">
+        <div class="slip-header">
+            <span class="slip-title"><i class="fas fa-layer-group"></i> Bet Slip (<span id="slip-count">0</span>)</span>
+            <span class="slip-clear" onclick="clearSlip()"><i class="fas fa-trash"></i> Clear</span>
+        </div>
+        <div id="slip-items"></div>
+        <div class="slip-total"><span>Total Odds:</span><span class="slip-total-odds" id="slip-total-odds">1.00</span></div>
+        <button class="slip-place-btn" id="place-acc-btn" disabled onclick="placeAccumulator()">Add 2+ Selections</button>
     </div>
 
     <script src="../js/supabase-client.js"></script>
-    <script src="../js/sports-api.js"></script>
+    <script src="../js/betting-engine.js"></script>
     <script>
         function toggleLanguage() {
             var isEn = document.querySelector('.en').style.display !== 'none';
@@ -107,28 +127,29 @@
         
         const firebaseConfig = { apiKey:"AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM", authDomain:"x-bet-prod-jd.firebaseapp.com", projectId:"x-bet-prod-jd", storageBucket:"x-bet-prod-jd.firebasestorage.app", messagingSenderId:"499334334535", appId:"1:499334334535:web:bebc1bf817e24d9e3c4962" };
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
         
-        let allMatches=[], currentDays=0, countdownInterval;
+        let allMatches=[], currentDays=0, countdownInterval, selectedLeague='all';
         
-        auth.onAuthStateChanged(u => { if(!u) location.href='../login.html'; else init(); });
+        firebase.auth().onAuthStateChanged(u => { if(!u) location.href='../login.html'; else init(); });
         
         async function init(){
             await loadLeaguesFilter();
             setupDayTabs();
             await loadAllMatches();
+            if(window.ACCUMULATOR_SLIP?.length) updateSlipUI();
         }
         
         async function loadLeaguesFilter(){
+            const select=document.getElementById('league-filter');
             try {
                 const r = await fetch('https://millioner.onrender.com/api/leagues');
                 const d = await r.json();
                 if(d.success && d.data){
-                    const select=document.getElementById('league-filter');
                     d.data.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
                     d.data.forEach(l => { if(l.name){ const o=document.createElement('option'); o.value=l.id; o.textContent=l.name; select.appendChild(o); } });
                 }
             } catch(e){}
+            select.onchange = function(){ selectedLeague=this.value; filterMatches(); };
         }
         
         function setupDayTabs(){
@@ -154,89 +175,86 @@
         
         function filterMatches(){
             const container=document.getElementById('matches-container');
-            const leagueFilter=document.getElementById('league-filter').value;
+            const search = (document.getElementById('search-input').value || '').toLowerCase();
             
+            let filtered = allMatches;
             const targetDate = new Date(); targetDate.setDate(targetDate.getDate()+currentDays);
             const startDay = new Date(targetDate); startDay.setHours(0,0,0,0);
             const endDay = new Date(targetDate); endDay.setHours(23,59,59,999);
-            
-            let filtered = allMatches.filter(m => {
-                const mt = new Date(m.start_time);
-                return mt >= startDay && mt <= endDay;
+            filtered = filtered.filter(m => { const mt = new Date(m.start_time); return mt >= startDay && mt <= endDay; });
+            if(selectedLeague !== 'all') filtered = filtered.filter(m => m.league_id == selectedLeague);
+            if(search) filtered = filtered.filter(m => {
+                const hn=(m.home_team?.name||'').toLowerCase(), an=(m.away_team?.name||'').toLowerCase(), ln=(m.league_name||'').toLowerCase();
+                return hn.includes(search)||an.includes(search)||ln.includes(search);
             });
             
-            if(leagueFilter !== 'all') filtered = filtered.filter(m => m.league_id == leagueFilter);
+            if(filtered.length===0){ container.innerHTML='<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found</p></div>'; return; }
             
-            if(filtered.length === 0){
-                container.innerHTML = '<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found</p></div>';
-                return;
-            }
+            const grouped={};
+            filtered.forEach(m=>{ const l=m.league_name||'Other'; if(!grouped[l])grouped[l]=[]; grouped[l].push(m); });
             
-            const grouped = {};
-            filtered.forEach(m => {
-                const league = m.league_name || 'Other';
-                if(!grouped[league]) grouped[league] = [];
-                grouped[league].push(m);
-            });
-            
-            container.innerHTML = '';
-            Object.keys(grouped).sort().forEach(league => {
-                const group = document.createElement('div'); group.className = 'league-group';
-                group.innerHTML = `
-                    <div class="league-group-header" onclick="toggleLeague(this)">
-                        <span class="name">${league}</span><span class="count">${grouped[league].length} matches</span><i class="fas fa-chevron-down"></i>
-                    </div>
-                    <div class="league-matches">${grouped[league].map(m => createMatchRow(m)).join('')}</div>`;
+            container.innerHTML='';
+            Object.keys(grouped).sort().forEach(league=>{
+                const group=document.createElement('div'); group.className='league-group';
+                group.innerHTML=`<div class="league-group-header" onclick="toggleLeague(this)"><span class="name">${league}</span><span class="count">${grouped[league].length} matches</span><i class="fas fa-chevron-down"></i></div><div class="league-matches">${grouped[league].map(m=>createMatchRow(m)).join('')}</div>`;
                 container.appendChild(group);
             });
-            
             startCountdowns(filtered);
         }
         
         function createMatchRow(m){
-            const time = new Date(m.start_time);
-            const homeName = m.home_team?.name || 'Home';
-            const awayName = m.away_team?.name || 'Away';
-            const odds = m.odds || {};
-            
-            return `
-            <div class="match-row">
-                <div class="match-time-col">
-                    <div class="time">${time.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
-                    <div class="countdown" id="cd-${m.fixture_id}">--:--:--</div>
-                </div>
-                <div class="team-col"><span class="names">${homeName} <span class="vs">vs</span> ${awayName}</span></div>
-                <div class="odds-col">
-                    <div class="odd-mini">1 <span>${odds.home||'2.00'}</span></div>
-                    <div class="odd-mini">X <span>${odds.draw||'3.50'}</span></div>
-                    <div class="odd-mini">2 <span>${odds.away||'3.80'}</span></div>
-                </div>
-                <button class="bet-btn" onclick="event.stopPropagation(); goToMatch(${m.fixture_id})">Bet</button>
+            const time=new Date(m.start_time);
+            const hn=m.home_team?.name||'Home', an=m.away_team?.name||'Away';
+            const hl=m.home_team?.logo||'', al=m.away_team?.logo||'';
+            const odds=m.odds||{};
+            return `<div class="match-row">
+                <div class="match-time-col"><div class="time">${time.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div><div class="countdown" id="cd-${m.fixture_id}">--:--:--</div></div>
+                <div class="team-col">${hl?`<img src="${hl}" onerror="this.style.display='none'">`:''}<span class="names">${hn} <span class="vs">vs</span> ${an}</span>${al?`<img src="${al}" onerror="this.style.display='none'">`:''}</div>
+                <div class="odds-col"><div class="odd-mini">1 <span>${odds.home||'2.00'}</span></div><div class="odd-mini">X <span>${odds.draw||'3.50'}</span></div><div class="odd-mini">2 <span>${odds.away||'3.80'}</span></div></div>
+                <button class="bet-btn" onclick="event.stopPropagation();goToMatch(${m.fixture_id})">Bet</button>
+                <button class="bet-btn" style="background:#ff9800;color:black;" onclick="event.stopPropagation();addToSlip(${m.fixture_id},'${hn}','${an}',${odds.home||2.00})">+Slip</button>
             </div>`;
         }
         
-        function startCountdowns(matches){
-            if(countdownInterval) clearInterval(countdownInterval);
-            countdownInterval = setInterval(() => {
-                matches.forEach(m => {
-                    const el = document.getElementById('cd-'+m.fixture_id);
-                    if(el){
-                        const diff = new Date(m.start_time) - new Date();
-                        if(diff <= 0) el.textContent = 'Starting';
-                        else {
-                            const h=Math.floor(diff/3600000), mn=Math.floor((diff%3600000)/60000), s=Math.floor((diff%60000)/1000);
-                            el.textContent = `${h.toString().padStart(2,'0')}:${mn.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
-                        }
-                    }
-                });
-            }, 1000);
+        function addToSlip(fixtureId,homeName,awayName,odds){
+            if(window.ACCUMULATOR_SLIP.some(s=>s.fixtureId===fixtureId)){alert('Already in slip');return;}
+            window.ACCUMULATOR_SLIP.push({fixtureId,matchName:`${homeName} vs ${awayName}`,betType:'home',betTypeName:'Home',odds});
+            if(typeof saveSlip==='function') saveSlip();
+            updateSlipUI();
         }
         
-        function toggleLeague(el){ el.classList.toggle('collapsed'); el.nextElementSibling.classList.toggle('collapsed'); }
-        function goToMatch(fixtureId){ location.href = `match-details.html?id=${fixtureId}`; }
+        function updateSlipUI(){
+            const slip=document.getElementById('bet-slip');
+            const count=window.ACCUMULATOR_SLIP.length;
+            if(count===0){slip.style.display='none';return;}
+            slip.style.display='block'; document.getElementById('slip-count').textContent=count;
+            let items='',totalOdds=1;
+            window.ACCUMULATOR_SLIP.forEach((s,i)=>{totalOdds*=s.odds;items+=`<div class="slip-item"><span>${s.matchName} @${s.odds}</span><span class="slip-remove" onclick="removeSlipItem(${i})"><i class="fas fa-times"></i></span></div>`;});
+            document.getElementById('slip-items').innerHTML=items;
+            document.getElementById('slip-total-odds').textContent=totalOdds.toFixed(2);
+            document.getElementById('place-acc-btn').disabled=count<2;
+        }
         
-        window.toggleLeague = toggleLeague;
-        window.addEventListener('beforeunload',()=>{ if(countdownInterval) clearInterval(countdownInterval); });
+        function removeSlipItem(index){window.ACCUMULATOR_SLIP.splice(index,1);if(typeof saveSlip==='function')saveSlip();updateSlipUI();}
+        function clearSlip(){window.ACCUMULATOR_SLIP=[];if(typeof saveSlip==='function')saveSlip();updateSlipUI();}
+        
+        async function placeAccumulator(){
+            if(window.ACCUMULATOR_SLIP.length<2)return;
+            const amount=parseFloat(prompt('Enter stake:','10'));if(!amount||amount<1)return;
+            try{const r=await placeAccumulatorBet(window.ACCUMULATOR_SLIP,amount);if(r.success){alert('Accumulator placed!');clearSlip();location.href='my-bets.html';}else alert(r.error);}
+            catch(e){alert('Error');}
+        }
+        
+        function goToMatch(fixtureId){location.href=`match-details.html?id=${fixtureId}`;}
+        
+        function startCountdowns(matches){
+            if(countdownInterval)clearInterval(countdownInterval);
+            countdownInterval=setInterval(()=>{matches.forEach(m=>{const el=document.getElementById('cd-'+m.fixture_id);if(el){const diff=new Date(m.start_time)-new Date();if(diff<=0)el.textContent='Starting';else{const h=Math.floor(diff/3600000),mn=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);el.textContent=`${h.toString().padStart(2,'0')}:${mn.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;}}});},1000);
+        }
+        
+        function toggleLeague(el){el.classList.toggle('collapsed');el.nextElementSibling.classList.toggle('collapsed');}
+        window.toggleLeague=toggleLeague;window.clearSlip=clearSlip;window.removeSlipItem=removeSlipItem;window.placeAccumulator=placeAccumulator;
+        window.addEventListener('beforeunload',()=>{if(countdownInterval)clearInterval(countdownInterval);});
     </script>
 </body>
 </html>
