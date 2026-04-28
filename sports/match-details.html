@@ -6,7 +6,9 @@
     <title>Place Bet - X Lodon | رهان</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <link rel="stylesheet" href="../css/sports-betting.css">
     <style>
@@ -16,35 +18,27 @@
         .back-btn { color: #00ff9d; text-decoration: none; font-size: 20px; }
         .lang-toggle { background: #1a2332; border: 1px solid #00ff9d; color: #00ff9d; padding: 5px 12px; border-radius: 20px; cursor: pointer; margin-left: auto; }
         .container { max-width: 800px; margin: 0 auto; padding: 15px; }
-        
+        .balance-bar { background: #111827; padding: 10px 15px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #00ff9d33; }
         .match-hero { background: linear-gradient(135deg, #111827, #1a2332); border-radius: 20px; padding: 25px 15px; margin-bottom: 20px; text-align: center; border: 1px solid #00ff9d33; }
         .teams-large { display: flex; align-items: center; justify-content: center; gap: 15px; }
         .team-name-large { font-size: 18px; font-weight: bold; }
         .vs-large { font-size: 20px; color: #ff9800; font-weight: bold; }
-        
         .bet-type-tabs { display: flex; gap: 5px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 5px; }
         .bet-type-tab { padding: 10px 14px; background: #1a2332; border: none; border-radius: 25px; color: white; font-size: 12px; cursor: pointer; white-space: nowrap; }
         .bet-type-tab.active { background: #00ff9d; color: black; }
-        
         .bet-section { background: #111827; border-radius: 20px; padding: 20px; margin-bottom: 20px; }
-        .balance-row { display: flex; justify-content: space-between; padding: 12px; background: #0a0f1a; border-radius: 10px; margin-bottom: 20px; }
-        
         .bet-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
         .bet-option { background: #1a2332; border: 2px solid transparent; border-radius: 12px; padding: 15px; text-align: center; cursor: pointer; }
         .bet-option.selected { background: #00ff9d; border-color: #00ff9d; color: black; }
         .bet-option-odds { font-size: 22px; font-weight: bold; color: #00ff9d; }
         .bet-option.selected .bet-option-odds { color: black; }
-        
         .amount-input { width: 100%; padding: 15px; background: #0a0f1a; border: 2px solid #ffffff22; border-radius: 12px; color: white; font-size: 20px; margin-bottom: 15px; }
         .quick-amounts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 20px; }
         .quick-amount { padding: 12px; background: #1a2332; border-radius: 8px; text-align: center; cursor: pointer; }
-        
         .potential-box { background: linear-gradient(135deg, #00ff9d11, #ff980011); padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
         .potential-value { font-size: 32px; font-weight: bold; color: #00ff9d; }
-        
         .place-btn { width: 100%; padding: 18px; background: #00ff9d; color: black; border: none; border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer; }
         .place-btn:disabled { opacity: 0.5; cursor: not-allowed; background: #a0a8c9; }
-        
         .error-msg { background: #ff525222; border: 1px solid #ff5252; border-radius: 10px; padding: 15px; margin-bottom: 15px; color: #ff5252; display: none; }
         .success-msg { background: #4caf5022; border: 1px solid #4caf50; border-radius: 10px; padding: 15px; margin-bottom: 15px; color: #4caf50; display: none; }
         .arabic { font-family: 'Tajawal', sans-serif; }
@@ -58,10 +52,13 @@
     </div>
     
     <div class="container">
-        <div id="loading" style="text-align:center; padding:40px;"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+        <div class="balance-bar">
+            <span><i class="fas fa-wallet"></i> <span class="en">Balance</span></span>
+            <span style="color:#00ff9d;font-weight:bold;font-size:18px;" id="balance-display">$0.00</span>
+        </div>
+        <div id="loading" style="text-align:center;padding:40px;"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
         <div id="content" style="display:none;">
             <div class="match-hero" id="match-hero"></div>
-            
             <div class="bet-type-tabs">
                 <button class="bet-type-tab active" data-tab="1x2">1X2</button>
                 <button class="bet-type-tab" data-tab="overunder">Over/Under 2.5</button>
@@ -70,9 +67,7 @@
                 <button class="bet-type-tab" data-tab="cards">Cards</button>
                 <button class="bet-type-tab" data-tab="corners">Corners</button>
             </div>
-            
             <div class="bet-section">
-                <div class="balance-row"><span><i class="fas fa-wallet"></i> Balance</span><span style="color:#00ff9d; font-weight:bold;" id="user-balance">$0.00</span></div>
                 <div id="bet-options-container"></div>
                 <input type="number" class="amount-input" id="bet-amount" value="10" min="1">
                 <div class="quick-amounts"><div class="quick-amount" data-amount="5">$5</div><div class="quick-amount" data-amount="10">$10</div><div class="quick-amount" data-amount="25">$25</div><div class="quick-amount" data-amount="50">$50</div></div>
@@ -96,73 +91,59 @@
         }
         if(localStorage.getItem('lang')==='ar'){setTimeout(toggleLanguage,10);}
         
-        const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_WWHC2XIWlnDR9DsDpg52Vw_UIn2KopQ';
-        const supaClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const firebaseConfig = { apiKey:"AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM", authDomain:"x-bet-prod-jd.firebaseapp.com", projectId:"x-bet-prod-jd", storageBucket:"x-bet-prod-jd.firebasestorage.app", messagingSenderId:"499334334535", appId:"1:499334334535:web:bebc1bf817e24d9e3c4962" };
+        if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         
         const params=new URLSearchParams(location.search), fixtureId=params.get('id');
         let currentMatch=null, selectedType=null, balance=0, currentTab='1x2';
         
-        if(!fixtureId){ document.getElementById('loading').innerHTML='<div style="color:#ff5252;">No match selected</div>'; }
+        if(!fixtureId){document.getElementById('loading').innerHTML='<div style="color:#ff5252;">No match selected</div>';}
         
-        async function init(){
-            const { data } = await supaClient.from('sports_matches').select('*').eq('fixture_id',parseInt(fixtureId)).single();
-            if(!data){ document.getElementById('loading').innerHTML='<div style="color:#ff5252;">Match not found</div>'; return; }
-            currentMatch = data;
-            document.getElementById('loading').style.display='none';
-            document.getElementById('content').style.display='block';
-            
-            const hn=currentMatch.home_team?.name||'Home';
-            const an=currentMatch.away_team?.name||'Away';
+        firebase.auth().onAuthStateChanged(async u=>{if(!u){location.href='../login.html';return;}await loadBalance();if(fixtureId)loadMatch();});
+        
+        async function loadBalance(){
+            try{const db=firebase.firestore();const w=await db.collection('wallets').doc(firebase.auth().currentUser.uid).get();balance=w.exists?(w.data().balance||0):0;document.getElementById('balance-display').textContent='$'+balance.toFixed(2);}catch(e){}
+        }
+        
+        async function loadMatch(){
+            if(!window.supaDB)return;
+            const {data}=await supaClient.from('sports_matches').select('*').eq('fixture_id',parseInt(fixtureId)).single();
+            if(!data){document.getElementById('loading').style.display='none';document.getElementById('content').style.display='block';document.getElementById('content').innerHTML='<div style="color:#ff5252;text-align:center;padding:40px;">Match not found</div>';return;}
+            currentMatch=data;
+            document.getElementById('loading').style.display='none';document.getElementById('content').style.display='block';
+            const hn=currentMatch.home_team?.name||'Home',an=currentMatch.away_team?.name||'Away';
             document.getElementById('match-hero').innerHTML=`<div class="teams-large"><div><div class="team-name-large">${hn}</div></div><div class="vs-large">VS</div><div><div class="team-name-large">${an}</div></div></div>`;
-            
             renderBetOptions('1x2');
-            
-            // Load balance from Firebase (only for wallet)
-            try {
-                const firebaseConfig = { apiKey:"AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM", authDomain:"x-bet-prod-jd.firebaseapp.com", projectId:"x-bet-prod-jd", storageBucket:"x-bet-prod-jd.firebasestorage.app", messagingSenderId:"499334334535", appId:"1:499334334535:web:bebc1bf817e24d9e3c4962" };
-                if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-                const user = firebase.auth().currentUser;
-                if(user){
-                    const db = firebase.firestore();
-                    const w = await db.collection('wallets').doc(user.uid).get();
-                    balance = w.exists ? (w.data().balance||0) : 0;
-                    document.getElementById('user-balance').textContent = '$'+balance.toFixed(2);
-                }
-            } catch(e){}
         }
         
         function renderBetOptions(type){
-            currentTab=type; selectedType=null;
+            currentTab=type;selectedType=null;
             const c=document.getElementById('bet-options-container');
             let html='';
-            if(type==='1x2') html=`<div class="bet-options"><div class="bet-option" data-type="home"><div>Home Win</div><div class="bet-option-odds">${currentMatch.odds?.home||'2.00'}</div></div><div class="bet-option" data-type="draw"><div>Draw</div><div class="bet-option-odds">${currentMatch.odds?.draw||'3.50'}</div></div><div class="bet-option" data-type="away"><div>Away Win</div><div class="bet-option-odds">${currentMatch.odds?.away||'3.80'}</div></div></div>`;
-            else if(type==='overunder') html=`<div class="bet-options"><div class="bet-option" data-type="over25"><div>Over 2.5</div><div class="bet-option-odds">1.80</div></div><div class="bet-option" data-type="under25"><div>Under 2.5</div><div class="bet-option-odds">2.00</div></div></div>`;
-            else if(type==='btts') html=`<div class="bet-options"><div class="bet-option" data-type="btts_yes"><div>BTTS Yes</div><div class="bet-option-odds">1.90</div></div><div class="bet-option" data-type="btts_no"><div>BTTS No</div><div class="bet-option-odds">1.85</div></div></div>`;
-            else if(type==='doublechance') html=`<div class="bet-options"><div class="bet-option" data-type="1X"><div>1X</div><div class="bet-option-odds">1.40</div></div><div class="bet-option" data-type="12"><div>12</div><div class="bet-option-odds">1.35</div></div><div class="bet-option" data-type="X2"><div>X2</div><div class="bet-option-odds">1.45</div></div></div>`;
-            else if(type==='cards') html=`<div class="bet-options"><div class="bet-option" data-type="yellow_over"><div>Yellow >3.5</div><div class="bet-option-odds">1.70</div></div><div class="bet-option" data-type="yellow_under"><div>Yellow <3.5</div><div class="bet-option-odds">2.10</div></div><div class="bet-option" data-type="red_yes"><div>Red Card: Yes</div><div class="bet-option-odds">3.50</div></div><div class="bet-option" data-type="red_no"><div>Red Card: No</div><div class="bet-option-odds">1.30</div></div></div>`;
-            else if(type==='corners') html=`<div class="bet-options"><div class="bet-option" data-type="corner_over"><div>Corners >9.5</div><div class="bet-option-odds">1.90</div></div><div class="bet-option" data-type="corner_under"><div>Corners <9.5</div><div class="bet-option-odds">1.85</div></div></div>`;
-            
+            if(type==='1x2')html=`<div class="bet-options"><div class="bet-option" data-type="home"><div>Home Win</div><div class="bet-option-odds">${currentMatch.odds?.home||'2.00'}</div></div><div class="bet-option" data-type="draw"><div>Draw</div><div class="bet-option-odds">${currentMatch.odds?.draw||'3.50'}</div></div><div class="bet-option" data-type="away"><div>Away Win</div><div class="bet-option-odds">${currentMatch.odds?.away||'3.80'}</div></div></div>`;
+            else if(type==='overunder')html=`<div class="bet-options"><div class="bet-option" data-type="over25"><div>Over 2.5</div><div class="bet-option-odds">1.80</div></div><div class="bet-option" data-type="under25"><div>Under 2.5</div><div class="bet-option-odds">2.00</div></div></div>`;
+            else if(type==='btts')html=`<div class="bet-options"><div class="bet-option" data-type="btts_yes"><div>BTTS Yes</div><div class="bet-option-odds">1.90</div></div><div class="bet-option" data-type="btts_no"><div>BTTS No</div><div class="bet-option-odds">1.85</div></div></div>`;
+            else if(type==='doublechance')html=`<div class="bet-options"><div class="bet-option" data-type="1X"><div>1X</div><div class="bet-option-odds">1.40</div></div><div class="bet-option" data-type="12"><div>12</div><div class="bet-option-odds">1.35</div></div><div class="bet-option" data-type="X2"><div>X2</div><div class="bet-option-odds">1.45</div></div></div>`;
+            else if(type==='cards')html=`<div class="bet-options"><div class="bet-option" data-type="yellow_over"><div>Yellow >3.5</div><div class="bet-option-odds">1.70</div></div><div class="bet-option" data-type="yellow_under"><div>Yellow <3.5</div><div class="bet-option-odds">2.10</div></div><div class="bet-option" data-type="red_yes"><div>Red Card: Yes</div><div class="bet-option-odds">3.50</div></div><div class="bet-option" data-type="red_no"><div>Red Card: No</div><div class="bet-option-odds">1.30</div></div></div>`;
+            else if(type==='corners')html=`<div class="bet-options"><div class="bet-option" data-type="corner_over"><div>Corners >9.5</div><div class="bet-option-odds">1.90</div></div><div class="bet-option" data-type="corner_under"><div>Corners <9.5</div><div class="bet-option-odds">1.85</div></div></div>`;
             c.innerHTML=html;
             document.getElementById('place-bet-btn').disabled=true;
             c.querySelectorAll('.bet-option').forEach(o=>o.addEventListener('click',function(){
                 c.querySelectorAll('.bet-option').forEach(x=>x.classList.remove('selected'));
-                this.classList.add('selected'); selectedType=this.dataset.type;
-                document.getElementById('place-bet-btn').disabled=false;
-                updatePotential();
+                this.classList.add('selected');selectedType=this.dataset.type;
+                document.getElementById('place-bet-btn').disabled=false;updatePotential();
             }));
         }
         
         document.querySelectorAll('.bet-type-tab').forEach(t=>t.addEventListener('click',function(){
             document.querySelectorAll('.bet-type-tab').forEach(x=>x.classList.remove('active'));
-            this.classList.add('active'); renderBetOptions(this.dataset.tab);
+            this.classList.add('active');renderBetOptions(this.dataset.tab);
         }));
-        
-        document.querySelectorAll('.quick-amount').forEach(b=>b.addEventListener('click',()=>{document.getElementById('bet-amount').value=b.dataset.amount; updatePotential();}));
+        document.querySelectorAll('.quick-amount').forEach(b=>b.addEventListener('click',()=>{document.getElementById('bet-amount').value=b.dataset.amount;updatePotential();}));
         document.getElementById('bet-amount').addEventListener('input',updatePotential);
         
         function updatePotential(){
-            if(!selectedType) return;
+            if(!selectedType)return;
             const amount=parseFloat(document.getElementById('bet-amount').value)||0;
             const om={home:currentMatch?.odds?.home||2,draw:3.5,away:3.8,over25:1.8,under25:2,btts_yes:1.9,btts_no:1.85,'1X':1.4,'12':1.35,'X2':1.45,yellow_over:1.7,yellow_under:2.1,red_yes:3.5,red_no:1.3,corner_over:1.9,corner_under:1.85};
             document.getElementById('potential-win').textContent='$'+(amount*(om[selectedType]||2)).toFixed(2);
@@ -170,18 +151,12 @@
         
         document.getElementById('place-bet-btn').addEventListener('click',async()=>{
             const amount=parseFloat(document.getElementById('bet-amount').value);
-            if(!selectedType) return alert('Select outcome');
-            if(amount>balance) return alert('Insufficient balance');
-            
-            const btn=document.getElementById('place-bet-btn'); btn.disabled=true; btn.textContent='Processing...';
-            try {
-                const r = await placeSingleBet(parseInt(fixtureId), selectedType, amount);
-                if(r.success){ alert('Bet placed!'); location.href='my-bets.html'; }
-                else { alert(r.error); btn.disabled=false; btn.textContent='Place Bet'; }
-            } catch(e){ alert('Error'); btn.disabled=false; }
+            if(!selectedType)return alert('Select outcome');
+            if(amount>balance)return alert('Insufficient balance');
+            const btn=document.getElementById('place-bet-btn');btn.disabled=true;btn.textContent='Processing...';
+            try{const r=await placeSingleBet(parseInt(fixtureId),selectedType,amount);if(r.success){alert('Bet placed!');location.href='my-bets.html';}else{alert(r.error);btn.disabled=false;btn.textContent='Place Bet';}}
+            catch(e){alert('Error');btn.disabled=false;}
         });
-        
-        init();
     </script>
 </body>
 </html>
