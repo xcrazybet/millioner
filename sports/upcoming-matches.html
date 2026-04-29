@@ -154,10 +154,24 @@
         
         async function loadAllMatches(){
             if(!window.supaDB) return;
-            const now = new Date(); now.setHours(0,0,0,0);
-            const nextWeek = new Date(now); nextWeek.setDate(now.getDate()+7); nextWeek.setHours(23,59,59,999);
+            
+            // 🔥 FIX: Start from CURRENT TIME (not midnight) to catch all upcoming
+            const now = new Date();
+            const nextWeek = new Date(now);
+            nextWeek.setDate(now.getDate() + 7);
+            nextWeek.setHours(23, 59, 59, 999);
+            
+            console.log('📅 Fetching from', now.toLocaleString(), 'to', nextWeek.toLocaleString());
             allMatches = await window.supaDB.getUpcomingByDate(now, nextWeek);
-            document.getElementById('debug-text').textContent = `Loaded ${allMatches.length} upcoming matches (next 7 days)`;
+            
+            document.getElementById('debug-text').textContent = `Loaded ${allMatches.length} upcoming matches`;
+            
+            if(allMatches.length === 0){
+                const allData = await window.supaDB.getAllMatches();
+                const upcomingCount = allData.filter(m => m.status === 'upcoming').length;
+                document.getElementById('debug-text').textContent = `DB has ${upcomingCount} upcoming. Run syncNow() in console`;
+            }
+            
             filterMatches();
         }
         
@@ -170,10 +184,19 @@
                 const hn=(m.home_team?.name||'').toLowerCase(), an=(m.away_team?.name||'').toLowerCase();
                 return hn.includes(search)||an.includes(search);
             });
-            if(filtered.length===0){ container.innerHTML='<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found</p></div>'; return; }
+            
+            if(filtered.length===0){ 
+                container.innerHTML='<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found</p><button onclick="window.syncNow?.()" style="margin-top:15px;padding:10px 20px;background:#00ff9d;color:black;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Sync Now</button></div>'; 
+                return; 
+            }
             
             const dateGrouped = {};
-            filtered.forEach(m => { const d=new Date(m.start_time); const key=d.toDateString(); if(!dateGrouped[key])dateGrouped[key]=[]; dateGrouped[key].push(m); });
+            filtered.forEach(m => { 
+                const d=new Date(m.start_time); 
+                const key=d.toDateString(); 
+                if(!dateGrouped[key]) dateGrouped[key]=[]; 
+                dateGrouped[key].push(m); 
+            });
             
             container.innerHTML = '';
             const today=new Date(); today.setHours(0,0,0,0);
@@ -184,10 +207,12 @@
                 let label=date.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});
                 if(date.toDateString()===today.toDateString()) label='📅 TODAY - '+label;
                 else if(date.toDateString()===tomorrow.toDateString()) label='📅 TOMORROW - '+label;
+                
                 const section=document.createElement('div'); section.className='date-section';
                 section.innerHTML=`<div class="date-header" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('collapsed');"><span>${label}</span><span style="font-size:12px;color:#a0a8c9;">${dateGrouped[key].length}</span><i class="fas fa-chevron-down"></i></div><div class="date-matches">${dateGrouped[key].map(m=>createMatchRow(m)).join('')}</div>`;
                 container.appendChild(section);
             });
+            
             startCountdowns(filtered);
         }
         
@@ -224,9 +249,27 @@
         
         function goToMatch(id){location.href=`match-details.html?id=${id}`;}
         
+        // 🔥 FIXED: padStart now works because we convert to String first
         function startCountdowns(matches){
             if(countdownInterval)clearInterval(countdownInterval);
-            countdownInterval=setInterval(()=>{matches.forEach(m=>{const el=document.getElementById('cd-'+m.fixture_id);if(el){const diff=new Date(m.start_time)-new Date();if(diff<=0)el.textContent='Starting';else{const h=Math.floor(diff/3600000),mn=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);el.textContent=`${h.padStart(2,'0')}:${mn.padStart(2,'0')}:${s.padStart(2,'0')}`;}}});},1000);
+            countdownInterval=setInterval(()=>{
+                matches.forEach(m=>{
+                    const el=document.getElementById('cd-'+m.fixture_id);
+                    if(!el) return;
+                    const diff=new Date(m.start_time)-new Date();
+                    if(diff<=0){
+                        el.textContent='Starting';
+                        el.style.color='#ff9800';
+                    } else {
+                        const h=Math.floor(diff/3600000);
+                        const mn=Math.floor((diff%3600000)/60000);
+                        const s=Math.floor((diff%60000)/1000);
+                        // 🔥 FIX: Convert to string before padStart
+                        el.textContent=String(h).padStart(2,'0')+':'+String(mn).padStart(2,'0')+':'+String(s).padStart(2,'0');
+                        el.style.color='#a0a8c9';
+                    }
+                });
+            },1000);
         }
         
         window.placeAccumulator=placeAccumulator;
