@@ -143,8 +143,8 @@
             await loadBalance();
             await loadLeaguesFilter();
             await loadAllMatches();
-            // Auto refresh every 5 minutes
-            setInterval(loadAllMatches, 300000);
+            // Auto refresh every 30 seconds to remove started matches
+            setInterval(loadAllMatches, 30000);
         }
         
         async function loadBalance(){
@@ -171,18 +171,24 @@
         async function loadAllMatches(){
             if(!window.supaDB) return;
             
-            // 🔥 FIX: START FROM MIDNIGHT OF TODAY (00:00:00) to include all remaining matches of today
+            // 🔥 FIX: START FROM MIDNIGHT OF TODAY (00:00:00)
             const startOfToday = new Date();
-            startOfToday.setHours(0, 0, 0, 0); // Set to start of day
+            startOfToday.setHours(0, 0, 0, 0);
             
             const nextWeek = new Date(startOfToday);
-            nextWeek.setDate(startOfToday.getDate() + 7); // Exactly 7 days from start of today
+            nextWeek.setDate(startOfToday.getDate() + 7);
             
-            // Call the function with the correct range
-            // Ensure getUpcomingByDate returns matches between startOfToday and nextWeek
-            allMatches = await window.supaDB.getUpcomingByDate(startOfToday, nextWeek);
+            // Get all matches in range
+            let matches = await window.supaDB.getUpcomingByDate(startOfToday, nextWeek);
             
-            document.getElementById('debug-text').textContent = `Loaded ${allMatches.length} upcoming matches (Today + Next 6 Days)`;
+            // 🔥 CRITICAL: FILTER OUT MATCHES THAT HAVE ALREADY STARTED
+            const now = new Date();
+            allMatches = matches.filter(match => {
+                const matchTime = new Date(match.start_time);
+                return matchTime > now; // Only keep matches that start in the future
+            });
+            
+            document.getElementById('debug-text').textContent = `Loaded ${allMatches.length} upcoming matches (${matches.length - allMatches.length} started matches hidden)`;
             filterMatches();
         }
         
@@ -199,7 +205,7 @@
             });
             
             if(filtered.length===0){ 
-                container.innerHTML='<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found</p><button onclick="loadAllMatches()" style="margin-top:15px;padding:10px 20px;background:#00ff9d;color:black;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Refresh Now</button></div>'; 
+                container.innerHTML='<div class="empty-state"><i class="fas fa-calendar"></i><p>No upcoming matches available</p><button onclick="loadAllMatches()" style="margin-top:15px;padding:10px 20px;background:#00ff9d;color:black;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Refresh Now</button></div>'; 
                 return; 
             }
             
@@ -292,7 +298,20 @@
         
         function startCountdowns(matches){
             if(countdownInterval)clearInterval(countdownInterval);
-            countdownInterval=setInterval(()=>{matches.forEach(m=>{const el=document.getElementById('cd-'+m.fixture_id);if(el){const diff=new Date(m.start_time)-new Date();if(diff<=0){el.textContent='Starting';el.style.color='#ff9800';}else{const h=Math.floor(diff/3600000),mn=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);el.textContent=String(h).padStart(2,'0')+':'+String(mn).padStart(2,'0')+':'+String(s).padStart(2,'0');el.style.color='#a0a8c9';}}});},1000);
+            countdownInterval=setInterval(()=>{
+                // Also check for matches that just started and remove them
+                const now = new Date();
+                let needsRefresh = false;
+                
+                matches.forEach(m=>{
+                    const matchTime = new Date(m.start_time);
+                    if(matchTime <= now) needsRefresh = true;
+                });
+                
+                if(needsRefresh) loadAllMatches();
+                
+                matches.forEach(m=>{const el=document.getElementById('cd-'+m.fixture_id);if(el){const diff=new Date(m.start_time)-new Date();if(diff<=0){el.textContent='Live';el.style.color='#ff9800';}else{const h=Math.floor(diff/3600000),mn=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);el.textContent=String(h).padStart(2,'0')+':'+String(mn).padStart(2,'0')+':'+String(s).padStart(2,'0');el.style.color='#a0a8c9';}}});
+            },1000);
         }
         
         window.loadAllMatches=loadAllMatches;
