@@ -1,11 +1,11 @@
 // ============================================
-// js/sports-api.js - v35.0 SUPABASE
-// Faster settlement + Accumulator fix
+// js/sports-api.js - v36.0 SUPABASE
+// Full sync + Fast settlement + Accumulator
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
 const SYNC_INTERVAL = 120000;
-const FORCE_UPDATE_INTERVAL = 30000; // 🔥 Reduced from 60s to 30s
+const FORCE_UPDATE_INTERVAL = 30000;
 
 async function fetchFromBackend(endpoint) {
     try { const r = await fetch(BACKEND_URL + endpoint); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
@@ -53,9 +53,8 @@ async function syncMatchToDatabase(match) {
     
     if (window.supaDB) {
         const saved = await window.supaDB.upsertMatch(matchData);
-        // 🔥 IMMEDIATE SETTLEMENT when match becomes finished
         if (saved && status === 'finished') {
-            console.log(`🏁 Match finished: ${hn} vs ${an} - Settling immediately...`);
+            console.log(`🏁 Settling: ${hn} vs ${an}`);
             await settleBetsForMatch(id, result);
         }
         return saved;
@@ -63,26 +62,20 @@ async function syncMatchToDatabase(match) {
     return false;
 }
 
-async function syncLiveMatches() { const d=await fetchLiveMatches(); if(!d?.success||!d.data) return 0; let s=0; for(const m of d.data.slice(0,30)) if(await syncMatchToDatabase(m)) s++; return s; }
-async function syncUpcomingMatches() { const d=await fetchUpcomingWeek(); if(!d?.success||!d.data) return 0; let s=0; for(const m of d.data.slice(0,30)) if(await syncMatchToDatabase(m)) s++; return s; }
+// 🔥 INCREASED from 30 to 100 matches
+async function syncLiveMatches() { const d=await fetchLiveMatches(); if(!d?.success||!d.data) return 0; let s=0; for(const m of d.data.slice(0,100)) if(await syncMatchToDatabase(m)) s++; return s; }
+async function syncUpcomingMatches() { const d=await fetchUpcomingWeek(); if(!d?.success||!d.data) return 0; let s=0; for(const m of d.data.slice(0,100)) if(await syncMatchToDatabase(m)) s++; return s; }
 async function syncAllMatches() { const l=await syncLiveMatches(); const u=await syncUpcomingMatches(); console.log(`✅ Live: ${l}, Upcoming: ${u}`); return {live:l, upcoming:u}; }
 
-// ===== SETTLEMENT (FIXED FOR ACCUMULATOR) =====
+// ===== SETTLEMENT =====
 async function settleBetsForMatch(fixtureId, result) {
     if (!window.supaDB) return 0;
     const bets = await window.supaDB.getActiveBets(fixtureId);
     let settled = 0;
     
     for (const bet of bets) {
+        if (bet.bet_category === 'accumulator') continue;
         let won = false;
-        
-        // 🔥 Check bet category first
-        if (bet.bet_category === 'accumulator') {
-            // Accumulator bets are handled by settleAccumulatorBets
-            continue;
-        }
-        
-        // Single bets
         if (['home','draw','away'].includes(bet.bet_type)) { won = bet.bet_type === result; }
         else if (bet.bet_type === 'over25' || bet.bet_type === 'under25') {
             const { data: match } = await supaClient.from('sports_matches').select('score').eq('fixture_id', fixtureId).single();
@@ -111,72 +104,52 @@ async function settleBetsForMatch(fixtureId, result) {
         settled++;
     }
     
-    // 🔥 Also settle accumulator bets that contain this match
     const accSettled = await settleAccumulatorBets(fixtureId);
     settled += accSettled;
     
     if (settled > 0 && supaClient) {
         await supaClient.from('sports_matches').update({ bets_settled: true }).eq('fixture_id', fixtureId);
     }
-    console.log(`💰 Settled ${settled} bets (${accSettled} accumulator)`);
+    console.log(`💰 Settled ${settled} bets (${accSettled} acc)`);
     return settled;
 }
 
-// 🔥 NEW: Settle accumulator bets
 async function settleAccumulatorBets(fixtureId) {
     if (!window.supaDB || !supaClient) return 0;
-    
-    // Get all active accumulator bets
     const { data: accBets } = await supaClient.from('bets').select('*').eq('status', 'active').eq('bet_category', 'accumulator');
     if (!accBets || !accBets.length) return 0;
     
     let settled = 0;
-    
     for (const bet of accBets) {
         let selections = bet.selections;
-        if (typeof selections === 'string') {
-            try { selections = JSON.parse(selections); } catch(e) { continue; }
-        }
+        if (typeof selections === 'string') { try { selections = JSON.parse(selections); } catch(e) { continue; } }
         if (!selections || !selections.length) continue;
         
-        // Check if this accumulator contains the finished match
-        const hasMatch = selections.some(s => s.fixtureId == fixtureId);
+        const hasMatch = selections.some(s => s.fixtureId == fixtureId || s.fixture_id == fixtureId);
         if (!hasMatch) continue;
         
-        // Check if ALL matches in accumulator are finished
-        let allFinished = true;
-        let allWon = true;
-        
+        let allFinished = true, allWon = true;
         for (const sel of selections) {
-            const { data: match } = await supaClient.from('sports_matches').select('status,result').eq('fixture_id', sel.fixtureId).single();
-            if (!match || match.status !== 'finished') {
-                allFinished = false;
-                break;
-            }
-            // 🔥 Check if this selection won based on its betType
-            if (match.result !== sel.betType) {
-                allWon = false;
-            }
+            const sid = sel.fixtureId || sel.fixture_id;
+            const { data: match } = await supaClient.from('sports_matches').select('status,result').eq('fixture_id', sid).single();
+            if (!match || match.status !== 'finished') { allFinished = false; break; }
+            if (match.result !== sel.betType) { allWon = false; }
         }
         
         if (allFinished) {
             if (allWon) {
-                // Pay winner
                 if (firebase?.firestore) {
                     const db = firebase.firestore();
                     const w = await db.collection('wallets').doc(bet.user_id).get();
                     await w.ref.update({ balance: (w.data()?.balance || 0) + bet.potential_win });
                 }
                 await window.supaDB.updateBet(bet.id, { status: 'won', payout: bet.potential_win, settled_at: new Date().toISOString() });
-                console.log(`✅ Accumulator WON: ${bet.user_id} +$${bet.potential_win}`);
             } else {
                 await window.supaDB.updateBet(bet.id, { status: 'lost', payout: 0, settled_at: new Date().toISOString() });
-                console.log(`❌ Accumulator LOST: ${bet.user_id}`);
             }
             settled++;
         }
     }
-    
     return settled;
 }
 
@@ -209,4 +182,4 @@ window.settleBetsForMatch = settleBetsForMatch;
 window.settleAllFinishedMatches = settleAllFinishedMatches;
 
 setTimeout(() => { syncAllMatches(); startAutoSync(); }, 1000);
-console.log('🏈 Sports API v35.0 - Fast Settlement + Accumulator Fix');
+console.log('🏈 Sports API v36.0 - 100 Match Sync + Fast Settlement');
