@@ -5,7 +5,6 @@
 const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_WWHC2XIWlnDR9DsDpg52Vw_UIn2KopQ';
 
-// Wait for Supabase SDK to load
 function initSupabase() {
     if (typeof supabase === 'undefined') {
         console.error('❌ Supabase SDK not loaded');
@@ -20,9 +19,7 @@ if (supaClient) {
     console.log('✅ Supabase Connected');
 }
 
-// ===== HELPER FUNCTIONS =====
 window.supaDB = {
-    // MATCHES
     upsertMatch: async function(match) {
         if (!supaClient) return false;
         try {
@@ -55,22 +52,19 @@ window.supaDB = {
         } catch(e) { return []; }
     },
     
-    // 🔥 FIXED: Get upcoming matches by date range
     getUpcomingByDate: async function(startDate, endDate) {
         if (!supaClient) return [];
         try {
-            // Get ALL upcoming matches first (no date filter in query)
             const { data } = await supaClient.from('sports_matches')
                 .select('*')
                 .eq('status', 'upcoming')
                 .order('start_time', { ascending: true });
             
             if (!data || !data.length) {
-                console.log('⚠️ No upcoming matches found in database');
+                console.log('⚠️ No upcoming matches in database');
                 return [];
             }
             
-            // Filter by date in JavaScript (avoids timezone issues)
             const start = new Date(startDate);
             start.setHours(0, 0, 0, 0);
             const end = new Date(endDate);
@@ -81,7 +75,15 @@ window.supaDB = {
                 return matchTime >= start && matchTime <= end;
             });
             
-            console.log(`📅 Upcoming: ${data.length} total in DB, ${filtered.length} in date range`);
+            console.log(`📅 Upcoming: ${data.length} total in DB, ${filtered.length} in date range (${start.toLocaleDateString()} - ${end.toLocaleDateString()})`);
+            
+            if (filtered.length === 0 && data.length > 0) {
+                console.log('📊 Matches in DB but outside range. Sample:');
+                data.slice(0, 3).forEach(m => {
+                    console.log(`  ${new Date(m.start_time).toLocaleString()} - ${m.home_team?.name} vs ${m.away_team?.name}`);
+                });
+            }
+            
             return filtered;
         } catch(e) { 
             console.error('getUpcomingByDate error:', e);
@@ -114,7 +116,6 @@ window.supaDB = {
         } catch(e) { return []; }
     },
     
-    // BETS
     insertBet: async function(bet) {
         if (!supaClient) return { success: false, data: null };
         try {
