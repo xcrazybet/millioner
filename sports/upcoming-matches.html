@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Upcoming - X Lodon | ????????? ???????</title>
+    <title>Upcoming - X Lodon | المباريات القادمة</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -71,7 +71,7 @@
                 <a href="betting-sport.html" class="back-btn"><i class="fas fa-arrow-left"></i></a>
                 <h1 style="font-size:18px;"><i class="fas fa-futbol"></i> X Lodon Sports</h1>
             </div>
-            <button class="lang-toggle" onclick="toggleLanguage()">???? ????</button>
+            <button class="lang-toggle" onclick="toggleLanguage()">🇸🇦 عربي</button>
         </div>
         <div class="tabs">
             <a href="betting-sport.html" class="tab">Home</a>
@@ -92,7 +92,7 @@
             <input type="text" id="search-input" class="search-input" placeholder="Search league or team..." oninput="filterMatches()">
         </div>
         <div class="debug-bar" id="debug-bar"><i class="fas fa-database"></i> <span id="debug-text">Loading matches...</span></div>
-        <div id="matches-container"><div style="text-align:center;padding:30px;">Loading all upcoming matches for next 7 days...</div></div>
+        <div id="matches-container"><div style="text-align:center;padding:30px;">Loading all upcoming matches...</div></div>
     </div>
     
     <div class="bet-slip" id="bet-slip" style="display:none;">
@@ -154,71 +154,40 @@
         
         async function loadAllMatches(){
             if(!window.supaDB) return;
-            
-            // ?? START FROM MIDNIGHT TODAY
-            const now = new Date();
-            now.setHours(0, 0, 0, 0);
-            const nextWeek = new Date(now);
-            nextWeek.setDate(now.getDate() + 7);
-            nextWeek.setHours(23, 59, 59, 999);
-            
-            console.log('?? Fetching from', now.toLocaleString(), 'to', nextWeek.toLocaleString());
+            const now = new Date(); now.setHours(0,0,0,0);
+            const nextWeek = new Date(now); nextWeek.setDate(now.getDate()+7); nextWeek.setHours(23,59,59,999);
             allMatches = await window.supaDB.getUpcomingByDate(now, nextWeek);
-            
             document.getElementById('debug-text').textContent = `Loaded ${allMatches.length} upcoming matches (next 7 days)`;
-            
-            if(allMatches.length === 0){
-                const allData = await window.supaDB.getAllMatches();
-                const upcomingCount = allData.filter(m => m.status === 'upcoming').length;
-                document.getElementById('debug-text').textContent = `Total upcoming in DB: ${upcomingCount} | In range: 0 | Check console (F12)`;
-                console.log('All upcoming in DB:');
-                allData.filter(m => m.status === 'upcoming').slice(0,10).forEach(m => {
-                    console.log(`${new Date(m.start_time).toLocaleString()} - ${m.home_team?.name} vs ${m.away_team?.name} (${m.league_name})`);
-                });
-            }
-            
             filterMatches();
         }
         
         function filterMatches(){
             const container=document.getElementById('matches-container');
             const search = (document.getElementById('search-input').value || '').toLowerCase();
-            
             let filtered = allMatches;
             if(selectedLeague !== 'all') filtered = filtered.filter(m => m.league_id == selectedLeague);
             if(search) filtered = filtered.filter(m => {
-                const hn=(m.home_team?.name||'').toLowerCase(), an=(m.away_team?.name||'').toLowerCase(), ln=(m.league_name||'').toLowerCase();
-                return hn.includes(search)||an.includes(search)||ln.includes(search);
+                const hn=(m.home_team?.name||'').toLowerCase(), an=(m.away_team?.name||'').toLowerCase();
+                return hn.includes(search)||an.includes(search);
             });
-            
-            if(filtered.length===0){ 
-                container.innerHTML='<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found</p><button onclick="loadAllMatches()" style="margin-top:15px;padding:10px 20px;background:#00ff9d;color:black;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Refresh Now</button></div>'; 
-                return; 
-            }
+            if(filtered.length===0){ container.innerHTML='<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found</p></div>'; return; }
             
             const dateGrouped = {};
-            filtered.forEach(m => {
-                const d = new Date(m.start_time);
-                const dateKey = d.toDateString();
-                if(!dateGrouped[dateKey]) dateGrouped[dateKey] = [];
-                dateGrouped[dateKey].push(m);
-            });
+            filtered.forEach(m => { const d=new Date(m.start_time); const key=d.toDateString(); if(!dateGrouped[key])dateGrouped[key]=[]; dateGrouped[key].push(m); });
             
             container.innerHTML = '';
-            const today = new Date(); today.setHours(0,0,0,0);
-            const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+            const today=new Date(); today.setHours(0,0,0,0);
+            const tomorrow=new Date(today); tomorrow.setDate(today.getDate()+1);
             
-            Object.keys(dateGrouped).sort().forEach(dateKey => {
-                const date = new Date(dateKey);
-                let dateLabel = date.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
-                if(date.toDateString() === today.toDateString()) dateLabel = '?? TODAY - ' + dateLabel;
-                else if(date.toDateString() === tomorrow.toDateString()) dateLabel = '?? TOMORROW - ' + dateLabel;
-                
-                const dateSection = document.createElement('div'); dateSection.className = 'date-section';
-                dateSection.innerHTML = `<div class="date-header" onclick="toggleDate(this)"><span>${dateLabel}</span><span style="font-size:12px;color:#a0a8c9;">${dateGrouped[dateKey].length} matches</span><i class="fas fa-chevron-down"></i></div><div class="date-matches">${dateGrouped[dateKey].map(m => createMatchRow(m)).join('')}</div>`;
-                container.appendChild(dateSection);
+            Object.keys(dateGrouped).sort().forEach(key => {
+                const date=new Date(key);
+                let label=date.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});
+                if(date.toDateString()===today.toDateString()) label='📅 TODAY - '+label;
+                else if(date.toDateString()===tomorrow.toDateString()) label='📅 TOMORROW - '+label;
+                const section=document.createElement('div'); section.className='date-section';
+                section.innerHTML=`<div class="date-header" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('collapsed');"><span>${label}</span><span style="font-size:12px;color:#a0a8c9;">${dateGrouped[key].length}</span><i class="fas fa-chevron-down"></i></div><div class="date-matches">${dateGrouped[key].map(m=>createMatchRow(m)).join('')}</div>`;
+                container.appendChild(section);
             });
-            
             startCountdowns(filtered);
         }
         
@@ -227,51 +196,40 @@
             const hn=m.home_team?.name||'Home', an=m.away_team?.name||'Away';
             const hl=m.home_team?.logo||'', al=m.away_team?.logo||'';
             const odds=m.odds||{};
-            return `<div class="match-row">
-                <div class="match-time-col"><div class="time">${time.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div><div class="countdown" id="cd-${m.fixture_id}">--:--:--</div></div>
-                <div class="team-col">${hl?`<img src="${hl}" onerror="this.style.display='none'">`:''}<span class="names">${hn} <span class="vs">vs</span> ${an}</span>${al?`<img src="${al}" onerror="this.style.display='none'">`:''}</div>
-                <div class="odds-col"><div class="odd-mini">1 <span>${odds.home||'2.00'}</span></div><div class="odd-mini">X <span>${odds.draw||'3.50'}</span></div><div class="odd-mini">2 <span>${odds.away||'3.80'}</span></div></div>
-                <button class="bet-btn" onclick="event.stopPropagation();goToMatch(${m.fixture_id})">Bet</button>
-                <button class="slip-btn" onclick="event.stopPropagation();showAccumulatorPopup(${m.fixture_id},'${hn.replace(/'/g,"\\'")}','${an.replace(/'/g,"\\'")}',${odds.home||2.00},${odds.draw||3.50},${odds.away||3.80})">+Slip</button>
-            </div>`;
+            return `<div class="match-row"><div class="match-time-col"><div class="time">${time.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div><div class="countdown" id="cd-${m.fixture_id}">--:--:--</div></div><div class="team-col">${hl?`<img src="${hl}" onerror="this.style.display='none'">`:''}<span class="names">${hn} <span class="vs">vs</span> ${an}</span>${al?`<img src="${al}" onerror="this.style.display='none'">`:''}</div><div class="odds-col"><div class="odd-mini">1 <span>${odds.home||'2.00'}</span></div><div class="odd-mini">X <span>${odds.draw||'3.50'}</span></div><div class="odd-mini">2 <span>${odds.away||'3.80'}</span></div></div><button class="bet-btn" onclick="event.stopPropagation();goToMatch(${m.fixture_id})">Bet</button><button class="slip-btn" onclick="event.stopPropagation();showAccumulatorPopup(${m.fixture_id},'${hn.replace(/'/g,"\\'")}','${an.replace(/'/g,"\\'")}',${odds.home||2.00},${odds.draw||3.50},${odds.away||3.80})">+Slip</button></div>`;
         }
         
         window.updateSlipUI = function(){
-            accSlip = window.ACCUMULATOR_SLIP;
+            accSlip=window.ACCUMULATOR_SLIP;
             const slip=document.getElementById('bet-slip');
             if(accSlip.length===0){slip.style.display='none';return;}
-            slip.style.display='block';
-            document.getElementById('slip-count').textContent=accSlip.length;
+            slip.style.display='block'; document.getElementById('slip-count').textContent=accSlip.length;
             let items='',totalOdds=1;
             accSlip.forEach((s,i)=>{totalOdds*=s.odds;items+=`<div class="slip-item"><span>${s.betTypeName||s.betType} - ${s.matchName} @${s.odds.toFixed(2)}</span><span class="slip-remove" onclick="removeFromSlip(${i})"><i class="fas fa-times"></i></span></div>`;});
             document.getElementById('slip-items').innerHTML=items;
             document.getElementById('slip-total-odds').textContent=totalOdds.toFixed(2);
             document.getElementById('place-acc-btn').disabled=accSlip.length<2;
-            document.getElementById('place-acc-btn').textContent=accSlip.length<2?'Add 2+ Selections':`Place Accumulator (${totalOdds.toFixed(2)}x)`;
         };
         
-        window.removeFromSlip = function(index){ window.ACCUMULATOR_SLIP.splice(index,1); saveSlip(); window.updateSlipUI(); };
-        window.clearSlip = function(){ window.ACCUMULATOR_SLIP=[]; saveSlip(); window.updateSlipUI(); };
+        window.removeFromSlip=function(index){window.ACCUMULATOR_SLIP.splice(index,1);saveSlip();window.updateSlipUI();};
+        window.clearSlip=function(){window.ACCUMULATOR_SLIP=[];saveSlip();window.updateSlipUI();};
         
         async function placeAccumulator(){
             if(window.ACCUMULATOR_SLIP.length<2)return;
-            const amount=parseFloat(prompt('Enter stake amount ($):','10'));
+            const amount=parseFloat(prompt('Stake ($):','10'));
             if(!amount||amount<1)return;
-            try{const r=await placeAccumulatorBet(window.ACCUMULATOR_SLIP,amount);if(r.success){alert('? Accumulator placed!');clearSlip();location.href='my-bets.html';}else alert('? '+r.error);}
+            try{const r=await placeAccumulatorBet(window.ACCUMULATOR_SLIP,amount);if(r.success){alert('✅ Placed!');clearSlip();location.href='my-bets.html';}else alert(r.error);}
             catch(e){alert('Error');}
         }
         
-        function goToMatch(fixtureId){location.href=`match-details.html?id=${fixtureId}`;}
+        function goToMatch(id){location.href=`match-details.html?id=${id}`;}
         
         function startCountdowns(matches){
             if(countdownInterval)clearInterval(countdownInterval);
-            countdownInterval=setInterval(()=>{matches.forEach(m=>{const el=document.getElementById('cd-'+m.fixture_id);if(el){const diff=new Date(m.start_time)-new Date();if(diff<=0)el.textContent='Starting';else{const h=Math.floor(diff/3600000),mn=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);el.textContent=`${h.toString().padStart(2,'0')}:${mn.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;}}});},1000);
+            countdownInterval=setInterval(()=>{matches.forEach(m=>{const el=document.getElementById('cd-'+m.fixture_id);if(el){const diff=new Date(m.start_time)-new Date();if(diff<=0)el.textContent='Starting';else{const h=Math.floor(diff/3600000),mn=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);el.textContent=`${h.padStart(2,'0')}:${mn.padStart(2,'0')}:${s.padStart(2,'0')}`;}}});},1000);
         }
         
-        function toggleDate(el){el.classList.toggle('collapsed');el.nextElementSibling.classList.toggle('collapsed');}
-        window.toggleDate=toggleDate;
         window.placeAccumulator=placeAccumulator;
-        window.loadAllMatches=loadAllMatches;
         window.addEventListener('beforeunload',()=>{if(countdownInterval)clearInterval(countdownInterval);});
     </script>
 </body>
