@@ -1,12 +1,13 @@
 // ============================================
-// js/sports-api.js - v36.0 SUPABASE
-// Full sync + Fast settlement + Accumulator
+// js/sports-api.js - v37.0 SUPABASE COMPLETE
+// Full sync + Auto status update + Settlement
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
 const SYNC_INTERVAL = 120000;
 const FORCE_UPDATE_INTERVAL = 30000;
 
+// ===== FETCH =====
 async function fetchFromBackend(endpoint) {
     try { const r = await fetch(BACKEND_URL + endpoint); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
     catch(e) { console.error('Fetch error:', e.message); return { success: false, data: [] }; }
@@ -16,11 +17,23 @@ async function fetchLiveMatches() { return await fetchFromBackend('/api/livescor
 async function fetchUpcomingWeek() { return await fetchFromBackend('/api/fixtures/week'); }
 async function fetchLeagues() { return await fetchFromBackend('/api/leagues'); }
 
-function getMatchStatus(m) { const s=m.fixture?.status?.short; if(!s||s==='TBD'||s==='NS') return 'upcoming'; if(['1H','HT','2H','ET','P','LIVE'].includes(s)) return 'live'; if(['FT','AET','PEN'].includes(s)) return 'finished'; return 'upcoming'; }
+// ===== STATUS =====
+function getMatchStatus(m) { 
+    const s=m.fixture?.status?.short; 
+    if(!s||s==='TBD'||s==='NS') return 'upcoming'; 
+    if(['1H','HT','2H','ET','P','LIVE'].includes(s)) return 'live'; 
+    if(['FT','AET','PEN'].includes(s)) return 'finished'; 
+    return 'upcoming'; 
+}
 
-function calculateOdds(h,a) { let x=0; const s=h+a; for(let i=0;i<s.length;i++) x+=s.charCodeAt(i); return { home:+(1.8+(x%20)/100).toFixed(2), draw:+(3.2+(x%15)/100).toFixed(2), away:+(2.8+(x%25)/100).toFixed(2) }; }
+function calculateOdds(h,a) { 
+    let x=0; const s=h+a; 
+    for(let i=0;i<s.length;i++) x+=s.charCodeAt(i); 
+    return { home:+(1.8+(x%20)/100).toFixed(2), draw:+(3.2+(x%15)/100).toFixed(2), away:+(2.8+(x%25)/100).toFixed(2) }; 
+}
 
-function formatCountdown(t) { if(!t) return '00:00:00'; const d=new Date(t)-new Date(); if(d<=0) return '00:00:00'; const h=Math.floor(d/3600000),m=Math.floor((d%3600000)/60000),s=Math.floor((d%60000)/1000); return `${h.padStart(2,'0')}:${m.padStart(2,'0')}:${s.padStart(2,'0')}`; }
+// ===== HELPERS =====
+function formatCountdown(t) { if(!t) return '00:00:00'; const d=new Date(t)-new Date(); if(d<=0) return '00:00:00'; const h=Math.floor(d/3600000),m=Math.floor((d%3600000)/60000),s=Math.floor((d%60000)/1000); return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; }
 function getLiveTimer(t) { if(!t) return 'LIVE'; try { const d=Math.floor((new Date()-(t.toDate?t.toDate():new Date(t)))/60000); if(d<45) return `1st Half • ${d}'`; if(d<60) return `HT • ${d}'`; if(d<105) return `2nd Half • ${d-15}'`; return "90+'"; } catch(e){return 'LIVE';} }
 function getMatchMinute(t) { if(!t) return 45; try { return Math.floor((new Date()-(t.toDate?t.toDate():new Date(t)))/60000); } catch(e){return 45;} }
 function getTodayRange() { const t=new Date(); t.setHours(0,0,0,0); return {start:t, end:new Date(t.getTime()+86400000-1)}; }
@@ -62,10 +75,42 @@ async function syncMatchToDatabase(match) {
     return false;
 }
 
-// 🔥 INCREASED from 30 to 100 matches
 async function syncLiveMatches() { const d=await fetchLiveMatches(); if(!d?.success||!d.data) return 0; let s=0; for(const m of d.data.slice(0,100)) if(await syncMatchToDatabase(m)) s++; return s; }
 async function syncUpcomingMatches() { const d=await fetchUpcomingWeek(); if(!d?.success||!d.data) return 0; let s=0; for(const m of d.data.slice(0,100)) if(await syncMatchToDatabase(m)) s++; return s; }
 async function syncAllMatches() { const l=await syncLiveMatches(); const u=await syncUpcomingMatches(); console.log(`✅ Live: ${l}, Upcoming: ${u}`); return {live:l, upcoming:u}; }
+
+// ===== 🔥 AUTO STATUS UPDATE (SUPABASE) =====
+async function forceUpdateStatusSupabase() {
+    if (!window.supaDB || !supaClient) return 0;
+    
+    try {
+        const now = new Date().toISOString();
+        let updated = 0;
+        
+        // 1. Move upcoming → live for matches that have started
+        const { data: started, error: err1 } = await supaClient.from('sports_matches')
+            .select('fixture_id')
+            .eq('status', 'upcoming')
+            .lte('start_time', now);
+        
+        if (!err1 && started && started.length > 0) {
+            const { error: err2 } = await supaClient.from('sports_matches')
+                .update({ status: 'live', updated_at: now })
+                .eq('status', 'upcoming')
+                .lte('start_time', now);
+            
+            if (!err2) {
+                updated += started.length;
+                console.log(`⏰ Moved ${started.length} matches: upcoming → live`);
+            }
+        }
+        
+        return updated;
+    } catch(e) {
+        console.error('Force update error:', e);
+        return 0;
+    }
+}
 
 // ===== SETTLEMENT =====
 async function settleBetsForMatch(fixtureId, result) {
@@ -110,13 +155,13 @@ async function settleBetsForMatch(fixtureId, result) {
     if (settled > 0 && supaClient) {
         await supaClient.from('sports_matches').update({ bets_settled: true }).eq('fixture_id', fixtureId);
     }
-    console.log(`💰 Settled ${settled} bets (${accSettled} acc)`);
+    console.log(`💰 Settled ${settled} bets`);
     return settled;
 }
 
 async function settleAccumulatorBets(fixtureId) {
     if (!window.supaDB || !supaClient) return 0;
-    const { data: accBets } = await supaClient.from('bets').select('*').eq('status', 'active').eq('bet_category', 'accumulator');
+    const accBets = await window.supaDB.getActiveAccumulatorBets();
     if (!accBets || !accBets.length) return 0;
     
     let settled = 0;
@@ -131,9 +176,9 @@ async function settleAccumulatorBets(fixtureId) {
         let allFinished = true, allWon = true;
         for (const sel of selections) {
             const sid = sel.fixtureId || sel.fixture_id;
-            const { data: match } = await supaClient.from('sports_matches').select('status,result').eq('fixture_id', sid).single();
-            if (!match || match.status !== 'finished') { allFinished = false; break; }
-            if (match.result !== sel.betType) { allWon = false; }
+            const m = await window.supaDB.getMatchByFixtureId(sid);
+            if (!m || m.status !== 'finished') { allFinished = false; break; }
+            if (m.result !== sel.betType) { allWon = false; }
         }
         
         if (allFinished) {
@@ -165,11 +210,41 @@ async function settleAllFinishedMatches() {
     return total;
 }
 
-let si,fi;
-function startAutoSync() { if(si)clearInterval(si); if(fi)clearInterval(fi); syncAllMatches(); si=setInterval(syncAllMatches,SYNC_INTERVAL); fi=setInterval(settleAllFinishedMatches,FORCE_UPDATE_INTERVAL); }
+// ===== AUTO SYSTEM =====
+let syncInterval, forceInterval;
 
+function startAutoSync() { 
+    if(syncInterval) clearInterval(syncInterval); 
+    if(forceInterval) clearInterval(forceInterval); 
+    
+    // Run immediately
+    syncAllMatches();
+    forceUpdateStatusSupabase();
+    settleAllFinishedMatches();
+    
+    // Then run periodically
+    syncInterval = setInterval(() => {
+        syncAllMatches();
+        forceUpdateStatusSupabase();
+    }, SYNC_INTERVAL);
+    
+    forceInterval = setInterval(() => {
+        forceUpdateStatusSupabase();
+        settleAllFinishedMatches();
+    }, FORCE_UPDATE_INTERVAL);
+    
+    console.log(`⏰ Auto-sync: ${SYNC_INTERVAL/1000}s | Force: ${FORCE_UPDATE_INTERVAL/1000}s`);
+}
+
+function stopAutoSync() { 
+    if(syncInterval) clearInterval(syncInterval); 
+    if(forceInterval) clearInterval(forceInterval); 
+}
+
+// ===== EXPORTS =====
 window.syncNow = syncAllMatches;
 window.settleNow = settleAllFinishedMatches;
+window.forceUpdateStatus = forceUpdateStatusSupabase;
 window.getLeagues = getLeagues;
 window.formatCountdown = formatCountdown;
 window.getLiveTimer = getLiveTimer;
@@ -181,5 +256,14 @@ window.getCashoutFee = getCashoutFee;
 window.settleBetsForMatch = settleBetsForMatch;
 window.settleAllFinishedMatches = settleAllFinishedMatches;
 
-setTimeout(() => { syncAllMatches(); startAutoSync(); }, 1000);
-console.log('🏈 Sports API v36.0 - 100 Match Sync + Fast Settlement');
+// ===== AUTO START =====
+setTimeout(() => { startAutoSync(); }, 1000);
+
+console.log('╔════════════════════════════════════════════╗');
+console.log('║   🏈 SPORTS API v37.0 - COMPLETE           ║');
+console.log('║   ✅ Auto-sync: 2min                       ║');
+console.log('║   ✅ Status update: 30s (Supabase)         ║');
+console.log('║   ✅ Settlement: Auto + Manual             ║');
+console.log('║   ✅ 100 match sync                        ║');
+console.log('║   💡 Commands: syncNow(), settleNow()     ║');
+console.log('╚════════════════════════════════════════════╝');
