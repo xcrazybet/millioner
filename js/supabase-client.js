@@ -1,6 +1,6 @@
 // ============================================
-// js/supabase-client.js - v2.0 FULLY UPGRADED
-// Works with all pages - Live, Upcoming, Bets
+// js/supabase-client.js - v3.0 COMPLETE
+// Fixed: Today's matches now appear
 // ============================================
 
 const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
@@ -20,7 +20,6 @@ if (supaClient) {
     console.log('✅ Supabase Connected');
 }
 
-// ===== HELPER FUNCTIONS =====
 window.supaDB = {
     
     // ============ MATCHES ============
@@ -60,46 +59,45 @@ window.supaDB = {
         } catch(e) { return []; }
     },
     
-    // 🔥 FIXED: Get upcoming matches by date range with full logging
+    // 🔥 FIXED: Include today's live matches
     getUpcomingByDate: async function(startDate, endDate) {
         if (!supaClient) return [];
         try {
-            // Get ALL upcoming matches first
-            const { data } = await supaClient.from('sports_matches')
-                .select('*')
-                .eq('status', 'upcoming')
-                .order('start_time', { ascending: true });
-            
-            if (!data || !data.length) {
-                console.log('⚠️ No upcoming matches in database at all');
-                return [];
-            }
-            
-            // Filter by date in JavaScript (avoids timezone issues)
             const start = new Date(startDate);
             const end = new Date(endDate);
             
-            const filtered = data.filter(m => {
-                const matchTime = new Date(m.start_time);
-                return matchTime >= start && matchTime <= end;
-            });
+            const { data } = await supaClient.from('sports_matches')
+                .select('*')
+                .in('status', ['upcoming', 'live'])
+                .gte('start_time', start.toISOString())
+                .lte('start_time', end.toISOString())
+                .order('start_time', { ascending: true });
             
-            console.log(`📅 Upcoming: ${data.length} total in DB, ${filtered.length} in range`);
+            const filtered = (data || []).filter(m => m.status !== 'finished');
             
-            // Debug: show sample if filtered is empty
-            if (filtered.length === 0 && data.length > 0) {
-                console.log('📊 Sample matches in DB (outside range?):');
-                data.slice(0, 5).forEach(m => {
-                    console.log(`  ${new Date(m.start_time).toLocaleString()} - ${m.home_team?.name} vs ${m.away_team?.name}`);
-                });
-                console.log(`📊 Date range searched: ${start.toLocaleString()} to ${end.toLocaleString()}`);
-            }
-            
+            console.log(`📅 Matches in range: ${filtered.length} (upcoming + today's live)`);
             return filtered;
         } catch(e) { 
             console.error('getUpcomingByDate error:', e);
             return []; 
         }
+    },
+    
+    getTodayMatches: async function() {
+        if (!supaClient) return [];
+        try {
+            const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+            const todayEnd = new Date(); todayEnd.setHours(23,59,59,999);
+            
+            const { data } = await supaClient.from('sports_matches')
+                .select('*')
+                .in('status', ['upcoming', 'live'])
+                .gte('start_time', todayStart.toISOString())
+                .lte('start_time', todayEnd.toISOString())
+                .order('start_time', { ascending: true });
+            
+            return data || [];
+        } catch(e) { return []; }
     },
     
     getFinishedMatches: async function() {
@@ -134,7 +132,6 @@ window.supaDB = {
         } catch(e) { return []; }
     },
     
-    // Get match by fixture ID
     getMatchByFixtureId: async function(fixtureId) {
         if (!supaClient) return null;
         try {
@@ -144,6 +141,20 @@ window.supaDB = {
                 .single();
             return data || null;
         } catch(e) { return null; }
+    },
+    
+    getMatchCounts: async function() {
+        if (!supaClient) return { live: 0, upcoming: 0, finished: 0, total: 0 };
+        try {
+            const { data } = await supaClient.from('sports_matches').select('status');
+            if (!data) return { live: 0, upcoming: 0, finished: 0, total: 0 };
+            return {
+                live: data.filter(m => m.status === 'live').length,
+                upcoming: data.filter(m => m.status === 'upcoming').length,
+                finished: data.filter(m => m.status === 'finished').length,
+                total: data.length
+            };
+        } catch(e) { return { live: 0, upcoming: 0, finished: 0, total: 0 }; }
     },
     
     // ============ BETS ============
@@ -200,7 +211,6 @@ window.supaDB = {
         } catch(e) { return []; }
     },
     
-    // Get all accumulator bets
     getActiveAccumulatorBets: async function() {
         if (!supaClient) return [];
         try {
@@ -212,32 +222,12 @@ window.supaDB = {
         } catch(e) { return []; }
     },
     
-    // Get bet by ID
     getBetById: async function(betId) {
         if (!supaClient) return null;
         try {
-            const { data } = await supaClient.from('bets')
-                .select('*')
-                .eq('id', betId)
-                .single();
+            const { data } = await supaClient.from('bets').select('*').eq('id', betId).single();
             return data || null;
         } catch(e) { return null; }
-    },
-    
-    // ============ STATISTICS ============
-    
-    getMatchCounts: async function() {
-        if (!supaClient) return { live: 0, upcoming: 0, finished: 0, total: 0 };
-        try {
-            const { data } = await supaClient.from('sports_matches').select('status');
-            if (!data) return { live: 0, upcoming: 0, finished: 0, total: 0 };
-            return {
-                live: data.filter(m => m.status === 'live').length,
-                upcoming: data.filter(m => m.status === 'upcoming').length,
-                finished: data.filter(m => m.status === 'finished').length,
-                total: data.length
-            };
-        } catch(e) { return { live: 0, upcoming: 0, finished: 0, total: 0 }; }
     },
     
     getUserBetCounts: async function(userId) {
@@ -255,4 +245,4 @@ window.supaDB = {
     }
 };
 
-console.log('📦 SupaDB v2.0 Ready - All Pages Supported');
+console.log('📦 SupaDB v3.0 - Today Matches Fixed');
