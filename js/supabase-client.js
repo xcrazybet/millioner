@@ -8,7 +8,7 @@ const SUPABASE_KEY = 'sb_publishable_WWHC2XIWlnDR9DsDpg52Vw_UIn2KopQ';
 // Wait for Supabase SDK to load
 function initSupabase() {
     if (typeof supabase === 'undefined') {
-        console.error('? Supabase SDK not loaded');
+        console.error('❌ Supabase SDK not loaded');
         return null;
     }
     return supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -17,7 +17,7 @@ function initSupabase() {
 const supaClient = initSupabase();
 
 if (supaClient) {
-    console.log('? Supabase Connected');
+    console.log('✅ Supabase Connected');
 }
 
 // ===== HELPER FUNCTIONS =====
@@ -55,12 +55,38 @@ window.supaDB = {
         } catch(e) { return []; }
     },
     
+    // 🔥 FIXED: Get upcoming matches by date range
     getUpcomingByDate: async function(startDate, endDate) {
         if (!supaClient) return [];
         try {
-            const { data } = await supaClient.from('sports_matches').select('*').eq('status', 'upcoming').gte('start_time', startDate.toISOString()).lte('start_time', endDate.toISOString()).order('start_time', { ascending: true });
-            return data || [];
-        } catch(e) { return []; }
+            // Get ALL upcoming matches first (no date filter in query)
+            const { data } = await supaClient.from('sports_matches')
+                .select('*')
+                .eq('status', 'upcoming')
+                .order('start_time', { ascending: true });
+            
+            if (!data || !data.length) {
+                console.log('⚠️ No upcoming matches found in database');
+                return [];
+            }
+            
+            // Filter by date in JavaScript (avoids timezone issues)
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            
+            const filtered = data.filter(m => {
+                const matchTime = new Date(m.start_time);
+                return matchTime >= start && matchTime <= end;
+            });
+            
+            console.log(`📅 Upcoming: ${data.length} total in DB, ${filtered.length} in date range`);
+            return filtered;
+        } catch(e) { 
+            console.error('getUpcomingByDate error:', e);
+            return []; 
+        }
     },
     
     getFinishedMatches: async function() {
@@ -135,4 +161,4 @@ window.supaDB = {
     }
 };
 
-console.log('?? SupaDB Helper Ready');
+console.log('📦 SupaDB Helper Ready');
