@@ -25,10 +25,10 @@
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; padding-bottom: 180px; }
         .balance-bar { background: #111827; padding: 10px 15px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #00ff9d33; }
         .selector-bar { display: flex; gap: 10px; margin-bottom: 15px; }
-        .league-select { flex: 1; padding: 12px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; }
-        .search-input { flex: 2; padding: 12px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; }
-        .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #00ff9d; display: flex; align-items: center; gap: 8px; }
-        .refresh-btn { background: #00ff9d; color: black; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; margin-left: auto; }
+        .league-select { flex: 1; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; }
+        .search-input { flex: 2; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; }
+        .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 12px; color: #00ff9d; display: flex; align-items: center; gap: 8px; }
+        .refresh-btn { background: #00ff9d; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; margin-left: auto; }
         
         .date-section { margin-bottom: 15px; }
         .date-header { color: #00ff9d; font-size: 14px; font-weight: 600; margin-bottom: 8px; padding: 8px 10px; background: #0a0f1a; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
@@ -93,7 +93,7 @@
             <input type="text" id="search-input" class="search-input" placeholder="Search league or team..." oninput="filterMatches()">
         </div>
         <div class="debug-bar" id="debug-bar">
-            <i class="fas fa-database"></i> <span id="debug-text">Loading from database...</span>
+            <i class="fas fa-database"></i> <span id="debug-text">Loading...</span>
             <button class="refresh-btn" onclick="loadAllMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
         </div>
         <div id="matches-container"><div style="text-align:center;padding:30px;">Loading matches...</div></div>
@@ -126,6 +126,10 @@
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         
         let allMatches=[], countdownInterval, selectedLeague='all', accSlip=[];
+        const API_BASE = 'https://millioner.onrender.com/api';
+        const CACHE_KEY = 'upcoming_matches_cache';
+        const CACHE_TIME_KEY = 'upcoming_matches_time';
+        const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
         
         firebase.auth().onAuthStateChanged(u => { if(!u) location.href='../login.html'; else init(); });
         
@@ -146,7 +150,7 @@
         async function loadLeaguesFilter(){
             const select=document.getElementById('league-filter');
             try {
-                const r = await fetch('https://millioner.onrender.com/api/leagues');
+                const r = await fetch(`${API_BASE}/leagues`);
                 const d = await r.json();
                 if(d.success && d.data){
                     d.data.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -157,18 +161,88 @@
         }
         
         async function loadAllMatches(){
-            if(!window.supaDB) return;
+            const debugText = document.getElementById('debug-text');
+            const container = document.getElementById('matches-container');
             
-            // 🔥 LIGHTWEIGHT: Single Supabase call, no API loading
-            const now = new Date();
-            now.setHours(0, 0, 0, 0);
-            const nextWeek = new Date(now);
-            nextWeek.setDate(now.getDate() + 7);
+            // 🔥 CHECK CACHE FIRST (instant load)
+            const cachedTime = localStorage.getItem(CACHE_TIME_KEY);
+            const cachedData = localStorage.getItem(CACHE_KEY);
             
-            allMatches = await window.supaDB.getUpcomingByDate(now, nextWeek);
+            if (cachedTime && cachedData && (Date.now() - parseInt(cachedTime)) < CACHE_DURATION) {
+                debugText.textContent = 'Loaded from cache (instant)';
+                allMatches = JSON.parse(cachedData);
+                filterMatches();
+                
+                // Refresh in background silently
+                fetchFreshMatches();
+                return;
+            }
             
-            document.getElementById('debug-text').textContent = `Loaded ${allMatches.length} matches from database`;
+            // No cache - fetch from API
+            debugText.textContent = 'Fetching from API...';
+            container.innerHTML = '<div style="text-align:center;padding:30px;">Loading matches...</div>';
+            
+            await fetchFreshMatches();
+        }
+        
+        async function fetchFreshMatches(){
+            const debugText = document.getElementById('debug-text');
+            
+            try {
+                // 🔥 SINGLE API CALL - Only week (includes today)
+                const weekRes = await fetch(`${API_BASE}/fixtures/week`);
+                const weekData = await weekRes.json();
+                
+                if (weekData.success && weekData.data) {
+                    allMatches = weekData.data.map(transformFixture);
+                    
+                    // 🔥 SAVE TO CACHE
+                    localStorage.setItem(CACHE_KEY, JSON.stringify(allMatches));
+                    localStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+                    
+                    debugText.textContent = `Loaded ${allMatches.length} matches (cached for 5min)`;
+                    
+                    // Also sync to Supabase silently
+                    if (typeof syncNow === 'function') {
+                        syncNow().catch(() => {});
+                    }
+                } else {
+                    debugText.textContent = 'No matches found';
+                }
+            } catch (error) {
+                debugText.textContent = 'Failed to load. Using cache if available...';
+                // Fallback to cache even if expired
+                const cachedData = localStorage.getItem(CACHE_KEY);
+                if (cachedData) {
+                    allMatches = JSON.parse(cachedData);
+                    debugText.textContent = 'Loaded from expired cache';
+                }
+            }
+            
             filterMatches();
+        }
+        
+        function transformFixture(item) {
+            const seed = item.fixture?.id % 100 || 50;
+            return {
+                fixture_id: item.fixture?.id || 0,
+                start_time: item.fixture?.date || new Date().toISOString(),
+                league_name: item.league?.name || 'Unknown League',
+                league_id: item.league?.id || 0,
+                home_team: {
+                    name: item.teams?.home?.name || 'Home Team',
+                    logo: item.teams?.home?.logo || ''
+                },
+                away_team: {
+                    name: item.teams?.away?.name || 'Away Team',
+                    logo: item.teams?.away?.logo || ''
+                },
+                odds: {
+                    home: (1.5 + (seed % 30) / 10).toFixed(2),
+                    draw: (2.5 + (seed % 40) / 10).toFixed(2),
+                    away: (2.0 + (seed % 50) / 10).toFixed(2)
+                }
+            };
         }
         
         function filterMatches(){
@@ -187,7 +261,7 @@
                 return; 
             }
             
-            // 🔥 DYNAMIC DATE GROUPING - Auto-calculates Today/Tomorrow
+            // 🔥 DYNAMIC DATE GROUPING
             const dateGrouped = {};
             filtered.forEach(m => {
                 const d = new Date(m.start_time);
@@ -249,7 +323,6 @@
             document.getElementById('slip-items').innerHTML=items;
             document.getElementById('slip-total-odds').textContent=totalOdds.toFixed(2);
             document.getElementById('place-acc-btn').disabled=accSlip.length<2;
-            document.getElementById('place-acc-btn').textContent=accSlip.length<2?'Add 2+':'Place Accumulator';
         }
         
         function removeFromSlip(index){ accSlip.splice(index,1); updateSlipUI(); }
