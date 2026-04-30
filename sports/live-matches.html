@@ -80,8 +80,9 @@
         .timer-item { text-align: center; }
         .timer-value { font-size: 12px; font-weight: 600; color: white; }
         .timer-label { font-size: 9px; color: #a0a8c9; }
-        .info-row { text-align: center; color: #00ff9d; font-size: 12px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ffffff11; cursor: pointer; transition: all 0.3s ease; }
-        .info-row:hover { background: #00ff9d11; }
+        .info-row { text-align: center; color: #ff5252; font-size: 12px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ffffff11; }
+        .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
+        .arabic { font-family: 'Tajawal', sans-serif; }
         /* small responsive */
         @media (max-width: 600px) {
             .team-logo-img, .team-logo-fallback { width: 48px; height: 48px; }
@@ -214,7 +215,7 @@
                 return `<img class="team-logo-img" src="${teamLogoFromData}" alt="${teamName}" onerror="this.onerror=null; this.src='${getFallbackLogoUrl(teamName)}';" loading="lazy">`;
             }
             // else we generate async - but we will call async function, but since createCardHTML is synchronous,
-            // we will modify DOM after fetching logos. Better: return placeholder and later replace with real logo.
+            // we will modify DOM after fetching logos. Better: create placeholder and later replace with real logo.
             // To avoid complex rewriting, we will return a div with data-team attributes and then after card creation we update logos.
             // However simpler: generate a fallback container and later we run a batch update logos.
             // I'll implement a function that after rendering matches, for each team we fetch actual logo and replace.
@@ -358,9 +359,7 @@
                     <div class="timer-item"><div class="timer-value">${endTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div><div class="timer-label">Ends ~</div></div>
                     <div class="timer-item"><div class="timer-value">${elapsed > 90 ? '90+' : elapsed}'</div><div class="timer-label">Live</div></div>
                 </div>
-                <div class="info-row" onclick="quickBet('${m.fixture_id}', '${homeName}', '${awayName}')">
-                    <i class="fas fa-ticket-alt"></i> Click to Bet on Live Match - Odds Available!
-                </div>
+                <div class="info-row"><i class="fas fa-info-circle"></i> Betting closed - Match in progress</div>
             </div>`;
         }
         
@@ -386,68 +385,6 @@
                 }
             } catch(e){}
         }
-        
-        // NEW: Quick bet function for live matches
-        window.quickBet = async function(fixtureId, homeName, awayName) {
-            const amount = parseFloat(prompt(`Place live bet on ${homeName} vs ${awayName}\nEnter amount (min $5):`, "10"));
-            if (isNaN(amount) || amount < 5) {
-                alert("Please enter a valid amount (minimum $5)");
-                return;
-            }
-            
-            const user = firebase.auth().currentUser;
-            if (!user) {
-                alert("Please login first");
-                return;
-            }
-            
-            try {
-                const db = firebase.firestore();
-                const walletRef = db.collection('wallets').doc(user.uid);
-                const wallet = await walletRef.get();
-                const currentBalance = wallet.exists ? (wallet.data().balance || 0) : 0;
-                
-                if (amount > currentBalance) {
-                    alert("Insufficient balance!");
-                    return;
-                }
-                
-                // Random odds between 1.8 and 3.5 for live betting
-                const randomOdds = (Math.random() * (3.5 - 1.8) + 1.8).toFixed(2);
-                
-                // Deduct amount from wallet
-                await walletRef.update({
-                    balance: firebase.firestore.FieldValue.increment(-amount)
-                });
-                
-                // Create bet in database
-                const bet = {
-                    userId: user.uid,
-                    fixtureId: fixtureId,
-                    match: `${homeName} vs ${awayName}`,
-                    type: "live",
-                    stake: amount,
-                    odds: parseFloat(randomOdds),
-                    potentialWin: (amount * parseFloat(randomOdds)).toFixed(2),
-                    status: "active",
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    homeTeam: homeName,
-                    awayTeam: awayName
-                };
-                
-                await db.collection('bets').add(bet);
-                
-                // Update displayed balance
-                const newBalance = currentBalance - amount;
-                document.getElementById('balance-display').textContent = '$' + newBalance.toFixed(2);
-                
-                alert(`✓ Bet placed successfully!\n\nStake: $${amount}\nOdds: ${randomOdds}\nPotential Win: $${(amount * parseFloat(randomOdds)).toFixed(2)}\n\nGood luck!`);
-                
-            } catch (error) {
-                console.error("Error placing bet:", error);
-                alert("Failed to place bet. Please try again.");
-            }
-        };
         
         function startTimer(){ if(timerInterval)clearInterval(timerInterval); timerInterval=setInterval(() => { if(liveMatches.length) loadLive(); }, 30000); }
         window.addEventListener('beforeunload',()=>{ if(timerInterval)clearInterval(timerInterval); });
