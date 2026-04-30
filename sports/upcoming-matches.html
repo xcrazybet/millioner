@@ -77,7 +77,7 @@
                 <a href="betting-sport.html" class="back-btn"><i class="fas fa-arrow-left"></i></a>
                 <h1 style="font-size:18px;"><i class="fas fa-futbol"></i> X Lodon Sports</h1>
             </div>
-            <button class="lang-toggle" onclick="toggleLanguage()">🇸🇦 عربي</button>
+            <button class="lang-toggle" onclick="toggleLanguage()">عربي</button>
         </div>
         <div class="tabs">
             <a href="betting-sport.html" class="tab">Home</a>
@@ -94,12 +94,12 @@
             <span style="color:#00ff9d;font-weight:bold;font-size:18px;" id="balance-display">$0.00</span>
         </div>
         <div class="selector-bar">
-            <select id="league-filter" class="league-select"><option value="all">🏆 All Leagues</option></select>
-            <input type="text" id="search-input" class="search-input" placeholder="🔍 Search league or team..." oninput="filterMatches()">
+            <select id="league-filter" class="league-select"><option value="all">All Leagues</option></select>
+            <input type="text" id="search-input" class="search-input" placeholder="Search league or team..." oninput="filterMatches()">
         </div>
         <div class="debug-bar" id="debug-bar">
             <i class="fas fa-database"></i> <span id="debug-text">Loading matches...</span>
-            <button class="refresh-btn" onclick="loadDirectFromSupabase()"><i class="fas fa-sync-alt"></i> Refresh</button>
+            <button class="refresh-btn" onclick="loadMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
         </div>
         <div id="matches-container"><div style="text-align:center;padding:30px;">Loading upcoming matches...</div></div>
     </div>
@@ -135,48 +135,51 @@
         let selectedLeague = 'all';
         let accSlip = [];
         
-        firebase.auth().onAuthStateChanged(u => { 
-            if(!u) location.href='../login.html'; 
-            else init(); 
+        firebase.auth().onAuthStateChanged(function(u) { 
+            if(!u) {
+                location.href='../login.html'; 
+            } else {
+                init(); 
+            }
         });
         
         async function init(){
             await loadBalance();
             await loadLeaguesFilter();
-            await loadDirectFromSupabase();
-            setInterval(loadDirectFromSupabase, 60000);
+            await loadMatches();
+            setInterval(loadMatches, 60000);
         }
         
         async function loadBalance(){
             try {
-                const db = firebase.firestore();
-                const w = await db.collection('wallets').doc(firebase.auth().currentUser.uid).get();
+                var db = firebase.firestore();
+                var w = await db.collection('wallets').doc(firebase.auth().currentUser.uid).get();
                 document.getElementById('balance-display').textContent = '$' + (w.exists ? (w.data().balance||0) : 0).toFixed(2);
             } catch(e){}
         }
         
         async function loadLeaguesFilter(){
-            const select = document.getElementById('league-filter');
+            var select = document.getElementById('league-filter');
             try {
-                const r = await fetch('https://millioner.onrender.com/api/leagues');
-                const d = await r.json();
+                var r = await fetch('https://millioner.onrender.com/api/leagues');
+                var d = await r.json();
                 if(d.success && d.data){
-                    d.data.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-                    d.data.forEach(l => { 
+                    d.data.sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); });
+                    for(var i = 0; i < d.data.length; i++) {
+                        var l = d.data[i];
                         if(l.name){ 
-                            const o = document.createElement('option'); 
+                            var o = document.createElement('option'); 
                             o.value = l.id; 
                             o.textContent = l.name; 
                             select.appendChild(o); 
                         } 
-                    });
+                    }
                 }
             } catch(e){}
             select.onchange = function(){ selectedLeague = this.value; filterMatches(); };
         }
         
-        // 🔥 DIRECT SIMPLE QUERY - NO FILTERS
-        async function loadDirectFromSupabase(){
+        async function loadMatches(){
             if(!supaClient) {
                 console.error("Supabase not connected");
                 return;
@@ -185,14 +188,14 @@
             try {
                 document.getElementById('debug-text').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
                 
-                // Simple query - get all matches from today onwards
-                const today = new Date();
+                var today = new Date();
                 today.setUTCHours(0, 0, 0, 0);
+                var startISO = today.toISOString();
                 
-                const { data: matches, error, count } = await supaClient
+                var { data: matches, error } = await supaClient
                     .from('sports_matches')
-                    .select('*', { count: 'exact' })
-                    .gte('start_time', today.toISOString())
+                    .select('*')
+                    .gte('start_time', startISO)
                     .order('start_time', { ascending: true });
                 
                 if (error) {
@@ -200,139 +203,179 @@
                     throw error;
                 }
                 
-                console.log(`📊 Query returned ${matches?.length || 0} matches`);
+                console.log("Query returned", matches ? matches.length : 0, "matches");
                 
                 if (!matches || matches.length === 0) {
-                    document.getElementById('debug-text').innerHTML = '⚠️ No matches found';
+                    document.getElementById('debug-text').innerHTML = 'No matches found';
                     document.getElementById('matches-container').innerHTML = '<div class="empty-state">No upcoming matches</div>';
                     return;
                 }
                 
-                // Process matches directly - NO FILTERING
-                allMatches = matches.map(m => ({
-                    fixture_id: m.fixture_id,
-                    start_time: m.start_time,
-                    status: m.status,
-                    league_id: m.league_id,
-                    league_name: m.league_name || 'Unknown League',
-                    league_logo: m.league_logo,
-                    home_team: m.home_team || { name: 'Home', logo: '' },
-                    away_team: m.away_team || { name: 'Away', logo: '' },
-                    odds: m.odds || { home: 2.50, draw: 3.20, away: 2.80 }
-                }));
+                var uniqueDates = [];
+                var dateMap = {};
                 
-                // Get unique dates for display
-                const uniqueDates = [...new Set(allMatches.map(m => new Date(m.start_time).toDateString()))];
+                allMatches = [];
+                for(var i = 0; i < matches.length; i++) {
+                    var m = matches[i];
+                    var matchDate = new Date(m.start_time);
+                    var dateKey = matchDate.toDateString();
+                    
+                    if(!dateMap[dateKey]) {
+                        dateMap[dateKey] = true;
+                        uniqueDates.push(dateKey);
+                    }
+                    
+                    allMatches.push({
+                        fixture_id: m.fixture_id,
+                        start_time: m.start_time,
+                        status: m.status,
+                        league_id: m.league_id,
+                        league_name: m.league_name || 'Unknown League',
+                        league_logo: m.league_logo,
+                        home_team: m.home_team || { name: 'Home', logo: '' },
+                        away_team: m.away_team || { name: 'Away', logo: '' },
+                        odds: m.odds || { home: 2.50, draw: 3.20, away: 2.80 }
+                    });
+                }
                 
-                // Count today's matches (local time)
-                const todayLocal = new Date();
+                var todayLocal = new Date();
                 todayLocal.setHours(0, 0, 0, 0);
-                const todayCount = allMatches.filter(m => {
-                    const d = new Date(m.start_time);
+                
+                var todayCount = 0;
+                for(var i = 0; i < allMatches.length; i++) {
+                    var d = new Date(allMatches[i].start_time);
                     d.setHours(0, 0, 0, 0);
-                    return d.getTime() === todayLocal.getTime();
-                }).length;
+                    if(d.getTime() === todayLocal.getTime()) {
+                        todayCount++;
+                    }
+                }
                 
-                const futureCount = allMatches.length - todayCount;
+                var futureCount = allMatches.length - todayCount;
+                var datesDisplay = uniqueDates.slice(0, 3).join(', ');
+                if(uniqueDates.length > 3) datesDisplay = datesDisplay + '...';
                 
-                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} total matches (Today: ${todayCount} | Future: ${futureCount}) | Dates: ${uniqueDates.slice(0, 5).join(', ')}${uniqueDates.length > 5 ? '...' : ''}`;
+                document.getElementById('debug-text').innerHTML = allMatches.length + " matches (Today: " + todayCount + " | Future: " + futureCount + ") | Dates: " + datesDisplay;
                 
-                console.log('📅 All dates in results:', uniqueDates);
-                console.log('📊 Total matches:', allMatches.length);
+                console.log("All dates in results:", uniqueDates);
+                console.log("Total matches:", allMatches.length);
                 
                 filterMatches();
                 
             } catch(error) {
                 console.error("Error:", error);
-                document.getElementById('debug-text').innerHTML = `❌ Error: ${error.message}`;
-                document.getElementById('matches-container').innerHTML = `<div class="empty-state">Error: ${error.message}</div>`;
+                document.getElementById('debug-text').innerHTML = "Error: " + error.message;
+                document.getElementById('matches-container').innerHTML = '<div class="empty-state">Error: ' + error.message + '</div>';
             }
         }
         
         function filterMatches(){
-            const container = document.getElementById('matches-container');
-            const search = (document.getElementById('search-input').value || '').toLowerCase();
+            var container = document.getElementById('matches-container');
+            var search = (document.getElementById('search-input').value || '').toLowerCase();
             
-            let filtered = [...allMatches]; // Start with ALL matches
+            var filtered = [];
+            for(var i = 0; i < allMatches.length; i++) {
+                filtered.push(allMatches[i]);
+            }
             
-            // Apply league filter
             if(selectedLeague !== 'all') {
-                filtered = filtered.filter(m => m.league_id == selectedLeague);
+                var temp = [];
+                for(var i = 0; i < filtered.length; i++) {
+                    if(filtered[i].league_id == selectedLeague) {
+                        temp.push(filtered[i]);
+                    }
+                }
+                filtered = temp;
             }
             
-            // Apply search filter
             if(search) {
-                filtered = filtered.filter(m => {
-                    const hn = (m.home_team?.name || '').toLowerCase();
-                    const an = (m.away_team?.name || '').toLowerCase();
-                    const ln = (m.league_name || '').toLowerCase();
-                    return hn.includes(search) || an.includes(search) || ln.includes(search);
-                });
+                var temp = [];
+                for(var i = 0; i < filtered.length; i++) {
+                    var hn = (filtered[i].home_team?.name || '').toLowerCase();
+                    var an = (filtered[i].away_team?.name || '').toLowerCase();
+                    var ln = (filtered[i].league_name || '').toLowerCase();
+                    if(hn.includes(search) || an.includes(search) || ln.includes(search)) {
+                        temp.push(filtered[i]);
+                    }
+                }
+                filtered = temp;
             }
             
-            console.log(`Filtered: ${filtered.length} matches from ${allMatches.length} total`);
+            console.log("Filtered:", filtered.length, "matches from", allMatches.length, "total");
             
             if(filtered.length === 0){ 
                 container.innerHTML = '<div class="empty-state">No matches found</div>'; 
                 return; 
             }
             
-            // Group by date
-            const dateGrouped = {};
-            filtered.forEach(m => { 
-                const d = new Date(m.start_time); 
-                const key = d.toDateString(); 
-                if(!dateGrouped[key]) dateGrouped[key] = []; 
-                dateGrouped[key].push(m); 
-            });
+            var dateGrouped = {};
+            for(var i = 0; i < filtered.length; i++) {
+                var m = filtered[i];
+                var d = new Date(m.start_time);
+                var key = d.toDateString();
+                if(!dateGrouped[key]) dateGrouped[key] = [];
+                dateGrouped[key].push(m);
+            }
             
             container.innerHTML = '';
-            const today = new Date(); 
+            
+            var today = new Date();
             today.setHours(0, 0, 0, 0);
-            const tomorrow = new Date(today); 
+            var tomorrow = new Date(today);
             tomorrow.setDate(today.getDate() + 1);
             
-            // Sort dates
-            const sortedDates = Object.keys(dateGrouped).sort((a, b) => new Date(a) - new Date(b));
+            var sortedDates = Object.keys(dateGrouped).sort();
             
-            sortedDates.forEach(key => {
-                const date = new Date(key);
-                let label = date.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
-                let badge = '';
+            for(var i = 0; i < sortedDates.length; i++) {
+                var key = sortedDates[i];
+                var date = new Date(key);
+                var label = date.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
+                var badge = '';
                 
                 if(date.toDateString() === today.toDateString()) {
-                    label = '📅 TODAY - ' + label;
-                    badge = '<span class="today-badge"><i class="fas fa-clock"></i> Today</span>';
+                    label = 'TODAY - ' + label;
+                    badge = '<span class="today-badge">Today</span>';
                 } else if(date.toDateString() === tomorrow.toDateString()) {
-                    label = '📅 TOMORROW - ' + label;
+                    label = 'TOMORROW - ' + label;
                 }
                 
-                // Group by league within date
-                const leagueGrouped = {};
-                dateGrouped[key].forEach(m => {
-                    const ln = m.league_name || 'Other';
+                var leagueGrouped = {};
+                var matchesOnDate = dateGrouped[key];
+                
+                for(var j = 0; j < matchesOnDate.length; j++) {
+                    var m = matchesOnDate[j];
+                    var ln = m.league_name || 'Other';
                     if(!leagueGrouped[ln]) leagueGrouped[ln] = [];
                     leagueGrouped[ln].push(m);
-                });
+                }
                 
-                let leagueHtml = '';
-                Object.keys(leagueGrouped).sort().forEach(ln => {
+                var leagueHtml = '';
+                var leagueNames = Object.keys(leagueGrouped).sort();
+                
+                for(var j = 0; j < leagueNames.length; j++) {
+                    var ln = leagueNames[j];
+                    var leagueMatches = leagueGrouped[ln];
+                    var matchesHtml = '';
+                    
+                    for(var k = 0; k < leagueMatches.length; k++) {
+                        matchesHtml += createMatchRow(leagueMatches[k]);
+                    }
+                    
                     leagueHtml += `
                     <div class="league-group">
                         <div class="league-group-header" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('collapsed');">
                             <span class="name">${escapeHtml(ln)}</span>
-                            <span class="count">${leagueGrouped[ln].length}</span>
+                            <span class="count">${leagueMatches.length}</span>
                             <i class="fas fa-chevron-down"></i>
                         </div>
-                        <div class="league-matches">${leagueGrouped[ln].map(m => createMatchRow(m)).join('')}</div>
+                        <div class="league-matches">${matchesHtml}</div>
                     </div>`;
-                });
+                }
                 
-                const section = document.createElement('div'); 
+                var section = document.createElement('div'); 
                 section.className = 'date-section';
-                section.innerHTML = `<div class="date-header" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('collapsed');"><span>${label} ${badge}</span><span>${dateGrouped[key].length} matches</span><i class="fas fa-chevron-down"></i></div><div class="date-matches">${leagueHtml}</div>`;
+                section.innerHTML = '<div class="date-header" onclick="this.classList.toggle(\'collapsed\');this.nextElementSibling.classList.toggle(\'collapsed\');"><span>' + label + ' ' + badge + '</span><span>' + matchesOnDate.length + ' matches</span><i class="fas fa-chevron-down"></i></div><div class="date-matches">' + leagueHtml + '</div>';
                 container.appendChild(section);
-            });
+            }
             
             startCountdowns(filtered);
         }
@@ -348,77 +391,79 @@
         }
         
         function createMatchRow(m){
-            const time = new Date(m.start_time);
-            const hn = m.home_team?.name || 'Home';
-            const an = m.away_team?.name || 'Away';
-            const hl = m.home_team?.logo || '';
-            const al = m.away_team?.logo || '';
-            const odds = m.odds || { home: 2.50, draw: 3.20, away: 2.80 };
+            var time = new Date(m.start_time);
+            var hn = m.home_team?.name || 'Home';
+            var an = m.away_team?.name || 'Away';
+            var hl = m.home_team?.logo || '';
+            var al = m.away_team?.logo || '';
+            var odds = m.odds || { home: 2.50, draw: 3.20, away: 2.80 };
             
-            return `<div class="match-row">
-                <div class="match-time-col">
-                    <div class="time">${time.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                    <div class="countdown" id="cd-${m.fixture_id}">--:--:--</div>
-                </div>
-                <div class="team-col">
-                    ${hl ? `<img src="${hl}" onerror="this.style.display='none'">` : ''}
-                    <span class="names">${escapeHtml(hn)} <span class="vs">vs</span> ${escapeHtml(an)}</span>
-                    ${al ? `<img src="${al}" onerror="this.style.display='none'">` : ''}
-                </div>
-                <div class="odds-col">
-                    <div class="odd-mini">1 <span>${odds.home}</span></div>
-                    <div class="odd-mini">X <span>${odds.draw}</span></div>
-                    <div class="odd-mini">2 <span>${odds.away}</span></div>
-                </div>
-                <button class="bet-btn" onclick="event.stopPropagation();goToMatch(${m.fixture_id})">Bet</button>
-                <button class="slip-btn" onclick="event.stopPropagation();showAccumulatorPopup(${m.fixture_id},'${escapeHtml(hn).replace(/'/g,"\\'")}','${escapeHtml(an).replace(/'/g,"\\'")}',${odds.home},${odds.draw},${odds.away})">+Slip</button>
-            </div>`;
+            var timeStr = time.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+            
+            return '<div class="match-row">' +
+                '<div class="match-time-col">' +
+                    '<div class="time">' + timeStr + '</div>' +
+                    '<div class="countdown" id="cd-' + m.fixture_id + '">--:--:--</div>' +
+                '</div>' +
+                '<div class="team-col">' +
+                    (hl ? '<img src="' + hl + '" onerror="this.style.display=\'none\'">' : '') +
+                    '<span class="names">' + escapeHtml(hn) + ' <span class="vs">vs</span> ' + escapeHtml(an) + '</span>' +
+                    (al ? '<img src="' + al + '" onerror="this.style.display=\'none\'">' : '') +
+                '</div>' +
+                '<div class="odds-col">' +
+                    '<div class="odd-mini">1 <span>' + odds.home + '</span></div>' +
+                    '<div class="odd-mini">X <span>' + odds.draw + '</span></div>' +
+                    '<div class="odd-mini">2 <span>' + odds.away + '</span></div>' +
+                '</div>' +
+                '<button class="bet-btn" onclick="event.stopPropagation();goToMatch(' + m.fixture_id + ')">Bet</button>' +
+                '<button class="slip-btn" onclick="event.stopPropagation();showAccumulatorPopup(' + m.fixture_id + ',\'' + escapeHtml(hn).replace(/'/g,"\\'") + '\',\'' + escapeHtml(an).replace(/'/g,"\\'") + '\',' + odds.home + ',' + odds.draw + ',' + odds.away + ')">+Slip</button>' +
+            '</div>';
         }
         
         function goToMatch(id){ 
-            location.href = `match-details.html?id=${id}`; 
+            location.href = 'match-details.html?id=' + id; 
         }
         
         function startCountdowns(matches){
             if(countdownInterval) clearInterval(countdownInterval);
-            countdownInterval = setInterval(() => {
-                matches.forEach(m => {
-                    const el = document.getElementById('cd-' + m.fixture_id);
+            countdownInterval = setInterval(function() {
+                for(var i = 0; i < matches.length; i++) {
+                    var m = matches[i];
+                    var el = document.getElementById('cd-' + m.fixture_id);
                     if(el){
-                        const diff = new Date(m.start_time) - new Date();
+                        var diff = new Date(m.start_time) - new Date();
                         if(diff <= 0){
                             el.textContent = 'Now';
                             el.style.color = '#ff9800';
                         } else {
-                            const h = Math.floor(diff / 3600000);
-                            const mn = Math.floor((diff % 3600000) / 60000);
-                            const s = Math.floor((diff % 60000) / 1000);
-                            el.textContent = `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+                            var h = Math.floor(diff / 3600000);
+                            var mn = Math.floor((diff % 3600000) / 60000);
+                            var s = Math.floor((diff % 60000) / 1000);
+                            el.textContent = String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0') + ':' + String(s).padStart(2,'0');
                         }
                     }
-                });
+                }
             }, 1000);
         }
         
-        // Expose functions globally
-        window.loadDirectFromSupabase = loadDirectFromSupabase;
-        window.forceRefresh = loadDirectFromSupabase;
+        window.loadMatches = loadMatches;
         
-        // Bet slip functions
         window.updateSlipUI = function(){
             accSlip = window.ACCUMULATOR_SLIP;
-            const slip = document.getElementById('bet-slip');
+            var slip = document.getElementById('bet-slip');
             if(!accSlip || accSlip.length === 0){ 
                 slip.style.display = 'none'; 
                 return; 
             }
             slip.style.display = 'block';
             document.getElementById('slip-count').textContent = accSlip.length;
-            let items = '', totalOdds = 1;
-            accSlip.forEach((s,i) => {
+            var items = '';
+            var totalOdds = 1;
+            for(var i = 0; i < accSlip.length; i++) {
+                var s = accSlip[i];
                 totalOdds *= s.odds;
-                items += `<div class="slip-item"><span>${s.betTypeName || s.betType} - ${s.matchName} @${s.odds.toFixed(2)}</span><span class="slip-remove" onclick="removeFromSlip(${i})"><i class="fas fa-times"></i></span></div>`;
-            });
+                items += '<div class="slip-item"><span>' + (s.betTypeName || s.betType) + ' - ' + s.matchName + ' @' + s.odds.toFixed(2) + '</span><span class="slip-remove" onclick="removeFromSlip(' + i + ')"><i class="fas fa-times"></i></span></div>';
+            }
             document.getElementById('slip-items').innerHTML = items;
             document.getElementById('slip-total-odds').textContent = totalOdds.toFixed(2);
             document.getElementById('place-acc-btn').disabled = accSlip.length < 2;
@@ -438,12 +483,12 @@
         
         async function placeAccumulator(){
             if(window.ACCUMULATOR_SLIP.length < 2) return;
-            const amount = parseFloat(prompt('Stake ($):', '10'));
+            var amount = parseFloat(prompt('Stake ($):', '10'));
             if(!amount || amount < 1) return;
             try {
-                const r = await placeAccumulatorBet(window.ACCUMULATOR_SLIP, amount);
+                var r = await placeAccumulatorBet(window.ACCUMULATOR_SLIP, amount);
                 if(r.success){
-                    alert('✅ Placed!');
+                    alert('Bet Placed!');
                     clearSlip();
                     location.href = 'my-bets.html';
                 } else {
@@ -454,7 +499,7 @@
         
         window.placeAccumulator = placeAccumulator;
         
-        console.log('✅ Page loaded - ready to display matches');
+        console.log("Page loaded - ready to display matches");
     </script>
 </body>
 </html>
