@@ -1,20 +1,20 @@
 // ============================================
-// js/sports-api.js - v50.0 PRODUCTION READY
-// ✅ GUARANTEED AUTO-SYNC - NO MANUAL INTERVENTION
-// ✅ Syncs every 2 minutes automatically
-// ✅ Saves ALL future matches (next 7+ days)
+// js/sports-api.js - v60.0 FINAL FIX
+// ✅ Forces ALL future matches into Supabase
+// ✅ Runs every 2 minutes automatically
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
 
-// ===== CORE SYNC FUNCTION - SIMPLE & RELIABLE =====
-async function autoSyncMatches() {
+// Main sync function - fetches from API and saves to Supabase
+async function syncAllMatchesToSupabase() {
     if (!supaClient) {
-        console.error('❌ Supabase not connected');
+        console.error("Supabase not connected");
         return;
     }
     
-    console.log(`\n🔄 AUTO-SYNC [${new Date().toLocaleTimeString()}]`);
+    console.log("\n========== SYNC START ==========");
+    console.log("Time:", new Date().toLocaleString());
     
     try {
         // 1. Fetch from API
@@ -22,100 +22,126 @@ async function autoSyncMatches() {
         const data = await response.json();
         
         if (!data.success || !data.data) {
-            console.error('❌ API fetch failed');
+            console.error("API fetch failed");
             return;
         }
         
-        console.log(`📡 API returned ${data.data.length} matches`);
+        const allMatches = data.data;
+        console.log("API returned:", allMatches.length, "total matches");
         
-        // 2. Get today's start (UTC midnight)
+        // 2. Get today's date (UTC)
         const today = new Date();
         today.setUTCHours(0, 0, 0, 0);
         
-        // 3. Process and save matches
-        let saved = 0;
-        let skipped = 0;
+        // 3. Calculate date 7 days from now
+        const nextWeek = new Date(today);
+        nextWeek.setUTCDate(today.getUTCDate() + 7);
         
-        for (const match of data.data) {
+        // 4. Filter matches from today to next 7 days
+        const futureMatches = [];
+        
+        for (const match of allMatches) {
             const matchDate = new Date(match.fixture.date);
             const status = match.fixture.status?.short || 'NS';
             
-            // Save if: future date OR live match
-            const isFuture = matchDate >= today;
-            const isLive = ['1H', '2H', 'HT', 'LIVE'].includes(status);
-            
-            if (isFuture || isLive) {
-                // Generate consistent odds based on fixture ID
-                const id = match.fixture.id;
-                const odds = {
-                    home: (1.80 + ((id % 20) / 100)).toFixed(2),
-                    draw: (3.20 + ((id % 15) / 100)).toFixed(2),
-                    away: (2.80 + ((id % 25) / 100)).toFixed(2)
-                };
-                
-                const matchData = {
-                    fixture_id: id,
-                    status: isLive ? 'live' : 'upcoming',
-                    league_id: match.league.id,
-                    league_name: match.league.name,
-                    league_logo: match.league.logo,
-                    home_team: {
-                        id: match.teams.home.id,
-                        name: match.teams.home.name,
-                        logo: match.teams.home.logo
-                    },
-                    away_team: {
-                        id: match.teams.away.id,
-                        name: match.teams.away.name,
-                        logo: match.teams.away.logo
-                    },
-                    start_time: match.fixture.date,
-                    odds: odds,
-                    score: {
-                        home: match.goals?.home || 0,
-                        away: match.goals?.away || 0
-                    },
-                    updated_at: new Date().toISOString()
-                };
-                
-                // Upsert to Supabase
-                const { error } = await supaClient
-                    .from('sports_matches')
-                    .upsert(matchData, { onConflict: 'fixture_id' });
-                
-                if (error) {
-                    console.error(`❌ Failed: ${match.teams.home.name} vs ${match.teams.away.name}`, error.message);
-                    skipped++;
-                } else {
-                    saved++;
+            // Include if: date is today or future, AND not finished
+            if (matchDate >= today && matchDate <= nextWeek) {
+                if (status !== 'FT' && status !== 'AET' && status !== 'PEN') {
+                    futureMatches.push(match);
                 }
             }
         }
         
-        console.log(`✅ AUTO-SYNC COMPLETE: ${saved} saved, ${skipped} skipped`);
+        console.log("Future matches to sync:", futureMatches.length);
         
-        // Log date distribution
-        const { data: afterSync } = await supaClient
-            .from('sports_matches')
-            .select('start_time')
-            .gte('start_time', today.toISOString())
-            .order('start_time', { ascending: true });
+        // Group by date for logging
+        const dateGroups = {};
+        for (const match of futureMatches) {
+            const date = new Date(match.fixture.date).toDateString();
+            dateGroups[date] = (dateGroups[date] || 0) + 1;
+        }
+        console.log("Matches by date:", dateGroups);
         
-        if (afterSync && afterSync.length > 0) {
-            const dates = {};
-            afterSync.forEach(m => {
-                const d = new Date(m.start_time).toDateString();
-                dates[d] = (dates[d] || 0) + 1;
-            });
-            console.log('📅 Matches in Supabase by date:', dates);
+        // 5. Save each match to Supabase
+        let saved = 0;
+        let errors = 0;
+        
+        for (let i = 0; i < futureMatches.length; i++) {
+            const match = futureMatches[i];
+            
+            // Generate odds based on fixture ID (consistent)
+            const fixtureId = match.fixture.id;
+            const homeOdds = (1.80 + ((fixtureId % 20) / 100)).toFixed(2);
+            const drawOdds = (3.20 + ((fixtureId % 15) / 100)).toFixed(2);
+            const awayOdds = (2.80 + ((fixtureId % 25) / 100)).toFixed(2);
+            
+            const matchData = {
+                fixture_id: fixtureId,
+                status: 'upcoming',
+                league_id: match.league.id,
+                league_name: match.league.name,
+                league_logo: match.league.logo || '',
+                home_team: {
+                    id: match.teams.home.id,
+                    name: match.teams.home.name,
+                    logo: match.teams.home.logo || ''
+                },
+                away_team: {
+                    id: match.teams.away.id,
+                    name: match.teams.away.name,
+                    logo: match.teams.away.logo || ''
+                },
+                start_time: match.fixture.date,
+                odds: {
+                    home: parseFloat(homeOdds),
+                    draw: parseFloat(drawOdds),
+                    away: parseFloat(awayOdds)
+                },
+                score: { home: 0, away: 0 },
+                updated_at: new Date().toISOString()
+            };
+            
+            // Upsert to Supabase
+            const { error } = await supaClient
+                .from('sports_matches')
+                .upsert(matchData, { onConflict: 'fixture_id' });
+            
+            if (error) {
+                console.error("Error saving:", match.teams.home.name, "vs", match.teams.away.name, "-", error.message);
+                errors++;
+            } else {
+                saved++;
+                // Log progress every 100 matches
+                if (saved % 100 === 0) {
+                    console.log("Progress:", saved, "matches saved");
+                }
+            }
         }
         
+        console.log("\n========== SYNC COMPLETE ==========");
+        console.log("Saved:", saved, "matches");
+        console.log("Errors:", errors);
+        
+        // 6. Verify what's now in Supabase
+        const { data: verify, count } = await supaClient
+            .from('sports_matches')
+            .select('*', { count: 'exact' })
+            .gte('start_time', today.toISOString());
+        
+        const verifyDates = {};
+        for (const v of verify || []) {
+            const d = new Date(v.start_time).toDateString();
+            verifyDates[d] = (verifyDates[d] || 0) + 1;
+        }
+        console.log("Supabase now has:", verify?.length || 0, "future matches");
+        console.log("Dates in Supabase:", verifyDates);
+        
     } catch(error) {
-        console.error('❌ Auto-sync error:', error);
+        console.error("Sync error:", error);
     }
 }
 
-// ===== UPDATE MATCH STATUSES (upcoming → live → finished) =====
+// Update match statuses (upcoming -> live -> finished)
 async function updateMatchStatuses() {
     if (!supaClient) return;
     
@@ -136,29 +162,29 @@ async function updateMatchStatuses() {
             .lte('start_time', now);
         
         if (!error) {
-            console.log(`⏰ Updated ${toStart.length} matches: upcoming → live`);
+            console.log("Updated", toStart.length, "matches: upcoming -> live");
         }
     }
 }
 
-// ===== START AUTO-SYNC SYSTEM =====
+// Auto-sync system
 let syncInterval;
 let statusInterval;
 
-function startAutoSyncSystem() {
+function startAutoSync() {
     // Clear existing intervals
     if (syncInterval) clearInterval(syncInterval);
     if (statusInterval) clearInterval(statusInterval);
     
-    // Run initial sync after 5 seconds
+    // Run initial sync after 3 seconds
     setTimeout(() => {
-        autoSyncMatches();
+        syncAllMatchesToSupabase();
         updateMatchStatuses();
-    }, 5000);
+    }, 3000);
     
-    // Sync every 2 minutes (120,000 ms)
+    // Sync every 2 minutes
     syncInterval = setInterval(() => {
-        autoSyncMatches();
+        syncAllMatchesToSupabase();
     }, 120000);
     
     // Update statuses every 30 seconds
@@ -166,34 +192,31 @@ function startAutoSyncSystem() {
         updateMatchStatuses();
     }, 30000);
     
-    console.log('✅ Auto-sync system ACTIVE');
-    console.log('   📡 Sync every 2 minutes');
-    console.log('   ⏰ Status update every 30 seconds');
+    console.log("Auto-sync system ACTIVE");
+    console.log("- Full sync: every 2 minutes");
+    console.log("- Status update: every 30 seconds");
 }
 
-// ===== EXPORTS FOR MANUAL CONTROL =====
-window.forceSync = autoSyncMatches;
-window.syncNow = autoSyncMatches;
+// Manual sync command
+window.syncNow = syncAllMatchesToSupabase;
 
-// ===== INITIALIZE =====
-console.log('\n╔════════════════════════════════════════════════════════════╗');
-console.log('║   🏈 SPORTS API v50.0 - PRODUCTION READY                  ║');
-console.log('║   ✅ Auto-sync EVERY 2 minutes                            ║');
-console.log('║   ✅ Saves ALL future matches automatically                ║');
-console.log('║   💡 Commands: forceSync() - manual sync                  ║');
-console.log('╚════════════════════════════════════════════════════════════╝\n');
+// Initialize
+console.log("\n========================================");
+console.log("SPORTS API v60.0 - FINAL FIX");
+console.log("Auto-sync will start in 3 seconds...");
+console.log("========================================\n");
 
-// Wait for Supabase to be ready
 if (supaClient) {
-    console.log('✅ Supabase connected, starting auto-sync...');
-    startAutoSyncSystem();
+    console.log("Supabase connected");
+    startAutoSync();
 } else {
-    console.error('❌ Supabase not connected! Check your supabase-client.js');
-    // Retry connection after 2 seconds
-    setTimeout(() => {
+    console.error("Supabase not connected. Check your supabase-client.js");
+    // Wait for Supabase to connect
+    const checkInterval = setInterval(() => {
         if (supaClient) {
-            console.log('✅ Supabase connected (delayed), starting auto-sync...');
-            startAutoSyncSystem();
+            console.log("Supabase connected (delayed)");
+            clearInterval(checkInterval);
+            startAutoSync();
         }
-    }, 2000);
+    }, 1000);
 }
