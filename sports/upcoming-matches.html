@@ -109,7 +109,7 @@
             <i class="fas fa-database"></i> <span id="debug-text">Loading matches...</span>
             <button class="refresh-btn" onclick="loadAllMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
         </div>
-        <div id="matches-container"><div style="text-align:center;padding:30px;">Loading all upcoming matches from today...</div></div>
+        <div id="matches-container"><div style="text-align:center;padding:30px;">Loading upcoming matches from today + next 7 days...</div></div>
     </div>
     
     <div class="bet-slip" id="bet-slip" style="display:none;">
@@ -146,7 +146,7 @@
             await loadBalance();
             await loadLeaguesFilter();
             await loadAllMatches();
-            // Auto refresh every 5 minutes
+            // Auto refresh every 5 minutes to catch new matches
             setInterval(loadAllMatches, 300000);
         }
         
@@ -178,69 +178,68 @@
             }
             
             try {
-                // 🔥 FIX: Start from BEGINNING of today (00:00:00)
-                const startOfToday = new Date();
-                startOfToday.setHours(0, 0, 0, 0);  // Today at midnight
+                // 🔥 FIXED: Get matches from TODAY (00:00:00) to +7 days
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);  // START of today
                 
-                const endOfNextWeek = new Date(startOfToday);
-                endOfNextWeek.setDate(startOfToday.getDate() + 7);
-                endOfNextWeek.setHours(23, 59, 59, 999);
+                const nextWeek = new Date(today);
+                nextWeek.setDate(today.getDate() + 7);
+                nextWeek.setHours(23, 59, 59, 999);  // END of 7th day
                 
-                console.log("Fetching matches from:", startOfToday.toISOString());
-                console.log("to:", endOfNextWeek.toISOString());
+                console.log("📅 Fetching matches from:", today.toISOString());
+                console.log("📅 to:", nextWeek.toISOString());
                 
-                // Try different methods based on what supaDB supports
+                // Direct Supabase query - most reliable
                 let matches = [];
                 
-                // Method 1: Try getUpcomingMatches (no date params)
-                if (typeof window.supaDB.getUpcomingMatches === 'function') {
-                    matches = await window.supaDB.getUpcomingMatches();
-                    console.log("Used getUpcomingMatches(), got:", matches.length);
-                }
-                // Method 2: Try getUpcomingByDate with START OF TODAY
-                else if (typeof window.supaDB.getUpcomingByDate === 'function') {
-                    matches = await window.supaDB.getUpcomingByDate(startOfToday, endOfNextWeek);
-                    console.log("Used getUpcomingByDate(), got:", matches.length);
-                }
-                // Method 3: Try getAllMatches
-                else if (typeof window.supaDB.getAllMatches === 'function') {
-                    matches = await window.supaDB.getAllMatches();
-                    console.log("Used getAllMatches(), got:", matches.length);
-                }
-                // Method 4: Direct Supabase query
-                else if (window.supabase) {
+                if (window.supabase) {
                     const { data, error } = await window.supabase
-                        .from('fixtures')
-                        .select('*, home_team:teams!fixtures_home_team_id_fkey(*), away_team:teams!fixtures_away_team_id_fkey(*)')
-                        .gte('start_time', startOfToday.toISOString())
-                        .lte('start_time', endOfNextWeek.toISOString())
+                        .from('sports_matches')
+                        .select('*')
+                        .gte('start_time', today.toISOString())
+                        .lte('start_time', nextWeek.toISOString())
+                        .in('status', ['upcoming', 'live'])  // Include both upcoming and live
                         .order('start_time', { ascending: true });
                     
-                    if (!error && data) matches = data;
-                    console.log("Used direct Supabase query, got:", matches.length);
+                    if (!error && data) {
+                        matches = data;
+                        console.log("✅ Direct query returned:", matches.length, "matches");
+                    } else {
+                        console.error("Query error:", error);
+                    }
                 }
                 
-                // 🔥 CRITICAL: Filter to ensure we have ALL matches from today onward
-                const now = new Date();
+                // Fallback to supaDB functions if direct query fails
+                if (matches.length === 0 && typeof window.supaDB.getUpcomingByDate === 'function') {
+                    matches = await window.supaDB.getUpcomingByDate(today, nextWeek);
+                    console.log("🔄 Fallback getUpcomingByDate returned:", matches.length);
+                }
+                
+                // Filter to ensure we only show upcoming/live matches (not finished)
                 allMatches = matches.filter(m => {
                     const matchTime = new Date(m.start_time);
-                    // Include matches from today (any time) and future
-                    return matchTime >= startOfToday;
+                    const matchStatus = m.status || 'upcoming';
+                    // Include if: not finished, and start time is within our range
+                    return matchStatus !== 'finished' && matchTime >= today;
                 });
                 
-                // Sort by date/time
+                // Sort by date/time ascending
                 allMatches.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
                 
-                // Separate today's matches for debugging
+                // Statistics for debug
                 const todayMatches = allMatches.filter(m => {
                     const matchDate = new Date(m.start_time);
                     return matchDate.toDateString() === new Date().toDateString();
                 });
                 
-                document.getElementById('debug-text').innerHTML = `✅ Loaded ${allMatches.length} upcoming matches (Today: ${todayMatches.length} | Next 7 days: ${allMatches.length - todayMatches.length})`;
+                const futureMatches = allMatches.length - todayMatches.length;
+                
+                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayMatches.length} | Next 7 days: ${futureMatches}) | Auto-updates daily`;
                 
                 if (allMatches.length === 0) {
-                    document.getElementById('debug-text').innerHTML = `⚠️ No matches found for next 7 days. Check API or date filters.`;
+                    document.getElementById('debug-text').innerHTML = `⚠️ No matches found for next 7 days. API may be updating.`;
+                    document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-calendar"></i><p>No upcoming matches in the next 7 days</p><button onclick="loadAllMatches()" style="margin-top:15px;padding:10px 20px;background:#00ff9d;color:black;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Refresh Now</button></div>`;
+                    return;
                 }
                 
                 filterMatches();
@@ -369,7 +368,7 @@
                     if(el){
                         const diff=new Date(m.start_time)-new Date();
                         if(diff<=0){
-                            el.textContent='Starting';
+                            el.textContent='Now';
                             el.style.color='#ff9800';
                         }else{
                             const h=Math.floor(diff/3600000),mn=Math.floor((diff%3600000)/60000),s=Math.floor((diff%60000)/1000);
