@@ -27,7 +27,7 @@
         .selector-bar { display: flex; gap: 10px; margin-bottom: 15px; }
         .league-select { flex: 1; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; }
         .search-input { flex: 2; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; }
-        .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #00ff9d; display: flex; align-items: center; gap: 8px; }
+        .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #00ff9d; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .refresh-btn { background: #00ff9d; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; margin-left: auto; }
         
         .date-section { margin-bottom: 15px; }
@@ -46,11 +46,11 @@
         .league-matches { border-left: 2px solid #00ff9d22; padding-left: 10px; }
         .league-matches.collapsed { display: none; }
         
-        .match-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #ffffff0a; font-size: 12px; }
+        .match-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #ffffff0a; font-size: 12px; flex-wrap: wrap; }
         .match-time-col { text-align: center; min-width: 48px; }
         .match-time-col .time { font-weight: bold; color: #00ff9d; }
         .match-time-col .countdown { font-size: 10px; color: #a0a8c9; }
-        .team-col { flex: 1; display: flex; align-items: center; gap: 6px; }
+        .team-col { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 150px; }
         .team-col img { width: 20px; height: 20px; object-fit: contain; }
         .team-col .names { font-weight: 500; }
         .team-col .names .vs { color: #ff9800; margin: 0 5px; }
@@ -74,8 +74,13 @@
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
         .arabic { font-family: 'Tajawal', sans-serif; }
         
-        /* Badge for today's matches */
         .today-badge { background: #ff5252; color: white; font-size: 10px; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
+        
+        @media (max-width: 768px) {
+            .match-row { flex-direction: column; align-items: stretch; }
+            .team-col { justify-content: space-between; }
+            .odds-col { justify-content: center; }
+        }
     </style>
 </head>
 <body>
@@ -106,7 +111,7 @@
             <input type="text" id="search-input" class="search-input" placeholder="🔍 Search league or team..." oninput="filterMatches()">
         </div>
         <div class="debug-bar" id="debug-bar">
-            <i class="fas fa-database"></i> <span id="debug-text">Loading matches...</span>
+            <i class="fas fa-database"></i> <span id="debug-text">Loading matches from Supabase...</span>
             <button class="refresh-btn" onclick="loadAllMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
         </div>
         <div id="matches-container"><div style="text-align:center;padding:30px;">Loading upcoming matches from today + next 7 days...</div></div>
@@ -146,7 +151,7 @@
             await loadBalance();
             await loadLeaguesFilter();
             await loadAllMatches();
-            // Auto refresh every 5 minutes to catch new matches
+            // Auto refresh every 5 minutes (matches sync from API every 2 min)
             setInterval(loadAllMatches, 300000);
         }
         
@@ -171,83 +176,83 @@
             select.onchange = function(){ selectedLeague=this.value; filterMatches(); };
         }
         
+        // 🔥 FIXED: Query ONLY from Supabase (sports_matches table)
         async function loadAllMatches(){
-            if(!window.supaDB) {
-                console.error("supaDB not loaded");
+            if(!window.supaDB || !supaClient) {
+                console.error("Supabase not loaded");
+                document.getElementById('debug-text').innerHTML = '❌ Supabase connection failed';
                 return;
             }
             
             try {
-                // 🔥 FIXED: Get matches from TODAY (00:00:00) to +7 days
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);  // START of today
+                document.getElementById('debug-text').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Querying Supabase...';
                 
+                // Get today's date at local midnight (for user's timezone)
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                // Calculate end date: today + 7 days
                 const nextWeek = new Date(today);
                 nextWeek.setDate(today.getDate() + 7);
-                nextWeek.setHours(23, 59, 59, 999);  // END of 7th day
+                nextWeek.setHours(23, 59, 59, 999);
                 
-                console.log("📅 Fetching matches from:", today.toISOString());
-                console.log("📅 to:", nextWeek.toISOString());
+                // Convert to ISO strings for Supabase query
+                const startISO = today.toISOString();
+                const endISO = nextWeek.toISOString();
                 
-                // Direct Supabase query - most reliable
-                let matches = [];
+                console.log(`📅 Supabase query: ${startISO} to ${endISO}`);
                 
-                if (window.supabase) {
-                    const { data, error } = await window.supabase
-                        .from('sports_matches')
-                        .select('*')
-                        .gte('start_time', today.toISOString())
-                        .lte('start_time', nextWeek.toISOString())
-                        .in('status', ['upcoming', 'live'])  // Include both upcoming and live
-                        .order('start_time', { ascending: true });
-                    
-                    if (!error && data) {
-                        matches = data;
-                        console.log("✅ Direct query returned:", matches.length, "matches");
-                    } else {
-                        console.error("Query error:", error);
-                    }
+                // Direct Supabase query for matches in date range
+                const { data: matches, error } = await supaClient
+                    .from('sports_matches')
+                    .select('*')
+                    .gte('start_time', startISO)
+                    .lte('start_time', endISO)
+                    .not('status', 'eq', 'finished')  // Exclude finished matches
+                    .order('start_time', { ascending: true });
+                
+                if (error) {
+                    throw new Error(error.message);
                 }
                 
-                // Fallback to supaDB functions if direct query fails
-                if (matches.length === 0 && typeof window.supaDB.getUpcomingByDate === 'function') {
-                    matches = await window.supaDB.getUpcomingByDate(today, nextWeek);
-                    console.log("🔄 Fallback getUpcomingByDate returned:", matches.length);
-                }
+                console.log(`✅ Supabase returned ${matches?.length || 0} matches`);
                 
-                // Filter to ensure we only show upcoming/live matches (not finished)
-                allMatches = matches.filter(m => {
-                    const matchTime = new Date(m.start_time);
-                    const matchStatus = m.status || 'upcoming';
-                    // Include if: not finished, and start time is within our range
-                    return matchStatus !== 'finished' && matchTime >= today;
-                });
-                
-                // Sort by date/time ascending
-                allMatches.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
-                
-                // Statistics for debug
-                const todayMatches = allMatches.filter(m => {
-                    const matchDate = new Date(m.start_time);
-                    return matchDate.toDateString() === new Date().toDateString();
-                });
-                
-                const futureMatches = allMatches.length - todayMatches.length;
-                
-                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayMatches.length} | Next 7 days: ${futureMatches}) | Auto-updates daily`;
-                
-                if (allMatches.length === 0) {
-                    document.getElementById('debug-text').innerHTML = `⚠️ No matches found for next 7 days. API may be updating.`;
-                    document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-calendar"></i><p>No upcoming matches in the next 7 days</p><button onclick="loadAllMatches()" style="margin-top:15px;padding:10px 20px;background:#00ff9d;color:black;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Refresh Now</button></div>`;
+                if (!matches || matches.length === 0) {
+                    document.getElementById('debug-text').innerHTML = `⚠️ No matches found in Supabase for next 7 days. Waiting for sync...`;
+                    document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-clock"></i><p>No upcoming matches found. Data syncs every 2 minutes from API.</p><button onclick="loadAllMatches()" style="margin-top:15px;padding:10px 20px;background:#00ff9d;color:black;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Refresh Now</button></div>`;
                     return;
                 }
+                
+                // Process matches - ensure proper data structure
+                allMatches = matches.map(m => ({
+                    fixture_id: m.fixture_id,
+                    start_time: m.start_time,
+                    status: m.status || 'upcoming',
+                    league_id: m.league_id,
+                    league_name: m.league_name,
+                    league_logo: m.league_logo,
+                    home_team: m.home_team || { name: 'Home', logo: '' },
+                    away_team: m.away_team || { name: 'Away', logo: '' },
+                    score: m.score || { home: 0, away: 0 },
+                    odds: m.odds || { home: 2.00, draw: 3.50, away: 3.80 }
+                }));
+                
+                // Sort by date/time
+                allMatches.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+                
+                // Calculate statistics
+                const todayStr = today.toDateString();
+                const todayMatchesCount = allMatches.filter(m => new Date(m.start_time).toDateString() === todayStr).length;
+                const futureMatchesCount = allMatches.length - todayMatchesCount;
+                
+                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches from Supabase (Today: ${todayMatchesCount} | Next 7 days: ${futureMatchesCount}) | Auto-sync every 2 min from API`;
                 
                 filterMatches();
                 
             } catch(error) {
-                console.error("Error loading matches:", error);
-                document.getElementById('debug-text').innerHTML = `❌ Error: ${error.message}`;
-                document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error loading matches: ${error.message}</p><button onclick="loadAllMatches()" style="margin-top:15px;padding:10px 20px;background:#00ff9d;color:black;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Retry</button></div>`;
+                console.error("Error loading from Supabase:", error);
+                document.getElementById('debug-text').innerHTML = `❌ Supabase error: ${error.message}`;
+                document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Database error: ${error.message}</p><button onclick="loadAllMatches()" style="margin-top:15px;padding:10px 20px;background:#00ff9d;color:black;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Retry</button></div>`;
             }
         }
         
@@ -305,7 +310,7 @@
                     leagueHtml += `
                     <div class="league-group">
                         <div class="league-group-header" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('collapsed');">
-                            <span class="name">${ln}</span>
+                            <span class="name">${escapeHtml(ln)}</span>
                             <span class="count">${leagueGrouped[ln].length}</span>
                             <i class="fas fa-chevron-down"></i>
                         </div>
@@ -321,6 +326,16 @@
             startCountdowns(filtered);
         }
         
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+        
         function createMatchRow(m){
             const time=new Date(m.start_time);
             const hn=m.home_team?.name||'Home', an=m.away_team?.name||'Away';
@@ -328,10 +343,10 @@
             const odds=m.odds||{};
             return `<div class="match-row">
                 <div class="match-time-col"><div class="time">${time.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div><div class="countdown" id="cd-${m.fixture_id}">--:--:--</div></div>
-                <div class="team-col">${hl?`<img src="${hl}" onerror="this.style.display='none'">`:''}<span class="names">${hn} <span class="vs">vs</span> ${an}</span>${al?`<img src="${al}" onerror="this.style.display='none'">`:''}</div>
+                <div class="team-col">${hl?`<img src="${hl}" onerror="this.style.display='none'">`:''}<span class="names">${escapeHtml(hn)} <span class="vs">vs</span> ${escapeHtml(an)}</span>${al?`<img src="${al}" onerror="this.style.display='none'">`:''}</div>
                 <div class="odds-col"><div class="odd-mini">1 <span>${odds.home||'2.00'}</span></div><div class="odd-mini">X <span>${odds.draw||'3.50'}</span></div><div class="odd-mini">2 <span>${odds.away||'3.80'}</span></div></div>
                 <button class="bet-btn" onclick="event.stopPropagation();goToMatch(${m.fixture_id})">Bet</button>
-                <button class="slip-btn" onclick="event.stopPropagation();showAccumulatorPopup(${m.fixture_id},'${hn.replace(/'/g,"\\'")}','${an.replace(/'/g,"\\'")}',${odds.home||2.00},${odds.draw||3.50},${odds.away||3.80})">+Slip</button>
+                <button class="slip-btn" onclick="event.stopPropagation();showAccumulatorPopup(${m.fixture_id},'${escapeHtml(hn).replace(/'/g,"\\'")}','${escapeHtml(an).replace(/'/g,"\\'")}',${odds.home||2.00},${odds.draw||3.50},${odds.away||3.80})">+Slip</button>
             </div>`;
         }
         
