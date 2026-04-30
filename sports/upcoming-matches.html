@@ -98,8 +98,8 @@
             <input type="text" id="search-input" class="search-input" placeholder="🔍 Search league or team..." oninput="filterMatches()">
         </div>
         <div class="debug-bar" id="debug-bar">
-            <i class="fas fa-database"></i> <span id="debug-text">Loading matches from Supabase...</span>
-            <button class="refresh-btn" onclick="forceRefresh()"><i class="fas fa-sync-alt"></i> Refresh</button>
+            <i class="fas fa-database"></i> <span id="debug-text">Loading matches...</span>
+            <button class="refresh-btn" onclick="loadDirectFromSupabase()"><i class="fas fa-sync-alt"></i> Refresh</button>
         </div>
         <div id="matches-container"><div style="text-align:center;padding:30px;">Loading upcoming matches...</div></div>
     </div>
@@ -130,15 +130,21 @@
         const firebaseConfig = { apiKey:"AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM", authDomain:"x-bet-prod-jd.firebaseapp.com", projectId:"x-bet-prod-jd", storageBucket:"x-bet-prod-jd.firebasestorage.app", messagingSenderId:"499334334535", appId:"1:499334334535:web:bebc1bf817e24d9e3c4962" };
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         
-        let allMatches=[], countdownInterval, selectedLeague='all', accSlip=[];
+        let allMatches = [];
+        let countdownInterval;
+        let selectedLeague = 'all';
+        let accSlip = [];
         
-        firebase.auth().onAuthStateChanged(u => { if(!u) location.href='../login.html'; else init(); });
+        firebase.auth().onAuthStateChanged(u => { 
+            if(!u) location.href='../login.html'; 
+            else init(); 
+        });
         
         async function init(){
             await loadBalance();
             await loadLeaguesFilter();
-            await loadMatchesFromSupabase();
-            setInterval(loadMatchesFromSupabase, 60000);
+            await loadDirectFromSupabase();
+            setInterval(loadDirectFromSupabase, 60000);
         }
         
         async function loadBalance(){
@@ -150,76 +156,77 @@
         }
         
         async function loadLeaguesFilter(){
-            const select=document.getElementById('league-filter');
+            const select = document.getElementById('league-filter');
             try {
                 const r = await fetch('https://millioner.onrender.com/api/leagues');
                 const d = await r.json();
                 if(d.success && d.data){
                     d.data.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-                    d.data.forEach(l => { if(l.name){ const o=document.createElement('option'); o.value=l.id; o.textContent=l.name; select.appendChild(o); } });
+                    d.data.forEach(l => { 
+                        if(l.name){ 
+                            const o = document.createElement('option'); 
+                            o.value = l.id; 
+                            o.textContent = l.name; 
+                            select.appendChild(o); 
+                        } 
+                    });
                 }
             } catch(e){}
-            select.onchange = function(){ selectedLeague=this.value; filterMatches(); };
+            select.onchange = function(){ selectedLeague = this.value; filterMatches(); };
         }
         
-        // 🔥 FIXED: UTC date range query
-        async function loadMatchesFromSupabase(){
+        // 🔥 DIRECT SIMPLE QUERY - NO FILTERS
+        async function loadDirectFromSupabase(){
             if(!supaClient) {
                 console.error("Supabase not connected");
                 return;
             }
             
             try {
-                document.getElementById('debug-text').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading from Supabase...';
+                document.getElementById('debug-text').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
                 
-                // Use UTC for database query
-                const now = new Date();
-                const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
-                const endOfWeek = new Date(startOfToday);
-                endOfWeek.setUTCDate(startOfToday.getUTCDate() + 7);
-                endOfWeek.setUTCHours(23, 59, 59, 999);
+                // Simple query - get all matches from today onwards
+                const today = new Date();
+                today.setUTCHours(0, 0, 0, 0);
                 
-                const startISO = startOfToday.toISOString();
-                const endISO = endOfWeek.toISOString();
-                
-                console.log(`📅 UTC Query: ${startISO} to ${endISO}`);
-                
-                const { data: matches, error } = await supaClient
+                const { data: matches, error, count } = await supaClient
                     .from('sports_matches')
-                    .select('*')
-                    .gte('start_time', startISO)
-                    .lte('start_time', endISO)
+                    .select('*', { count: 'exact' })
+                    .gte('start_time', today.toISOString())
                     .order('start_time', { ascending: true });
                 
-                if (error) throw error;
+                if (error) {
+                    console.error('Query error:', error);
+                    throw error;
+                }
                 
-                console.log(`✅ Supabase returned ${matches?.length || 0} matches`);
+                console.log(`📊 Query returned ${matches?.length || 0} matches`);
                 
                 if (!matches || matches.length === 0) {
-                    document.getElementById('debug-text').innerHTML = '⚠️ No matches found. Waiting for sync...';
-                    document.getElementById('matches-container').innerHTML = '<div class="empty-state">No matches found for next 7 days</div>';
+                    document.getElementById('debug-text').innerHTML = '⚠️ No matches found';
+                    document.getElementById('matches-container').innerHTML = '<div class="empty-state">No upcoming matches</div>';
                     return;
                 }
                 
-                // Log all dates found
-                const uniqueDates = [...new Set(matches.map(m => new Date(m.start_time).toDateString()))];
-                console.log('📅 Dates in Supabase:', uniqueDates);
-                
+                // Process matches directly - NO FILTERING
                 allMatches = matches.map(m => ({
                     fixture_id: m.fixture_id,
                     start_time: m.start_time,
                     status: m.status,
                     league_id: m.league_id,
-                    league_name: m.league_name,
+                    league_name: m.league_name || 'Unknown League',
                     league_logo: m.league_logo,
                     home_team: m.home_team || { name: 'Home', logo: '' },
                     away_team: m.away_team || { name: 'Away', logo: '' },
                     odds: m.odds || { home: 2.50, draw: 3.20, away: 2.80 }
                 }));
                 
+                // Get unique dates for display
+                const uniqueDates = [...new Set(allMatches.map(m => new Date(m.start_time).toDateString()))];
+                
+                // Count today's matches (local time)
                 const todayLocal = new Date();
                 todayLocal.setHours(0, 0, 0, 0);
-                
                 const todayCount = allMatches.filter(m => {
                     const d = new Date(m.start_time);
                     d.setHours(0, 0, 0, 0);
@@ -228,13 +235,17 @@
                 
                 const futureCount = allMatches.length - todayCount;
                 
-                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayCount} | Next 7 days: ${futureCount}) | Dates: ${uniqueDates.join(', ')}`;
+                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} total matches (Today: ${todayCount} | Future: ${futureCount}) | Dates: ${uniqueDates.slice(0, 5).join(', ')}${uniqueDates.length > 5 ? '...' : ''}`;
+                
+                console.log('📅 All dates in results:', uniqueDates);
+                console.log('📊 Total matches:', allMatches.length);
                 
                 filterMatches();
                 
             } catch(error) {
                 console.error("Error:", error);
                 document.getElementById('debug-text').innerHTML = `❌ Error: ${error.message}`;
+                document.getElementById('matches-container').innerHTML = `<div class="empty-state">Error: ${error.message}</div>`;
             }
         }
         
@@ -242,19 +253,31 @@
             const container = document.getElementById('matches-container');
             const search = (document.getElementById('search-input').value || '').toLowerCase();
             
-            let filtered = allMatches;
-            if(selectedLeague !== 'all') filtered = filtered.filter(m => m.league_id == selectedLeague);
-            if(search) filtered = filtered.filter(m => {
-                const hn=(m.home_team?.name||'').toLowerCase(), an=(m.away_team?.name||'').toLowerCase();
-                const ln=(m.league_name||'').toLowerCase();
-                return hn.includes(search)||an.includes(search)||ln.includes(search);
-            });
+            let filtered = [...allMatches]; // Start with ALL matches
+            
+            // Apply league filter
+            if(selectedLeague !== 'all') {
+                filtered = filtered.filter(m => m.league_id == selectedLeague);
+            }
+            
+            // Apply search filter
+            if(search) {
+                filtered = filtered.filter(m => {
+                    const hn = (m.home_team?.name || '').toLowerCase();
+                    const an = (m.away_team?.name || '').toLowerCase();
+                    const ln = (m.league_name || '').toLowerCase();
+                    return hn.includes(search) || an.includes(search) || ln.includes(search);
+                });
+            }
+            
+            console.log(`Filtered: ${filtered.length} matches from ${allMatches.length} total`);
             
             if(filtered.length === 0){ 
                 container.innerHTML = '<div class="empty-state">No matches found</div>'; 
                 return; 
             }
             
+            // Group by date
             const dateGrouped = {};
             filtered.forEach(m => { 
                 const d = new Date(m.start_time); 
@@ -264,10 +287,15 @@
             });
             
             container.innerHTML = '';
-            const today = new Date(); today.setHours(0,0,0,0);
-            const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+            const today = new Date(); 
+            today.setHours(0, 0, 0, 0);
+            const tomorrow = new Date(today); 
+            tomorrow.setDate(today.getDate() + 1);
             
-            Object.keys(dateGrouped).sort().forEach(key => {
+            // Sort dates
+            const sortedDates = Object.keys(dateGrouped).sort((a, b) => new Date(a) - new Date(b));
+            
+            sortedDates.forEach(key => {
                 const date = new Date(key);
                 let label = date.toLocaleDateString('en-US', {weekday:'long', month:'short', day:'numeric'});
                 let badge = '';
@@ -279,6 +307,7 @@
                     label = '📅 TOMORROW - ' + label;
                 }
                 
+                // Group by league within date
                 const leagueGrouped = {};
                 dateGrouped[key].forEach(m => {
                     const ln = m.league_name || 'Other';
@@ -346,7 +375,9 @@
             </div>`;
         }
         
-        function goToMatch(id){ location.href = `match-details.html?id=${id}`; }
+        function goToMatch(id){ 
+            location.href = `match-details.html?id=${id}`; 
+        }
         
         function startCountdowns(matches){
             if(countdownInterval) clearInterval(countdownInterval);
@@ -369,15 +400,18 @@
             }, 1000);
         }
         
-        window.forceRefresh = function() {
-            console.log('🔄 Force refresh triggered');
-            loadMatchesFromSupabase();
-        };
+        // Expose functions globally
+        window.loadDirectFromSupabase = loadDirectFromSupabase;
+        window.forceRefresh = loadDirectFromSupabase;
         
+        // Bet slip functions
         window.updateSlipUI = function(){
             accSlip = window.ACCUMULATOR_SLIP;
             const slip = document.getElementById('bet-slip');
-            if(!accSlip || accSlip.length === 0){ slip.style.display = 'none'; return; }
+            if(!accSlip || accSlip.length === 0){ 
+                slip.style.display = 'none'; 
+                return; 
+            }
             slip.style.display = 'block';
             document.getElementById('slip-count').textContent = accSlip.length;
             let items = '', totalOdds = 1;
@@ -418,8 +452,9 @@
             } catch(e){ alert('Error'); }
         }
         
-        window.loadMatchesFromSupabase = loadMatchesFromSupabase;
         window.placeAccumulator = placeAccumulator;
+        
+        console.log('✅ Page loaded - ready to display matches');
     </script>
 </body>
 </html>
