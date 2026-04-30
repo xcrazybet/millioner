@@ -29,13 +29,11 @@
         .search-input { flex: 2; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; }
         .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #00ff9d; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .refresh-btn { background: #00ff9d; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; margin-left: auto; }
-        
         .date-section { margin-bottom: 15px; }
         .date-header { color: #00ff9d; font-size: 15px; font-weight: 600; margin-bottom: 8px; padding: 8px 12px; background: #0a0f1a; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
         .date-header i { transition: transform 0.3s; font-size: 12px; }
         .date-header.collapsed i { transform: rotate(-90deg); }
         .date-matches.collapsed { display: none; }
-        
         .league-group { margin-bottom: 10px; }
         .league-group-header { display: flex; align-items: center; gap: 8px; padding: 6px 8px; cursor: pointer; border-radius: 6px; }
         .league-group-header:hover { background: #ffffff08; }
@@ -45,7 +43,6 @@
         .league-group-header.collapsed i { transform: rotate(-90deg); }
         .league-matches { border-left: 2px solid #00ff9d22; padding-left: 10px; }
         .league-matches.collapsed { display: none; }
-        
         .match-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #ffffff0a; font-size: 12px; flex-wrap: wrap; }
         .match-time-col { text-align: center; min-width: 48px; }
         .match-time-col .time { font-weight: bold; color: #00ff9d; }
@@ -59,7 +56,6 @@
         .odd-mini span { color: #00ff9d; font-weight: bold; }
         .bet-btn { padding: 6px 14px; background: #00ff9d; color: black; border: none; border-radius: 20px; font-size: 10px; font-weight: 700; cursor: pointer; }
         .slip-btn { padding: 6px 14px; background: #ff9800; color: black; border: none; border-radius: 20px; font-size: 10px; font-weight: 700; cursor: pointer; }
-        
         .bet-slip { position: fixed; bottom: 0; left: 0; right: 0; background: #111827; border-top: 2px solid #ff9800; padding: 15px; z-index: 1000; max-height: 220px; overflow-y: auto; }
         .slip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .slip-title { color: #ff9800; font-weight: 600; }
@@ -70,7 +66,6 @@
         .slip-total-odds { color: #ff9800; font-weight: bold; font-size: 16px; }
         .slip-place-btn { width: 100%; padding: 12px; background: #ff9800; color: black; border: none; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; }
         .slip-place-btn:disabled { opacity: 0.5; }
-        
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
         .today-badge { background: #ff5252; color: white; font-size: 10px; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
     </style>
@@ -142,8 +137,8 @@
         async function init(){
             await loadBalance();
             await loadLeaguesFilter();
-            await loadMatchesFromSupabase(); // Load fresh data
-            setInterval(loadMatchesFromSupabase, 60000); // Refresh every minute
+            await loadMatchesFromSupabase();
+            setInterval(loadMatchesFromSupabase, 60000);
         }
         
         async function loadBalance(){
@@ -167,7 +162,7 @@
             select.onchange = function(){ selectedLeague=this.value; filterMatches(); };
         }
         
-        // 🔥 FORCE FRESH LOAD FROM SUPABASE
+        // 🔥 FIXED: UTC date range query
         async function loadMatchesFromSupabase(){
             if(!supaClient) {
                 console.error("Supabase not connected");
@@ -177,20 +172,17 @@
             try {
                 document.getElementById('debug-text').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading from Supabase...';
                 
-                // Get today's start (local timezone)
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
+                // Use UTC for database query
+                const now = new Date();
+                const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+                const endOfWeek = new Date(startOfToday);
+                endOfWeek.setUTCDate(startOfToday.getUTCDate() + 7);
+                endOfWeek.setUTCHours(23, 59, 59, 999);
                 
-                // End date: 7 days from today
-                const nextWeek = new Date(today);
-                nextWeek.setDate(today.getDate() + 7);
-                nextWeek.setHours(23, 59, 59, 999);
+                const startISO = startOfToday.toISOString();
+                const endISO = endOfWeek.toISOString();
                 
-                // Convert to ISO strings (preserve local date)
-                const startISO = today.toISOString();
-                const endISO = nextWeek.toISOString();
-                
-                console.log(`📅 Query: ${startISO} to ${endISO}`);
+                console.log(`📅 UTC Query: ${startISO} to ${endISO}`);
                 
                 const { data: matches, error } = await supaClient
                     .from('sports_matches')
@@ -209,7 +201,10 @@
                     return;
                 }
                 
-                // Process matches
+                // Log all dates found
+                const uniqueDates = [...new Set(matches.map(m => new Date(m.start_time).toDateString()))];
+                console.log('📅 Dates in Supabase:', uniqueDates);
+                
                 allMatches = matches.map(m => ({
                     fixture_id: m.fixture_id,
                     start_time: m.start_time,
@@ -222,18 +217,18 @@
                     odds: m.odds || { home: 2.50, draw: 3.20, away: 2.80 }
                 }));
                 
-                // Count by date
+                const todayLocal = new Date();
+                todayLocal.setHours(0, 0, 0, 0);
+                
                 const todayCount = allMatches.filter(m => {
                     const d = new Date(m.start_time);
-                    return d.toDateString() === new Date().toDateString();
+                    d.setHours(0, 0, 0, 0);
+                    return d.getTime() === todayLocal.getTime();
                 }).length;
                 
                 const futureCount = allMatches.length - todayCount;
                 
-                // Get unique dates
-                const dates = [...new Set(allMatches.map(m => new Date(m.start_time).toDateString()))];
-                
-                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayCount} | Next 7 days: ${futureCount}) | Dates: ${dates.join(', ')}`;
+                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayCount} | Next 7 days: ${futureCount}) | Dates: ${uniqueDates.join(', ')}`;
                 
                 filterMatches();
                 
@@ -260,7 +255,6 @@
                 return; 
             }
             
-            // Group by date
             const dateGrouped = {};
             filtered.forEach(m => { 
                 const d = new Date(m.start_time); 
@@ -285,7 +279,6 @@
                     label = '📅 TOMORROW - ' + label;
                 }
                 
-                // Group by league
                 const leagueGrouped = {};
                 dateGrouped[key].forEach(m => {
                     const ln = m.league_name || 'Other';
@@ -353,9 +346,7 @@
             </div>`;
         }
         
-        function goToMatch(id){ 
-            location.href = `match-details.html?id=${id}`; 
-        }
+        function goToMatch(id){ location.href = `match-details.html?id=${id}`; }
         
         function startCountdowns(matches){
             if(countdownInterval) clearInterval(countdownInterval);
@@ -378,20 +369,15 @@
             }, 1000);
         }
         
-        // Force refresh function
         window.forceRefresh = function() {
             console.log('🔄 Force refresh triggered');
             loadMatchesFromSupabase();
         };
         
-        // Bet slip functions
         window.updateSlipUI = function(){
             accSlip = window.ACCUMULATOR_SLIP;
             const slip = document.getElementById('bet-slip');
-            if(!accSlip || accSlip.length === 0){ 
-                slip.style.display = 'none'; 
-                return; 
-            }
+            if(!accSlip || accSlip.length === 0){ slip.style.display = 'none'; return; }
             slip.style.display = 'block';
             document.getElementById('slip-count').textContent = accSlip.length;
             let items = '', totalOdds = 1;
@@ -434,7 +420,6 @@
         
         window.loadMatchesFromSupabase = loadMatchesFromSupabase;
         window.placeAccumulator = placeAccumulator;
-        
     </script>
 </body>
 </html>
