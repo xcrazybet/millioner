@@ -1,11 +1,13 @@
 // ============================================
-// js/sports-api.js - v38.0 FULL SYNC - NO LIMITS
-// Fixed: Now syncs ALL matches (not just 30)
+// js/sports-api.js - v39.0 BATCH SYNC
+// Fixed: Now syncs ALL matches in batches to avoid timeouts
 // ============================================
 
 const BACKEND_URL = 'https://millioner.onrender.com';
 const SYNC_INTERVAL = 120000;  // 2 minutes
 const FORCE_UPDATE_INTERVAL = 30000;  // 30 seconds
+const BATCH_SIZE = 50;  // Sync 50 matches at a time
+const BATCH_DELAY = 1000;  // Wait 1 second between batches
 
 // ===== FETCH =====
 async function fetchFromBackend(endpoint) {
@@ -109,7 +111,7 @@ async function getLeagues() {
     return cachedLeagues; 
 }
 
-// ===== SYNC TO SUPABASE (UPDATED - NO LIMITS) =====
+// ===== SYNC WITH BATCH PROCESSING =====
 async function syncMatchToDatabase(match) {
     const f = match.fixture || {}, t = match.teams || {}, g = match.goals || {}, l = match.league || {}, id = f.id;
     if(!id) return false;
@@ -149,7 +151,6 @@ async function syncMatchToDatabase(match) {
     if (window.supaDB) {
         const saved = await window.supaDB.upsertMatch(matchData);
         if (saved && status === 'finished') {
-            console.log(`🏁 Settling: ${hn} vs ${an}`);
             await settleBetsForMatch(id, result);
         }
         return saved;
@@ -157,65 +158,78 @@ async function syncMatchToDatabase(match) {
     return false;
 }
 
-// 🔥 UPDATED: Sync ALL live matches (no limit)
+// 🔥 BATCH SYNC - Sync matches in chunks to avoid timeouts
+async function batchSyncMatches(matches, type) {
+    if (!matches || matches.length === 0) return 0;
+    
+    console.log(`📦 Starting batch sync for ${matches.length} ${type} matches`);
+    let synced = 0;
+    let failed = 0;
+    
+    for (let i = 0; i < matches.length; i += BATCH_SIZE) {
+        const batch = matches.slice(i, i + BATCH_SIZE);
+        console.log(`⏳ Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(matches.length / BATCH_SIZE)} (${batch.length} matches)`);
+        
+        // Process batch in parallel
+        const results = await Promise.allSettled(batch.map(m => syncMatchToDatabase(m)));
+        
+        for (const result of results) {
+            if (result.status === 'fulfilled' && result.value === true) {
+                synced++;
+            } else {
+                failed++;
+            }
+        }
+        
+        console.log(`✅ Batch complete: ${synced} synced, ${failed} failed`);
+        
+        // Wait between batches to avoid rate limiting
+        if (i + BATCH_SIZE < matches.length) {
+            await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+        }
+    }
+    
+    console.log(`🎉 ${type} sync complete: ${synced} synced, ${failed} failed`);
+    return synced;
+}
+
 async function syncLiveMatches() { 
     const d = await fetchLiveMatches(); 
     if(!d?.success || !d.data) return 0; 
-    
     console.log(`📡 /api/livescores returned ${d.data.length} live matches`);
-    
-    let synced = 0; 
-    for(const match of d.data) { 
-        if(await syncMatchToDatabase(match)) synced++; 
-    }
-    
-    console.log(`✅ Synced ${synced} live matches to Supabase`);
-    return synced; 
+    return await batchSyncMatches(d.data, 'live');
 }
 
-// 🔥 UPDATED: Sync ALL upcoming matches (no limit - was 30 before!)
 async function syncUpcomingMatches() { 
     const d = await fetchUpcomingWeek(); 
     if(!d?.success || !d.data) return 0; 
     
     console.log(`📡 /api/fixtures/week/ returned ${d.data.length} total matches`);
     
-    // Filter only upcoming/future matches (not finished old ones)
+    // Filter only upcoming/future matches
     const now = new Date();
     const upcomingMatches = d.data.filter(m => {
         const matchDate = new Date(m.fixture.date);
         const status = m.fixture.status?.short;
-        // Include if: not started OR currently live
         return status === 'NS' || status === '1H' || status === '2H' || status === 'HT';
     });
     
-    console.log(`📅 Filtered to ${upcomingMatches.length} upcoming/live matches (excluding finished)`);
+    console.log(`📅 Filtered to ${upcomingMatches.length} upcoming/live matches`);
     
-    let synced = 0; 
-    // 🔥 FIX: Sync ALL matches - NO LIMIT
-    for(const match of upcomingMatches) { 
-        if(await syncMatchToDatabase(match)) synced++; 
-        
-        // Show progress every 100 matches
-        if(synced % 100 === 0 && synced > 0) {
-            console.log(`⏳ Sync progress: ${synced}/${upcomingMatches.length} matches`);
-        }
-    }
-    
-    console.log(`✅ Completed: Synced ${synced} upcoming matches to Supabase`);
-    return synced; 
+    return await batchSyncMatches(upcomingMatches, 'upcoming');
 }
 
-// 🔥 UPDATED: Sync all matches in one go
 async function syncAllMatches() { 
     console.log('🔄 Starting full sync from Render API to Supabase...');
+    const startTime = Date.now();
     const l = await syncLiveMatches(); 
     const u = await syncUpcomingMatches(); 
-    console.log(`✅ Full sync complete - Live: ${l}, Upcoming: ${u}, Total: ${l + u}`);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`✅ Full sync complete in ${duration}s - Live: ${l}, Upcoming: ${u}, Total: ${l + u}`);
     return { live: l, upcoming: u }; 
 }
 
-// ===== AUTO STATUS UPDATE (SUPABASE) =====
+// ===== AUTO STATUS UPDATE =====
 async function forceUpdateStatusSupabase() {
     if (!window.supaDB || !supaClient) return 0;
     
@@ -223,7 +237,6 @@ async function forceUpdateStatusSupabase() {
         const now = new Date().toISOString();
         let updated = 0;
         
-        // 1. Move upcoming → live for matches that have started
         const { data: started, error: err1 } = await supaClient
             .from('sports_matches')
             .select('fixture_id')
@@ -241,19 +254,6 @@ async function forceUpdateStatusSupabase() {
                 updated += started.length;
                 console.log(`⏰ Moved ${started.length} matches: upcoming → live`);
             }
-        }
-        
-        // 2. Move live → finished for matches that ended 2+ hours ago
-        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-        const { data: ended, error: err3 } = await supaClient
-            .from('sports_matches')
-            .select('fixture_id')
-            .eq('status', 'live')
-            .lte('start_time', twoHoursAgo);
-        
-        if (!err3 && ended && ended.length > 0) {
-            // Don't auto-mark as finished - let the API sync handle it
-            console.log(`⏰ Found ${ended.length} matches that may need status check`);
         }
         
         return updated;
@@ -309,7 +309,6 @@ async function settleBetsForMatch(fixtureId, result) {
     if (settled > 0 && supaClient) {
         await supaClient.from('sports_matches').update({ bets_settled: true }).eq('fixture_id', fixtureId);
     }
-    console.log(`💰 Settled ${settled} bets for match ${fixtureId}`);
     return settled;
 }
 
@@ -377,12 +376,10 @@ function startAutoSync() {
     if(syncInterval) clearInterval(syncInterval); 
     if(forceInterval) clearInterval(forceInterval); 
     
-    // Run immediately
     syncAllMatches();
     forceUpdateStatusSupabase();
     settleAllFinishedMatches();
     
-    // Then run periodically
     syncInterval = setInterval(() => {
         syncAllMatches();
         forceUpdateStatusSupabase();
@@ -393,7 +390,7 @@ function startAutoSync() {
         settleAllFinishedMatches();
     }, FORCE_UPDATE_INTERVAL);
     
-    console.log(`⏰ Auto-sync: Every ${SYNC_INTERVAL/1000} seconds | Force update: Every ${FORCE_UPDATE_INTERVAL/1000} seconds`);
+    console.log(`⏰ Auto-sync: Every ${SYNC_INTERVAL/1000}s | Batch size: ${BATCH_SIZE}`);
 }
 
 function stopAutoSync() { 
@@ -419,11 +416,10 @@ window.settleAllFinishedMatches = settleAllFinishedMatches;
 // ===== AUTO START =====
 setTimeout(() => { startAutoSync(); }, 1000);
 
-console.log('╔══════════════════════════════════════════════════════════╗');
-console.log('║   🏈 SPORTS API v38.0 - FULL SYNC (NO LIMITS)            ║');
-console.log('║   ✅ Auto-sync: Every 2 minutes                          ║');
-console.log('║   ✅ Syncs ALL matches from API (was limited to 30)      ║');
-console.log('║   ✅ Status update: Every 30 seconds                     ║');
-console.log('║   ✅ Settlement: Auto + Manual                           ║');
-console.log('║   💡 Commands: syncNow(), settleNow()                    ║');
-console.log('╚══════════════════════════════════════════════════════════╝');
+console.log('╔══════════════════════════════════════════════════════════════╗');
+console.log('║   🏈 SPORTS API v39.0 - BATCH SYNC (No Timeouts)             ║');
+console.log('║   ✅ Batch size: 50 matches at a time                         ║');
+console.log('║   ✅ 1 second delay between batches                          ║');
+console.log('║   ✅ Will sync ALL matches from API                          ║');
+console.log('║   💡 Check console for progress updates                      ║');
+console.log('╚══════════════════════════════════════════════════════════════╝');
