@@ -46,20 +46,6 @@
             transition: transform 0.2s ease;
             display: block;
         }
-        .team-logo-img:hover { transform: scale(1.05); }
-        .team-logo-fallback {
-            width: 56px;
-            height: 56px;
-            margin: 0 auto 8px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            color: white;
-            font-size: 18px;
-            background: linear-gradient(135deg, #2a3a5e, #1a2538);
-        }
         .team-name { font-weight: 600; font-size: 15px; margin-top: 4px; }
         .score-display { font-size: 42px; font-weight: bold; letter-spacing: 6px; color: #ff5252; margin: 0 8px; }
         .events-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #ffffff11; }
@@ -82,10 +68,9 @@
         .arabic { font-family: 'Tajawal', sans-serif; }
         
         @media (max-width: 600px) {
-            .team-logo-img, .team-logo-fallback { width: 48px; height: 48px; }
+            .team-logo-img { width: 48px; height: 48px; }
             .score-display { font-size: 32px; letter-spacing: 3px; }
             .team-name { font-size: 13px; }
-            .match-header-row { flex-direction: column; align-items: flex-start; }
         }
     </style>
 </head>
@@ -94,9 +79,9 @@
         <div class="header-top">
             <div class="header-left">
                 <a href="betting-sport.html" class="back-btn"><i class="fas fa-arrow-left"></i></a>
-                <h1 style="font-size:18px;"><i class="fas fa-futbol"></i> <span class="en">X Lodon Sports</span><span class="ar" style="display:none;">إكس لودون سبورت</span></h1>
+                <h1 style="font-size:18px;"><i class="fas fa-futbol"></i> X Lodon Sports</h1>
             </div>
-            <button class="lang-toggle" onclick="toggleLanguage()"><span class="en">عربي</span><span class="ar" style="display:none;">English</span></button>
+            <button class="lang-toggle" onclick="toggleLanguage()">عربي</button>
         </div>
         <div class="tabs">
             <a href="betting-sport.html" class="tab">Home</a>
@@ -133,15 +118,17 @@
     <script src="../js/supabase-client.js"></script>
     <script>
         function toggleLanguage() {
-            var isEn = document.querySelector('.en').style.display !== 'none';
-            document.querySelectorAll('.en').forEach(el => el.style.display = isEn ? 'none' : '');
-            document.querySelectorAll('.ar').forEach(el => el.style.display = isEn ? '' : 'none');
-            document.documentElement.dir = isEn ? 'rtl' : 'ltr';
-            localStorage.setItem('lang', isEn ? 'ar' : 'en');
+            var isEn = document.querySelector('.en') && document.querySelector('.en').style.display !== 'none';
+            if(document.querySelector('.en')){
+                document.querySelectorAll('.en').forEach(function(el) { el.style.display = isEn ? 'none' : ''; });
+                document.querySelectorAll('.ar').forEach(function(el) { el.style.display = isEn ? '' : 'none'; });
+                document.documentElement.dir = isEn ? 'rtl' : 'ltr';
+                localStorage.setItem('lang', isEn ? 'ar' : 'en');
+            }
         }
         if(localStorage.getItem('lang') === 'ar') { setTimeout(toggleLanguage, 10); }
         
-        const firebaseConfig = { 
+        var firebaseConfig = { 
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM", 
             authDomain: "x-bet-prod-jd.firebaseapp.com", 
             projectId: "x-bet-prod-jd", 
@@ -151,8 +138,8 @@
         };
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         
-        let liveMatches = [];
-        let timerInterval = null;
+        var liveMatches = [];
+        var timerInterval = null;
         
         firebase.auth().onAuthStateChanged(function(u) { 
             if(!u) {
@@ -165,7 +152,6 @@
         async function init(){
             await loadBalance();
             loadLiveMatches();
-            // Refresh every 30 seconds
             setInterval(loadLiveMatches, 30000);
         }
         
@@ -173,18 +159,40 @@
             try {
                 var db = firebase.firestore();
                 var w = await db.collection('wallets').doc(firebase.auth().currentUser.uid).get();
-                document.getElementById('balance-display').textContent = '$' + (w.exists ? (w.data().balance||0) : 0).toFixed(2);
+                var balance = w.exists ? (w.data().balance || 0) : 0;
+                document.getElementById('balance-display').textContent = '$' + balance.toFixed(2);
             } catch(e) {
                 console.log("Balance load error:", e);
             }
         }
         
-        // Get team logo with fallback
-        function getTeamLogoUrl(teamName, teamId, teamLogo) {
-            if (teamLogo && teamLogo.startsWith('http')) {
-                return teamLogo;
+        function getTeamName(teamData) {
+            if (!teamData) return 'Unknown';
+            if (typeof teamData === 'object') {
+                if (teamData.name) return teamData.name;
+                if (teamData.team_name) return teamData.team_name;
             }
-            // Generate initials fallback
+            if (typeof teamData === 'string') return teamData;
+            return 'Unknown';
+        }
+        
+        function getTeamLogo(teamData) {
+            if (!teamData) return null;
+            if (typeof teamData === 'object') {
+                if (teamData.logo) return teamData.logo;
+            }
+            return null;
+        }
+        
+        function getTeamId(teamData) {
+            if (!teamData) return null;
+            if (typeof teamData === 'object') {
+                if (teamData.id) return teamData.id;
+            }
+            return null;
+        }
+        
+        function getFallbackLogo(teamName) {
             var initials = teamName.substring(0, 2).toUpperCase();
             return "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle fill="#2a3a5e" cx="50" cy="50" r="48"/><text x="50" y="67" font-size="38" text-anchor="middle" fill="white" font-weight="bold">' + initials + '</text></svg>');
         }
@@ -209,6 +217,11 @@
                 if (error) throw error;
                 
                 console.log("Live matches found:", matches ? matches.length : 0);
+                
+                // Log first match details to debug
+                if (matches && matches.length > 0) {
+                    console.log("First match data:", JSON.stringify(matches[0], null, 2));
+                }
                 
                 // Filter out matches older than 3.5 hours
                 var threeHalfHoursAgo = new Date(Date.now() - 3.5 * 60 * 60 * 1000);
@@ -255,14 +268,27 @@
             } catch(error) {
                 console.error("Error loading live matches:", error);
                 document.getElementById('debug-text').innerHTML = 'Error: ' + error.message;
-                document.getElementById('matches-container').innerHTML = '<div class="empty-state">Error loading matches: ' + error.message + '</div>';
             }
         }
         
         function createMatchCard(m) {
+            // Extract team names safely
+            var homeTeamObj = m.home_team;
+            var awayTeamObj = m.away_team;
+            
+            var homeName = getTeamName(homeTeamObj);
+            var awayName = getTeamName(awayTeamObj);
+            
+            var homeLogo = getTeamLogo(homeTeamObj);
+            var awayLogo = getTeamLogo(awayTeamObj);
+            
+            var homeLogoUrl = homeLogo ? homeLogo : getFallbackLogo(homeName);
+            var awayLogoUrl = awayLogo ? awayLogo : getFallbackLogo(awayName);
+            
             var startTime = new Date(m.start_time);
             var now = new Date();
             var elapsed = Math.floor((now - startTime) / 60000);
+            if (elapsed < 0) elapsed = 0;
             
             // Determine match period
             var period = '';
@@ -276,19 +302,19 @@
                 period = 'Full Time';
             }
             
-            var homeName = m.home_team?.name || 'Home';
-            var awayName = m.away_team?.name || 'Away';
-            var homeLogo = getTeamLogoUrl(homeName, m.home_team?.id, m.home_team?.logo);
-            var awayLogo = getTeamLogoUrl(awayName, m.away_team?.id, m.away_team?.logo);
-            
-            var scoreHome = m.score?.home || 0;
-            var scoreAway = m.score?.away || 0;
+            var scoreHome = (m.score && m.score.home !== undefined) ? m.score.home : 0;
+            var scoreAway = (m.score && m.score.away !== undefined) ? m.score.away : 0;
             
             var leagueName = m.league_name || 'League';
             var leagueLogo = m.league_logo || '';
             
             var elapsedDisplay = elapsed > 0 ? elapsed + "'" : "0'";
-            var remaining = elapsed < 45 ? (45 - elapsed) : (elapsed < 105 ? (90 - elapsed) : 0);
+            var remaining = 0;
+            if (elapsed < 45) {
+                remaining = 45 - elapsed;
+            } else if (elapsed >= 45 && elapsed < 105) {
+                remaining = 90 - elapsed;
+            }
             
             return `
             <div class="match-card" data-fixture="${m.fixture_id}">
@@ -302,12 +328,12 @@
                 </div>
                 <div class="teams-section">
                     <div class="team-block">
-                        <img class="team-logo-img" src="${homeLogo}" alt="${escapeHtml(homeName)}" onerror="this.src='${getTeamLogoUrl(homeName, null, null)}'">
+                        <img class="team-logo-img" src="${homeLogoUrl}" alt="${escapeHtml(homeName)}" onerror="this.src='${getFallbackLogo(homeName)}'">
                         <div class="team-name">${escapeHtml(homeName)}</div>
                     </div>
                     <div class="score-display">${scoreHome} - ${scoreAway}</div>
                     <div class="team-block">
-                        <img class="team-logo-img" src="${awayLogo}" alt="${escapeHtml(awayName)}" onerror="this.src='${getTeamLogoUrl(awayName, null, null)}'">
+                        <img class="team-logo-img" src="${awayLogoUrl}" alt="${escapeHtml(awayName)}" onerror="this.src='${getFallbackLogo(awayName)}'">
                         <div class="team-name">${escapeHtml(awayName)}</div>
                     </div>
                 </div>
@@ -333,7 +359,7 @@
             try {
                 var response = await fetch('https://millioner.onrender.com/api/fixtures/events/' + fixtureId);
                 var data = await response.json();
-                if(data.success && data.data) {
+                if(data.success && data.data && data.data.length > 0) {
                     var eventsDiv = document.getElementById('events-' + fixtureId);
                     if(eventsDiv) {
                         var goals = [];
@@ -356,25 +382,29 @@
                             var goalText = '';
                             for (var i = 0; i < goals.length; i++) {
                                 var g = goals[i];
-                                goalText += (goalText ? ', ' : '') + (g.player?.name || 'Player') + ' ' + (g.time?.elapsed || '') + "'";
+                                var playerName = (g.player && g.player.name) ? g.player.name : 'Player';
+                                var minute = (g.time && g.time.elapsed) ? g.time.elapsed : '';
+                                goalText += (goalText ? ', ' : '') + playerName + (minute ? ' ' + minute + "'" : '');
                             }
-                            html += '<div class="event-row"><i class="fas fa-futbol event-icon goal"></i> Goals: ' + goalText + '</div>';
+                            html += '<div class="event-row"><i class="fas fa-futbol event-icon goal"></i> ⚽ Goals: ' + goalText + '</div>';
                         }
                         if(yellows.length) {
                             var yellowText = '';
                             for (var i = 0; i < yellows.length; i++) {
                                 var y = yellows[i];
-                                yellowText += (yellowText ? ', ' : '') + (y.player?.name || 'Player');
+                                var playerName = (y.player && y.player.name) ? y.player.name : 'Player';
+                                yellowText += (yellowText ? ', ' : '') + playerName;
                             }
-                            html += '<div class="event-row"><i class="fas fa-square event-icon yellow-card"></i> Yellow Cards: ' + yellowText + '</div>';
+                            html += '<div class="event-row"><i class="fas fa-square event-icon yellow-card"></i> 🟨 Yellow Cards: ' + yellowText + '</div>';
                         }
                         if(reds.length) {
                             var redText = '';
                             for (var i = 0; i < reds.length; i++) {
                                 var r = reds[i];
-                                redText += (redText ? ', ' : '') + (r.player?.name || 'Player');
+                                var playerName = (r.player && r.player.name) ? r.player.name : 'Player';
+                                redText += (redText ? ', ' : '') + playerName;
                             }
-                            html += '<div class="event-row"><i class="fas fa-square event-icon red-card"></i> Red Cards: ' + redText + '</div>';
+                            html += '<div class="event-row"><i class="fas fa-square event-icon red-card"></i> 🟥 Red Cards: ' + redText + '</div>';
                         }
                         if(!goals.length && !yellows.length && !reds.length) {
                             html = '<div class="event-row"><span style="color:#a0a8c9;">No events recorded yet</span></div>';
@@ -398,6 +428,9 @@
         }
         
         window.loadLiveMatches = loadLiveMatches;
+        window.escapeHtml = escapeHtml;
+        
+        console.log("Live matches page loaded");
     </script>
 </body>
 </html>
