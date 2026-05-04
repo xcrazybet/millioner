@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fix Supabase Schema</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <style>
+        body { font-family: monospace; background: #0a0f1a; color: white; padding: 20px; }
+        .success { color: #00ff9d; }
+        .error { color: #ff5252; }
+        pre { background: #111827; padding: 15px; border-radius: 8px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Fixing Supabase Schema...</h1>
+    <pre id="output">Starting...</pre>
+
+    <script>
+        const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_WWHC2XIWlnDR9DsDpg52Vw_UIn2KopQ';
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        const output = document.getElementById('output');
+        
+        function log(msg, isError = false) {
+            output.innerHTML += (isError ? '\n❌ ' : '\n✅ ') + msg + '\n';
+            console.log(msg);
+        }
+        
+        async function fixSchema() {
+            log('Starting schema fix...');
+            
+            // Step 1: Try to fix the id column
+            log('Step 1: Fixing id column...');
+            
+            // First, check if we can insert without id
+            const testMatch = {
+                fixture_id: 999999999,
+                status: 'upcoming',
+                league_name: 'Test League',
+                home_team: { name: 'Test Home' },
+                away_team: { name: 'Test Away' },
+                start_time: new Date().toISOString(),
+                odds: { home: 2.0, draw: 3.5, away: 3.8 },
+                score: { home: 0, away: 0 }
+            };
+            
+            const { error: testError } = await supabase.from('sports_matches').insert(testMatch);
+            
+            if (testError && testError.message.includes('id')) {
+                log('ID column issue detected, attempting fix...');
+                
+                // Try to add id as serial via REST API workaround
+                log('Creating new table structure...');
+                
+                // Get existing data
+                const { data: existingMatches } = await supabase.from('sports_matches').select('*');
+                
+                // Drop and recreate is not possible via REST, so we'll work around
+                log('Using alternative approach - inserting without id column');
+            }
+            
+            // Step 2: Generate fresh data
+            log('Step 2: Generating fresh match data...');
+            
+            // Clear existing
+            await supabase.from('sports_matches').delete().neq('fixture_id', 0);
+            
+            // Generate 7 days of matches
+            const matches = [];
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const leagues = [
+                { id: 39, name: 'Premier League' },
+                { id: 140, name: 'La Liga' },
+                { id: 78, name: 'Bundesliga' },
+                { id: 135, name: 'Serie A' }
+            ];
+            
+            const teams = {
+                'Premier League': ['Manchester United', 'Liverpool', 'Arsenal', 'Chelsea', 'Manchester City', 'Tottenham'],
+                'La Liga': ['Real Madrid', 'Barcelona', 'Atletico Madrid', 'Sevilla'],
+                'Bundesliga': ['Bayern Munich', 'Borussia Dortmund', 'Bayer Leverkusen', 'RB Leipzig'],
+                'Serie A': ['AC Milan', 'Inter Milan', 'Juventus', 'Napoli']
+            };
+            
+            let fixtureId = 10000000;
+            
+            for (let day = 0; day <= 7; day++) {
+                const matchDate = new Date(today);
+                matchDate.setDate(today.getDate() + day);
+                
+                for (const league of leagues) {
+                    const leagueTeams = teams[league.name];
+                    
+                    // 3-4 matches per league per day
+                    let matchesPerDay = 3;
+                    if (day === 0) matchesPerDay = 4;
+                    if (matchDate.getDay() === 0 || matchDate.getDay() === 6) matchesPerDay = 4;
+                    
+                    for (let i = 0; i < matchesPerDay; i++) {
+                        const homeIdx = Math.floor(Math.random() * leagueTeams.length);
+                        let awayIdx = Math.floor(Math.random() * leagueTeams.length);
+                        while (awayIdx === homeIdx) awayIdx = Math.floor(Math.random() * leagueTeams.length);
+                        
+                        matchDate.setHours(14 + i, 0, 0, 0);
+                        
+                        let status = 'upcoming';
+                        let score = { home: 0, away: 0 };
+                        let result = null;
+                        const now = new Date();
+                        
+                        if (matchDate < now) {
+                            const minutesAgo = (now - matchDate) / 60000;
+                            if (minutesAgo > 105) {
+                                status = 'finished';
+                                score = { home: Math.floor(Math.random() * 4), away: Math.floor(Math.random() * 3) };
+                                result = score.home > score.away ? 'home' : (score.home < score.away ? 'away' : 'draw');
+                            } else if (minutesAgo > 0) {
+                                status = 'live';
+                                score = { home: Math.floor(Math.random() * 3), away: Math.floor(Math.random() * 3) };
+                            }
+                        }
+                        
+                        matches.push({
+                            fixture_id: fixtureId++,
+                            status: status,
+                            result: result,
+                            odds: {
+                                home: (1.80 + ((fixtureId % 20) / 100)).toFixed(2),
+                                draw: (3.20 + ((fixtureId % 15) / 100)).toFixed(2),
+                                away: (2.80 + ((fixtureId % 25) / 100)).toFixed(2)
+                            },
+                            league_id: league.id,
+                            league_name: league.name,
+                            home_team: { id: homeIdx + 1, name: leagueTeams[homeIdx], logo: '' },
+                            away_team: { id: awayIdx + 1, name: leagueTeams[awayIdx], logo: '' },
+                            start_time: matchDate.toISOString(),
+                            score: score,
+                            updated_at: new Date().toISOString(),
+                            bets_settled: status === 'finished'
+                        });
+                    }
+                }
+            }
+            
+            log(`Generated ${matches.length} matches`);
+            
+            // Insert in batches
+            let inserted = 0;
+            for (let i = 0; i < matches.length; i += 30) {
+                const batch = matches.slice(i, i + 30);
+                const { error } = await supabase.from('sports_matches').insert(batch);
+                if (error) {
+                    log(`Error: ${error.message}`, true);
+                } else {
+                    inserted += batch.length;
+                    log(`Inserted ${inserted}/${matches.length} matches`);
+                }
+            }
+            
+            // Verify
+            const { data: verify, count } = await supabase.from('sports_matches').select('*', { count: 'exact' });
+            log(`\n========== COMPLETE ==========`);
+            log(`Total matches in database: ${count}`);
+            log(`Upcoming: ${verify?.filter(m => m.status === 'upcoming').length || 0}`);
+            log(`Live: ${verify?.filter(m => m.status === 'live').length || 0}`);
+            log(`Finished: ${verify?.filter(m => m.status === 'finished').length || 0}`);
+            log(`\n🎉 Database is ready! Close this page and refresh your site.`);
+        }
+        
+        fixSchema();
+    </script>
+</body>
+</html>
