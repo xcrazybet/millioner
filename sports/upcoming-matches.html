@@ -28,7 +28,8 @@
         .league-select { flex: 1; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; min-width: 150px; }
         .search-input { flex: 2; padding: 14px; background: #111827; border: 1px solid #ffffff22; border-radius: 12px; color: white; font-size: 14px; min-width: 200px; }
         .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #00ff9d; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .refresh-btn { background: #00ff9d; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; margin-left: auto; }
+        .refresh-btn { background: #00ff9d; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; }
+        .force-refresh-btn { background: #ff9800; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; margin-left: auto; }
         .date-section { margin-bottom: 15px; }
         .date-header { color: #00ff9d; font-size: 15px; font-weight: 600; margin-bottom: 8px; padding: 8px 12px; background: #0a0f1a; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
         .date-matches.collapsed { display: none; }
@@ -63,6 +64,8 @@
         .slip-place-btn { width: 100%; padding: 12px; background: #ff9800; color: black; border: none; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; }
         .empty-state { text-align: center; padding: 50px; color: #a0a8c9; }
         .today-badge { background: #ff5252; color: white; font-size: 10px; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
+        .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #00ff9d; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 768px) {
             .match-row { flex-direction: column; align-items: stretch; }
             .team-col { justify-content: center; }
@@ -102,9 +105,10 @@
         <div class="debug-bar">
             <i class="fas fa-database"></i> <span id="debug-text">Loading matches...</span>
             <button class="refresh-btn" onclick="loadMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
+            <button class="force-refresh-btn" onclick="forceRefreshData()"><i class="fas fa-database"></i> Force Sync</button>
         </div>
         
-        <div id="matches-container"><div style="text-align:center;padding:50px;">Loading upcoming matches...</div></div>
+        <div id="matches-container"><div style="text-align:center;padding:50px;"><div class="loading-spinner"></div> Loading upcoming matches...</div></div>
     </div>
     
     <div class="bet-slip" id="bet-slip" style="display:none;">
@@ -119,11 +123,11 @@
 
     <script src="../js/supabase-client.js"></script>
     <script src="../js/betting-engine.js"></script>
-    <script src="../js/odds-calculator.js"></script>
     <script>
         let allMatches = [];
         let countdownInterval;
         let selectedLeague = 'all';
+        let autoRefreshInterval;
         
         // Firebase Config
         const firebaseConfig = {
@@ -138,8 +142,9 @@
         
         // Language Toggle
         function toggleLanguage() {
-            document.body.classList.toggle('arabic');
-            localStorage.setItem('lang', document.body.classList.contains('arabic') ? 'ar' : 'en');
+            const isArabic = document.body.classList.toggle('arabic');
+            localStorage.setItem('lang', isArabic ? 'ar' : 'en');
+            document.documentElement.dir = isArabic ? 'rtl' : 'ltr';
         }
         if (localStorage.getItem('lang') === 'ar') toggleLanguage();
         
@@ -151,8 +156,7 @@
                 await loadBalance();
                 await loadLeagues();
                 await loadMatches();
-                setInterval(loadMatches, 60000);
-                setInterval(loadBalance, 30000);
+                startAutoRefresh();
             }
         });
         
@@ -187,36 +191,24 @@
         
         async function loadMatches() {
             if (!window.supaDB) {
-                document.getElementById('debug-text').innerHTML = 'Waiting for database...';
+                document.getElementById('debug-text').innerHTML = '⚠️ Waiting for database...';
                 return;
             }
             
             try {
-                document.getElementById('debug-text').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading...';
                 
-                // Get matches from Supabase (today + next 7 days)
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                
-                const nextWeek = new Date(today);
-                nextWeek.setDate(today.getDate() + 7);
-                
-                const { data: matches, error } = await supabaseClient
-                    .from('sports_matches')
-                    .select('*')
-                    .in('status', ['upcoming', 'live'])
-                    .gte('start_time', today.toISOString())
-                    .lte('start_time', nextWeek.toISOString())
-                    .order('start_time', { ascending: true });
-                
-                if (error) throw error;
-                
+                const matches = await window.supaDB.getUpcomingMatches();
                 allMatches = matches || [];
                 
                 // Calculate stats
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
                 const todayMatches = allMatches.filter(m => {
                     const d = new Date(m.start_time);
-                    return d.toDateString() === today.toDateString();
+                    d.setHours(0, 0, 0, 0);
+                    return d.getTime() === today.getTime();
                 }).length;
                 
                 const futureMatches = allMatches.length - todayMatches;
@@ -225,13 +217,27 @@
                 
                 document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayMatches} | Next 7 days: ${futureMatches}) | Dates: ${uniqueDates.slice(0,3).join(', ')}${uniqueDates.length > 3 ? '...' : ''}`;
                 
-                filterMatches();
-                startCountdowns();
+                if (allMatches.length === 0) {
+                    document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-database"></i><p>No matches found. Click "Force Sync" to generate data.</p></div>`;
+                } else {
+                    filterMatches();
+                    startCountdowns();
+                }
                 
             } catch(e) {
                 console.error(e);
                 document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`;
             }
+        }
+        
+        async function forceRefreshData() {
+            document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Forcing data sync...';
+            
+            if (window.refreshSportsData) {
+                await window.refreshSportsData();
+            }
+            
+            await loadMatches();
         }
         
         function filterMatches() {
@@ -327,10 +333,10 @@
             const odds = m.odds || { home: 2.50, draw: 3.20, away: 2.80 };
             
             return `
-                <div class="match-row">
+                <div class="match-row" data-fixture="${m.fixture_id}">
                     <div class="match-time-col">
                         <div class="time">${time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                        <div class="countdown" data-fixture="${m.fixture_id}">--:--:--</div>
+                        <div class="countdown" data-time="${m.start_time}">--:--:--</div>
                     </div>
                     <div class="team-col">
                         ${homeTeam.logo ? `<img src="${homeTeam.logo}" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt"></i>'}
@@ -361,7 +367,7 @@
             if (!str) return '';
             return str.replace(/[&<>]/g, function(m) {
                 if (m === '&') return '&amp;';
-                if (m === '<') return '&lt;';
+                if (m === '<') return '&lt;'
                 if (m === '>') return '&gt;';
                 return m;
             });
@@ -372,10 +378,9 @@
             
             function updateCountdowns() {
                 document.querySelectorAll('.countdown').forEach(el => {
-                    const fixtureId = el.dataset.fixture;
-                    const match = allMatches.find(m => m.fixture_id == fixtureId);
-                    if (match) {
-                        const diff = new Date(match.start_time) - new Date();
+                    const startTime = el.dataset.time;
+                    if (startTime) {
+                        const diff = new Date(startTime) - new Date();
                         if (diff <= 0) {
                             el.textContent = 'Now';
                             el.style.color = '#ff9800';
@@ -392,6 +397,11 @@
             
             updateCountdowns();
             countdownInterval = setInterval(updateCountdowns, 1000);
+        }
+        
+        function startAutoRefresh() {
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = setInterval(loadMatches, 60000);
         }
         
         // Bet Slip UI Update
@@ -446,15 +456,12 @@
             }
         }
         
+        // Expose functions globally
         window.goToMatch = goToMatch;
         window.placeAccumulatorBet = placeAccumulatorBet;
         window.loadMatches = loadMatches;
+        window.forceRefreshData = forceRefreshData;
         window.toggleLanguage = toggleLanguage;
-        
-        // Initial load
-        setTimeout(() => {
-            if (window.startAutoSync) window.startAutoSync();
-        }, 3000);
         
         console.log('✅ Upcoming matches page loaded');
     </script>
