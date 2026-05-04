@@ -1,64 +1,69 @@
 // ============================================
-// js/supabase-client.js - v5.0 FINAL
-// ✅ Fixed fixture_id mapping
-// ✅ Live matches have odds for betting
+// supabase-client.js - v6.0 COMPLETE
 // ✅ Full CRUD operations
+// ✅ Auto-default odds for all matches
+// ✅ Works with Node.js and Browser
 // ============================================
 
 const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_WWHC2XIWlnDR9DsDpg52Vw_UIn2KopQ';
 
-function initSupabase() {
-    if (typeof supabase === 'undefined') {
-        console.error('❌ Supabase SDK not loaded');
-        return null;
-    }
-    return supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// Initialize Supabase client (works in both browser and Node.js)
+let supaClient = null;
+
+if (typeof window !== 'undefined' && window.supabase) {
+    // Browser environment
+    supaClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    console.log('✅ Supabase Connected (Browser)');
+} else if (typeof supabase !== 'undefined') {
+    // Node.js environment (for server-side)
+    supaClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    console.log('✅ Supabase Connected (Node.js)');
+} else {
+    console.error('❌ Supabase SDK not loaded');
 }
 
-const supaClient = initSupabase();
+// Default odds for matches without odds
+const DEFAULT_ODDS = { home: 2.50, draw: 3.20, away: 2.80 };
 
-if (supaClient) {
-    console.log('✅ Supabase Connected');
+// Helper: Ensure match has valid data structure
+function normalizeMatch(match) {
+    return {
+        fixture_id: match.fixture_id || match.fixtureId,
+        status: match.status || 'upcoming',
+        result: match.result || null,
+        odds: match.odds || DEFAULT_ODDS,
+        expires_at: match.expiresAt || match.expires_at || null,
+        league_id: match.league_id || match.leagueId || 0,
+        league_name: match.league_name || match.leagueName || 'Unknown League',
+        league_logo: match.league_logo || match.leagueLogo || '',
+        home_team: match.home_team || match.homeTeam || { id: 0, name: 'Home', logo: '' },
+        away_team: match.away_team || match.awayTeam || { id: 0, name: 'Away', logo: '' },
+        start_time: match.start_time || match.startTime || new Date().toISOString(),
+        score: match.score || { home: 0, away: 0 },
+        updated_at: new Date().toISOString(),
+        bets_settled: match.bets_settled || match.betsSettled || false
+    };
 }
 
-window.supaDB = {
+// Supabase DB Interface
+const supaDB = {
     
-    // ============ MATCHES - FULLY FIXED ============
+    // ============ MATCHES ============
     
     upsertMatch: async function(match) {
         if (!supaClient) return false;
         try {
-            // Default odds for any match without odds
-            const defaultOdds = { home: 2.50, draw: 3.20, away: 2.80 };
+            const normalizedMatch = normalizeMatch(match);
             
-            // 🔥 CRITICAL FIX: Map fields correctly for database
-            const dbMatch = {
-                fixture_id: match.fixture_id || match.fixtureId,
-                status: match.status || 'upcoming',
-                result: match.result || null,
-                odds: match.odds || defaultOdds,
-                expires_at: match.expiresAt || match.expires_at || null,
-                league_id: match.league_id || match.leagueId || 0,
-                league_name: match.league_name || match.leagueName || 'Unknown League',
-                league_logo: match.league_logo || match.leagueLogo || '',
-                home_team: match.home_team || match.homeTeam || { id: 0, name: 'Home', logo: '' },
-                away_team: match.away_team || match.awayTeam || { id: 0, name: 'Away', logo: '' },
-                start_time: match.start_time || match.startTime || new Date().toISOString(),
-                score: match.score || { home: 0, away: 0 },
-                updated_at: new Date().toISOString(),
-                bets_settled: match.bets_settled || match.betsSettled || false
-            };
-            
-            // Validate fixture_id is present
-            if (!dbMatch.fixture_id) {
-                console.error('❌ Cannot upsert match: missing fixture_id', match);
+            if (!normalizedMatch.fixture_id) {
+                console.error('❌ Cannot upsert: missing fixture_id');
                 return false;
             }
             
             const { error } = await supaClient
                 .from('sports_matches')
-                .upsert(dbMatch, { onConflict: 'fixture_id' });
+                .upsert(normalizedMatch, { onConflict: 'fixture_id' });
             
             if (error) {
                 console.error('Upsert error:', error);
@@ -71,7 +76,6 @@ window.supaDB = {
         }
     },
     
-    // 🔥 FIXED: Get live matches with default odds
     getLiveMatches: async function() {
         if (!supaClient) return [];
         try {
@@ -82,25 +86,13 @@ window.supaDB = {
                 .order('start_time', { ascending: false });
             
             if (!data) return [];
-            
-            // 🔥 ENSURE all live matches have odds for betting
-            const defaultOdds = { home: 2.50, draw: 3.20, away: 2.80 };
-            const enhancedMatches = data.map(match => ({
-                ...match,
-                odds: match.odds || defaultOdds,
-                home_team: match.home_team || { name: 'Home', logo: '' },
-                away_team: match.away_team || { name: 'Away', logo: '' }
-            }));
-            
-            console.log(`🔴 ${enhancedMatches.length} live matches loaded (all have odds)`);
-            return enhancedMatches;
+            return data.map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
         } catch(e) { 
             console.error('getLiveMatches error:', e);
             return []; 
         }
     },
     
-    // 🔥 FIXED: Get upcoming matches with default odds
     getUpcomingMatches: async function() {
         if (!supaClient) return [];
         try {
@@ -113,15 +105,7 @@ window.supaDB = {
                 .order('start_time', { ascending: true });
             
             if (!data) return [];
-            
-            // Ensure all upcoming matches have odds
-            const defaultOdds = { home: 2.50, draw: 3.20, away: 2.80 };
-            return data.map(match => ({
-                ...match,
-                odds: match.odds || defaultOdds,
-                home_team: match.home_team || { name: 'Home', logo: '' },
-                away_team: match.away_team || { name: 'Away', logo: '' }
-            }));
+            return data.map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
         } catch(e) { 
             console.error('getUpcomingMatches error:', e);
             return []; 
@@ -143,15 +127,7 @@ window.supaDB = {
                 .order('start_time', { ascending: true });
             
             if (!data) return [];
-            
-            // 🔥 Ensure all matches have odds
-            const defaultOdds = { home: 2.50, draw: 3.20, away: 2.80 };
-            return data.map(match => ({
-                ...match,
-                odds: match.odds || defaultOdds,
-                home_team: match.home_team || { name: 'Home', logo: '' },
-                away_team: match.away_team || { name: 'Away', logo: '' }
-            }));
+            return data.map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
         } catch(e) { 
             console.error('getUpcomingByDate error:', e);
             return []; 
@@ -162,9 +138,9 @@ window.supaDB = {
         if (!supaClient) return [];
         try {
             const todayStart = new Date(); 
-            todayStart.setHours(0,0,0,0);
+            todayStart.setHours(0, 0, 0, 0);
             const todayEnd = new Date(); 
-            todayEnd.setHours(23,59,59,999);
+            todayEnd.setHours(23, 59, 59, 999);
             
             const { data } = await supaClient
                 .from('sports_matches')
@@ -175,15 +151,7 @@ window.supaDB = {
                 .order('start_time', { ascending: true });
             
             if (!data) return [];
-            
-            // Ensure all matches have odds
-            const defaultOdds = { home: 2.50, draw: 3.20, away: 2.80 };
-            return data.map(match => ({
-                ...match,
-                odds: match.odds || defaultOdds,
-                home_team: match.home_team || { name: 'Home', logo: '' },
-                away_team: match.away_team || { name: 'Away', logo: '' }
-            }));
+            return data.map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
         } catch(e) { 
             console.error('getTodayMatches error:', e);
             return []; 
@@ -193,55 +161,14 @@ window.supaDB = {
     getFinishedMatches: async function() {
         if (!supaClient) return [];
         try {
-            const now = new Date().toISOString();
             const { data } = await supaClient
                 .from('sports_matches')
                 .select('*')
                 .eq('status', 'finished')
-                .gt('expires_at', now)
                 .order('start_time', { ascending: false });
             return data || [];
         } catch(e) { 
             console.error('getFinishedMatches error:', e);
-            return []; 
-        }
-    },
-    
-    getUnsettledMatches: async function() {
-        if (!supaClient) return [];
-        try {
-            const { data } = await supaClient
-                .from('sports_matches')
-                .select('*')
-                .eq('status', 'finished')
-                .eq('bets_settled', false);
-            return data || [];
-        } catch(e) { 
-            console.error('getUnsettledMatches error:', e);
-            return []; 
-        }
-    },
-    
-    getAllMatches: async function() {
-        if (!supaClient) return [];
-        try {
-            const { data } = await supaClient
-                .from('sports_matches')
-                .select('*')
-                .order('start_time', { ascending: true });
-            
-            if (!data) return [];
-            
-            // Ensure all matches have odds
-            const defaultOdds = { home: 2.50, draw: 3.20, away: 2.80 };
-            return data.map(match => ({
-                ...match,
-                odds: match.odds || defaultOdds,
-                home_team: match.home_team || { name: 'Home', logo: '' },
-                away_team: match.away_team || { name: 'Away', logo: '' }
-            }));
-        } catch(e) { 
-            console.error('getAllMatches error:', e);
             return []; 
         }
     },
@@ -256,18 +183,26 @@ window.supaDB = {
                 .single();
             
             if (!data) return null;
-            
-            // Ensure match has odds
-            const defaultOdds = { home: 2.50, draw: 3.20, away: 2.80 };
-            return {
-                ...data,
-                odds: data.odds || defaultOdds,
-                home_team: data.home_team || { name: 'Home', logo: '' },
-                away_team: data.away_team || { name: 'Away', logo: '' }
-            };
+            return { ...data, odds: data.odds || DEFAULT_ODDS };
         } catch(e) { 
             console.error('getMatchByFixtureId error:', e);
             return null; 
+        }
+    },
+    
+    getAllMatches: async function() {
+        if (!supaClient) return [];
+        try {
+            const { data } = await supaClient
+                .from('sports_matches')
+                .select('*')
+                .order('start_time', { ascending: true });
+            
+            if (!data) return [];
+            return data.map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
+        } catch(e) { 
+            console.error('getAllMatches error:', e);
+            return []; 
         }
     },
     
@@ -285,7 +220,6 @@ window.supaDB = {
                 total: data.length
             };
         } catch(e) { 
-            console.error('getMatchCounts error:', e);
             return { live: 0, upcoming: 0, finished: 0, total: 0 }; 
         }
     },
@@ -315,7 +249,6 @@ window.supaDB = {
                 .select();
             return { success: !error, data: data?.[0], error: error?.message };
         } catch(e) { 
-            console.error('insertBet error:', e);
             return { success: false, error: e.message }; 
         }
     },
@@ -330,10 +263,8 @@ window.supaDB = {
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', id);
-            if (error) console.error('updateBet error:', error);
             return !error;
         } catch(e) { 
-            console.error('updateBet error:', e);
             return false; 
         }
     },
@@ -348,7 +279,6 @@ window.supaDB = {
                 .eq('status', 'active');
             return data || [];
         } catch(e) { 
-            console.error('getActiveBets error:', e);
             return []; 
         }
     },
@@ -364,7 +294,6 @@ window.supaDB = {
                 .limit(100);
             return data || [];
         } catch(e) { 
-            console.error('getUserBets error:', e);
             return []; 
         }
     },
@@ -379,7 +308,6 @@ window.supaDB = {
                 .eq('bet_category', 'accumulator');
             return data || [];
         } catch(e) { 
-            console.error('getActiveAccumulatorBets error:', e);
             return []; 
         }
     },
@@ -394,7 +322,6 @@ window.supaDB = {
                 .single();
             return data || null;
         } catch(e) { 
-            console.error('getBetById error:', e);
             return null; 
         }
     },
@@ -414,46 +341,21 @@ window.supaDB = {
                 lost: data.filter(b => b.status === 'lost').length
             };
         } catch(e) { 
-            console.error('getUserBetCounts error:', e);
             return { total: 0, active: 0, won: 0, lost: 0 }; 
-        }
-    },
-    
-    // ============ UTILITY ============
-    
-    // Force refresh odds for all live matches
-    refreshLiveOdds: async function() {
-        if (!supaClient) return false;
-        try {
-            const defaultOdds = { home: 2.50, draw: 3.20, away: 2.80 };
-            const { data } = await supaClient
-                .from('sports_matches')
-                .select('fixture_id')
-                .eq('status', 'live');
-            
-            if (!data || data.length === 0) return true;
-            
-            // Update each live match with fresh odds
-            for (const match of data) {
-                await supaClient
-                    .from('sports_matches')
-                    .update({ odds: defaultOdds, updated_at: new Date().toISOString() })
-                    .eq('fixture_id', match.fixture_id);
-            }
-            
-            console.log(`🔄 Refreshed odds for ${data.length} live matches`);
-            return true;
-        } catch(e) {
-            console.error('refreshLiveOdds error:', e);
-            return false;
         }
     }
 };
 
-console.log('╔══════════════════════════════════════════════════════════════╗');
-console.log('║   📦 SupaDB v5.0 - FINAL                                     ║');
-console.log('║   ✅ fixture_id mapping fixed                                ║');
-console.log('║   ✅ Live matches always have odds (default: 2.50/3.20/2.80)║');
-console.log('║   ✅ All matches include home_team/away_team objects         ║');
-console.log('║   💡 Use: refreshLiveOdds() to update live match odds       ║');
-console.log('╚══════════════════════════════════════════════════════════════╝');
+// Export for different environments
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { supaClient, supaDB, DEFAULT_ODDS };
+}
+
+// Make available globally in browser
+if (typeof window !== 'undefined') {
+    window.supabaseClient = supaClient;
+    window.supaDB = supaDB;
+}
+
+console.log('📦 Supabase DB Client v6.0 - Ready');
+console.log('   Methods: upsertMatch, getLiveMatches, getUpcomingMatches, insertBet, etc.');
