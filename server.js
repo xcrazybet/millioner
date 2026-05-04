@@ -1,9 +1,4 @@
-// ============================================
-// server.js - Clean Backend API Server
-// ✅ No browser code - Node.js compatible
-// ✅ Works on Render Web Service
-// ============================================
-
+// server.js - WITH REAL FOOTBALL DATA
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -11,37 +6,88 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
+// API-Football configuration
+const API_FOOTBALL_KEY = 'YOUR_API_KEY_HERE'; // Get from https://www.api-football.com/
+const API_FOOTBALL_URL = 'https://v3.football.api-sports.io';
+
 app.use(cors());
 app.use(express.json());
 
-// Health check endpoint
+// Health check
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// ===== SPORTS API ENDPOINTS =====
-
-// Get fixtures for the week
+// Get fixtures for the week (today + next 7 days)
 app.get('/api/fixtures/week', async (req, res) => {
     try {
-        // You can replace this with your actual data source
-        // For now, returns sample structure
+        // Calculate date range
+        const today = new Date();
+        const nextWeek = new Date(today);
+        nextWeek.setDate(today.getDate() + 7);
+        
+        const from = today.toISOString().split('T')[0];
+        const to = nextWeek.toISOString().split('T')[0];
+        
+        console.log(`📅 Fetching fixtures from ${from} to ${to}`);
+        
+        const response = await axios.get(`${API_FOOTBALL_URL}/fixtures`, {
+            params: {
+                from: from,
+                to: to,
+                timezone: 'UTC'
+            },
+            headers: {
+                'x-rapidapi-key': API_FOOTBALL_KEY,
+                'x-rapidapi-host': 'v3.football.api-sports.io'
+            }
+        });
+        
+        // Transform data to match your frontend format
+        const fixtures = response.data.response.map(fixture => ({
+            fixture: {
+                id: fixture.fixture.id,
+                date: fixture.fixture.date,
+                status: fixture.fixture.status
+            },
+            league: {
+                id: fixture.league.id,
+                name: fixture.league.name,
+                logo: fixture.league.logo
+            },
+            teams: {
+                home: {
+                    id: fixture.teams.home.id,
+                    name: fixture.teams.home.name,
+                    logo: fixture.teams.home.logo
+                },
+                away: {
+                    id: fixture.teams.away.id,
+                    name: fixture.teams.away.name,
+                    logo: fixture.teams.away.logo
+                }
+            },
+            goals: {
+                home: fixture.goals.home,
+                away: fixture.goals.away
+            }
+        }));
+        
         res.json({
             success: true,
-            data: [],
-            message: 'API endpoint working. Configure your data source.',
+            data: fixtures,
+            count: fixtures.length,
+            date_range: { from, to },
             timestamp: new Date().toISOString()
         });
+        
     } catch (error) {
-        console.error('Error in /api/fixtures/week:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
+        console.error('Error fetching fixtures:', error.message);
+        res.json({
+            success: false,
+            data: [],
+            error: error.message,
+            timestamp: new Date().toISOString()
         });
     }
 });
@@ -49,51 +95,53 @@ app.get('/api/fixtures/week', async (req, res) => {
 // Get live scores
 app.get('/api/livescores', async (req, res) => {
     try {
+        const response = await axios.get(`${API_FOOTBALL_URL}/fixtures`, {
+            params: { live: 'all' },
+            headers: {
+                'x-rapidapi-key': API_FOOTBALL_KEY,
+                'x-rapidapi-host': 'v3.football.api-sports.io'
+            }
+        });
+        
+        const liveMatches = response.data.response.filter(f => 
+            f.fixture.status.short === '1H' || 
+            f.fixture.status.short === '2H' || 
+            f.fixture.status.short === 'HT'
+        );
+        
         res.json({
             success: true,
-            data: [],
-            message: 'Live scores endpoint working',
+            data: liveMatches,
+            count: liveMatches.length,
             timestamp: new Date().toISOString()
         });
+        
     } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
-    }
-});
-
-// Get fixtures for today
-app.get('/api/fixtures/today', async (req, res) => {
-    try {
-        res.json({
-            success: true,
-            data: [],
-            message: 'Today fixtures endpoint working',
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
+        res.json({ success: false, data: [], error: error.message });
     }
 });
 
 // Get leagues
 app.get('/api/leagues', async (req, res) => {
     try {
-        res.json({
-            success: true,
-            data: [],
-            message: 'Leagues endpoint working',
-            timestamp: new Date().toISOString()
+        const response = await axios.get(`${API_FOOTBALL_URL}/leagues`, {
+            headers: {
+                'x-rapidapi-key': API_FOOTBALL_KEY,
+                'x-rapidapi-host': 'v3.football.api-sports.io'
+            }
         });
+        
+        const leagues = response.data.response.map(l => ({
+            id: l.league.id,
+            name: l.league.name,
+            logo: l.league.logo,
+            country: l.country.name
+        }));
+        
+        res.json({ success: true, data: leagues, count: leagues.length });
+        
     } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
+        res.json({ success: false, data: [], error: error.message });
     }
 });
 
@@ -101,17 +149,18 @@ app.get('/api/leagues', async (req, res) => {
 app.get('/api/fixtures/events/:id', async (req, res) => {
     try {
         const fixtureId = req.params.id;
-        res.json({
-            success: true,
-            data: [],
-            fixtureId: fixtureId,
-            message: 'Events endpoint working'
+        const response = await axios.get(`${API_FOOTBALL_URL}/fixtures/events`, {
+            params: { fixture: fixtureId },
+            headers: {
+                'x-rapidapi-key': API_FOOTBALL_KEY,
+                'x-rapidapi-host': 'v3.football.api-sports.io'
+            }
         });
+        
+        res.json({ success: true, data: response.data.response });
+        
     } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
+        res.json({ success: false, data: [], error: error.message });
     }
 });
 
@@ -119,22 +168,21 @@ app.get('/api/fixtures/events/:id', async (req, res) => {
 app.get('/', (req, res) => {
     res.json({
         name: 'X Lodon Sports API',
-        version: '1.0.0',
+        version: '2.0.0',
+        status: 'active',
         endpoints: {
-            health: '/health',
             fixtures: '/api/fixtures/week',
             livescores: '/api/livescores',
-            today: '/api/fixtures/today',
             leagues: '/api/leagues',
             events: '/api/fixtures/events/:id'
         }
     });
 });
 
-// Start server
 app.listen(PORT, () => {
     console.log(`========================================`);
     console.log(`🚀 API Server running on port ${PORT}`);
-    console.log(`📍 Health check: http://localhost:${PORT}/health`);
+    console.log(`📍 Health: http://localhost:${PORT}/health`);
+    console.log(`📍 Fixtures: http://localhost:${PORT}/api/fixtures/week`);
     console.log(`========================================`);
 });
