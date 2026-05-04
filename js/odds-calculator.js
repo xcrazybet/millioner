@@ -1,221 +1,190 @@
 // ============================================
-// GLOBAL STANDARD ODDS CALCULATOR
-// X Lodon Betting Platform
+// odds-calculator.js - Professional Odds Calculator
+// ✅ Calculates odds based on team strength
+// ✅ Supports all bet types
 // ============================================
 
-const ODDS_CONFIG = {
-    houseEdge: 0.95,        // 5% house advantage
-    homeAdvantage: 0.15,    // 15% boost to home team
-    minOdds: 1.10,
-    maxOdds: 100.00
+// Team strength database (simplified)
+const TEAM_STRENGTH = {
+    // Premier League
+    'Manchester United': 85,
+    'Liverpool': 88,
+    'Arsenal': 84,
+    'Chelsea': 82,
+    'Manchester City': 92,
+    'Tottenham': 80,
+    'Newcastle': 78,
+    // La Liga
+    'Real Madrid': 90,
+    'Barcelona': 89,
+    'Atletico Madrid': 83,
+    // Serie A
+    'Juventus': 84,
+    'AC Milan': 82,
+    'Inter Milan': 86,
+    // Bundesliga
+    'Bayern Munich': 91,
+    'Borussia Dortmund': 85,
+    // Default
+    'default': 75
 };
 
-// ===== TEAM STRENGTH CALCULATION =====
-
-function calculateTeamStrength(teamStats) {
-    // Default stats if none provided
-    const stats = teamStats || {
-        played: 10,
-        wins: 4,
-        draws: 3,
-        losses: 3,
-        goalsFor: 15,
-        goalsAgainst: 12,
-        recentForm: ['W', 'D', 'L', 'W', 'D']
-    };
-    
-    // Win rate (40% weight)
-    const winRate = stats.wins / stats.played;
-    
-    // Goal ratio (30% weight) - normalized to ~1.0 average
-    const goalRatio = (stats.goalsFor / stats.played) / 1.5;
-    const cappedGoalRatio = Math.min(2.0, Math.max(0.5, goalRatio));
-    
-    // Recent form (30% weight)
-    let formPoints = 0;
-    if (stats.recentForm && stats.recentForm.length > 0) {
-        const last5 = stats.recentForm.slice(0, 5);
-        last5.forEach(result => {
-            if (result === 'W') formPoints += 3;
-            else if (result === 'D') formPoints += 1;
-        });
-        formPoints = formPoints / (last5.length * 3);
-    } else {
-        formPoints = 0.5;
-    }
-    
-    // Weighted average
-    const strength = (winRate * 0.4) + (cappedGoalRatio * 0.3) + (formPoints * 0.3);
-    
-    return Math.min(1.0, Math.max(0.1, strength));
-}
-
-// ===== PROBABILITY CALCULATION =====
-
-function calculateProbabilities(homeStrength, awayStrength) {
-    // Base probabilities (before adjustment)
-    let homeProb = 0.40;
-    let drawProb = 0.25;
-    let awayProb = 0.35;
-    
-    // Adjust for team strength difference
-    const strengthDiff = homeStrength - awayStrength;
-    
-    homeProb += strengthDiff * 0.20;
-    awayProb -= strengthDiff * 0.20;
-    drawProb += (1 - (homeProb + awayProb)) * 0.3;
-    
-    // Apply home advantage
-    homeProb += ODDS_CONFIG.homeAdvantage;
-    awayProb -= ODDS_CONFIG.homeAdvantage * 0.5;
-    drawProb -= ODDS_CONFIG.homeAdvantage * 0.5;
-    
-    // Ensure all probabilities are positive
-    homeProb = Math.max(0.15, Math.min(0.70, homeProb));
-    drawProb = Math.max(0.10, Math.min(0.35, drawProb));
-    awayProb = Math.max(0.10, Math.min(0.60, awayProb));
-    
-    // Normalize to 100%
-    const total = homeProb + drawProb + awayProb;
-    
-    return {
-        home: homeProb / total,
-        draw: drawProb / total,
-        away: awayProb / total
-    };
-}
-
-// ===== ODDS CALCULATION =====
-
-function probabilitiesToOdds(probabilities) {
-    // Convert probability to decimal odds (with house edge)
-    let homeOdds = (1 / probabilities.home) * ODDS_CONFIG.houseEdge;
-    let drawOdds = (1 / probabilities.draw) * ODDS_CONFIG.houseEdge;
-    let awayOdds = (1 / probabilities.away) * ODDS_CONFIG.houseEdge;
-    
-    // Apply min/max bounds
-    homeOdds = Math.min(ODDS_CONFIG.maxOdds, Math.max(ODDS_CONFIG.minOdds, homeOdds));
-    drawOdds = Math.min(ODDS_CONFIG.maxOdds, Math.max(ODDS_CONFIG.minOdds, drawOdds));
-    awayOdds = Math.min(ODDS_CONFIG.maxOdds, Math.max(ODDS_CONFIG.minOdds, awayOdds));
-    
-    // Round to 2 decimal places
-    return {
-        home: Math.round(homeOdds * 100) / 100,
-        draw: Math.round(drawOdds * 100) / 100,
-        away: Math.round(awayOdds * 100) / 100
-    };
-}
-
-function calculateMatchOdds(homeTeam, awayTeam, homeStats = null, awayStats = null) {
-    // Calculate team strengths
-    const homeStrength = calculateTeamStrength(homeStats);
-    const awayStrength = calculateTeamStrength(awayStats);
-    
-    // Calculate probabilities
-    const probabilities = calculateProbabilities(homeStrength, awayStrength);
-    
-    // Convert to odds
-    const odds = probabilitiesToOdds(probabilities);
-    
-    return {
-        odds: odds,
-        probabilities: {
-            home: Math.round(probabilities.home * 100),
-            draw: Math.round(probabilities.draw * 100),
-            away: Math.round(probabilities.away * 100)
-        },
-        strengths: {
-            home: Math.round(homeStrength * 100) / 100,
-            away: Math.round(awayStrength * 100) / 100
+function getTeamStrength(teamName) {
+    for (const [name, strength] of Object.entries(TEAM_STRENGTH)) {
+        if (teamName.toLowerCase().includes(name.toLowerCase())) {
+            return strength;
         }
-    };
+    }
+    return TEAM_STRENGTH.default;
 }
 
-// ===== ODDS FORMATTING =====
-
-function formatOdds(odds) {
-    if (typeof odds === 'number') {
-        return odds.toFixed(2);
-    }
+// Calculate 1X2 odds
+function calculateMatchOdds(homeTeam, awayTeam) {
+    const homeStrength = getTeamStrength(homeTeam);
+    const awayStrength = getTeamStrength(awayTeam);
+    
+    const totalStrength = homeStrength + awayStrength;
+    const homeProb = homeStrength / totalStrength;
+    const awayProb = awayStrength / totalStrength;
+    const drawProb = 1 - (homeProb + awayProb);
+    
+    // Add margin (typically 5-10%)
+    const margin = 1.08;
+    
+    const homeOdds = (1 / homeProb) * margin;
+    const drawOdds = (1 / drawProb) * margin;
+    const awayOdds = (1 / awayProb) * margin;
+    
     return {
-        home: odds.home.toFixed(2),
-        draw: odds.draw.toFixed(2),
-        away: odds.away.toFixed(2)
+        home: Math.min(homeOdds.toFixed(2), 5.00),
+        draw: Math.min(drawOdds.toFixed(2), 4.50),
+        away: Math.min(awayOdds.toFixed(2), 5.00)
     };
 }
 
-function formatOddsDisplay(odds, betType) {
-    const value = odds[betType];
-    return `${value.toFixed(2)}x`;
-}
-
-// ===== POTENTIAL WIN CALCULATOR =====
-
-function calculatePotentialWin(amount, odds) {
-    return amount * odds;
-}
-
-function calculatePayout(betAmount, odds, betType) {
-    const winAmount = betAmount * odds[betType];
+// Calculate Over/Under 2.5 odds
+function calculateOverUnderOdds(homeTeam, awayTeam) {
+    const homeStrength = getTeamStrength(homeTeam);
+    const awayStrength = getTeamStrength(awayTeam);
+    
+    // Calculate expected goals
+    const expectedGoals = ((homeStrength + awayStrength) / 100) * 2.5;
+    
+    // Simple probability model
+    const overProb = Math.min(expectedGoals / 3, 0.65);
+    const underProb = 1 - overProb;
+    
+    const margin = 1.08;
+    
     return {
-        stake: betAmount,
-        profit: winAmount - betAmount,
-        totalReturn: winAmount
+        over25: (1 / overProb * margin).toFixed(2),
+        under25: (1 / underProb * margin).toFixed(2)
     };
 }
 
-// ===== BATCH ODDS UPDATE =====
-
-async function updateOddsForAllMatches() {
-    if (!firebase || !firebase.firestore) {
-        console.error('Firebase not initialized');
-        return;
-    }
+// Calculate BTTS odds
+function calculateBTTSOdds(homeTeam, awayTeam) {
+    const homeStrength = getTeamStrength(homeTeam);
+    const awayStrength = getTeamStrength(awayTeam);
     
-    const db = firebase.firestore();
+    // Probability both teams score
+    const homeScoreProb = homeStrength / 100;
+    const awayScoreProb = awayStrength / 100;
+    const bttsProb = homeScoreProb * awayScoreProb;
     
-    try {
-        const snapshot = await db.collection('sports_matches')
-            .where('status', '==', 'upcoming')
-            .get();
-        
-        console.log(`Updating odds for ${snapshot.size} upcoming matches`);
-        
-        const batch = db.batch();
-        
-        snapshot.forEach(doc => {
-            const match = doc.data();
-            const result = calculateMatchOdds(match.homeTeam, match.awayTeam);
-            
-            batch.update(doc.ref, {
-                odds: result.odds,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-        });
-        
-        await batch.commit();
-        console.log('Odds updated successfully');
-        
-    } catch (error) {
-        console.error('Error updating odds:', error);
-    }
+    const margin = 1.08;
+    
+    return {
+        yes: (1 / bttsProb * margin).toFixed(2),
+        no: (1 / (1 - bttsProb) * margin).toFixed(2)
+    };
 }
 
-// ===== TEST FUNCTION =====
-
-function testOddsCalculator() {
-    const testHomeTeam = { name: 'Arsenal' };
-    const testAwayTeam = { name: 'Chelsea' };
+// Calculate Double Chance odds
+function calculateDoubleChanceOdds(homeOdds, drawOdds, awayOdds) {
+    const homeDraw = 1 / ((1 / homeOdds) + (1 / drawOdds));
+    const homeAway = 1 / ((1 / homeOdds) + (1 / awayOdds));
+    const drawAway = 1 / ((1 / drawOdds) + (1 / awayOdds));
     
-    const result = calculateMatchOdds(testHomeTeam, testAwayTeam);
-    
-    console.log('=== Odds Calculator Test ===');
-    console.log(`Match: ${testHomeTeam.name} vs ${testAwayTeam.name}`);
-    console.log(`Odds: Home ${result.odds.home} | Draw ${result.odds.draw} | Away ${result.odds.away}`);
-    console.log(`Probabilities: Home ${result.probabilities.home}% | Draw ${result.probabilities.draw}% | Away ${result.probabilities.away}%`);
-    
-    return result;
+    return {
+        '1X': homeDraw.toFixed(2),
+        '12': homeAway.toFixed(2),
+        'X2': drawAway.toFixed(2)
+    };
 }
 
-// Auto-run test on load (optional)
-// window.addEventListener('load', testOddsCalculator);
+// Calculate Corner odds
+function calculateCornerOdds(homeTeam, awayTeam) {
+    const homeStrength = getTeamStrength(homeTeam);
+    const awayStrength = getTeamStrength(awayTeam);
+    
+    const totalStrength = homeStrength + awayStrength;
+    const expectedCorners = (totalStrength / 100) * 10;
+    
+    const overProb = Math.min(expectedCorners / 12, 0.6);
+    const underProb = 1 - overProb;
+    
+    const margin = 1.10;
+    
+    return {
+        over95: (1 / overProb * margin).toFixed(2),
+        under95: (1 / underProb * margin).toFixed(2)
+    };
+}
+
+// Calculate Card odds
+function calculateCardOdds(homeTeam, awayTeam) {
+    // Cards are more random, use simpler model
+    const homeStrength = getTeamStrength(homeTeam);
+    const awayStrength = getTeamStrength(awayTeam);
+    
+    // Aggressive teams get more cards
+    const homeAggression = homeStrength > 85 ? 1.2 : 0.8;
+    const awayAggression = awayStrength > 85 ? 1.2 : 0.8;
+    
+    const expectedCards = 4.5 * ((homeAggression + awayAggression) / 2);
+    const overProb = Math.min(expectedCards / 6, 0.55);
+    const underProb = 1 - overProb;
+    
+    const margin = 1.12;
+    
+    return {
+        over45: (1 / overProb * margin).toFixed(2),
+        under45: (1 / underProb * margin).toFixed(2)
+    };
+}
+
+// Calculate Asian Handicap odds
+function calculateAsianHandicapOdds(homeTeam, awayTeam) {
+    const homeStrength = getTeamStrength(homeTeam);
+    const awayStrength = getTeamStrength(awayTeam);
+    
+    const strengthDiff = (homeStrength - awayStrength) / 10;
+    let handicap = 0;
+    
+    if (strengthDiff > 1.5) handicap = -1.5;
+    else if (strengthDiff > 0.5) handicap = -0.75;
+    else if (strengthDiff > -0.5) handicap = 0;
+    else if (strengthDiff > -1.5) handicap = 0.75;
+    else handicap = 1.5;
+    
+    return {
+        handicap: handicap,
+        home: (1.90 + (strengthDiff * 0.1)).toFixed(2),
+        away: (1.90 - (strengthDiff * 0.1)).toFixed(2)
+    };
+}
+
+// Export
+window.OddsCalculator = {
+    calculateMatchOdds,
+    calculateOverUnderOdds,
+    calculateBTTSOdds,
+    calculateDoubleChanceOdds,
+    calculateCornerOdds,
+    calculateCardOdds,
+    calculateAsianHandicapOdds,
+    getTeamStrength
+};
+
+console.log('📊 Odds Calculator v1.0 - Ready');
