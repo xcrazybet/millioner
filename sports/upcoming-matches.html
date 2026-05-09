@@ -46,13 +46,16 @@
         .league-matches.collapsed { display: none; }
         .match-row { display: flex; align-items: center; gap: 10px; padding: 12px 15px; border-bottom: 1px solid #ffffff0a; transition: background 0.2s; flex-wrap: wrap; }
         .match-row:hover { background: #ffffff08; }
-        .match-time-col { text-align: center; min-width: 70px; }
+        .match-time-col { text-align: center; min-width: 90px; }
         .match-time { font-weight: bold; color: #00ff9d; font-size: 13px; }
-        .match-countdown { font-size: 10px; color: #a0a8c9; }
-        .team-col { flex: 2; display: flex; align-items: center; gap: 8px; min-width: 200px; }
-        .team-logo { width: 28px; height: 28px; object-fit: contain; border-radius: 50%; background: #1a2332; padding: 2px; }
+        .match-countdown { font-size: 11px; font-weight: bold; font-family: monospace; background: #0a0f1a; padding: 3px 6px; border-radius: 6px; display: inline-block; margin-top: 4px; }
+        .countdown-warning { color: #ff9800; }
+        .countdown-danger { color: #ff5252; animation: blink 1s infinite; }
+        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .team-col { flex: 2; display: flex; align-items: center; gap: 8px; min-width: 220px; }
+        .team-logo { width: 32px; height: 32px; object-fit: contain; border-radius: 50%; background: #1a2332; padding: 3px; }
         .team-name { font-weight: 500; font-size: 13px; }
-        .vs { color: #ff9800; margin: 0 5px; font-size: 11px; }
+        .vs { color: #ff9800; margin: 0 5px; font-size: 11px; font-weight: bold; }
         .odds-col { display: flex; gap: 6px; }
         .odd-mini { padding: 6px 12px; background: #0a0f1a; border-radius: 8px; text-align: center; min-width: 55px; border: 1px solid #ffffff11; cursor: pointer; transition: all 0.2s; }
         .odd-mini:hover { background: #00ff9d22; border-color: #00ff9d; transform: scale(1.02); }
@@ -64,7 +67,7 @@
         .bet-btn:hover { transform: scale(1.02); background: #00cc7d; }
         .slip-btn { background: #ff9800; color: black; }
         .slip-btn:hover { transform: scale(1.02); background: #e68900; }
-        .bet-slip { position: fixed; bottom: 0; left: 0; right: 0; background: #111827; border-top: 2px solid #ff9800; padding: 15px; z-index: 1000; max-height: 280px; overflow-y: auto; }
+        .bet-slip { position: fixed; bottom: 0; left: 0; right: 0; background: #111827; border-top: 2px solid #ff9800; padding: 15px; z-index: 1000; max-height: 300px; overflow-y: auto; }
         .slip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
         .slip-title { color: #ff9800; font-weight: 600; }
         .slip-clear { color: #ff5252; font-size: 12px; cursor: pointer; }
@@ -77,6 +80,7 @@
         .empty-state { text-align: center; padding: 60px; color: #a0a8c9; }
         .today-badge { background: #ff5252; color: white; font-size: 10px; padding: 2px 8px; border-radius: 12px; margin-left: 8px; animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+        .future-badge { background: #00ff9d22; color: #00ff9d; font-size: 10px; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
         .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #00ff9d; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 768px) {
@@ -113,7 +117,7 @@
         </div>
         
         <div class="selector-bar">
-            <select id="league-filter" class="league-select"><option value="all">🏆 All Leagues</option></select>
+            <select id="league-filter" class="league-select"><option value="all">🏆 All Leagues (Worldwide)</option></select>
             <input type="text" id="search-input" class="search-input" placeholder="🔍 Search team or league..." oninput="filterMatches()">
             <input type="date" id="date-filter" class="date-filter" onchange="filterMatches()">
         </div>
@@ -124,7 +128,7 @@
             <button class="sync-btn" onclick="manualSync()"><i class="fas fa-cloud-download-alt"></i> Sync Now</button>
         </div>
         
-        <div id="matches-container"><div style="text-align:center;padding:50px;"><div class="loading-spinner"></div> Loading upcoming matches...</div></div>
+        <div id="matches-container"><div style="text-align:center;padding:50px;"><div class="loading-spinner"></div> Loading matches for next 7 days...</div></div>
     </div>
     
     <div class="bet-slip" id="bet-slip" style="display:none;">
@@ -204,20 +208,23 @@
         async function loadMatches() {
             if (!window.supaDB) { document.getElementById('debug-text').innerHTML = '⚠️ Waiting for database...'; return; }
             try {
-                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading...';
+                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading matches for next 7 days...';
                 const matches = await window.supaDB.getUpcomingMatches();
                 allMatches = matches || [];
                 
+                // Get date range for display
                 const today = new Date(); today.setHours(0,0,0,0);
+                const nextWeek = new Date(today); nextWeek.setDate(today.getDate() + 7);
+                
                 const todayMatches = allMatches.filter(m => { const d = new Date(m.start_time); d.setHours(0,0,0,0); return d.getTime() === today.getTime(); }).length;
                 const futureMatches = allMatches.length - todayMatches;
                 const uniqueDates = [...new Set(allMatches.map(m => new Date(m.start_time).toDateString()))];
                 const uniqueLeagues = [...new Set(allMatches.map(m => m.league_name))];
                 
-                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayMatches} | Next 7 days: ${futureMatches}) | ${uniqueDates.length} days | ${uniqueLeagues.length} leagues`;
+                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayMatches} | Next 7 days: ${futureMatches}) | ${uniqueDates.length} days | ${uniqueLeagues.length} leagues | Range: ${today.toDateString()} - ${nextWeek.toDateString()}`;
                 
                 if (allMatches.length === 0) {
-                    document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found. Click "Sync Now" to load data.</p><button onclick="manualSync()" style="margin-top:15px;padding:10px 20px;background:#ff9800;color:black;border:none;border-radius:8px;cursor:pointer;">Sync Now</button></div>`;
+                    document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found. Click "Sync Now" to load next 7 days of matches.</p><button onclick="manualSync()" style="margin-top:15px;padding:10px 20px;background:#ff9800;color:black;border:none;border-radius:8px;cursor:pointer;">Sync Now</button></div>`;
                 } else {
                     filterMatches();
                     startCountdowns();
@@ -232,7 +239,7 @@
             if (selectedLeague !== 'all') filtered = filtered.filter(m => m.league_id == selectedLeague);
             if (search) filtered = filtered.filter(m => (m.home_team?.name || '').toLowerCase().includes(search) || (m.away_team?.name || '').toLowerCase().includes(search) || (m.league_name || '').toLowerCase().includes(search));
             if (dateFilter) { const filterDate = new Date(dateFilter); filterDate.setHours(0,0,0,0); filtered = filtered.filter(m => { const d = new Date(m.start_time); d.setHours(0,0,0,0); return d.getTime() === filterDate.getTime(); }); }
-            if (filtered.length === 0) { document.getElementById('matches-container').innerHTML = '<div class="empty-state">No matches found</div>'; return; }
+            if (filtered.length === 0) { document.getElementById('matches-container').innerHTML = '<div class="empty-state">No matches found for selected filters</div>'; return; }
             
             const groupedByDate = {};
             filtered.forEach(m => { const date = new Date(m.start_time).toDateString(); if (!groupedByDate[date]) groupedByDate[date] = []; groupedByDate[date].push(m); });
@@ -246,7 +253,8 @@
                 let label = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
                 let badge = '';
                 if (dateKey === today) badge = '<span class="today-badge"><i class="fas fa-calendar-day"></i> TODAY</span>';
-                else if (dateKey === tomorrow) badge = '<span class="today-badge"><i class="fas fa-calendar-day"></i> TOMORROW</span>';
+                else if (dateKey === tomorrow) badge = '<span class="future-badge"><i class="fas fa-calendar-day"></i> TOMORROW</span>';
+                else badge = '<span class="future-badge"><i class="fas fa-calendar-week"></i> UPCOMING</span>';
                 
                 const groupedByLeague = {};
                 groupedByDate[dateKey].forEach(m => { const ln = m.league_name || 'Other Leagues'; if (!groupedByLeague[ln]) groupedByLeague[ln] = []; groupedByLeague[ln].push(m); });
@@ -269,7 +277,7 @@
             const homeTeam = m.home_team || { name: 'Home', logo: '' };
             const awayTeam = m.away_team || { name: 'Away', logo: '' };
             const odds = m.odds || { home: 2.50, draw: 3.20, away: 2.80 };
-            return `<div class="match-row" data-fixture="${m.fixture_id}" data-time="${m.start_time}"><div class="match-time-col"><div class="match-time">${time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div><div class="match-countdown">--:--:--</div></div><div class="team-col">${homeTeam.logo ? `<img class="team-logo" src="${homeTeam.logo}" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt"></i>'}<span class="team-name">${escapeHtml(homeTeam.name)}</span><span class="vs">vs</span><span class="team-name">${escapeHtml(awayTeam.name)}</span>${awayTeam.logo ? `<img class="team-logo" src="${awayTeam.logo}" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt"></i>'}</div><div class="odds-col"><div class="odd-mini" onclick="goToMatchWithBet(${m.fixture_id}, 'home', ${odds.home})"><div class="odd-label">1</div><div class="odd-value">${odds.home}</div></div><div class="odd-mini" onclick="goToMatchWithBet(${m.fixture_id}, 'draw', ${odds.draw})"><div class="odd-label">X</div><div class="odd-value">${odds.draw}</div></div><div class="odd-mini" onclick="goToMatchWithBet(${m.fixture_id}, 'away', ${odds.away})"><div class="odd-label">2</div><div class="odd-value">${odds.away}</div></div></div><div class="match-buttons"><button class="bet-btn" onclick="goToMatch(${m.fixture_id})"><i class="fas fa-gavel"></i> Bet</button><button class="slip-btn" onclick="showAccumulatorPopup(${m.fixture_id}, '${escapeHtml(homeTeam.name)}', '${escapeHtml(awayTeam.name)}', ${odds.home}, ${odds.draw}, ${odds.away})"><i class="fas fa-plus"></i> Slip</button></div></div>`;
+            return `<div class="match-row" data-fixture="${m.fixture_id}" data-time="${m.start_time}"><div class="match-time-col"><div class="match-time">${time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div><div class="match-countdown" id="cd-${m.fixture_id}">--:--:--</div></div><div class="team-col">${homeTeam.logo ? `<img class="team-logo" src="${homeTeam.logo}" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt"></i>'}<span class="team-name">${escapeHtml(homeTeam.name)}</span><span class="vs">vs</span><span class="team-name">${escapeHtml(awayTeam.name)}</span>${awayTeam.logo ? `<img class="team-logo" src="${awayTeam.logo}" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt"></i>'}</div><div class="odds-col"><div class="odd-mini" onclick="goToMatchWithBet(${m.fixture_id}, 'home', ${odds.home})"><div class="odd-label">1</div><div class="odd-value">${odds.home}</div></div><div class="odd-mini" onclick="goToMatchWithBet(${m.fixture_id}, 'draw', ${odds.draw})"><div class="odd-label">X</div><div class="odd-value">${odds.draw}</div></div><div class="odd-mini" onclick="goToMatchWithBet(${m.fixture_id}, 'away', ${odds.away})"><div class="odd-label">2</div><div class="odd-value">${odds.away}</div></div></div><div class="match-buttons"><button class="bet-btn" onclick="goToMatch(${m.fixture_id})"><i class="fas fa-gavel"></i> Bet</button><button class="slip-btn" onclick="showAccumulatorPopup(${m.fixture_id}, '${escapeHtml(homeTeam.name)}', '${escapeHtml(awayTeam.name)}', ${odds.home}, ${odds.draw}, ${odds.away})"><i class="fas fa-plus"></i> Slip</button></div></div>`;
         }
         
         function goToMatch(fixtureId) { location.href = `match-details.html?id=${fixtureId}`; }
@@ -283,15 +291,35 @@
                     const startTime = row.dataset.time;
                     if (startTime) {
                         const diff = new Date(startTime) - new Date();
-                        const countdownEl = row.querySelector('.match-countdown');
+                        const countdownEl = document.getElementById('cd-' + row.dataset.fixture);
                         if (countdownEl) {
-                            if (diff <= 0) { countdownEl.textContent = 'Started'; countdownEl.style.color = '#ff9800'; }
-                            else { const h = Math.floor(diff/3600000), m = Math.floor((diff%3600000)/60000), s = Math.floor((diff%60000)/1000); countdownEl.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; countdownEl.style.color = '#a0a8c9'; }
+                            if (diff <= 0) { 
+                                countdownEl.textContent = 'STARTED'; 
+                                countdownEl.style.color = '#ff9800';
+                                countdownEl.classList.add('countdown-warning');
+                            } else { 
+                                const hours = Math.floor(diff / 3600000);
+                                const minutes = Math.floor((diff % 3600000) / 60000);
+                                const seconds = Math.floor((diff % 60000) / 1000);
+                                let display = '';
+                                if (hours > 0) display = `${hours}h ${minutes}m ${seconds}s`;
+                                else if (minutes > 0) display = `${minutes}m ${seconds}s`;
+                                else display = `${seconds}s`;
+                                countdownEl.textContent = display;
+                                countdownEl.style.color = '#a0a8c9';
+                                if (minutes < 15 && hours === 0) {
+                                    countdownEl.style.color = '#ff9800';
+                                    countdownEl.classList.add('countdown-warning');
+                                } else {
+                                    countdownEl.classList.remove('countdown-warning');
+                                }
+                            }
                         }
                     }
                 });
             }
-            updateCountdowns(); countdownInterval = setInterval(updateCountdowns, 1000);
+            updateCountdowns(); 
+            countdownInterval = setInterval(updateCountdowns, 1000);
         }
         
         function startAutoRefresh() { if (autoRefreshInterval) clearInterval(autoRefreshInterval); autoRefreshInterval = setInterval(() => { loadBalance(); loadMatches(); }, 60000); }
@@ -329,7 +357,7 @@
         window.removeFromSlip = removeFromSlip;
         window.clearSlip = clearSlip;
         
-        console.log('✅ Upcoming matches page ready');
+        console.log('✅ Upcoming matches page ready - Showing next 7 days with countdown timers');
     </script>
 </body>
 </html>
