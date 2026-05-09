@@ -49,9 +49,6 @@
         .match-time-col { text-align: center; min-width: 90px; }
         .match-time { font-weight: bold; color: #00ff9d; font-size: 13px; }
         .match-countdown { font-size: 11px; font-weight: bold; font-family: monospace; background: #0a0f1a; padding: 3px 6px; border-radius: 6px; display: inline-block; margin-top: 4px; }
-        .countdown-warning { color: #ff9800; }
-        .countdown-danger { color: #ff5252; animation: blink 1s infinite; }
-        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
         .team-col { flex: 2; display: flex; align-items: center; gap: 8px; min-width: 220px; }
         .team-logo { width: 32px; height: 32px; object-fit: contain; border-radius: 50%; background: #1a2332; padding: 3px; }
         .team-name { font-weight: 500; font-size: 13px; }
@@ -209,19 +206,44 @@
             if (!window.supaDB) { document.getElementById('debug-text').innerHTML = '⚠️ Waiting for database...'; return; }
             try {
                 document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading matches for next 7 days...';
-                const matches = await window.supaDB.getUpcomingMatches();
+                
+                // Calculate date range for next 7 days
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const nextWeek = new Date(today);
+                nextWeek.setDate(today.getDate() + 7);
+                
+                // Query Supabase directly for next 7 days
+                const { data: matches, error } = await supabaseClient
+                    .from('sports_matches')
+                    .select('*')
+                    .in('status', ['upcoming', 'live'])
+                    .gte('start_time', today.toISOString())
+                    .lte('start_time', nextWeek.toISOString())
+                    .order('start_time', { ascending: true });
+                
+                if (error) throw error;
+                
                 allMatches = matches || [];
                 
-                // Get date range for display
-                const today = new Date(); today.setHours(0,0,0,0);
-                const nextWeek = new Date(today); nextWeek.setDate(today.getDate() + 7);
+                // Get date distribution
+                const dateDistribution = {};
+                for (const m of allMatches) {
+                    const date = new Date(m.start_time).toDateString();
+                    dateDistribution[date] = (dateDistribution[date] || 0) + 1;
+                }
                 
-                const todayMatches = allMatches.filter(m => { const d = new Date(m.start_time); d.setHours(0,0,0,0); return d.getTime() === today.getTime(); }).length;
+                const todayMatches = allMatches.filter(m => {
+                    const d = new Date(m.start_time);
+                    d.setHours(0, 0, 0, 0);
+                    return d.getTime() === today.getTime();
+                }).length;
+                
                 const futureMatches = allMatches.length - todayMatches;
-                const uniqueDates = [...new Set(allMatches.map(m => new Date(m.start_time).toDateString()))];
+                const uniqueDates = Object.keys(dateDistribution);
                 const uniqueLeagues = [...new Set(allMatches.map(m => m.league_name))];
                 
-                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayMatches} | Next 7 days: ${futureMatches}) | ${uniqueDates.length} days | ${uniqueLeagues.length} leagues | Range: ${today.toDateString()} - ${nextWeek.toDateString()}`;
+                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayMatches} | Next 7 days: ${futureMatches}) | ${uniqueDates.length}/7 days | ${uniqueLeagues.length} leagues`;
                 
                 if (allMatches.length === 0) {
                     document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found. Click "Sync Now" to load next 7 days of matches.</p><button onclick="manualSync()" style="margin-top:15px;padding:10px 20px;background:#ff9800;color:black;border:none;border-radius:8px;cursor:pointer;">Sync Now</button></div>`;
@@ -229,7 +251,10 @@
                     filterMatches();
                     startCountdowns();
                 }
-            } catch(e) { console.error(e); document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`; }
+            } catch(e) { 
+                console.error(e); 
+                document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`; 
+            }
         }
         
         function filterMatches() {
@@ -239,7 +264,7 @@
             if (selectedLeague !== 'all') filtered = filtered.filter(m => m.league_id == selectedLeague);
             if (search) filtered = filtered.filter(m => (m.home_team?.name || '').toLowerCase().includes(search) || (m.away_team?.name || '').toLowerCase().includes(search) || (m.league_name || '').toLowerCase().includes(search));
             if (dateFilter) { const filterDate = new Date(dateFilter); filterDate.setHours(0,0,0,0); filtered = filtered.filter(m => { const d = new Date(m.start_time); d.setHours(0,0,0,0); return d.getTime() === filterDate.getTime(); }); }
-            if (filtered.length === 0) { document.getElementById('matches-container').innerHTML = '<div class="empty-state">No matches found for selected filters</div>'; return; }
+            if (filtered.length === 0) { document.getElementById('matches-container').innerHTML = '<div class="empty-state">No matches found</div>'; return; }
             
             const groupedByDate = {};
             filtered.forEach(m => { const date = new Date(m.start_time).toDateString(); if (!groupedByDate[date]) groupedByDate[date] = []; groupedByDate[date].push(m); });
@@ -248,7 +273,9 @@
             const tomorrow = new Date(Date.now() + 86400000).toDateString();
             let html = '';
             
-            Object.keys(groupedByDate).sort().forEach(dateKey => {
+            const sortedDates = Object.keys(groupedByDate).sort((a, b) => new Date(a) - new Date(b));
+            
+            sortedDates.forEach(dateKey => {
                 const date = new Date(dateKey);
                 let label = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
                 let badge = '';
@@ -287,33 +314,24 @@
         function startCountdowns() {
             if (countdownInterval) clearInterval(countdownInterval);
             function updateCountdowns() {
-                document.querySelectorAll('.match-row').forEach(row => {
-                    const startTime = row.dataset.time;
-                    if (startTime) {
-                        const diff = new Date(startTime) - new Date();
-                        const countdownEl = document.getElementById('cd-' + row.dataset.fixture);
-                        if (countdownEl) {
-                            if (diff <= 0) { 
-                                countdownEl.textContent = 'STARTED'; 
-                                countdownEl.style.color = '#ff9800';
-                                countdownEl.classList.add('countdown-warning');
-                            } else { 
-                                const hours = Math.floor(diff / 3600000);
-                                const minutes = Math.floor((diff % 3600000) / 60000);
-                                const seconds = Math.floor((diff % 60000) / 1000);
-                                let display = '';
-                                if (hours > 0) display = `${hours}h ${minutes}m ${seconds}s`;
-                                else if (minutes > 0) display = `${minutes}m ${seconds}s`;
-                                else display = `${seconds}s`;
-                                countdownEl.textContent = display;
-                                countdownEl.style.color = '#a0a8c9';
-                                if (minutes < 15 && hours === 0) {
-                                    countdownEl.style.color = '#ff9800';
-                                    countdownEl.classList.add('countdown-warning');
-                                } else {
-                                    countdownEl.classList.remove('countdown-warning');
-                                }
-                            }
+                document.querySelectorAll('[id^="cd-"]').forEach(el => {
+                    const fixtureId = el.id.replace('cd-', '');
+                    const match = allMatches.find(m => m.fixture_id == fixtureId);
+                    if (match) {
+                        const diff = new Date(match.start_time) - new Date();
+                        if (diff <= 0) { 
+                            el.textContent = 'NOW'; 
+                            el.style.color = '#ff9800';
+                        } else { 
+                            const hours = Math.floor(diff / 3600000);
+                            const minutes = Math.floor((diff % 3600000) / 60000);
+                            const seconds = Math.floor((diff % 60000) / 1000);
+                            let display = '';
+                            if (hours > 0) display = `${hours}h ${minutes}m ${seconds}s`;
+                            else if (minutes > 0) display = `${minutes}m ${seconds}s`;
+                            else display = `${seconds}s`;
+                            el.textContent = display;
+                            el.style.color = '#a0a8c9';
                         }
                     }
                 });
@@ -346,8 +364,8 @@
             else { alert(`❌ Failed: ${result.error}`); }
         }
         
-        function clearSlip() { window.ACCUMULATOR_SLIP = []; saveSlip(); if (typeof window.updateSlipUI === 'function') window.updateSlipUI(); }
-        function removeFromSlip(index) { window.ACCUMULATOR_SLIP.splice(index, 1); saveSlip(); if (typeof window.updateSlipUI === 'function') window.updateSlipUI(); }
+        function clearSlip() { window.ACCUMULATOR_SLIP = []; if (typeof saveSlip === 'function') saveSlip(); if (typeof window.updateSlipUI === 'function') window.updateSlipUI(); }
+        function removeFromSlip(index) { window.ACCUMULATOR_SLIP.splice(index, 1); if (typeof saveSlip === 'function') saveSlip(); if (typeof window.updateSlipUI === 'function') window.updateSlipUI(); }
         
         window.manualSync = () => { if (typeof manualSync === 'function') manualSync(); else alert('Sync function loading...'); };
         window.goToMatch = goToMatch;
