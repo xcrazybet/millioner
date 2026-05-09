@@ -1,6 +1,6 @@
 // ============================================
-// sports-api.js - v14.0 FULL 7 DAYS SYNC
-// ✅ Syncs ALL matches for next 7 days
+// sports-api.js - v15.0 FORCES FULL 7 DAYS
+// ✅ Syncs EXACTLY 7 days (today + next 6 days)
 // ✅ Auto-settlement working
 // ✅ Runs every 30 seconds
 // ============================================
@@ -167,21 +167,24 @@ async function settleMatchBets(fixtureId, result) {
     }
 }
 
-// Sync ALL upcoming matches for 7 days
+// Sync ALL upcoming matches for EXACTLY 7 days
 async function syncUpcomingMatches() {
-    console.log('📅 Syncing upcoming matches for 7 days...');
+    console.log('📅 Syncing upcoming matches for NEXT 7 DAYS...');
     const data = await fetchAPI('/api/fixtures/week');
     
     if (data.success && data.data && data.data.length > 0) {
         console.log(`📡 API returned ${data.data.length} total matches`);
         
-        // Get today's date
+        // Get today's date at midnight UTC
         const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        today.setUTCHours(0, 0, 0, 0);
         
-        // Calculate 7 days from now
+        // Calculate 7 days from today (exactly 7 days: today + next 6 days = 7 total)
         const sevenDaysLater = new Date(today);
-        sevenDaysLater.setDate(today.getDate() + 7);
+        sevenDaysLater.setUTCDate(today.getUTCDate() + 7);
+        sevenDaysLater.setUTCHours(23, 59, 59, 999);
+        
+        console.log(`📅 Date range: ${today.toISOString()} to ${sevenDaysLater.toISOString()}`);
         
         // Filter matches for next 7 days only
         const next7DaysMatches = data.data.filter(match => {
@@ -193,17 +196,35 @@ async function syncUpcomingMatches() {
         
         // Group by date for logging
         const dateGroups = {};
-        next7DaysMatches.forEach(m => {
-            const date = new Date(m.fixture.date).toDateString();
+        for (const match of next7DaysMatches) {
+            const date = new Date(match.fixture.date).toDateString();
             dateGroups[date] = (dateGroups[date] || 0) + 1;
-        });
+        }
         console.log('📅 Matches by date:', dateGroups);
+        
+        // Count days with matches
+        const daysWithMatches = Object.keys(dateGroups).length;
+        console.log(`📅 Days with matches: ${daysWithMatches} out of 7 days`);
+        
+        // Clear old upcoming matches (older than today)
+        const { error: deleteError } = await supabaseClient
+            .from('sports_matches')
+            .delete()
+            .eq('status', 'upcoming')
+            .lt('start_time', today.toISOString());
+        
+        if (deleteError) {
+            console.warn('Delete error:', deleteError);
+        } else {
+            console.log('🗑️ Cleared old upcoming matches');
+        }
         
         let synced = 0;
         for (const match of next7DaysMatches) {
             if (await syncMatchToDB(match)) synced++;
         }
         console.log(`✅ Synced ${synced} upcoming matches to Supabase`);
+        console.log(`📊 Total matches in Supabase for next 7 days: ${synced}`);
         return synced;
     }
     return 0;
@@ -256,6 +277,28 @@ async function syncAllMatches() {
     await syncUpcomingMatches();
     await updateMatchStatuses();
     
+    // Verify what's in Supabase
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const sevenDaysLater = new Date(today);
+    sevenDaysLater.setUTCDate(today.getUTCDate() + 7);
+    
+    const { data: verify, count } = await supabaseClient
+        .from('sports_matches')
+        .select('start_time', { count: 'exact' })
+        .gte('start_time', today.toISOString())
+        .lte('start_time', sevenDaysLater.toISOString());
+    
+    const dateGroups = {};
+    if (verify) {
+        for (const v of verify) {
+            const date = new Date(v.start_time).toDateString();
+            dateGroups[date] = (dateGroups[date] || 0) + 1;
+        }
+    }
+    console.log('📊 VERIFICATION - Matches in Supabase by date:', dateGroups);
+    console.log(`📊 Total matches for next 7 days: ${count || 0}`);
+    
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`✅ SYNC COMPLETE in ${duration}s\n`);
 }
@@ -269,11 +312,11 @@ function startAutoSync() {
     if (statusInterval) clearInterval(statusInterval);
     
     setTimeout(() => syncAllMatches(), 2000);
-    syncInterval = setInterval(syncAllMatches, 30000);
+    syncInterval = setInterval(syncAllMatches, 60000); // Every 60 seconds
     statusInterval = setInterval(updateMatchStatuses, 15000);
     
-    console.log('⏰ Auto-sync active (every 30 seconds)');
-    console.log('📅 Will sync ALL matches for next 7 days');
+    console.log('⏰ Auto-sync active (every 60 seconds)');
+    console.log('📅 Will sync EXACTLY 7 days of matches (today + next 6 days)');
 }
 
 window.manualSync = syncAllMatches;
@@ -283,4 +326,4 @@ if (typeof supabaseClient !== 'undefined' && supabaseClient) {
     startAutoSync();
 }
 
-console.log('🏈 Sports API v14.0 - Full 7 Days Sync Ready');
+console.log('🏈 Sports API v15.0 - Full 7 Days Sync Ready');
