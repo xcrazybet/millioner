@@ -1,8 +1,9 @@
 // ============================================
-// supabase-client.js - v11.0 FINAL
-// ✅ FULLY AUTOMATIC - No manual commands needed
-// ✅ Auto-creates data when empty
-// ✅ Works with your existing schema
+// supabase-client.js - v13.0 COMPLETE
+// ✅ Full CRUD operations for matches and bets
+// ✅ Auto-generates data when empty
+// ✅ Works with existing schema (no bet_name required)
+// ✅ Real-time subscriptions
 // ============================================
 
 const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
@@ -19,13 +20,32 @@ if (typeof supabase !== 'undefined') {
 
 const DEFAULT_ODDS = { home: 2.50, draw: 3.20, away: 2.80 };
 
-// Auto-generate matches when database is empty
-async function autoInitializeData() {
+// ============ HELPER FUNCTIONS ============
+
+function normalizeMatch(match) {
+    return {
+        fixture_id: match.fixture_id || match.fixtureId,
+        status: match.status || 'upcoming',
+        result: match.result || null,
+        odds: match.odds || DEFAULT_ODDS,
+        league_id: match.league_id || match.leagueId || 0,
+        league_name: match.league_name || match.leagueName || 'Unknown League',
+        home_team: match.home_team || match.homeTeam || { id: 0, name: 'Home', logo: '' },
+        away_team: match.away_team || match.awayTeam || { id: 0, name: 'Away', logo: '' },
+        start_time: match.start_time || match.startTime || new Date().toISOString(),
+        score: match.score || { home: 0, away: 0 },
+        updated_at: new Date().toISOString(),
+        bets_settled: match.bets_settled || match.betsSettled || false
+    };
+}
+
+// ============ AUTO-GENERATE DATA IF EMPTY ============
+
+async function ensureDataExists() {
     if (dataInitialized) return true;
     if (!supaClient) return false;
     
     try {
-        // Check if we have any matches
         const { count, error } = await supaClient
             .from('sports_matches')
             .select('*', { count: 'exact', head: true });
@@ -48,7 +68,6 @@ async function autoInitializeData() {
     }
 }
 
-// Generate 7 days of matches
 async function generateMatches() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -72,7 +91,6 @@ async function generateMatches() {
     const matches = [];
     let fixtureId = 10000000;
     
-    // Generate for next 7 days
     for (let day = 0; day <= 7; day++) {
         const matchDate = new Date(today);
         matchDate.setDate(today.getDate() + day);
@@ -81,7 +99,6 @@ async function generateMatches() {
             const leagueTeams = teams[league.name];
             if (!leagueTeams) continue;
             
-            // 2-4 matches per league per day
             let matchesPerDay = 3;
             if (day === 0) matchesPerDay = 4;
             if (matchDate.getDay() === 0 || matchDate.getDay() === 6) matchesPerDay = 4;
@@ -98,7 +115,6 @@ async function generateMatches() {
                 const hour = 14 + (i * 2);
                 matchDate.setHours(hour, 0, 0, 0);
                 
-                // Determine status based on date
                 let status = 'upcoming';
                 let score = { home: 0, away: 0 };
                 let result = null;
@@ -138,7 +154,7 @@ async function generateMatches() {
         }
     }
     
-    // Clear any existing data
+    // Clear existing
     await supaClient.from('sports_matches').delete().neq('fixture_id', 0);
     
     // Insert in batches
@@ -157,13 +173,53 @@ async function generateMatches() {
     return inserted;
 }
 
-// ===== MAIN DATABASE INTERFACE =====
+// ============ MAIN DATABASE INTERFACE ============
+
 const supaDB = {
+    
+    // ============ MATCHES ============
+    
+    upsertMatch: async function(match) {
+        if (!supaClient) return false;
+        try {
+            const data = normalizeMatch(match);
+            if (!data.fixture_id) return false;
+            
+            const { error } = await supaClient
+                .from('sports_matches')
+                .upsert(data, { onConflict: 'fixture_id' });
+            
+            if (error) console.error('Upsert error:', error);
+            return !error;
+        } catch(e) {
+            console.error('Upsert error:', e);
+            return false;
+        }
+    },
+    
+    getLiveMatches: async function() {
+        if (!supaClient) return [];
+        try {
+            await ensureDataExists();
+            
+            const { data, error } = await supaClient
+                .from('sports_matches')
+                .select('*')
+                .eq('status', 'live')
+                .order('start_time', { ascending: true });
+            
+            if (error) return [];
+            return (data || []).map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
+        } catch(e) {
+            console.error('getLiveMatches error:', e);
+            return [];
+        }
+    },
+    
     getUpcomingMatches: async function() {
         if (!supaClient) return [];
         try {
-            // Auto-initialize if needed
-            await autoInitializeData();
+            await ensureDataExists();
             
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -178,33 +234,10 @@ const supaDB = {
                 .lte('start_time', nextWeek.toISOString())
                 .order('start_time', { ascending: true });
             
-            if (error) {
-                console.error('Query error:', error);
-                return [];
-            }
-            
-            return (data || []).map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
-        } catch(e) {
-            console.error('getUpcomingMatches error:', e);
-            return [];
-        }
-    },
-    
-    getLiveMatches: async function() {
-        if (!supaClient) return [];
-        try {
-            await autoInitializeData();
-            
-            const { data, error } = await supaClient
-                .from('sports_matches')
-                .select('*')
-                .eq('status', 'live')
-                .order('start_time', { ascending: true });
-            
             if (error) return [];
             return (data || []).map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
         } catch(e) {
-            console.error('getLiveMatches error:', e);
+            console.error('getUpcomingMatches error:', e);
             return [];
         }
     },
@@ -225,6 +258,7 @@ const supaDB = {
             if (error) return [];
             return data || [];
         } catch(e) {
+            console.error('getFinishedMatches error:', e);
             return [];
         }
     },
@@ -241,36 +275,84 @@ const supaDB = {
             if (error) return null;
             return { ...data, odds: data.odds || DEFAULT_ODDS };
         } catch(e) {
+            console.error('getMatch error:', e);
             return null;
         }
     },
     
-    insertBet: async function(bet) {
-        if (!supaClient) return { success: false };
+    getAllMatches: async function() {
+        if (!supaClient) return [];
         try {
             const { data, error } = await supaClient
+                .from('sports_matches')
+                .select('*')
+                .order('start_time', { ascending: true });
+            
+            if (error) return [];
+            return (data || []).map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
+        } catch(e) {
+            console.error('getAllMatches error:', e);
+            return [];
+        }
+    },
+    
+    // ============ BETS (Fixed - No bet_name column) ============
+    
+    insertBet: async function(bet) {
+        if (!supaClient) return { success: false, error: 'Database not connected' };
+        try {
+            // Only use columns that exist in your bets table
+            const betData = {
+                user_id: bet.userId,
+                fixture_id: bet.fixtureId,
+                bet_type: bet.betType,
+                amount: bet.amount,
+                odds: bet.odds,
+                potential_win: bet.potentialWin,
+                match_name: bet.matchName,
+                kickoff_time: bet.kickoffTime || new Date().toISOString(),
+                bet_category: bet.betCategory || 'single',
+                status: 'active',
+                placed_at: new Date().toISOString()
+            };
+            
+            // Add optional fields only if provided
+            if (bet.selections) betData.selections = bet.selections;
+            if (bet.totalOdds) betData.total_odds = bet.totalOdds;
+            
+            const { data, error } = await supaClient
                 .from('bets')
-                .insert({
-                    user_id: bet.userId,
-                    fixture_id: bet.fixtureId,
-                    bet_type: bet.betType,
-                    bet_name: bet.betName || bet.betType,
-                    amount: bet.amount,
-                    odds: bet.odds,
-                    potential_win: bet.potentialWin,
-                    match_name: bet.matchName,
-                    kickoff_time: bet.kickoffTime,
-                    bet_category: bet.betCategory || 'single',
-                    selections: bet.selections || null,
-                    total_odds: bet.totalOdds || null,
-                    status: 'active',
-                    placed_at: new Date().toISOString()
-                })
+                .insert(betData)
                 .select();
             
-            return { success: !error, data: data?.[0], error: error?.message };
+            if (error) {
+                console.error('Insert bet error:', error);
+                return { success: false, error: error.message };
+            }
+            
+            return { success: true, data: data?.[0] };
         } catch(e) {
+            console.error('Insert bet error:', e);
             return { success: false, error: e.message };
+        }
+    },
+    
+    updateBet: async function(id, updates) {
+        if (!supaClient) return false;
+        try {
+            const { error } = await supaClient
+                .from('bets')
+                .update({ ...updates, updated_at: new Date().toISOString() })
+                .eq('id', id);
+            
+            if (error) {
+                console.error('Update bet error:', error);
+                return false;
+            }
+            return true;
+        } catch(e) {
+            console.error('Update bet error:', e);
+            return false;
         }
     },
     
@@ -286,20 +368,8 @@ const supaDB = {
             if (error) return [];
             return data || [];
         } catch(e) {
+            console.error('getUserBets error:', e);
             return [];
-        }
-    },
-    
-    updateBet: async function(id, updates) {
-        if (!supaClient) return false;
-        try {
-            const { error } = await supaClient
-                .from('bets')
-                .update({ ...updates, updated_at: new Date().toISOString() })
-                .eq('id', id);
-            return !error;
-        } catch(e) {
-            return false;
         }
     },
     
@@ -315,14 +385,100 @@ const supaDB = {
             if (error) return [];
             return data || [];
         } catch(e) {
+            console.error('getActiveBets error:', e);
             return [];
         }
     },
     
+    getBetById: async function(betId) {
+        if (!supaClient) return null;
+        try {
+            const { data, error } = await supaClient
+                .from('bets')
+                .select('*')
+                .eq('id', betId)
+                .single();
+            
+            if (error) return null;
+            return data || null;
+        } catch(e) {
+            console.error('getBetById error:', e);
+            return null;
+        }
+    },
+    
+    getUserBetCounts: async function(userId) {
+        if (!supaClient) return { total: 0, active: 0, won: 0, lost: 0 };
+        try {
+            const { data, error } = await supaClient
+                .from('bets')
+                .select('status')
+                .eq('user_id', userId);
+            
+            if (error || !data) return { total: 0, active: 0, won: 0, lost: 0 };
+            
+            return {
+                total: data.length,
+                active: data.filter(b => b.status === 'active').length,
+                won: data.filter(b => b.status === 'won').length,
+                lost: data.filter(b => b.status === 'lost').length
+            };
+        } catch(e) {
+            console.error('getUserBetCounts error:', e);
+            return { total: 0, active: 0, won: 0, lost: 0 };
+        }
+    },
+    
+    // ============ UTILITIES ============
+    
     refreshData: async function() {
         return await generateMatches();
+    },
+    
+    cleanOldMatches: async function() {
+        if (!supaClient) return;
+        try {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            
+            const { error } = await supaClient
+                .from('sports_matches')
+                .delete()
+                .eq('status', 'finished')
+                .lt('start_time', sevenDaysAgo.toISOString());
+            
+            if (!error) console.log('🗑️ Cleaned old finished matches');
+        } catch(e) {
+            console.error('Clean error:', e);
+        }
+    },
+    
+    // Subscribe to real-time updates
+    subscribeToMatches: function(callback) {
+        if (!supaClient) return null;
+        
+        const subscription = supaClient
+            .channel('sports_matches_changes')
+            .on('postgres_changes', 
+                { event: '*', schema: 'public', table: 'sports_matches' },
+                (payload) => {
+                    console.log('🔄 Match update:', payload.eventType);
+                    if (callback) callback(payload);
+                }
+            )
+            .subscribe();
+        
+        return subscription;
     }
 };
+
+// Auto-initialize on load
+setTimeout(async () => {
+    if (supaClient) {
+        await ensureDataExists();
+        await supaDB.cleanOldMatches();
+    }
+}, 2000);
 
 // Export for browser
 if (typeof window !== 'undefined') {
@@ -331,6 +487,11 @@ if (typeof window !== 'undefined') {
     window.refreshSportsData = () => supaDB.refreshData();
 }
 
-console.log('📦 Supabase Client v11.0 - FULLY AUTOMATIC');
-console.log('   ✅ Auto-creates data when empty');
-console.log('   ✅ No manual commands needed');
+console.log('╔══════════════════════════════════════════════════════════════╗');
+console.log('║   📦 Supabase Client v13.0 - COMPLETE                        ║');
+console.log('║   ✅ Auto-generates data when empty                          ║');
+console.log('║   ✅ Full CRUD for matches and bets                          ║');
+console.log('║   ✅ No bet_name column required                             ║');
+console.log('║   💡 Methods: getUpcomingMatches(), getLiveMatches()         ║');
+console.log('║   💡 Bets: insertBet(), getUserBets(), updateBet()          ║');
+console.log('╚══════════════════════════════════════════════════════════════╝');
