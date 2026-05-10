@@ -45,7 +45,6 @@
         @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
         .match-minute { background: #ff5252; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
         .match-minute.ht { background: #ff9800; }
-        .match-minute.ft { background: #a0a8c9; color: black; }
         .teams-section { display: flex; align-items: center; justify-content: space-around; margin: 15px 0; flex-wrap: wrap; gap: 15px; }
         .team-block { text-align: center; flex: 1; min-width: 100px; }
         .team-logo { width: 60px; height: 60px; margin: 0 auto 8px; object-fit: contain; background: rgba(255,255,255,0.08); border-radius: 50%; padding: 8px; }
@@ -68,6 +67,7 @@
         .odd-box .value { font-size: 16px; font-weight: bold; color: #00ff9d; }
         .bet-open-btn { width: 100%; margin-top: 15px; padding: 10px; background: #00ff9d; color: black; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
         .bet-open-btn:hover { background: #00cc7d; transform: scale(1.02); }
+        .bet-closed-btn { width: 100%; margin-top: 15px; padding: 10px; background: #a0a8c9; color: #333; border: none; border-radius: 25px; font-weight: bold; cursor: not-allowed; }
         .countdown-timer { font-size: 11px; text-align: center; margin-top: 10px; padding: 5px; border-radius: 8px; background: #1a2332; }
         .countdown-warning { background: #ff525222; color: #ff5252; }
         .empty-state { text-align: center; padding: 60px; color: #a0a8c9; }
@@ -113,7 +113,7 @@
         <div class="debug-bar">
             <i class="fas fa-play-circle"></i> <span id="debug-text">Loading live matches...</span>
             <button class="refresh-btn" onclick="loadLiveMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
-            <button class="sync-btn" onclick="forceSyncMatches()"><i class="fas fa-cloud-download-alt"></i> Sync</button>
+            <button class="sync-btn" onclick="forceStatusUpdate()"><i class="fas fa-clock"></i> Update Status</button>
         </div>
         
         <div class="live-header">
@@ -124,6 +124,7 @@
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-futbol" style="font-size:48px; opacity:0.3;"></i>
             <p>No live matches at the moment</p>
+            <p style="font-size:12px; margin-top:10px;">Matches that have ended are automatically moved to Results</p>
             <button onclick="location.href='upcoming-matches.html'" style="margin-top:15px;padding:10px 20px;background:#ff9800;color:black;border:none;border-radius:8px;cursor:pointer;">View Upcoming Matches</button>
         </div>
     </div>
@@ -134,6 +135,7 @@
         let liveMatches = [];
         let refreshInterval = null;
         let eventInterval = null;
+        let statusInterval = null;
         let countdownIntervals = {};
         let selectedLeague = 'all';
         let previousScores = {};
@@ -190,16 +192,11 @@
             document.getElementById('league-filter').onchange = (e) => { selectedLeague = e.target.value; filterMatches(); };
         }
         
-        async function forceSyncMatches() {
-            document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Syncing...';
-            if (typeof manualSync === 'function') {
-                await manualSync();
-            } else if (typeof syncAllMatches === 'function') {
-                await syncAllMatches();
-            } else if (window.sportsApi && window.sportsApi.syncAllMatches) {
-                await window.sportsApi.syncAllMatches();
-            } else {
-                console.log('No sync function found');
+        async function forceStatusUpdate() {
+            document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Updating statuses...';
+            if (typeof updateStatuses === 'function') {
+                const updated = await updateStatuses();
+                console.log(`Updated ${updated} matches`);
             }
             await loadLiveMatches();
         }
@@ -211,13 +208,20 @@
             }
             
             try {
-                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading live matches from database...';
+                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading live matches...';
                 
-                // DIRECT QUERY to Supabase for live matches
-                const { data: liveData, error, count } = await supabaseClient
+                // Get current time
+                const now = new Date();
+                const nowISO = now.toISOString();
+                
+                // Query: status = 'live' AND start_time is within last 2 hours
+                const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000);
+                
+                const { data: liveData, error } = await supabaseClient
                     .from('sports_matches')
-                    .select('*', { count: 'exact' })
+                    .select('*')
                     .eq('status', 'live')
+                    .gte('start_time', twoHoursAgo.toISOString())
                     .order('start_time', { ascending: true });
                 
                 if (error) {
@@ -225,16 +229,31 @@
                     throw error;
                 }
                 
-                // Filter out stale live matches (older than 2.5 hours)
-                const now = new Date();
-                const twoHoursAgo = new Date(now - 2.5 * 60 * 60 * 1000);
+                // Calculate elapsed time and filter
+                const validLiveMatches = [];
+                for (const match of liveData || []) {
+                    const matchStart = new Date(match.start_time);
+                    const elapsedMinutes = (now - matchStart) / 60000;
+                    
+                    // Only show matches that started less than 105 minutes ago
+                    if (elapsedMinutes < 105) {
+                        validLiveMatches.push(match);
+                    } else {
+                        // This match should be finished - update status in background
+                        console.log(`Match ${match.fixture_id} appears to be finished (${Math.floor(elapsedMinutes)} min ago)`);
+                        supabaseClient
+                            .from('sports_matches')
+                            .update({ status: 'finished', updated_at: nowISO })
+                            .eq('fixture_id', match.fixture_id)
+                            .then(({ error }) => {
+                                if (!error) console.log(`✅ Updated match ${match.fixture_id} to finished`);
+                            });
+                    }
+                }
                 
-                liveMatches = (liveData || []).filter(m => {
-                    const matchTime = new Date(m.start_time);
-                    return matchTime > twoHoursAgo;
-                });
+                liveMatches = validLiveMatches;
                 
-                console.log(`🔴 Found ${liveData?.length || 0} live matches in database, ${liveMatches.length} after filtering`);
+                console.log(`🔴 Found ${liveData?.length || 0} 'live' matches in DB, ${liveMatches.length} actually in progress`);
                 
                 // Log sample for debugging
                 if (liveMatches.length > 0) {
@@ -254,13 +273,13 @@
                 if (liveMatches.length === 0) { 
                     container.style.display = 'none'; 
                     emptyDiv.style.display = 'block'; 
-                    document.getElementById('debug-text').innerHTML = `No live matches currently - ${liveData?.length || 0} total in DB, all older than 2.5 hours`;
+                    document.getElementById('debug-text').innerHTML = `No live matches currently - ${liveData?.length || 0} in DB but all ended >105 min ago`;
                     return; 
                 }
                 
                 container.style.display = 'block'; 
                 emptyDiv.style.display = 'none';
-                document.getElementById('debug-text').innerHTML = `🔴 ${liveMatches.length} live match(es) in progress - Betting OPEN | Last sync: ${new Date().toLocaleTimeString()}`;
+                document.getElementById('debug-text').innerHTML = `🔴 ${liveMatches.length} live match(es) in progress | Betting OPEN until match ends | Last check: ${new Date().toLocaleTimeString()}`;
                 
                 filterMatches();
                 
@@ -288,23 +307,23 @@
                 
                 const start = new Date(startTime);
                 const now = new Date();
-                const elapsedMinutes = Math.floor((now - start) / 60000);
+                const elapsedMinutes = (now - start) / 60000;
                 const remainingMinutes = Math.max(0, 105 - elapsedMinutes);
                 
                 if (remainingMinutes <= 0) {
                     el.textContent = 'Match Ended - Betting Closed';
                     el.className = 'countdown-timer countdown-warning';
                     if (countdownIntervals[fixtureId]) clearInterval(countdownIntervals[fixtureId]);
+                    // Remove this match from display on next refresh
+                } else if (remainingMinutes < 10) {
+                    el.textContent = `Ending soon - ${Math.ceil(remainingMinutes)} minutes remaining`;
+                    el.className = 'countdown-timer countdown-warning';
                 } else {
                     const hours = Math.floor(remainingMinutes / 60);
-                    const minutes = remainingMinutes % 60;
+                    const minutes = Math.floor(remainingMinutes % 60);
                     let display = hours > 0 ? `${hours}h ${minutes}m remaining` : `${minutes}m remaining`;
                     el.textContent = display;
-                    if (remainingMinutes < 15) {
-                        el.classList.add('countdown-warning');
-                    } else {
-                        el.classList.remove('countdown-warning');
-                    }
+                    el.className = 'countdown-timer';
                 }
             }
             
@@ -345,7 +364,7 @@
             if (elapsed < 45) { period = '1st Half'; periodClass = ''; }
             else if (elapsed < 60) { period = 'Half Time'; periodClass = 'ht'; }
             else if (elapsed < 105) { period = '2nd Half'; periodClass = ''; }
-            else { period = 'Full Time'; periodClass = 'ft'; }
+            else { period = 'Ended'; periodClass = ''; }
             
             const homeTeam = m.home_team || { name: 'Home', logo: '' };
             const awayTeam = m.away_team || { name: 'Away', logo: '' };
@@ -364,7 +383,8 @@
             previousScores[fixtureId] = currentScore;
             
             const endTime = new Date(startTime.getTime() + 105 * 60000);
-            const isBettingOpen = elapsed < 105;
+            const remainingMinutes = Math.max(0, 105 - elapsed);
+            const isBettingOpen = remainingMinutes > 0;
             
             return `<div class="match-card" onclick="goToMatch(${fixtureId})">
                 <div class="match-header-row">
@@ -398,7 +418,7 @@
                 <div class="stats-row">
                     <div class="stat-item"><div class="stat-value">${period}</div><div class="stat-label">Period</div></div>
                     <div class="stat-item"><div class="stat-value">${elapsed}'</div><div class="stat-label">Elapsed</div></div>
-                    <div class="stat-item"><div class="stat-value">${Math.max(0, 105 - elapsed)}'</div><div class="stat-label">Remaining</div></div>
+                    <div class="stat-item"><div class="stat-value">${remainingMinutes}'</div><div class="stat-label">Remaining</div></div>
                     <div class="stat-item"><div class="stat-value">${startTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div><div class="stat-label">Kickoff</div></div>
                 </div>
                 <div class="odds-preview">
@@ -407,8 +427,8 @@
                     <div class="odd-box"><div class="label">2</div><div class="value">${odds.away}</div></div>
                 </div>
                 ${isBettingOpen ? 
-                    `<button class="bet-open-btn" onclick="event.stopPropagation();goToMatch(${fixtureId})"><i class="fas fa-gavel"></i> Place Bet Now (Live)</button>` : 
-                    `<button class="bet-open-btn" style="background:#a0a8c9; cursor:not-allowed;" disabled><i class="fas fa-ban"></i> Betting Closed</button>`
+                    `<button class="bet-open-btn" onclick="event.stopPropagation();goToMatch(${fixtureId})"><i class="fas fa-gavel"></i> Place Bet Now</button>` : 
+                    `<button class="bet-closed-btn" disabled><i class="fas fa-ban"></i> Betting Closed - Match Ended</button>`
                 }
             </div>`;
         }
@@ -447,17 +467,21 @@
         function startAutoRefresh() {
             if (refreshInterval) clearInterval(refreshInterval);
             if (eventInterval) clearInterval(eventInterval);
+            if (statusInterval) clearInterval(statusInterval);
+            
             refreshInterval = setInterval(() => { loadLiveMatches(); loadBalance(); }, 15000);
             eventInterval = setInterval(() => { for (const match of liveMatches) fetchMatchEvents(match.fixture_id); }, 10000);
+            statusInterval = setInterval(() => { if (typeof updateStatuses === 'function') updateStatuses(); }, 30000);
+            
             console.log('🔄 Live matches auto-refresh active (every 15 seconds)');
         }
         
         window.loadLiveMatches = loadLiveMatches;
         window.goToMatch = goToMatch;
         window.toggleLanguage = toggleLanguage;
-        window.forceSyncMatches = forceSyncMatches;
+        window.forceStatusUpdate = forceStatusUpdate;
         
-        console.log('✅ Live matches page ready - Direct database query active');
+        console.log('✅ Live matches page ready - Auto removes finished matches');
     </script>
 </body>
 </html>
