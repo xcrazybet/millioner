@@ -29,8 +29,9 @@
         .league-select { flex: 1; min-width: 180px; }
         .search-input { flex: 2; min-width: 200px; }
         .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #ff5252; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .refresh-btn { background: #00ff9d; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; }
-        .sync-btn { background: #ff9800; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; margin-left: auto; }
+        .refresh-btn, .sync-btn { padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; border: none; }
+        .refresh-btn { background: #00ff9d; color: black; }
+        .sync-btn { background: #ff9800; color: black; }
         .live-header { margin-bottom: 15px; }
         .live-badge { background: #ff5252; padding: 10px 20px; border-radius: 30px; font-weight: 600; display: inline-block; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
@@ -67,7 +68,6 @@
         .odd-box .value { font-size: 16px; font-weight: bold; color: #00ff9d; }
         .bet-open-btn { width: 100%; margin-top: 15px; padding: 10px; background: #00ff9d; color: black; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
         .bet-open-btn:hover { background: #00cc7d; transform: scale(1.02); }
-        .bet-closed-btn { width: 100%; margin-top: 15px; padding: 10px; background: #a0a8c9; color: #333; border: none; border-radius: 25px; font-weight: bold; cursor: not-allowed; }
         .countdown-timer { font-size: 11px; text-align: center; margin-top: 10px; padding: 5px; border-radius: 8px; background: #1a2332; }
         .countdown-warning { background: #ff525222; color: #ff5252; }
         .empty-state { text-align: center; padding: 60px; color: #a0a8c9; }
@@ -130,6 +130,7 @@
     </div>
 
     <script src="../js/supabase-client.js"></script>
+    <script src="../js/sports-api.js"></script>
     <script src="../js/betting-engine.js"></script>
     <script>
         let liveMatches = [];
@@ -183,8 +184,8 @@
                     const select = document.getElementById('league-filter');
                     data.data.forEach(league => {
                         const option = document.createElement('option');
-                        option.value = league.league?.id || league.id;
-                        option.textContent = league.league?.name || league.name;
+                        option.value = league.id;
+                        option.textContent = league.name;
                         select.appendChild(option);
                     });
                 }
@@ -210,11 +211,7 @@
             try {
                 document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading live matches...';
                 
-                // Get current time
                 const now = new Date();
-                const nowISO = now.toISOString();
-                
-                // Query: status = 'live' AND start_time is within last 2 hours
                 const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000);
                 
                 const { data: liveData, error } = await supabaseClient
@@ -224,47 +221,26 @@
                     .gte('start_time', twoHoursAgo.toISOString())
                     .order('start_time', { ascending: true });
                 
-                if (error) {
-                    console.error('Query error:', error);
-                    throw error;
-                }
+                if (error) throw error;
                 
-                // Calculate elapsed time and filter
                 const validLiveMatches = [];
                 for (const match of liveData || []) {
                     const matchStart = new Date(match.start_time);
                     const elapsedMinutes = (now - matchStart) / 60000;
-                    
-                    // Only show matches that started less than 105 minutes ago
                     if (elapsedMinutes < 105) {
                         validLiveMatches.push(match);
                     } else {
-                        // This match should be finished - update status in background
-                        console.log(`Match ${match.fixture_id} appears to be finished (${Math.floor(elapsedMinutes)} min ago)`);
                         supabaseClient
                             .from('sports_matches')
-                            .update({ status: 'finished', updated_at: nowISO })
+                            .update({ status: 'finished', updated_at: now.toISOString() })
                             .eq('fixture_id', match.fixture_id)
-                            .then(({ error }) => {
-                                if (!error) console.log(`✅ Updated match ${match.fixture_id} to finished`);
-                            });
+                            .then(({ error }) => { if (!error) console.log(`✅ Updated match ${match.fixture_id} to finished`); });
                     }
                 }
                 
                 liveMatches = validLiveMatches;
                 
                 console.log(`🔴 Found ${liveData?.length || 0} 'live' matches in DB, ${liveMatches.length} actually in progress`);
-                
-                // Log sample for debugging
-                if (liveMatches.length > 0) {
-                    console.log('Sample live match:', {
-                        id: liveMatches[0].fixture_id,
-                        home: liveMatches[0].home_team?.name,
-                        away: liveMatches[0].away_team?.name,
-                        score: liveMatches[0].score,
-                        start: liveMatches[0].start_time
-                    });
-                }
                 
                 document.getElementById('match-count').textContent = liveMatches.length;
                 const container = document.getElementById('matches-container');
@@ -273,24 +249,23 @@
                 if (liveMatches.length === 0) { 
                     container.style.display = 'none'; 
                     emptyDiv.style.display = 'block'; 
-                    document.getElementById('debug-text').innerHTML = `No live matches currently - ${liveData?.length || 0} in DB but all ended >105 min ago`;
+                    document.getElementById('debug-text').innerHTML = `No live matches currently`;
                     return; 
                 }
                 
                 container.style.display = 'block'; 
                 emptyDiv.style.display = 'none';
-                document.getElementById('debug-text').innerHTML = `🔴 ${liveMatches.length} live match(es) in progress | Betting OPEN until match ends | Last check: ${new Date().toLocaleTimeString()}`;
+                document.getElementById('debug-text').innerHTML = `🔴 ${liveMatches.length} live match(es) in progress | Betting OPEN`;
                 
                 filterMatches();
                 
-                // Start countdowns and fetch events for each match
                 for (const match of liveMatches) {
                     startMatchCountdown(match.fixture_id, match.start_time);
                     fetchMatchEvents(match.fixture_id);
                 }
                 
             } catch(e) { 
-                console.error('Load live matches error:', e); 
+                console.error(e); 
                 document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`; 
             }
         }
@@ -314,7 +289,6 @@
                     el.textContent = 'Match Ended - Betting Closed';
                     el.className = 'countdown-timer countdown-warning';
                     if (countdownIntervals[fixtureId]) clearInterval(countdownIntervals[fixtureId]);
-                    // Remove this match from display on next refresh
                 } else if (remainingMinutes < 10) {
                     el.textContent = `Ending soon - ${Math.ceil(remainingMinutes)} minutes remaining`;
                     el.className = 'countdown-timer countdown-warning';
@@ -338,7 +312,6 @@
             if (search) filtered = filtered.filter(m => (m.home_team?.name || '').toLowerCase().includes(search) || (m.away_team?.name || '').toLowerCase().includes(search) || (m.league_name || '').toLowerCase().includes(search));
             if (filtered.length === 0) { document.getElementById('matches-container').innerHTML = '<div class="empty-state">No live matches match your filters</div>'; return; }
             
-            // Group by league
             const groupedByLeague = {};
             filtered.forEach(m => { const ln = m.league_name || 'Other Leagues'; if (!groupedByLeague[ln]) groupedByLeague[ln] = []; groupedByLeague[ln].push(m); });
             
@@ -375,7 +348,6 @@
             const odds = m.odds || { home: 2.50, draw: 3.20, away: 2.80 };
             const matchDate = startTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
             
-            // Check for score change animation
             const fixtureId = m.fixture_id;
             const currentScore = `${scoreHome}-${scoreAway}`;
             const previousScore = previousScores[fixtureId];
@@ -428,7 +400,7 @@
                 </div>
                 ${isBettingOpen ? 
                     `<button class="bet-open-btn" onclick="event.stopPropagation();goToMatch(${fixtureId})"><i class="fas fa-gavel"></i> Place Bet Now</button>` : 
-                    `<button class="bet-closed-btn" disabled><i class="fas fa-ban"></i> Betting Closed - Match Ended</button>`
+                    `<button class="bet-open-btn" style="background:#a0a8c9; cursor:not-allowed;" disabled><i class="fas fa-ban"></i> Betting Closed</button>`
                 }
             </div>`;
         }
@@ -481,7 +453,7 @@
         window.toggleLanguage = toggleLanguage;
         window.forceStatusUpdate = forceStatusUpdate;
         
-        console.log('✅ Live matches page ready - Auto removes finished matches');
+        console.log('✅ Live matches page ready - Betting OPEN on live matches');
     </script>
 </body>
 </html>
