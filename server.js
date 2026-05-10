@@ -1,329 +1,317 @@
 // ============================================
-// sports-api.js - v15.0 FORCES FULL 7 DAYS
-// ✅ Syncs EXACTLY 7 days (today + next 6 days)
-// ✅ Auto-settlement working
-// ✅ Runs every 30 seconds
+// server.js - X Lodon Sports API
+// ✅ REAL DATA from API-Football
+// ✅ Fixed date ranges (from ≤ to)
+// ✅ Correct 7-day calculation
 // ============================================
 
-const API_BASE = 'https://millioner.onrender.com';
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
 
-async function fetchAPI(endpoint) {
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// API-Football configuration
+const API_KEY = '2396236d9d5cd07468ce280da8390ad5';
+const BASE_URL = 'https://v3.football.api-sports.io';
+
+app.use(cors());
+app.use(express.json());
+
+// Helper function to fetch from API-Football
+async function fetchFromAPI(endpoint, params = {}) {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
-        const response = await fetch(`${API_BASE}${endpoint}`, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-    } catch(e) {
-        console.error(`API fetch error ${endpoint}:`, e.message);
-        return { success: false, data: [] };
-    }
-}
-
-async function syncMatchToDB(match) {
-    if (!match || !match.fixture) return false;
-    
-    const fixture = match.fixture;
-    const teams = match.teams;
-    const league = match.league;
-    const fixtureId = fixture.id;
-    
-    if (!fixtureId) return false;
-    
-    try {
-        let status = 'upcoming';
-        const statusShort = fixture.status?.short;
-        if (statusShort === '1H' || statusShort === '2H' || statusShort === 'HT') {
-            status = 'live';
-        } else if (statusShort === 'FT' || statusShort === 'AET' || statusShort === 'PEN') {
-            status = 'finished';
-        }
-        
-        let result = null;
-        let score = { home: 0, away: 0 };
-        
-        if (status === 'finished') {
-            score = {
-                home: match.goals?.home || 0,
-                away: match.goals?.away || 0
-            };
-            if (score.home > score.away) result = 'home';
-            else if (score.home < score.away) result = 'away';
-            else result = 'draw';
-        } else if (status === 'live') {
-            score = {
-                home: match.goals?.home || 0,
-                away: match.goals?.away || 0
-            };
-        }
-        
-        const odds = {
-            home: (1.80 + ((fixtureId % 20) / 100)).toFixed(2),
-            draw: (3.20 + ((fixtureId % 15) / 100)).toFixed(2),
-            away: (2.80 + ((fixtureId % 25) / 100)).toFixed(2)
-        };
-        
-        const matchData = {
-            fixture_id: fixtureId,
-            status: status,
-            result: result,
-            odds: odds,
-            league_id: league?.id || 0,
-            league_name: league?.name || 'Unknown League',
-            home_team: {
-                id: teams?.home?.id || 0,
-                name: teams?.home?.name || 'Home',
-                logo: teams?.home?.logo || ''
-            },
-            away_team: {
-                id: teams?.away?.id || 0,
-                name: teams?.away?.name || 'Away',
-                logo: teams?.away?.logo || ''
-            },
-            start_time: fixture.date,
-            score: score,
-            updated_at: new Date().toISOString()
-        };
-        
-        const { error } = await supabaseClient
-            .from('sports_matches')
-            .upsert(matchData, { onConflict: 'fixture_id' });
-        
-        if (error) {
-            console.error(`Sync error for ${fixtureId}:`, error.message);
-            return false;
-        }
-        
-        if (status === 'finished' && result) {
-            await settleMatchBets(fixtureId, result);
-        }
-        
-        return true;
-        
-    } catch(e) {
-        console.error(`Error syncing match ${fixtureId}:`, e.message);
-        return false;
-    }
-}
-
-async function settleMatchBets(fixtureId, result) {
-    if (!window.supaDB || !firebase?.firestore) return;
-    
-    try {
-        const bets = await window.supaDB.getActiveBets(fixtureId);
-        const db = firebase.firestore();
-        
-        for (const bet of bets) {
-            let won = false;
-            let payout = 0;
-            
-            if (bet.bet_type === 'home') won = (result === 'home');
-            else if (bet.bet_type === 'draw') won = (result === 'draw');
-            else if (bet.bet_type === 'away') won = (result === 'away');
-            else if (bet.bet_type === 'over25') {
-                const match = await window.supaDB.getMatch(fixtureId);
-                const total = (match?.score?.home || 0) + (match?.score?.away || 0);
-                won = total > 2.5;
+        const response = await axios.get(`${BASE_URL}${endpoint}`, {
+            params: params,
+            headers: {
+                'x-apisports-key': API_KEY
             }
-            else if (bet.bet_type === 'under25') {
-                const match = await window.supaDB.getMatch(fixtureId);
-                const total = (match?.score?.home || 0) + (match?.score?.away || 0);
-                won = total < 2.5;
-            }
-            else if (bet.bet_type === 'btts_yes') {
-                const match = await window.supaDB.getMatch(fixtureId);
-                won = (match?.score?.home > 0 && match?.score?.away > 0);
-            }
-            else if (bet.bet_type === '1X') won = (result === 'home' || result === 'draw');
-            else if (bet.bet_type === '12') won = (result === 'home' || result === 'away');
-            else if (bet.bet_type === 'X2') won = (result === 'draw' || result === 'away');
-            
-            if (won) {
-                payout = bet.amount * bet.odds;
-                const wallet = await db.collection('wallets').doc(bet.user_id).get();
-                const newBalance = (wallet.data()?.balance || 0) + payout;
-                await db.collection('wallets').doc(bet.user_id).update({ balance: newBalance });
-                
-                await window.supaDB.updateBet(bet.id, {
-                    status: 'won',
-                    result: result,
-                    payout: payout,
-                    settled_at: new Date().toISOString()
-                });
-                console.log(`💰 Bet ${bet.id} WON - +$${payout.toFixed(2)}`);
-            } else {
-                await window.supaDB.updateBet(bet.id, {
-                    status: 'lost',
-                    result: result,
-                    payout: 0,
-                    settled_at: new Date().toISOString()
-                });
-                console.log(`❌ Bet ${bet.id} LOST`);
-            }
-        }
-    } catch(e) {
-        console.error('Settlement error:', e);
-    }
-}
-
-// Sync ALL upcoming matches for EXACTLY 7 days
-async function syncUpcomingMatches() {
-    console.log('📅 Syncing upcoming matches for NEXT 7 DAYS...');
-    const data = await fetchAPI('/api/fixtures/week');
-    
-    if (data.success && data.data && data.data.length > 0) {
-        console.log(`📡 API returned ${data.data.length} total matches`);
-        
-        // Get today's date at midnight UTC
-        const today = new Date();
-        today.setUTCHours(0, 0, 0, 0);
-        
-        // Calculate 7 days from today (exactly 7 days: today + next 6 days = 7 total)
-        const sevenDaysLater = new Date(today);
-        sevenDaysLater.setUTCDate(today.getUTCDate() + 7);
-        sevenDaysLater.setUTCHours(23, 59, 59, 999);
-        
-        console.log(`📅 Date range: ${today.toISOString()} to ${sevenDaysLater.toISOString()}`);
-        
-        // Filter matches for next 7 days only
-        const next7DaysMatches = data.data.filter(match => {
-            const matchDate = new Date(match.fixture.date);
-            return matchDate >= today && matchDate <= sevenDaysLater;
         });
+        return { success: true, data: response.data.response };
+    } catch (error) {
+        console.error(`API Error ${endpoint}:`, error.response?.data?.message || error.message);
+        return { success: false, data: [], error: error.message };
+    }
+}
+
+// ============================================
+// HEALTH CHECK
+// ============================================
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        api_key_configured: !!API_KEY,
+        timestamp: new Date().toISOString() 
+    });
+});
+
+// ============================================
+// GET FIXTURES FOR WEEK (Today + Next 7 days)
+// ============================================
+app.get('/api/fixtures/week', async (req, res) => {
+    try {
+        // FIXED: Correct date calculation
+        const today = new Date();
+        const fromDate = new Date(today);
+        fromDate.setHours(0, 0, 0, 0);
         
-        console.log(`📅 Filtered to ${next7DaysMatches.length} matches for next 7 days`);
+        const toDate = new Date(today);
+        toDate.setDate(today.getDate() + 7);
+        toDate.setHours(23, 59, 59, 999);
         
-        // Group by date for logging
-        const dateGroups = {};
-        for (const match of next7DaysMatches) {
-            const date = new Date(match.fixture.date).toDateString();
-            dateGroups[date] = (dateGroups[date] || 0) + 1;
+        const from = fromDate.toISOString().split('T')[0];
+        const to = toDate.toISOString().split('T')[0];
+        
+        console.log(`📅 Fetching fixtures from ${from} to ${to}`);
+        
+        // Ensure from is not after to
+        if (from > to) {
+            console.error('Invalid date range: from is after to');
+            return res.json({ success: false, error: 'Invalid date range', data: [] });
         }
-        console.log('📅 Matches by date:', dateGroups);
         
-        // Count days with matches
-        const daysWithMatches = Object.keys(dateGroups).length;
-        console.log(`📅 Days with matches: ${daysWithMatches} out of 7 days`);
+        const result = await fetchFromAPI('/fixtures', { from: from, to: to });
         
-        // Clear old upcoming matches (older than today)
-        const { error: deleteError } = await supabaseClient
-            .from('sports_matches')
-            .delete()
-            .eq('status', 'upcoming')
-            .lt('start_time', today.toISOString());
-        
-        if (deleteError) {
-            console.warn('Delete error:', deleteError);
+        if (result.success && result.data.length > 0) {
+            console.log(`✅ Found ${result.data.length} fixtures`);
+            
+            // Transform data to match your frontend format
+            const fixtures = result.data.map(f => ({
+                fixture: {
+                    id: f.fixture.id,
+                    date: f.fixture.date,
+                    status: f.fixture.status,
+                    venue: f.fixture.venue
+                },
+                league: {
+                    id: f.league.id,
+                    name: f.league.name,
+                    logo: f.league.logo,
+                    country: f.league.country
+                },
+                teams: {
+                    home: {
+                        id: f.teams.home.id,
+                        name: f.teams.home.name,
+                        logo: f.teams.home.logo
+                    },
+                    away: {
+                        id: f.teams.away.id,
+                        name: f.teams.away.name,
+                        logo: f.teams.away.logo
+                    }
+                },
+                goals: {
+                    home: f.goals.home,
+                    away: f.goals.away
+                },
+                score: f.score
+            }));
+            
+            res.json({
+                success: true,
+                data: fixtures,
+                count: fixtures.length,
+                date_range: { from: from, to: to },
+                timestamp: new Date().toISOString()
+            });
         } else {
-            console.log('🗑️ Cleared old upcoming matches');
+            console.log(`⚠️ No fixtures found for date range ${from} to ${to}`);
+            res.json({
+                success: true,
+                data: [],
+                count: 0,
+                date_range: { from: from, to: to },
+                message: 'No matches scheduled for this period',
+                timestamp: new Date().toISOString()
+            });
         }
         
-        let synced = 0;
-        for (const match of next7DaysMatches) {
-            if (await syncMatchToDB(match)) synced++;
+    } catch (error) {
+        console.error('Error in /api/fixtures/week:', error.message);
+        res.json({ success: false, data: [], error: error.message });
+    }
+});
+
+// ============================================
+// GET LIVE SCORES
+// ============================================
+app.get('/api/livescores', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/fixtures', { live: 'all' });
+        
+        if (result.success && result.data.length > 0) {
+            const liveMatches = result.data.filter(f => 
+                f.fixture.status.short === '1H' || 
+                f.fixture.status.short === '2H' || 
+                f.fixture.status.short === 'HT'
+            );
+            
+            const matches = liveMatches.map(f => ({
+                fixture: {
+                    id: f.fixture.id,
+                    date: f.fixture.date,
+                    status: f.fixture.status
+                },
+                league: {
+                    id: f.league.id,
+                    name: f.league.name,
+                    logo: f.league.logo
+                },
+                teams: {
+                    home: {
+                        id: f.teams.home.id,
+                        name: f.teams.home.name,
+                        logo: f.teams.home.logo
+                    },
+                    away: {
+                        id: f.teams.away.id,
+                        name: f.teams.away.name,
+                        logo: f.teams.away.logo
+                    }
+                },
+                goals: {
+                    home: f.goals.home,
+                    away: f.goals.away
+                }
+            }));
+            
+            console.log(`🔴 Found ${matches.length} live matches`);
+            res.json({ success: true, data: matches, count: matches.length });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
         }
-        console.log(`✅ Synced ${synced} upcoming matches to Supabase`);
-        console.log(`📊 Total matches in Supabase for next 7 days: ${synced}`);
-        return synced;
+    } catch (error) {
+        res.json({ success: false, data: [], error: error.message });
     }
-    return 0;
-}
+});
 
-// Sync live matches
-async function syncLiveMatches() {
-    console.log('🔴 Syncing live matches...');
-    const data = await fetchAPI('/api/livescores');
-    
-    if (data.success && data.data && data.data.length > 0) {
-        console.log(`📡 Found ${data.data.length} live matches from API`);
-        let synced = 0;
-        for (const match of data.data) {
-            if (await syncMatchToDB(match)) synced++;
+// ============================================
+// GET FIXTURES FOR SPECIFIC DATE
+// ============================================
+app.get('/api/fixture/date/:date', async (req, res) => {
+    try {
+        const date = req.params.date;
+        const result = await fetchFromAPI('/fixtures', { date: date });
+        
+        if (result.success && result.data.length > 0) {
+            res.json({ success: true, data: result.data, count: result.data.length, date: date });
+        } else {
+            res.json({ success: true, data: [], count: 0, date: date });
         }
-        console.log(`✅ Synced ${synced} live matches to Supabase`);
-        return synced;
+    } catch (error) {
+        res.json({ success: false, data: [], error: error.message });
     }
-    return 0;
-}
+});
 
-// Update match statuses based on time
-async function updateMatchStatuses() {
-    if (!supabaseClient) return;
-    
-    const now = new Date().toISOString();
-    const { data, error } = await supabaseClient
-        .from('sports_matches')
-        .select('fixture_id')
-        .eq('status', 'upcoming')
-        .lte('start_time', now);
-    
-    if (data && data.length > 0) {
-        await supabaseClient
-            .from('sports_matches')
-            .update({ status: 'live', updated_at: now })
-            .eq('status', 'upcoming')
-            .lte('start_time', now);
-        console.log(`⏰ Updated ${data.length} matches: upcoming → live`);
+// ============================================
+// GET SINGLE FIXTURE DETAILS
+// ============================================
+app.get('/api/fixture/:id', async (req, res) => {
+    try {
+        const fixtureId = req.params.id;
+        const fixture = await fetchFromAPI('/fixtures', { id: fixtureId });
+        const events = await fetchFromAPI('/fixtures/events', { fixture: fixtureId });
+        const stats = await fetchFromAPI('/fixtures/statistics', { fixture: fixtureId });
+        const odds = await fetchFromAPI('/odds', { fixture: fixtureId });
+        
+        res.json({
+            success: true,
+            fixture: fixture.data[0] || null,
+            events: events.data || [],
+            statistics: stats.data || [],
+            odds: odds.data || []
+        });
+    } catch (error) {
+        res.json({ success: false, error: error.message });
     }
-}
+});
 
-// Main sync function
-async function syncAllMatches() {
-    console.log('\n🔄 SYNC STARTED', new Date().toLocaleTimeString());
-    const startTime = Date.now();
-    
-    await syncLiveMatches();
-    await syncUpcomingMatches();
-    await updateMatchStatuses();
-    
-    // Verify what's in Supabase
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    const sevenDaysLater = new Date(today);
-    sevenDaysLater.setUTCDate(today.getUTCDate() + 7);
-    
-    const { data: verify, count } = await supabaseClient
-        .from('sports_matches')
-        .select('start_time', { count: 'exact' })
-        .gte('start_time', today.toISOString())
-        .lte('start_time', sevenDaysLater.toISOString());
-    
-    const dateGroups = {};
-    if (verify) {
-        for (const v of verify) {
-            const date = new Date(v.start_time).toDateString();
-            dateGroups[date] = (dateGroups[date] || 0) + 1;
+// ============================================
+// GET MATCH EVENTS
+// ============================================
+app.get('/api/fixtures/events/:id', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/fixtures/events', { fixture: req.params.id });
+        res.json({ success: true, data: result.data });
+    } catch (error) {
+        res.json({ success: false, data: [], error: error.message });
+    }
+});
+
+// ============================================
+// GET LEAGUES
+// ============================================
+app.get('/api/leagues', async (req, res) => {
+    try {
+        // Get popular leagues only
+        const popularLeagueIds = [39, 140, 78, 135, 61, 2, 3, 88, 94, 128];
+        const result = await fetchFromAPI('/leagues');
+        
+        if (result.success && result.data.length > 0) {
+            const popularLeagues = result.data.filter(l => popularLeagueIds.includes(l.league.id));
+            const leagues = popularLeagues.map(l => ({
+                id: l.league.id,
+                name: l.league.name,
+                logo: l.league.logo,
+                country: l.country.name
+            }));
+            res.json({ success: true, data: leagues, count: leagues.length });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
         }
+    } catch (error) {
+        res.json({ success: false, data: [], error: error.message });
     }
-    console.log('📊 VERIFICATION - Matches in Supabase by date:', dateGroups);
-    console.log(`📊 Total matches for next 7 days: ${count || 0}`);
-    
-    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`✅ SYNC COMPLETE in ${duration}s\n`);
-}
+});
 
-// Auto-sync system
-let syncInterval;
-let statusInterval;
+// ============================================
+// HEAD TO HEAD
+// ============================================
+app.get('/api/fixtures/head2head/:home/:away', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/fixtures/headtohead', { 
+            h2h: `${req.params.home}-${req.params.away}` 
+        });
+        res.json({ success: true, data: result.data });
+    } catch (error) {
+        res.json({ success: false, data: [], error: error.message });
+    }
+});
 
-function startAutoSync() {
-    if (syncInterval) clearInterval(syncInterval);
-    if (statusInterval) clearInterval(statusInterval);
-    
-    setTimeout(() => syncAllMatches(), 2000);
-    syncInterval = setInterval(syncAllMatches, 60000); // Every 60 seconds
-    statusInterval = setInterval(updateMatchStatuses, 15000);
-    
-    console.log('⏰ Auto-sync active (every 60 seconds)');
-    console.log('📅 Will sync EXACTLY 7 days of matches (today + next 6 days)');
-}
+// ============================================
+// ROOT ENDPOINT
+// ============================================
+app.get('/', (req, res) => {
+    res.json({
+        name: 'X Lodon Sports API',
+        version: '6.0.0',
+        status: 'active',
+        api_key_configured: !!API_KEY,
+        endpoints: {
+            health: '/health',
+            fixtures_week: '/api/fixtures/week',
+            livescores: '/api/livescores',
+            fixtures_date: '/api/fixture/date/:date',
+            fixture: '/api/fixture/:id',
+            events: '/api/fixtures/events/:id',
+            leagues: '/api/leagues',
+            head2head: '/api/fixtures/head2head/:home/:away'
+        },
+        timestamp: new Date().toISOString()
+    });
+});
 
-window.manualSync = syncAllMatches;
-window.forceSync = syncAllMatches;
-
-if (typeof supabaseClient !== 'undefined' && supabaseClient) {
-    startAutoSync();
-}
-
-console.log('🏈 Sports API v15.0 - Full 7 Days Sync Ready');
+// Start server
+app.listen(PORT, () => {
+    console.log('========================================');
+    console.log('🚀 X Lodon Sports API Server');
+    console.log(`📍 Port: ${PORT}`);
+    console.log(`📍 Health: http://localhost:${PORT}/health`);
+    console.log(`📍 Fixtures: http://localhost:${PORT}/api/fixtures/week`);
+    console.log('========================================');
+    console.log(`🔑 API Key: ${API_KEY ? '✓ Configured' : '✗ Missing'}`);
+    console.log(`📡 Data Source: API-Football (Real Data)`);
+    console.log('========================================');
+});
