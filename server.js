@@ -9,6 +9,9 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const compression = require('compression');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,11 +23,33 @@ const BASE_URL = 'https://v3.football.api-sports.io';
 // Trust proxy (for Render)
 app.set('trust proxy', 1);
 
-// Middleware
+// Security middleware
+app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
+}));
+
+// Compression middleware
+app.use(compression());
+
+// Rate limiting
+const limiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 100, // 100 requests per minute
+    message: { success: false, error: 'Too many requests, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+app.use('/api/', limiter);
+
+// CORS configuration
 app.use(cors({
     origin: ['https://xlodon.co.uk', 'https://www.xlodon.co.uk', 'http://localhost:5500', 'http://localhost:3000'],
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -69,7 +94,6 @@ async function fetchFromAPI(endpoint, params = {}, retries = 2) {
             if (i === retries) {
                 return { success: false, data: [], error: error.response?.data?.message || error.message };
             }
-            // Wait before retry
             await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
         }
     }
@@ -116,7 +140,7 @@ function formatFixture(fixture) {
     };
 }
 
-// Log request details (for debugging)
+// Log request details
 app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
     next();
@@ -343,7 +367,6 @@ app.get('/api/livescores', async (req, res) => {
 // ============================================
 app.get('/api/leagues', async (req, res) => {
     try {
-        // Get popular leagues only (for faster response)
         const popularLeagues = [39, 140, 78, 135, 61, 2, 3, 88, 94, 128, 253, 307];
         const result = await fetchFromAPI('/leagues');
         
