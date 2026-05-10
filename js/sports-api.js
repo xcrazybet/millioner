@@ -1,11 +1,11 @@
 // ============================================
-// sports-api.js - v13.0 FIXED
+// sports-api.js - v15.0 FINAL (90 DAYS SYNC)
+// ✅ Syncs 90 days of matches to Supabase
 // ✅ Firebase initialized
 // ✅ All bet types settlement
-// ✅ Auto-sync working
 // ============================================
 
-// ===== FIREBASE INITIALIZATION - FIXED =====
+// ===== FIREBASE INITIALIZATION =====
 if (typeof firebase !== 'undefined' && !firebase.apps.length) {
     const firebaseConfig = {
         apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -16,7 +16,7 @@ if (typeof firebase !== 'undefined' && !firebase.apps.length) {
         appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
     };
     firebase.initializeApp(firebaseConfig);
-    console.log('🔥 Firebase initialized in sports-api.js');
+    console.log('🔥 Firebase initialized');
 }
 
 const API_BASE = 'https://millioner.onrender.com';
@@ -24,13 +24,13 @@ const API_BASE = 'https://millioner.onrender.com';
 async function fetchAPI(endpoint) {
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
         const response = await fetch(`${API_BASE}${endpoint}`, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return await response.json();
     } catch(e) {
-        console.error(`API fetch error ${endpoint}:`, e.message);
+        console.error(`API fetch error:`, e.message);
         return { success: false, data: [] };
     }
 }
@@ -58,18 +58,12 @@ async function syncMatchToDB(match) {
         let score = { home: 0, away: 0 };
         
         if (status === 'finished') {
-            score = {
-                home: match.goals?.home || 0,
-                away: match.goals?.away || 0
-            };
+            score = { home: match.goals?.home || 0, away: match.goals?.away || 0 };
             if (score.home > score.away) result = 'home';
             else if (score.home < score.away) result = 'away';
             else result = 'draw';
         } else if (status === 'live') {
-            score = {
-                home: match.goals?.home || 0,
-                away: match.goals?.away || 0
-            };
+            score = { home: match.goals?.home || 0, away: match.goals?.away || 0 };
         }
         
         const odds = {
@@ -114,31 +108,18 @@ async function syncMatchToDB(match) {
         }
         
         return true;
-        
     } catch(e) {
-        console.error(`Error syncing match ${fixtureId}:`, e.message);
+        console.error(`Error syncing match:`, e.message);
         return false;
     }
 }
 
 async function settleMatchBets(fixtureId, result) {
-    if (!window.supaDB) {
-        console.warn('supaDB not available');
-        return;
-    }
-    
-    // Check if Firebase is initialized
-    if (!firebase || !firebase.firestore) {
-        console.warn('Firebase not initialized yet');
-        return;
-    }
+    if (!window.supaDB || !firebase?.firestore) return;
     
     try {
         const bets = await window.supaDB.getActiveBets(fixtureId);
-        
-        if (!bets || bets.length === 0) {
-            return;
-        }
+        if (!bets || bets.length === 0) return;
         
         const db = firebase.firestore();
         
@@ -146,17 +127,12 @@ async function settleMatchBets(fixtureId, result) {
             let won = false;
             let payout = 0;
             
-            // 1X2 BETS
             if (bet.bet_type === 'home') won = (result === 'home');
             else if (bet.bet_type === 'draw') won = (result === 'draw');
             else if (bet.bet_type === 'away') won = (result === 'away');
-            
-            // DOUBLE CHANCE BETS
             else if (bet.bet_type === '1X') won = (result === 'home' || result === 'draw');
             else if (bet.bet_type === '12') won = (result === 'home' || result === 'away');
             else if (bet.bet_type === 'X2') won = (result === 'draw' || result === 'away');
-            
-            // OVER/UNDER BETS
             else if (bet.bet_type === 'over25') {
                 const match = await window.supaDB.getMatch(fixtureId);
                 const total = (match?.score?.home || 0) + (match?.score?.away || 0);
@@ -167,8 +143,6 @@ async function settleMatchBets(fixtureId, result) {
                 const total = (match?.score?.home || 0) + (match?.score?.away || 0);
                 won = total < 2.5;
             }
-            
-            // BTTS
             else if (bet.bet_type === 'btts_yes') {
                 const match = await window.supaDB.getMatch(fixtureId);
                 won = (match?.score?.home > 0 && match?.score?.away > 0);
@@ -180,27 +154,16 @@ async function settleMatchBets(fixtureId, result) {
             
             if (won) {
                 payout = bet.amount * bet.odds;
-                try {
-                    const wallet = await db.collection('wallets').doc(bet.user_id).get();
-                    const newBalance = (wallet.data()?.balance || 0) + payout;
-                    await db.collection('wallets').doc(bet.user_id).update({ balance: newBalance });
-                    console.log(`💰 Bet ${bet.id} WON - User ${bet.user_id} +$${payout.toFixed(2)}`);
-                } catch(e) {
-                    console.error(`Failed to update wallet for bet ${bet.id}:`, e);
-                }
-                
+                const wallet = await db.collection('wallets').doc(bet.user_id).get();
+                const newBalance = (wallet.data()?.balance || 0) + payout;
+                await db.collection('wallets').doc(bet.user_id).update({ balance: newBalance });
                 await window.supaDB.updateBet(bet.id, {
-                    status: 'won',
-                    result: result,
-                    payout: payout,
-                    settled_at: new Date().toISOString()
+                    status: 'won', result: result, payout: payout, settled_at: new Date().toISOString()
                 });
+                console.log(`💰 Bet ${bet.id} WON - +$${payout.toFixed(2)}`);
             } else {
                 await window.supaDB.updateBet(bet.id, {
-                    status: 'lost',
-                    result: result,
-                    payout: 0,
-                    settled_at: new Date().toISOString()
+                    status: 'lost', result: result, payout: 0, settled_at: new Date().toISOString()
                 });
                 console.log(`❌ Bet ${bet.id} LOST`);
             }
@@ -210,18 +173,36 @@ async function settleMatchBets(fixtureId, result) {
     }
 }
 
+// ===== FIXED: SYNC 90 DAYS =====
 async function syncUpcomingMatches() {
     console.log('📅 Syncing matches for 90 days...');
-    const data = await fetchAPI('/api/fixtures/week');
+    
+    const today = new Date();
+    const from = today.toISOString().split('T')[0];
+    const futureDate = new Date(today);
+    futureDate.setDate(today.getDate() + 90);
+    const to = futureDate.toISOString().split('T')[0];
+    
+    console.log(`📅 Date range: ${from} to ${to}`);
+    
+    const data = await fetchAPI(`/api/fixtures/range/${from}/${to}`);
     
     if (data.success && data.data && data.data.length > 0) {
-        console.log(`📡 Found ${data.data.length} matches from API`);
+        console.log(`📡 Found ${data.data.length} matches for 90 days`);
         let synced = 0;
         for (const match of data.data) {
             if (await syncMatchToDB(match)) synced++;
             if (synced % 50 === 0) console.log(`   Synced ${synced}/${data.data.length}`);
         }
-        console.log(`✅ Synced ${synced} matches to Supabase`);
+        console.log(`✅ Synced ${synced} matches to Supabase for 90 days`);
+        
+        const { count } = await supabaseClient
+            .from('sports_matches')
+            .select('*', { count: 'exact' })
+            .gte('start_time', today.toISOString())
+            .lte('start_time', futureDate.toISOString());
+        console.log(`📊 Total matches in DB for next 90 days: ${count}`);
+        
         return synced;
     }
     return 0;
@@ -250,7 +231,6 @@ async function forceUpdateMatchStatuses() {
     const nowISO = now.toISOString();
     let updated = 0;
     
-    // Update upcoming → live
     const { data: upcomingMatches } = await supabaseClient
         .from('sports_matches')
         .select('fixture_id')
@@ -267,7 +247,6 @@ async function forceUpdateMatchStatuses() {
         console.log(`⏰ Updated ${upcomingMatches.length} matches: upcoming → live`);
     }
     
-    // Update live → finished (matches older than 105 minutes)
     const { data: liveMatches } = await supabaseClient
         .from('sports_matches')
         .select('fixture_id, start_time, score')
@@ -316,7 +295,7 @@ function startAutoSync() {
     syncInterval = setInterval(syncAllMatches, 60000);
     statusInterval = setInterval(forceUpdateMatchStatuses, 15000);
     
-    console.log('⏰ Auto-sync active (every 60s)');
+    console.log('⏰ Auto-sync active (every 60s) - 90 days range');
 }
 
 window.manualSync = syncAllMatches;
@@ -327,4 +306,4 @@ if (typeof supabaseClient !== 'undefined' && supabaseClient) {
     startAutoSync();
 }
 
-console.log('🏈 Sports API v13.0 - Fixed (Firebase initialized)');
+console.log('🏈 Sports API v15.0 - 90 Days Sync Active');
