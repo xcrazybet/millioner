@@ -1,4 +1,4 @@
-// ============================================
+getDate// ============================================
 // server.js - X Lodon Sports API
 // ✅ CORRECT API-Football integration
 // ✅ Fetches real matches
@@ -118,7 +118,7 @@ app.get('/api/fixtures/week', async (req, res) => {
         const from = today.toISOString().split('T')[0];
         
         const nextWeek = new Date(today);
-        nextWeek.setDate(today.getDate() + 7);
+        nextWeek.setDate(today.getDate() + 30);
         const to = nextWeek.toISOString().split('T')[0];
         
         console.log(`📅 Fetching fixtures from ${from} to ${to}`);
