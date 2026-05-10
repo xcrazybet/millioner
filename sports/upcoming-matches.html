@@ -77,7 +77,6 @@
         .empty-state { text-align: center; padding: 60px; color: #a0a8c9; }
         .today-badge { background: #ff5252; color: white; font-size: 10px; padding: 2px 8px; border-radius: 12px; margin-left: 8px; animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
-        .future-badge { background: #00ff9d22; color: #00ff9d; font-size: 10px; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
         .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #00ff9d; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 768px) {
@@ -114,7 +113,7 @@
         </div>
         
         <div class="selector-bar">
-            <select id="league-filter" class="league-select"><option value="all">🏆 All Leagues (Worldwide)</option></select>
+            <select id="league-filter" class="league-select"><option value="all">🏆 All Leagues</option></select>
             <input type="text" id="search-input" class="search-input" placeholder="🔍 Search team or league..." oninput="filterMatches()">
             <input type="date" id="date-filter" class="date-filter" onchange="filterMatches()">
         </div>
@@ -122,16 +121,16 @@
         <div class="debug-bar">
             <i class="fas fa-database"></i> <span id="debug-text">Loading matches...</span>
             <button class="refresh-btn" onclick="loadMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
-            <button class="sync-btn" onclick="manualSync()"><i class="fas fa-cloud-download-alt"></i> Sync Now</button>
+            <button class="sync-btn" onclick="forceManualSync()"><i class="fas fa-cloud-download-alt"></i> Sync Now</button>
         </div>
         
-        <div id="matches-container"><div style="text-align:center;padding:50px;"><div class="loading-spinner"></div> Loading matches for next 90 days...</div></div>
+        <div id="matches-container"><div style="text-align:center;padding:50px;"><div class="loading-spinner"></div> Loading upcoming matches...</div></div>
     </div>
     
     <div class="bet-slip" id="bet-slip" style="display:none;">
         <div class="slip-header">
             <span class="slip-title"><i class="fas fa-layer-group"></i> Bet Slip (<span id="slip-count">0</span>)</span>
-            <span class="slip-clear" onclick="clearSlip()">Clear All</span>
+            <span class="slip-clear" onclick="clearAllSlip()">Clear All</span>
         </div>
         <div id="slip-items"></div>
         <div class="slip-total">
@@ -181,7 +180,8 @@
             try {
                 const db = firebase.firestore();
                 const doc = await db.collection('wallets').doc(firebase.auth().currentUser.uid).get();
-                document.getElementById('balance-display').textContent = `$${(doc.exists ? (doc.data().balance || 0) : 0).toFixed(2)}`;
+                const balance = doc.exists ? (doc.data().balance || 0) : 0;
+                document.getElementById('balance-display').textContent = `$${balance.toFixed(2)}`;
             } catch(e) { console.error(e); }
         }
         
@@ -202,10 +202,25 @@
             document.getElementById('league-filter').onchange = (e) => { selectedLeague = e.target.value; filterMatches(); };
         }
         
+        async function forceManualSync() {
+            document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Syncing with API...';
+            if (typeof manualSync === 'function') {
+                await manualSync();
+                await loadMatches();
+            } else {
+                console.log('Manual sync not available');
+                await loadMatches();
+            }
+        }
+        
         async function loadMatches() {
-            if (!window.supaDB) { document.getElementById('debug-text').innerHTML = '⚠️ Waiting for database...'; return; }
+            if (!window.supaDB) { 
+                document.getElementById('debug-text').innerHTML = '⚠️ Waiting for database...'; 
+                return; 
+            }
+            
             try {
-                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading matches for next 90 days...';
+                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading from database...';
                 
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
@@ -237,12 +252,16 @@
                 document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today: ${todayMatches} | Next 90 days: ${futureMatches}) | ${uniqueDates.length} days | ${uniqueLeagues.length} leagues`;
                 
                 if (allMatches.length === 0) {
-                    document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found. Click "Sync Now" to load matches.</p><button onclick="manualSync()" style="margin-top:15px;padding:10px 20px;background:#ff9800;color:black;border:none;border-radius:8px;cursor:pointer;">Sync Now</button></div>`;
+                    document.getElementById('matches-container').innerHTML = `<div class="empty-state"><i class="fas fa-calendar"></i><p>No matches found. Click "Sync Now" to load data.</p><button onclick="forceManualSync()" style="margin-top:15px;padding:10px 20px;background:#ff9800;color:black;border:none;border-radius:8px;cursor:pointer;">Sync Now</button></div>`;
                 } else {
                     filterMatches();
                     startCountdowns();
                 }
-            } catch(e) { console.error(e); document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`; }
+                
+            } catch(e) { 
+                console.error(e); 
+                document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`; 
+            }
         }
         
         function filterMatches() {
@@ -266,8 +285,7 @@
                 let label = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
                 let badge = '';
                 if (dateKey === today) badge = '<span class="today-badge"><i class="fas fa-calendar-day"></i> TODAY</span>';
-                else if (dateKey === tomorrow) badge = '<span class="future-badge"><i class="fas fa-calendar-day"></i> TOMORROW</span>';
-                else badge = '<span class="future-badge"><i class="fas fa-calendar-week"></i> UPCOMING</span>';
+                else if (dateKey === tomorrow) badge = '<span class="today-badge"><i class="fas fa-calendar-day"></i> TOMORROW</span>';
                 
                 const groupedByLeague = {};
                 groupedByDate[dateKey].forEach(m => { const ln = m.league_name || 'Other Leagues'; if (!groupedByLeague[ln]) groupedByLeague[ln] = []; groupedByLeague[ln].push(m); });
@@ -333,22 +351,22 @@
             const amount = parseFloat(prompt('Enter stake amount ($):', '10'));
             if (!amount || amount < 1) return;
             const result = await window.placeAccumulatorBet(window.ACCUMULATOR_SLIP, amount);
-            if (result.success) { alert(`✅ Bet placed! Potential win: $${result.potentialWin.toFixed(2)}`); clearSlip(); await loadBalance(); location.href = 'my-bets.html'; }
+            if (result.success) { alert(`✅ Bet placed! Potential win: $${result.potentialWin.toFixed(2)}`); clearAllSlip(); await loadBalance(); location.href = 'my-bets.html'; }
             else { alert(`❌ Failed: ${result.error}`); }
         }
         
-        function clearSlip() { window.ACCUMULATOR_SLIP = []; saveSlip(); if (typeof window.updateSlipUI === 'function') window.updateSlipUI(); }
-        function removeFromSlip(index) { window.ACCUMULATOR_SLIP.splice(index, 1); saveSlip(); if (typeof window.updateSlipUI === 'function') window.updateSlipUI(); }
+        function clearAllSlip() { window.ACCUMULATOR_SLIP = []; if (typeof saveSlip === 'function') saveSlip(); if (typeof window.updateSlipUI === 'function') window.updateSlipUI(); }
+        function removeFromSlip(index) { window.ACCUMULATOR_SLIP.splice(index, 1); if (typeof saveSlip === 'function') saveSlip(); if (typeof window.updateSlipUI === 'function') window.updateSlipUI(); }
         
-        window.manualSync = () => { if (typeof manualSync === 'function') manualSync(); else alert('Sync function loading...'); };
+        window.forceManualSync = forceManualSync;
         window.goToMatch = goToMatch;
         window.placeAccumulatorBet = placeAccumulatorBet;
         window.loadMatches = loadMatches;
         window.toggleLanguage = toggleLanguage;
         window.removeFromSlip = removeFromSlip;
-        window.clearSlip = clearSlip;
+        window.clearAllSlip = clearAllSlip;
         
-        console.log('✅ Upcoming matches page ready - Showing next 90 days of matches');
+        console.log('✅ Upcoming matches page ready - 90 days of matches');
     </script>
 </body>
 </html>
