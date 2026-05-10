@@ -1,8 +1,8 @@
 // ============================================
 // server.js - X Lodon Sports API
-// ✅ Fetches 3 MONTHS (90 days) of matches
-// ✅ Today + next 90 days automatically
-// ✅ Zero date calculation errors
+// ✅ COMPLETE API with ALL endpoints
+// ✅ Live matches, fixtures, head2head, predictions, statistics
+// ✅ 3 months (90 days) of matches
 // ============================================
 
 const express = require('express');
@@ -19,16 +19,11 @@ const BASE_URL = 'https://v3.football.api-sports.io';
 app.use(cors());
 app.use(express.json());
 
-// ============================================
-// HELPER: Get date YYYY-MM-DD
-// ============================================
+// Helper function
 function getDateString(date) {
     return date.toISOString().split('T')[0];
 }
 
-// ============================================
-// HELPER: Get date range for X days
-// ============================================
 function getDateRange(days = 90) {
     const today = new Date();
     const fromDate = new Date(today);
@@ -43,9 +38,6 @@ function getDateRange(days = 90) {
     return { from, to, days };
 }
 
-// ============================================
-// FETCH FROM API-FOOTBALL
-// ============================================
 async function fetchFromAPI(endpoint, params = {}) {
     try {
         const response = await axios.get(`${BASE_URL}${endpoint}`, {
@@ -61,203 +53,27 @@ async function fetchFromAPI(endpoint, params = {}) {
 }
 
 // ============================================
-// HEALTH CHECK
+// HEALTH & INFO
 // ============================================
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
-        timestamp: new Date().toISOString(),
-        api_configured: !!API_KEY
-    });
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // ============================================
-// GET FIXTURES FOR 3 MONTHS (90 DAYS)
+// 1. FIXTURES - Get matches for date range
 // ============================================
 app.get('/api/fixtures/week', async (req, res) => {
     try {
-        const { from, to, days } = getDateRange(90); // 90 days = 3 months
-        
-        console.log(`\n========================================`);
-        console.log(`📅 FETCHING ${days} DAYS OF MATCHES`);
-        console.log(`📅 FROM: ${from}`);
-        console.log(`📅 TO:   ${to}`);
-        console.log(`========================================\n`);
-        
+        const { from, to, days } = getDateRange(90);
         const result = await fetchFromAPI('/fixtures', { from, to });
         
-        if (result.success && result.data && result.data.length > 0) {
-            console.log(`✅ FOUND ${result.data.length} MATCHES FOR ${days} DAYS\n`);
-            
-            // Group by date for easy display
-            const groupedByDate = {};
-            result.data.forEach(m => {
-                const date = new Date(m.fixture.date).toDateString();
-                if (!groupedByDate[date]) groupedByDate[date] = [];
-                groupedByDate[date].push(m);
-            });
-            
-            console.log(`📅 DATES WITH MATCHES: ${Object.keys(groupedByDate).length} days\n`);
-            
-            // Format fixtures
+        if (result.success && result.data) {
             const fixtures = result.data.map(f => ({
                 fixture: {
                     id: f.fixture.id,
                     date: f.fixture.date,
                     status: f.fixture.status,
                     venue: f.fixture.venue
-                },
-                league: {
-                    id: f.league.id,
-                    name: f.league.name,
-                    logo: f.league.logo,
-                    country: f.league.country
-                },
-                teams: {
-                    home: {
-                        id: f.teams.home.id,
-                        name: f.teams.home.name,
-                        logo: f.teams.home.logo
-                    },
-                    away: {
-                        id: f.teams.away.id,
-                        name: f.teams.away.name,
-                        logo: f.teams.away.logo
-                    }
-                },
-                goals: {
-                    home: f.goals.home,
-                    away: f.goals.away
-                }
-            }));
-            
-            res.json({
-                success: true,
-                data: fixtures,
-                count: fixtures.length,
-                date_range: { from, to, days: days },
-                grouped_by_date: groupedByDate,
-                total_days_with_matches: Object.keys(groupedByDate).length,
-                timestamp: new Date().toISOString()
-            });
-        } else {
-            console.log(`⚠️ No matches found for ${from} to ${to}`);
-            res.json({
-                success: true,
-                data: [],
-                count: 0,
-                date_range: { from, to, days: days },
-                message: 'No matches in this period',
-                timestamp: new Date().toISOString()
-            });
-        }
-    } catch (error) {
-        console.error('Error:', error.message);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// ============================================
-// GET FIXTURES FOR SPECIFIC DATE
-// ============================================
-app.get('/api/fixtures/date/:date', async (req, res) => {
-    try {
-        const date = req.params.date;
-        console.log(`📅 Fetching fixtures for: ${date}`);
-        
-        const result = await fetchFromAPI('/fixtures', { date });
-        
-        if (result.success && result.data && result.data.length > 0) {
-            console.log(`✅ Found ${result.data.length} matches on ${date}`);
-            
-            const fixtures = result.data.map(f => ({
-                fixture: {
-                    id: f.fixture.id,
-                    date: f.fixture.date,
-                    status: f.fixture.status
-                },
-                league: {
-                    id: f.league.id,
-                    name: f.league.name,
-                    logo: f.league.logo,
-                    country: f.league.country
-                },
-                teams: {
-                    home: { id: f.teams.home.id, name: f.teams.home.name, logo: f.teams.home.logo },
-                    away: { id: f.teams.away.id, name: f.teams.away.name, logo: f.teams.away.logo }
-                }
-            }));
-            
-            res.json({ success: true, data: fixtures, count: fixtures.length, date: date });
-        } else {
-            res.json({ success: true, data: [], count: 0, date: date });
-        }
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// ============================================
-// GET FIXTURES FOR CUSTOM DATE RANGE
-// ============================================
-app.get('/api/fixtures/range/:from/:to', async (req, res) => {
-    try {
-        const { from, to } = req.params;
-        console.log(`📅 Fetching fixtures from ${from} to ${to}`);
-        
-        const result = await fetchFromAPI('/fixtures', { from, to });
-        
-        if (result.success && result.data && result.data.length > 0) {
-            const fixtures = result.data.map(f => ({
-                fixture: {
-                    id: f.fixture.id,
-                    date: f.fixture.date,
-                    status: f.fixture.status
-                },
-                league: {
-                    id: f.league.id,
-                    name: f.league.name,
-                    logo: f.league.logo,
-                    country: f.league.country
-                },
-                teams: {
-                    home: { id: f.teams.home.id, name: f.teams.home.name, logo: f.teams.home.logo },
-                    away: { id: f.teams.away.id, name: f.teams.away.name, logo: f.teams.away.logo }
-                }
-            }));
-            
-            res.json({ success: true, data: fixtures, count: fixtures.length, date_range: { from, to } });
-        } else {
-            res.json({ success: true, data: [], count: 0, date_range: { from, to } });
-        }
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// ============================================
-// GET LIVE SCORES
-// ============================================
-app.get('/api/livescores', async (req, res) => {
-    try {
-        console.log(`🔴 Fetching live scores...`);
-        
-        const result = await fetchFromAPI('/fixtures', { live: 'all' });
-        
-        if (result.success && result.data) {
-            const liveMatches = result.data.filter(f =>
-                f.fixture.status.short === '1H' ||
-                f.fixture.status.short === '2H' ||
-                f.fixture.status.short === 'HT'
-            );
-            
-            console.log(`🔴 Found ${liveMatches.length} live matches`);
-            
-            const matches = liveMatches.map(f => ({
-                fixture: {
-                    id: f.fixture.id,
-                    date: f.fixture.date,
-                    status: f.fixture.status
                 },
                 league: {
                     id: f.league.id,
@@ -272,7 +88,7 @@ app.get('/api/livescores', async (req, res) => {
                 goals: { home: f.goals.home, away: f.goals.away }
             }));
             
-            res.json({ success: true, data: matches, count: matches.length });
+            res.json({ success: true, data: fixtures, count: fixtures.length, date_range: { from, to, days } });
         } else {
             res.json({ success: true, data: [], count: 0 });
         }
@@ -282,52 +98,25 @@ app.get('/api/livescores', async (req, res) => {
 });
 
 // ============================================
-// GET ALL LEAGUES
+// 2. LIVE SCORES - Get currently live matches
 // ============================================
-app.get('/api/leagues', async (req, res) => {
+app.get('/api/livescores', async (req, res) => {
     try {
-        console.log(`📋 Fetching leagues...`);
-        
-        const result = await fetchFromAPI('/leagues');
+        const result = await fetchFromAPI('/fixtures', { live: 'all' });
         
         if (result.success && result.data) {
-            const leagues = result.data.slice(0, 100).map(l => ({
-                id: l.league.id,
-                name: l.league.name,
-                logo: l.league.logo,
-                country: l.country.name,
-                flag: l.country.flag
-            }));
+            const liveMatches = result.data.filter(f =>
+                f.fixture.status.short === '1H' ||
+                f.fixture.status.short === '2H' ||
+                f.fixture.status.short === 'HT'
+            );
             
-            console.log(`📋 Found ${leagues.length} leagues`);
-            res.json({ success: true, data: leagues, count: leagues.length });
-        } else {
-            res.json({ success: true, data: [], count: 0 });
-        }
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// ============================================
-// GET SINGLE FIXTURE DETAILS
-// ============================================
-app.get('/api/fixture/:id', async (req, res) => {
-    try {
-        const fixtureId = req.params.id;
-        console.log(`📋 Fetching fixture details: ${fixtureId}`);
-        
-        const result = await fetchFromAPI('/fixtures', { id: fixtureId });
-        
-        if (result.success && result.data && result.data.length > 0) {
-            const f = result.data[0];
-            res.json({
-                success: true,
+            const matches = liveMatches.map(f => ({
                 fixture: {
                     id: f.fixture.id,
                     date: f.fixture.date,
                     status: f.fixture.status,
-                    venue: f.fixture.venue
+                    elapsed: f.fixture.status.elapsed
                 },
                 league: {
                     id: f.league.id,
@@ -339,10 +128,123 @@ app.get('/api/fixture/:id', async (req, res) => {
                     home: { id: f.teams.home.id, name: f.teams.home.name, logo: f.teams.home.logo },
                     away: { id: f.teams.away.id, name: f.teams.away.name, logo: f.teams.away.logo }
                 },
+                goals: { home: f.goals.home, away: f.goals.away },
+                score: f.score
+            }));
+            
+            res.json({ success: true, data: matches, count: matches.length });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 3. FIXTURES BY DATE - Get matches for specific date
+// ============================================
+app.get('/api/fixtures/date/:date', async (req, res) => {
+    try {
+        const date = req.params.date;
+        const result = await fetchFromAPI('/fixtures', { date });
+        
+        if (result.success && result.data) {
+            const fixtures = result.data.map(f => ({
+                fixture: { id: f.fixture.id, date: f.fixture.date, status: f.fixture.status },
+                league: { id: f.league.id, name: f.league.name, logo: f.league.logo, country: f.league.country },
+                teams: {
+                    home: { id: f.teams.home.id, name: f.teams.home.name, logo: f.teams.home.logo },
+                    away: { id: f.teams.away.id, name: f.teams.away.name, logo: f.teams.away.logo }
+                },
+                goals: { home: f.goals.home, away: f.goals.away }
+            }));
+            res.json({ success: true, data: fixtures, count: fixtures.length, date: date });
+        } else {
+            res.json({ success: true, data: [], count: 0, date: date });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 4. FIXTURES BY DATE RANGE
+// ============================================
+app.get('/api/fixtures/range/:from/:to', async (req, res) => {
+    try {
+        const { from, to } = req.params;
+        const result = await fetchFromAPI('/fixtures', { from, to });
+        
+        if (result.success && result.data) {
+            const fixtures = result.data.map(f => ({
+                fixture: { id: f.fixture.id, date: f.fixture.date, status: f.fixture.status },
+                league: { id: f.league.id, name: f.league.name, logo: f.league.logo },
+                teams: {
+                    home: { id: f.teams.home.id, name: f.teams.home.name },
+                    away: { id: f.teams.away.id, name: f.teams.away.name }
+                }
+            }));
+            res.json({ success: true, data: fixtures, count: fixtures.length, date_range: { from, to } });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 5. SINGLE FIXTURE - Full details
+// ============================================
+app.get('/api/fixture/:id', async (req, res) => {
+    try {
+        const fixtureId = req.params.id;
+        const [fixtureRes, eventsRes, statsRes, oddsRes] = await Promise.all([
+            fetchFromAPI('/fixtures', { id: fixtureId }),
+            fetchFromAPI('/fixtures/events', { fixture: fixtureId }),
+            fetchFromAPI('/fixtures/statistics', { fixture: fixtureId }),
+            fetchFromAPI('/odds', { fixture: fixtureId })
+        ]);
+        
+        if (fixtureRes.success && fixtureRes.data) {
+            const f = fixtureRes.data[0];
+            res.json({
+                success: true,
+                fixture: {
+                    id: f.fixture.id,
+                    date: f.fixture.date,
+                    status: f.fixture.status,
+                    venue: f.fixture.venue,
+                    timezone: f.fixture.timezone
+                },
+                league: {
+                    id: f.league.id,
+                    name: f.league.name,
+                    logo: f.league.logo,
+                    country: f.league.country,
+                    season: f.league.season,
+                    round: f.league.round
+                },
+                teams: {
+                    home: {
+                        id: f.teams.home.id,
+                        name: f.teams.home.name,
+                        logo: f.teams.home.logo,
+                        formation: f.teams.home.formation
+                    },
+                    away: {
+                        id: f.teams.away.id,
+                        name: f.teams.away.name,
+                        logo: f.teams.away.logo,
+                        formation: f.teams.away.formation
+                    }
+                },
                 goals: f.goals,
                 score: f.score,
-                events: await fetchFromAPI('/fixtures/events', { fixture: fixtureId }).then(r => r.data),
-                statistics: await fetchFromAPI('/fixtures/statistics', { fixture: fixtureId }).then(r => r.data)
+                events: eventsRes.data,
+                statistics: statsRes.data,
+                odds: oddsRes.data
             });
         } else {
             res.json({ success: false, error: 'Fixture not found' });
@@ -353,7 +255,7 @@ app.get('/api/fixture/:id', async (req, res) => {
 });
 
 // ============================================
-// GET MATCH EVENTS
+// 6. MATCH EVENTS - Goals, cards, substitutions
 // ============================================
 app.get('/api/fixtures/events/:id', async (req, res) => {
     try {
@@ -365,11 +267,255 @@ app.get('/api/fixtures/events/:id', async (req, res) => {
 });
 
 // ============================================
-// DEBUG ENDPOINT
+// 7. MATCH STATISTICS - Possession, shots, etc.
+// ============================================
+app.get('/api/fixtures/statistics/:id', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/fixtures/statistics', { fixture: req.params.id });
+        res.json({ success: true, data: result.data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 8. HEAD TO HEAD - Team vs Team history
+// ============================================
+app.get('/api/fixtures/head2head/:home/:away', async (req, res) => {
+    try {
+        const { home, away } = req.params;
+        const result = await fetchFromAPI('/fixtures/headtohead', { h2h: `${home}-${away}` });
+        
+        if (result.success && result.data) {
+            const matches = result.data.map(f => ({
+                fixture: { id: f.fixture.id, date: f.fixture.date, status: f.fixture.status },
+                league: { id: f.league.id, name: f.league.name },
+                teams: {
+                    home: { id: f.teams.home.id, name: f.teams.home.name, winner: f.teams.home.winner },
+                    away: { id: f.teams.away.id, name: f.teams.away.name, winner: f.teams.away.winner }
+                },
+                goals: { home: f.goals.home, away: f.goals.away }
+            }));
+            
+            const total = matches.length;
+            const homeWins = matches.filter(m => m.teams.home.winner === true).length;
+            const awayWins = matches.filter(m => m.teams.away.winner === true).length;
+            const draws = total - homeWins - awayWins;
+            
+            res.json({
+                success: true,
+                data: matches,
+                stats: {
+                    total_matches: total,
+                    home_wins: homeWins,
+                    away_wins: awayWins,
+                    draws: draws,
+                    home_win_rate: ((homeWins / total) * 100).toFixed(1),
+                    away_win_rate: ((awayWins / total) * 100).toFixed(1),
+                    draw_rate: ((draws / total) * 100).toFixed(1)
+                }
+            });
+        } else {
+            res.json({ success: true, data: [], stats: null });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 9. PREDICTIONS - AI match predictions
+// ============================================
+app.get('/api/predictions/:id', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/predictions', { fixture: req.params.id });
+        
+        if (result.success && result.data && result.data[0]) {
+            const p = result.data[0];
+            res.json({
+                success: true,
+                data: {
+                    predictions: p.predictions,
+                    comparison: p.comparison,
+                    h2h: p.h2h,
+                    form: p.form,
+                    percentage: p.percentage
+                }
+            });
+        } else {
+            res.json({ success: true, data: null });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 10. LEAGUES - All leagues
+// ============================================
+app.get('/api/leagues', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/leagues');
+        
+        if (result.success && result.data) {
+            const leagues = result.data.map(l => ({
+                id: l.league.id,
+                name: l.league.name,
+                logo: l.league.logo,
+                type: l.league.type,
+                country: l.country.name,
+                country_code: l.country.code,
+                flag: l.country.flag,
+                seasons: l.seasons
+            }));
+            res.json({ success: true, data: leagues, count: leagues.length });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 11. LEAGUE STANDINGS / TABLE
+// ============================================
+app.get('/api/standings/:league/:season', async (req, res) => {
+    try {
+        const { league, season } = req.params;
+        const result = await fetchFromAPI('/standings', { league, season });
+        
+        if (result.success && result.data) {
+            res.json({ success: true, data: result.data });
+        } else {
+            res.json({ success: true, data: [] });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 12. TEAM INFORMATION
+// ============================================
+app.get('/api/team/:id', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/teams', { id: req.params.id });
+        
+        if (result.success && result.data) {
+            const team = result.data[0];
+            res.json({
+                success: true,
+                data: {
+                    id: team.team.id,
+                    name: team.team.name,
+                    logo: team.team.logo,
+                    country: team.team.country,
+                    founded: team.team.founded,
+                    venue: team.venue
+                }
+            });
+        } else {
+            res.json({ success: false, error: 'Team not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 13. PLAYER STATISTICS
+// ============================================
+app.get('/api/players', async (req, res) => {
+    try {
+        const { team, season, league } = req.query;
+        const result = await fetchFromAPI('/players', { team, season, league });
+        
+        if (result.success && result.data) {
+            const players = result.data.map(p => ({
+                id: p.player.id,
+                name: p.player.name,
+                age: p.player.age,
+                nationality: p.player.nationality,
+                position: p.statistics[0]?.games?.position,
+                team: p.statistics[0]?.team?.name,
+                goals: p.statistics[0]?.goals?.total,
+                assists: p.statistics[0]?.goals?.assists
+            }));
+            res.json({ success: true, data: players, count: players.length });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 14. TOP SCORERS
+// ============================================
+app.get('/api/topscorers/:league/:season', async (req, res) => {
+    try {
+        const { league, season } = req.params;
+        const result = await fetchFromAPI('/players/topscorers', { league, season });
+        
+        if (result.success && result.data) {
+            const scorers = result.data.map(p => ({
+                rank: p.rank,
+                player: p.player.name,
+                team: p.statistics[0]?.team?.name,
+                goals: p.statistics[0]?.goals?.total,
+                assists: p.statistics[0]?.goals?.assists,
+                penalties: p.statistics[0]?.penalty?.scored
+            }));
+            res.json({ success: true, data: scorers, count: scorers.length });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 15. COUNTRY LIST
+// ============================================
+app.get('/api/countries', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/countries');
+        
+        if (result.success && result.data) {
+            const countries = result.data.map(c => ({
+                name: c.name,
+                code: c.code,
+                flag: c.flag
+            }));
+            res.json({ success: true, data: countries, count: countries.length });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 16. TIMEZONES
+// ============================================
+app.get('/api/timezones', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/timezone');
+        res.json({ success: true, data: result.data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 17. DEBUG - Check API status
 // ============================================
 app.get('/api/debug', async (req, res) => {
     const { from, to, days } = getDateRange(90);
-    
     const result = await fetchFromAPI('/fixtures', { from, to });
     
     res.json({
@@ -389,58 +535,82 @@ app.get('/', (req, res) => {
     
     res.json({
         name: 'X Lodon Sports API',
-        version: '11.0.0',
+        version: '12.0.0',
         status: 'active',
         api_key_configured: !!API_KEY,
-        current_date_range: {
-            from: from,
-            to: to,
-            total_days: days,
-            description: '3 months (90 days)'
-        },
+        current_date_range: { from, to, total_days: days, description: '3 months' },
         endpoints: {
-            health: '/health',
-            fixtures_week: '/api/fixtures/week (90 days)',
-            fixtures_date: '/api/fixtures/date/:date',
-            fixtures_range: '/api/fixtures/range/:from/:to',
-            livescores: '/api/livescores',
-            leagues: '/api/leagues',
-            fixture: '/api/fixture/:id',
-            events: '/api/fixtures/events/:id',
-            debug: '/api/debug'
+            fixtures: {
+                week: '/api/fixtures/week (90 days)',
+                date: '/api/fixtures/date/:date',
+                range: '/api/fixtures/range/:from/:to',
+                single: '/api/fixture/:id'
+            },
+            live: {
+                scores: '/api/livescores'
+            },
+            statistics: {
+                events: '/api/fixtures/events/:id',
+                statistics: '/api/fixtures/statistics/:id',
+                head2head: '/api/fixtures/head2head/:home/:away'
+            },
+            predictions: {
+                match: '/api/predictions/:id'
+            },
+            leagues: {
+                all: '/api/leagues',
+                standings: '/api/standings/:league/:season'
+            },
+            teams: {
+                info: '/api/team/:id',
+                players: '/api/players?team=:id&season=:year'
+            },
+            other: {
+                top_scorers: '/api/topscorers/:league/:season',
+                countries: '/api/countries',
+                timezones: '/api/timezones',
+                debug: '/api/debug'
+            }
         },
         timestamp: new Date().toISOString()
     });
 });
 
-// ============================================
-// START SERVER
-// ============================================
+// Start server
 app.listen(PORT, () => {
     const { from, to, days } = getDateRange(90);
     
     console.log('\n========================================');
     console.log('🚀 X Lodon Sports API Server');
     console.log(`📍 Port: ${PORT}`);
-    console.log(`📍 URL: http://localhost:${PORT}`);
     console.log('========================================');
     console.log(`🔑 API Key: ${API_KEY ? '✓ Configured' : '✗ Missing'}`);
-    console.log(`📡 Data Source: API-Football (ALL matches worldwide)`);
+    console.log(`📅 Date Range: ${from} → ${to} (${days} days / 3 months)`);
     console.log('========================================');
-    console.log(`📅 DATE RANGE CONFIGURATION:`);
-    console.log(`   FROM: ${from}`);
-    console.log(`   TO:   ${to}`);
-    console.log(`   DAYS: ${days} days (3 months)`);
-    console.log('========================================');
-    console.log('\n📋 Available Endpoints:');
-    console.log(`   GET /health`);
-    console.log(`   GET /api/fixtures/week (${days} days of matches)`);
-    console.log(`   GET /api/fixtures/date/:date`);
-    console.log(`   GET /api/fixtures/range/:from/:to`);
-    console.log(`   GET /api/livescores`);
-    console.log(`   GET /api/leagues`);
-    console.log(`   GET /api/fixture/:id`);
-    console.log(`   GET /api/fixtures/events/:id`);
-    console.log(`   GET /api/debug`);
+    console.log('\n📋 ENDPOINTS AVAILABLE:');
+    console.log('   📅 FIXTURES:');
+    console.log('      GET /api/fixtures/week');
+    console.log('      GET /api/fixtures/date/:date');
+    console.log('      GET /api/fixtures/range/:from/:to');
+    console.log('      GET /api/fixture/:id');
+    console.log('   🔴 LIVE:');
+    console.log('      GET /api/livescores');
+    console.log('   📊 STATISTICS:');
+    console.log('      GET /api/fixtures/events/:id');
+    console.log('      GET /api/fixtures/statistics/:id');
+    console.log('      GET /api/fixtures/head2head/:home/:away');
+    console.log('   🤖 PREDICTIONS:');
+    console.log('      GET /api/predictions/:id');
+    console.log('   🏆 LEAGUES:');
+    console.log('      GET /api/leagues');
+    console.log('      GET /api/standings/:league/:season');
+    console.log('   ⚽ TEAMS:');
+    console.log('      GET /api/team/:id');
+    console.log('      GET /api/players?team=:id&season=:year');
+    console.log('   🎯 OTHER:');
+    console.log('      GET /api/topscorers/:league/:season');
+    console.log('      GET /api/countries');
+    console.log('      GET /api/timezones');
+    console.log('      GET /api/debug');
     console.log('========================================\n');
 });
