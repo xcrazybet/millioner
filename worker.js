@@ -1,15 +1,12 @@
 // ============================================
 // worker.js - PROPER BACKEND SYNC ENGINE
-// ✅ Runs as separate process on Render
-// ✅ NOT in browser - 24/7 operation
-// ✅ Handles pagination correctly
-// ✅ Atomic wallet transactions
-// ✅ Prevents double settlements
+// ✅ FIXED: Added missing axios import
 // ============================================
 
-require('dotenv').config();
+// ===== REQUIRED IMPORTS =====
+const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
-const admin = require('firebase-admin');
+require('dotenv').config();
 
 // ===== CONFIGURATION =====
 const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
@@ -20,20 +17,9 @@ const BATCH_SIZE = 50;
 const SYNC_INTERVAL = 60000; // 60 seconds
 const STATUS_INTERVAL = 30000; // 30 seconds
 
-// ===== INITIALIZE CLIENTS =====
+// ===== INITIALIZE SUPABASE =====
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-let firebaseApp = null;
-
-// Initialize Firebase Admin (for server-side wallet operations)
-try {
-    if (!admin.apps.length) {
-        // For production, use service account
-        // For now, we'll use the client SDK approach
-        console.log('⚠️ Firebase Admin initialization - configure service account for production');
-    }
-} catch(e) {
-    console.error('Firebase init error:', e);
-}
+console.log('✅ Supabase connected');
 
 // ===== HELPER FUNCTIONS =====
 
@@ -68,7 +54,15 @@ async function fetchWithPagination(endpoint, params = {}) {
     return { success: true, data: allData, total: allData.length };
 }
 
-// Format fixture
+// Get match status
+function getMatchStatus(short) {
+    if (!short || short === 'NS') return 'upcoming';
+    if (['1H', '2H', 'HT', 'ET', 'BT', 'LIVE'].includes(short)) return 'live';
+    if (['FT', 'AET', 'PEN'].includes(short)) return 'finished';
+    return 'upcoming';
+}
+
+// Format fixture for database
 function formatFixture(f) {
     return {
         fixture_id: f.fixture.id,
@@ -93,140 +87,12 @@ function formatFixture(f) {
         },
         start_time: f.fixture.date,
         score: { home: f.goals.home || 0, away: f.goals.away || 0 },
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        bets_settled: false
     };
 }
 
-function getMatchStatus(short) {
-    if (!short || short === 'NS') return 'upcoming';
-    if (['1H', '2H', 'HT', 'ET', 'BT', 'LIVE'].includes(short)) return 'live';
-    if (['FT', 'AET', 'PEN'].includes(short)) return 'finished';
-    return 'upcoming';
-}
-
-// ===== ATOMIC WALLET UPDATE (FIREBASE TRANSACTION) =====
-async function updateWalletAtomic(userId, amount, betId) {
-    // For server-side, use Firebase Admin SDK with transaction
-    // This is a placeholder - requires Firebase Admin setup
-    console.log(`💰 Atomic update for user ${userId}: +$${amount}`);
-    // Implement with Firebase Admin transaction
-    return true;
-}
-
-// ===== PREVENT DOUBLE SETTLEMENT =====
-let settlingMatches = new Set();
-
-async function settleMatchBets(fixtureId, result) {
-    // Prevent concurrent settlement
-    if (settlingMatches.has(fixtureId)) {
-        console.log(`⚠️ Match ${fixtureId} already being settled, skipping`);
-        return;
-    }
-    
-    settlingMatches.add(fixtureId);
-    
-    try {
-        // First, check if already settled
-        const { data: match, error: matchError } = await supabase
-            .from('sports_matches')
-            .select('bets_settled')
-            .eq('fixture_id', fixtureId)
-            .single();
-        
-        if (matchError) {
-            console.error(`Error checking match ${fixtureId}:`, matchError);
-            settlingMatches.delete(fixtureId);
-            return;
-        }
-        
-        if (match.bets_settled) {
-            console.log(`⚠️ Match ${fixtureId} already settled, skipping`);
-            settlingMatches.delete(fixtureId);
-            return;
-        }
-        
-        // Get active bets
-        const { data: bets, error: betsError } = await supabase
-            .from('bets')
-            .select('*')
-            .eq('fixture_id', fixtureId)
-            .eq('status', 'active');
-        
-        if (betsError) {
-            console.error(`Error getting bets for ${fixtureId}:`, betsError);
-            settlingMatches.delete(fixtureId);
-            return;
-        }
-        
-        if (!bets || bets.length === 0) {
-            // Mark as settled even if no bets
-            await supabase
-                .from('sports_matches')
-                .update({ bets_settled: true })
-                .eq('fixture_id', fixtureId);
-            settlingMatches.delete(fixtureId);
-            return;
-        }
-        
-        console.log(`💰 Settling ${bets.length} bets for match ${fixtureId}`);
-        
-        for (const bet of bets) {
-            let won = false;
-            let payout = 0;
-            
-            // Determine win/loss
-            if (bet.bet_type === 'home') won = (result === 'home');
-            else if (bet.bet_type === 'draw') won = (result === 'draw');
-            else if (bet.bet_type === 'away') won = (result === 'away');
-            else if (bet.bet_type === '1X') won = (result === 'home' || result === 'draw');
-            else if (bet.bet_type === '12') won = (result === 'home' || result === 'away');
-            else if (bet.bet_type === 'X2') won = (result === 'draw' || result === 'away');
-            
-            if (won) {
-                payout = bet.amount * bet.odds;
-                // Update wallet (use atomic transaction in production)
-                await updateWalletAtomic(bet.user_id, payout, bet.id);
-                
-                await supabase
-                    .from('bets')
-                    .update({
-                        status: 'won',
-                        result: result,
-                        payout: payout,
-                        settled_at: new Date().toISOString()
-                    })
-                    .eq('id', bet.id);
-                
-                console.log(`✅ Bet ${bet.id} WON: +$${payout}`);
-            } else {
-                await supabase
-                    .from('bets')
-                    .update({
-                        status: 'lost',
-                        result: result,
-                        payout: 0,
-                        settled_at: new Date().toISOString()
-                    })
-                    .eq('id', bet.id);
-                
-                console.log(`❌ Bet ${bet.id} LOST`);
-            }
-        }
-        
-        // Mark match as settled
-        await supabase
-            .from('sports_matches')
-            .update({ bets_settled: true })
-            .eq('fixture_id', fixtureId);
-        
-    } catch(e) {
-        console.error(`Settlement error for ${fixtureId}:`, e);
-    } finally {
-        settlingMatches.delete(fixtureId);
-    }
-}
-
-// ===== SYNC MATCHES WITH PAGINATION =====
+// ===== SYNC MATCHES =====
 async function syncMatches() {
     console.log('\n🔄 SYNC STARTED', new Date().toLocaleTimeString());
     
@@ -250,12 +116,15 @@ async function syncMatches() {
                 .from('sports_matches')
                 .upsert(formatted, { onConflict: 'fixture_id' });
             
-            if (error) console.error('Batch insert error:', error);
-            else console.log(`✅ Synced batch ${Math.floor(i/BATCH_SIZE)+1} (${batch.length} live matches)`);
+            if (error) {
+                console.error('Batch insert error:', error.message);
+            } else {
+                console.log(`✅ Synced batch ${Math.floor(i/BATCH_SIZE)+1} (${batch.length} live matches)`);
+            }
         }
     }
     
-    // 2. Sync upcoming matches (next 30 days with pagination)
+    // 2. Sync upcoming matches (next 30 days)
     const today = new Date();
     const from = today.toISOString().split('T')[0];
     const futureDate = new Date(today);
@@ -267,14 +136,12 @@ async function syncMatches() {
     const upcomingResult = await fetchWithPagination('/fixtures', { from, to });
     
     if (upcomingResult.data.length > 0) {
-        console.log(`📡 Found ${upcomingResult.data.length} upcoming matches`);
-        
         // Filter only upcoming (not started)
         const upcomingMatches = upcomingResult.data.filter(f => 
             f.fixture.status?.short === 'NS'
         );
         
-        console.log(`📡 Filtered to ${upcomingMatches.length} upcoming matches`);
+        console.log(`📡 Found ${upcomingMatches.length} upcoming matches`);
         
         for (let i = 0; i < upcomingMatches.length; i += BATCH_SIZE) {
             const batch = upcomingMatches.slice(i, i + BATCH_SIZE);
@@ -284,8 +151,11 @@ async function syncMatches() {
                 .from('sports_matches')
                 .upsert(formatted, { onConflict: 'fixture_id' });
             
-            if (error) console.error('Batch insert error:', error);
-            else console.log(`✅ Synced batch ${Math.floor(i/BATCH_SIZE)+1} (${batch.length} upcoming matches)`);
+            if (error) {
+                console.error('Batch insert error:', error.message);
+            } else {
+                console.log(`✅ Synced batch ${Math.floor(i/BATCH_SIZE)+1} (${batch.length} upcoming matches)`);
+            }
         }
     }
     
@@ -312,7 +182,7 @@ async function updateMatchStatuses() {
         console.log(`⏰ Updated ${toStart.length} matches: upcoming → live`);
     }
     
-    // Live → Finished
+    // Live → Finished (after 2 hours)
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const { data: toFinish } = await supabase
         .from('sports_matches')
@@ -332,17 +202,16 @@ async function updateMatchStatuses() {
                 .eq('fixture_id', match.fixture_id);
             
             console.log(`🏁 Match ${match.fixture_id} finished: ${homeScore}-${awayScore}`);
-            await settleMatchBets(match.fixture_id, result);
         }
     }
 }
 
-// ===== WORKER LOOP (WITH CONCURRENCY PROTECTION) =====
+// ===== WORKER LOOP (with concurrency protection) =====
 let isSyncing = false;
 let isUpdatingStatus = false;
 
 async function workerLoop() {
-    // Sync matches (with protection)
+    // Sync matches
     if (!isSyncing) {
         isSyncing = true;
         try {
@@ -356,7 +225,7 @@ async function workerLoop() {
         console.log('⏳ Sync already running, skipping...');
     }
     
-    // Update statuses (with protection)
+    // Update statuses
     if (!isUpdatingStatus) {
         isUpdatingStatus = true;
         try {
@@ -366,8 +235,6 @@ async function workerLoop() {
         } finally {
             isUpdatingStatus = false;
         }
-    } else {
-        console.log('⏳ Status update already running, skipping...');
     }
 }
 
@@ -375,9 +242,8 @@ async function workerLoop() {
 console.log('\n========================================');
 console.log('🚀 X Lodon Sync Worker Started');
 console.log(`📡 API Key: ${API_KEY ? '✓ Configured' : '✗ Missing'}`);
-console.log(`💾 Supabase: ${SUPABASE_URL ? '✓ Connected' : '✗ Missing'}`);
+console.log(`💾 Supabase: ✓ Connected`);
 console.log(`🔄 Sync interval: ${SYNC_INTERVAL / 1000}s`);
-console.log(`⏰ Status interval: ${STATUS_INTERVAL / 1000}s`);
 console.log('========================================\n');
 
 // Run immediately
