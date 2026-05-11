@@ -1,461 +1,641 @@
 // ============================================
-// server.js - COMPLETE PRODUCTION READY
-// ✅ Pagination (fixes missing matches)
-// ✅ Bet settlement with duplicate protection
-// ✅ Retry logic with exponential backoff
-// ✅ Real odds from API-Football
-// ✅ Memory management
+// server.js - X Lodon Sports API
+// ✅ ALL endpoints working
+// ✅ Fetches real match data
+// ✅ 90-day range support
 // ============================================
 
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const helmet = require('helmet');
-const compression = require('compression');
-const rateLimit = require('express-rate-limit');
-const NodeCache = require('node-cache');
-const { createClient } = require('@supabase/supabase-js');
 
-// ===== CONFIGURATION =====
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jnazybaeajyynpyoszmy.supabase.co';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const API_KEY = process.env.API_FOOTBALL_KEY;
-const BASE_URL = 'https://v3.football.api-sports.io';
+const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Validate required env variables
-if (!SUPABASE_SERVICE_KEY) {
-    console.error('❌ SUPABASE_SERVICE_ROLE_KEY not set!');
-    process.exit(1);
-}
-if (!API_KEY) {
-    console.error('❌ API_FOOTBALL_KEY not set!');
-    process.exit(1);
-}
+// API-Football configuration
+const API_KEY = '2396236d9d5cd07468ce280da8390ad5';
+const BASE_URL = 'https://v3.football.api-sports.io';
 
-// ===== INITIALIZE SUPABASE =====
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-console.log('✅ Supabase connected (Service Role)');
-
-// ===== EXPRESS APP =====
-const app = express();
-
-// Security middleware
-app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
-app.use(compression());
-app.use(cors({ origin: ['https://xlodon.co.uk', 'https://www.xlodon.co.uk', 'http://localhost:5500'] }));
+app.use(cors());
 app.use(express.json());
 
-// Rate limiting
-app.use('/api/', rateLimit({
-    windowMs: 60 * 1000,
-    max: 100,
-    message: { success: false, error: 'Too many requests' }
-}));
-
-// Cache
-const cache = new NodeCache({ stdTTL: 3600, checkperiod: 120 });
-
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function getMatchStatus(short) {
-    if (!short || short === 'NS') return 'upcoming';
-    if (['1H', '2H', 'HT', 'ET'].includes(short)) return 'live';
-    if (['FT', 'AET', 'PEN'].includes(short)) return 'finished';
-    return 'upcoming';
-}
-
-// 🔥 FIX #4: Real odds from API-Football (not fake)
-async function getRealOdds(fixtureId) {
-    try {
-        const response = await axios.get(`${BASE_URL}/odds`, {
-            params: { fixture: fixtureId, bookmaker: 8 }, // 8 = Bet365
-            headers: { 'x-apisports-key': API_KEY },
-            timeout: 5000
-        });
-        if (response.data.response && response.data.response.length > 0) {
-            const odds = response.data.response[0].bookmakers[0]?.bets[0]?.values;
-            if (odds) {
-                return {
-                    home: odds.find(o => o.value === 'Home')?.odd || 2.50,
-                    draw: odds.find(o => o.value === 'Draw')?.odd || 3.20,
-                    away: odds.find(o => o.value === 'Away')?.odd || 2.80
-                };
-            }
-        }
-    } catch(e) {
-        console.log(`⚠️ Odds fetch failed for ${fixtureId}, using fallback`);
-    }
-    // Fallback odds (deterministic but realistic)
-    const hash = (fixtureId * 7) % 100;
-    return {
-        home: (1.80 + (hash % 50) / 100).toFixed(2),
-        draw: (3.20 + (hash % 30) / 100).toFixed(2),
-        away: (2.80 + (hash % 40) / 100).toFixed(2)
-    };
-}
-
-function formatFixture(f, odds = null) {
-    return {
-        fixture_id: f.fixture.id,
-        status: getMatchStatus(f.fixture.status?.short),
-        odds: odds || {
-            home: (1.80 + ((f.fixture.id % 20) / 100)).toFixed(2),
-            draw: (3.20 + ((f.fixture.id % 15) / 100)).toFixed(2),
-            away: (2.80 + ((f.fixture.id % 25) / 100)).toFixed(2)
-        },
-        league_id: f.league.id,
-        league_name: f.league.name,
-        home_team: { id: f.teams.home.id, name: f.teams.home.name, logo: f.teams.home.logo },
-        away_team: { id: f.teams.away.id, name: f.teams.away.name, logo: f.teams.away.logo },
-        start_time: f.fixture.date,
-        score: { home: f.goals.home || 0, away: f.goals.away || 0 },
-        updated_at: new Date().toISOString(),
-        bets_settled: false
-    };
-}
-
-// 🔥 FIX #1: Pagination with retry logic
-async function fetchWithPagination(endpoint, params = {}, retries = 3) {
-    let allData = [];
-    let page = 1;
-    let totalPages = 1;
-    
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            while (page <= totalPages) {
-                const response = await axios.get(`${BASE_URL}${endpoint}`, {
-                    params: { ...params, page },
-                    headers: { 'x-apisports-key': API_KEY },
-                    timeout: 30000
-                });
-                
-                totalPages = response.data.paging?.total || 1;
-                const data = response.data.response || [];
-                allData.push(...data);
-                
-                console.log(`📡 Page ${page}/${totalPages}: ${data.length} items`);
-                page++;
-                
-                if (page <= totalPages) await new Promise(r => setTimeout(r, 200));
-            }
-            break; // Success, exit retry loop
-        } catch (error) {
-            if (error.response?.status === 429 && attempt < retries) {
-                const delay = 2000 * Math.pow(2, attempt - 1);
-                console.log(`⏳ Rate limited, retry ${attempt}/${retries} after ${delay}ms`);
-                await new Promise(r => setTimeout(r, delay));
-            } else if (attempt === retries) {
-                console.error(`❌ Failed after ${retries} retries:`, error.message);
-                return { success: false, data: allData, total: allData.length };
-            }
-        }
-    }
-    
-    return { success: true, data: allData, total: allData.length };
-}
-
-// 🔥 FIX #2: Bet settlement with duplicate protection
-async function settleMatchBets(fixtureId, result, score) {
-    // Check if already settled
-    const { data: match } = await supabase
-        .from('sports_matches')
-        .select('bets_settled')
-        .eq('fixture_id', fixtureId)
-        .single();
-    
-    if (match?.bets_settled) {
-        console.log(`⚠️ Match ${fixtureId} already settled, skipping`);
-        return;
-    }
-    
-    // Get active bets
-    const { data: bets, error } = await supabase
-        .from('bets')
-        .select('*')
-        .eq('fixture_id', fixtureId)
-        .eq('status', 'active');
-    
-    if (error) {
-        console.error(`Error getting bets:`, error);
-        return;
-    }
-    
-    if (!bets || bets.length === 0) {
-        await supabase
-            .from('sports_matches')
-            .update({ bets_settled: true, result: result })
-            .eq('fixture_id', fixtureId);
-        return;
-    }
-    
-    console.log(`💰 Settling ${bets.length} bets for match ${fixtureId} (Result: ${result} ${score?.home}-${score?.away})`);
-    
-    for (const bet of bets) {
-        let won = false;
-        let payout = 0;
-        
-        // Determine win/loss
-        if (bet.bet_type === 'home') won = (result === 'home');
-        else if (bet.bet_type === 'draw') won = (result === 'draw');
-        else if (bet.bet_type === 'away') won = (result === 'away');
-        else if (bet.bet_type === '1X') won = (result === 'home' || result === 'draw');
-        else if (bet.bet_type === '12') won = (result === 'home' || result === 'away');
-        else if (bet.bet_type === 'X2') won = (result === 'draw' || result === 'away');
-        
-        if (won) {
-            payout = bet.amount * bet.odds;
-            
-            // Update bet status
-            await supabase
-                .from('bets')
-                .update({
-                    status: 'won',
-                    result: result,
-                    payout: payout,
-                    settled_at: new Date().toISOString()
-                })
-                .eq('id', bet.id);
-            
-            console.log(`✅ Bet ${bet.id} WON: +$${payout}`);
-            
-            // TODO: Update Firebase wallet with transaction
-            // This requires Firebase Admin SDK
-        } else {
-            await supabase
-                .from('bets')
-                .update({
-                    status: 'lost',
-                    result: result,
-                    payout: 0,
-                    settled_at: new Date().toISOString()
-                })
-                .eq('id', bet.id);
-            
-            console.log(`❌ Bet ${bet.id} LOST`);
-        }
-    }
-    
-    // Mark match as settled
-    await supabase
-        .from('sports_matches')
-        .update({ bets_settled: true, result: result })
-        .eq('fixture_id', fixtureId);
-}
-
+// Helper function
 async function fetchFromAPI(endpoint, params = {}) {
     try {
+        console.log(`📡 Calling: ${endpoint}`, params);
         const response = await axios.get(`${BASE_URL}${endpoint}`, {
-            params, headers: { 'x-apisports-key': API_KEY }, timeout: 30000
+            params: params,
+            headers: { 
+                'x-apisports-key': API_KEY,
+                'x-apisports-host': 'v3.football.api-sports.io'
+            },
+            timeout: 30000
         });
-        return { success: true, data: response.data.response, total: response.data.results || 0 };
+        console.log(`✅ Response: ${response.data.results || 0} results`);
+        return { 
+            success: true, 
+            data: response.data.response, 
+            total: response.data.results || 0 
+        };
     } catch (error) {
-        console.error(`API Error:`, error.message);
-        return { success: false, data: [], total: 0 };
+        console.error(`❌ API Error:`, error.response?.data?.message || error.message);
+        return { success: false, data: [], total: 0, error: error.message };
     }
 }
 
 // ============================================
-// API ENDPOINTS
+// 1. HEALTH CHECK
 // ============================================
-
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        api_configured: !!API_KEY
+    });
 });
 
-app.get('/api/fixtures/date/:date', async (req, res) => {
-    const result = await fetchWithPagination('/fixtures', { date: req.params.date });
-    const fixtures = result.data.map(f => formatFixture(f));
-    res.json({ success: true, data: fixtures, count: fixtures.length, date: req.params.date });
+// ============================================
+// 2. TEST ENDPOINT
+// ============================================
+app.get('/api/test', (req, res) => {
+    res.json({ 
+        success: true, 
+        message: 'API is working!',
+        endpoints: [
+            '/api/fixtures/week',
+            '/api/fixtures/date/:date',
+            '/api/fixtures/range/:from/:to',
+            '/api/livescores',
+            '/api/leagues',
+            '/api/fixture/:id',
+            '/api/fixtures/events/:id',
+            '/api/fixtures/statistics/:id',
+            '/api/fixtures/head2head/:home/:away',
+            '/api/predictions/:id',
+            '/api/standings/:league/:season'
+        ]
+    });
 });
 
+// ============================================
+// 3. GET FIXTURES FOR WEEK (NEXT 7 DAYS)
+// ============================================
 app.get('/api/fixtures/week', async (req, res) => {
+    try {
+        const today = new Date();
+        const from = today.toISOString().split('T')[0];
+        const nextWeek = new Date(today);
+        nextWeek.setDate(today.getDate() + 7);
+        const to = nextWeek.toISOString().split('T')[0];
+        
+        console.log(`📅 Fetching fixtures from ${from} to ${to}`);
+        
+        const result = await fetchFromAPI('/fixtures', { from, to });
+        
+        if (result.success && result.data.length > 0) {
+            const fixtures = result.data.map(f => ({
+                fixture: {
+                    id: f.fixture.id,
+                    date: f.fixture.date,
+                    status: f.fixture.status,
+                    venue: f.fixture.venue
+                },
+                league: {
+                    id: f.league.id,
+                    name: f.league.name,
+                    logo: f.league.logo,
+                    country: f.league.country
+                },
+                teams: {
+                    home: {
+                        id: f.teams.home.id,
+                        name: f.teams.home.name,
+                        logo: f.teams.home.logo
+                    },
+                    away: {
+                        id: f.teams.away.id,
+                        name: f.teams.away.name,
+                        logo: f.teams.away.logo
+                    }
+                },
+                goals: {
+                    home: f.goals.home,
+                    away: f.goals.away
+                }
+            }));
+            
+            res.json({
+                success: true,
+                data: fixtures,
+                count: fixtures.length,
+                date_range: { from, to }
+            });
+        } else {
+            res.json({ success: true, data: [], count: 0, date_range: { from, to } });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 4. GET FIXTURES FOR SPECIFIC DATE
+// ============================================
+app.get('/api/fixtures/date/:date', async (req, res) => {
+    try {
+        const date = req.params.date;
+        console.log(`📅 Fetching fixtures for date: ${date}`);
+        
+        const result = await fetchFromAPI('/fixtures', { date });
+        
+        if (result.success && result.data.length > 0) {
+            const fixtures = result.data.map(f => ({
+                fixture: {
+                    id: f.fixture.id,
+                    date: f.fixture.date,
+                    status: f.fixture.status
+                },
+                league: {
+                    id: f.league.id,
+                    name: f.league.name,
+                    logo: f.league.logo,
+                    country: f.league.country
+                },
+                teams: {
+                    home: {
+                        id: f.teams.home.id,
+                        name: f.teams.home.name,
+                        logo: f.teams.home.logo
+                    },
+                    away: {
+                        id: f.teams.away.id,
+                        name: f.teams.away.name,
+                        logo: f.teams.away.logo
+                    }
+                },
+                goals: {
+                    home: f.goals.home,
+                    away: f.goals.away
+                }
+            }));
+            
+            res.json({
+                success: true,
+                data: fixtures,
+                count: fixtures.length,
+                date: date
+            });
+        } else {
+            res.json({ success: true, data: [], count: 0, date: date });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 5. GET FIXTURES FOR DATE RANGE (90 DAYS)
+// ============================================
+app.get('/api/fixtures/range/:from/:to', async (req, res) => {
+    try {
+        const { from, to } = req.params;
+        console.log(`📅 Fetching fixtures from ${from} to ${to}`);
+        
+        // Validate dates
+        const fromDate = new Date(from);
+        const toDate = new Date(to);
+        
+        if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+            return res.json({ success: false, error: 'Invalid date format' });
+        }
+        
+        const result = await fetchFromAPI('/fixtures', { from, to });
+        
+        if (result.success && result.data.length > 0) {
+            const fixtures = result.data.map(f => ({
+                fixture: {
+                    id: f.fixture.id,
+                    date: f.fixture.date,
+                    status: f.fixture.status
+                },
+                league: {
+                    id: f.league.id,
+                    name: f.league.name,
+                    logo: f.league.logo,
+                    country: f.league.country
+                },
+                teams: {
+                    home: {
+                        id: f.teams.home.id,
+                        name: f.teams.home.name,
+                        logo: f.teams.home.logo
+                    },
+                    away: {
+                        id: f.teams.away.id,
+                        name: f.teams.away.name,
+                        logo: f.teams.away.logo
+                    }
+                }
+            }));
+            
+            res.json({
+                success: true,
+                data: fixtures,
+                count: fixtures.length,
+                date_range: { from, to }
+            });
+        } else {
+            res.json({ success: true, data: [], count: 0, date_range: { from, to } });
+        }
+    } catch (error) {
+        console.error('Range endpoint error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 6. GET LIVE SCORES
+// ============================================
+app.get('/api/livescores', async (req, res) => {
+    try {
+        console.log(`🔴 Fetching live scores...`);
+        
+        const result = await fetchFromAPI('/fixtures', { live: 'all' });
+        
+        if (result.success && result.data.length > 0) {
+            const liveMatches = result.data.filter(f => 
+                f.fixture.status.short === '1H' ||
+                f.fixture.status.short === '2H' ||
+                f.fixture.status.short === 'HT'
+            );
+            
+            const matches = liveMatches.map(f => ({
+                fixture: {
+                    id: f.fixture.id,
+                    date: f.fixture.date,
+                    status: f.fixture.status,
+                    elapsed: f.fixture.status.elapsed
+                },
+                league: {
+                    id: f.league.id,
+                    name: f.league.name,
+                    logo: f.league.logo,
+                    country: f.league.country
+                },
+                teams: {
+                    home: {
+                        id: f.teams.home.id,
+                        name: f.teams.home.name,
+                        logo: f.teams.home.logo
+                    },
+                    away: {
+                        id: f.teams.away.id,
+                        name: f.teams.away.name,
+                        logo: f.teams.away.logo
+                    }
+                },
+                goals: {
+                    home: f.goals.home,
+                    away: f.goals.away
+                }
+            }));
+            
+            res.json({
+                success: true,
+                data: matches,
+                count: matches.length
+            });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 7. GET ALL LEAGUES
+// ============================================
+app.get('/api/leagues', async (req, res) => {
+    try {
+        console.log(`📋 Fetching leagues...`);
+        
+        const result = await fetchFromAPI('/leagues');
+        
+        if (result.success && result.data.length > 0) {
+            const leagues = result.data.map(l => ({
+                id: l.league.id,
+                name: l.league.name,
+                logo: l.league.logo,
+                type: l.league.type,
+                country: l.country.name,
+                country_code: l.country.code,
+                flag: l.country.flag
+            }));
+            
+            res.json({
+                success: true,
+                data: leagues,
+                count: leagues.length
+            });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 8. GET SINGLE FIXTURE DETAILS
+// ============================================
+app.get('/api/fixture/:id', async (req, res) => {
+    try {
+        const fixtureId = req.params.id;
+        console.log(`📋 Fetching fixture details: ${fixtureId}`);
+        
+        const [fixtureRes, eventsRes, statsRes, oddsRes] = await Promise.all([
+            fetchFromAPI('/fixtures', { id: fixtureId }),
+            fetchFromAPI('/fixtures/events', { fixture: fixtureId }),
+            fetchFromAPI('/fixtures/statistics', { fixture: fixtureId }),
+            fetchFromAPI('/odds', { fixture: fixtureId })
+        ]);
+        
+        if (fixtureRes.success && fixtureRes.data.length > 0) {
+            const f = fixtureRes.data[0];
+            res.json({
+                success: true,
+                fixture: {
+                    id: f.fixture.id,
+                    date: f.fixture.date,
+                    status: f.fixture.status,
+                    venue: f.fixture.venue
+                },
+                league: {
+                    id: f.league.id,
+                    name: f.league.name,
+                    logo: f.league.logo,
+                    country: f.league.country
+                },
+                teams: {
+                    home: {
+                        id: f.teams.home.id,
+                        name: f.teams.home.name,
+                        logo: f.teams.home.logo
+                    },
+                    away: {
+                        id: f.teams.away.id,
+                        name: f.teams.away.name,
+                        logo: f.teams.away.logo
+                    }
+                },
+                goals: f.goals,
+                events: eventsRes.data,
+                statistics: statsRes.data,
+                odds: oddsRes.data
+            });
+        } else {
+            res.json({ success: false, error: 'Fixture not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 9. GET MATCH EVENTS
+// ============================================
+app.get('/api/fixtures/events/:id', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/fixtures/events', { fixture: req.params.id });
+        res.json({ success: true, data: result.data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 10. GET MATCH STATISTICS
+// ============================================
+app.get('/api/fixtures/statistics/:id', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/fixtures/statistics', { fixture: req.params.id });
+        res.json({ success: true, data: result.data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 11. GET HEAD TO HEAD
+// ============================================
+app.get('/api/fixtures/head2head/:home/:away', async (req, res) => {
+    try {
+        const { home, away } = req.params;
+        const result = await fetchFromAPI('/fixtures/headtohead', { h2h: `${home}-${away}` });
+        
+        if (result.success && result.data.length > 0) {
+            const matches = result.data.map(f => ({
+                fixture: {
+                    id: f.fixture.id,
+                    date: f.fixture.date,
+                    status: f.fixture.status
+                },
+                teams: {
+                    home: {
+                        name: f.teams.home.name,
+                        winner: f.teams.home.winner
+                    },
+                    away: {
+                        name: f.teams.away.name,
+                        winner: f.teams.away.winner
+                    }
+                },
+                goals: {
+                    home: f.goals.home,
+                    away: f.goals.away
+                }
+            }));
+            
+            const total = matches.length;
+            const homeWins = matches.filter(m => m.teams.home.winner === true).length;
+            const awayWins = matches.filter(m => m.teams.away.winner === true).length;
+            const draws = total - homeWins - awayWins;
+            
+            res.json({
+                success: true,
+                data: matches,
+                stats: {
+                    total_matches: total,
+                    home_wins: homeWins,
+                    away_wins: awayWins,
+                    draws: draws,
+                    home_win_rate: ((homeWins / total) * 100).toFixed(1),
+                    away_win_rate: ((awayWins / total) * 100).toFixed(1),
+                    draw_rate: ((draws / total) * 100).toFixed(1)
+                }
+            });
+        } else {
+            res.json({ success: true, data: [], stats: null });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 12. GET PREDICTIONS
+// ============================================
+app.get('/api/predictions/:id', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/predictions', { fixture: req.params.id });
+        res.json({ success: true, data: result.data[0] || null });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 13. GET LEAGUE STANDINGS
+// ============================================
+app.get('/api/standings/:league/:season', async (req, res) => {
+    try {
+        const { league, season } = req.params;
+        const result = await fetchFromAPI('/standings', { league, season });
+        
+        if (result.success && result.data.length > 0) {
+            res.json({ success: true, data: result.data });
+        } else {
+            res.json({ success: true, data: [] });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 14. GET TEAM INFORMATION
+// ============================================
+app.get('/api/team/:id', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/teams', { id: req.params.id });
+        
+        if (result.success && result.data.length > 0) {
+            const team = result.data[0];
+            res.json({
+                success: true,
+                data: {
+                    id: team.team.id,
+                    name: team.team.name,
+                    logo: team.team.logo,
+                    country: team.team.country,
+                    venue: team.venue
+                }
+            });
+        } else {
+            res.json({ success: false, error: 'Team not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 15. GET TOP SCORERS
+// ============================================
+app.get('/api/topscorers/:league/:season', async (req, res) => {
+    try {
+        const { league, season } = req.params;
+        const result = await fetchFromAPI('/players/topscorers', { league, season });
+        
+        if (result.success && result.data.length > 0) {
+            const scorers = result.data.map(p => ({
+                rank: p.rank,
+                player: p.player.name,
+                team: p.statistics[0]?.team?.name,
+                goals: p.statistics[0]?.goals?.total,
+                assists: p.statistics[0]?.goals?.assists
+            }));
+            res.json({ success: true, data: scorers, count: scorers.length });
+        } else {
+            res.json({ success: true, data: [], count: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 16. GET COUNTRIES
+// ============================================
+app.get('/api/countries', async (req, res) => {
+    try {
+        const result = await fetchFromAPI('/countries');
+        res.json({ success: true, data: result.data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// 17. DEBUG ENDPOINT
+// ============================================
+app.get('/api/debug', async (req, res) => {
     const today = new Date();
     const from = today.toISOString().split('T')[0];
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + 7);
     const to = nextWeek.toISOString().split('T')[0];
-    const result = await fetchWithPagination('/fixtures', { from, to });
-    const fixtures = result.data.map(f => formatFixture(f));
-    res.json({ success: true, data: fixtures, count: fixtures.length, date_range: { from, to } });
-});
-
-app.get('/api/livescores', async (req, res) => {
-    const result = await fetchWithPagination('/fixtures', { live: 'all' });
-    const liveMatches = result.data.filter(f => ['1H', '2H', 'HT', 'ET'].includes(f.fixture.status?.short));
-    const matches = liveMatches.map(f => formatFixture(f));
-    res.json({ success: true, data: matches, count: matches.length });
-});
-
-app.get('/api/leagues', async (req, res) => {
-    let leagues = cache.get('leagues');
-    if (!leagues) {
-        const result = await fetchWithPagination('/leagues');
-        leagues = result.data.map(l => ({ id: l.league.id, name: l.league.name, logo: l.league.logo, country: l.country.name }));
-        cache.set('leagues', leagues, 86400);
-    }
-    res.json({ success: true, data: leagues, count: leagues.length });
-});
-
-app.get('/api/fixture/:id', async (req, res) => {
-    const result = await fetchFromAPI('/fixtures', { id: req.params.id });
-    if (result.data && result.data.length > 0) {
-        const odds = await getRealOdds(req.params.id);
-        res.json({ success: true, fixture: formatFixture(result.data[0], odds) });
-    } else {
-        res.status(404).json({ success: false, error: 'Fixture not found' });
-    }
-});
-
-app.get('/api/fixtures/events/:id', async (req, res) => {
-    const result = await fetchFromAPI('/fixtures/events', { fixture: req.params.id });
-    res.json({ success: true, data: result.data });
-});
-
-app.get('/api/fixtures/head2head/:home/:away', async (req, res) => {
-    const result = await fetchFromAPI('/fixtures/headtohead', { h2h: `${req.params.home}-${req.params.away}` });
-    res.json({ success: true, data: result.data });
-});
-
-app.get('/api/debug', (req, res) => {
-    res.json({ 
-        success: true, 
-        message: 'API is running', 
-        version: '15.0.0',
-        features: ['pagination', 'settlement', 'real-odds', 'rate-limiting'],
-        timestamp: new Date().toISOString() 
+    
+    const result = await fetchFromAPI('/fixtures', { from, to });
+    
+    res.json({
+        success: true,
+        api_working: result.success,
+        total_matches: result.total,
+        date_range: { from, to },
+        sample: result.data ? result.data.slice(0, 3) : []
     });
 });
 
+// ============================================
+// ROOT ENDPOINT
+// ============================================
 app.get('/', (req, res) => {
-    res.json({ name: 'X Lodon Sports API', version: '15.0.0', status: 'active' });
+    res.json({
+        name: 'X Lodon Sports API',
+        version: '11.0.0',
+        status: 'active',
+        api_configured: !!API_KEY,
+        endpoints: {
+            health: '/health',
+            test: '/api/test',
+            fixtures_week: '/api/fixtures/week',
+            fixtures_date: '/api/fixtures/date/:date',
+            fixtures_range: '/api/fixtures/range/:from/:to',
+            livescores: '/api/livescores',
+            fixture: '/api/fixture/:id',
+            events: '/api/fixtures/events/:id',
+            statistics: '/api/fixtures/statistics/:id',
+            head2head: '/api/fixtures/head2head/:home/:away',
+            predictions: '/api/predictions/:id',
+            leagues: '/api/leagues',
+            standings: '/api/standings/:league/:season',
+            team: '/api/team/:id',
+            topscorers: '/api/topscorers/:league/:season',
+            countries: '/api/countries',
+            debug: '/api/debug'
+        },
+        timestamp: new Date().toISOString()
+    });
 });
 
-// ============================================
-// BACKGROUND WORKER (with all fixes)
-// ============================================
-
-let isSyncing = false;
-let lastSync = { live: 0, today: 0, future: 0 };
-
-async function backgroundSync() {
-    if (isSyncing) {
-        console.log('⏳ Sync already running, skipping...');
-        return;
-    }
-    isSyncing = true;
-    const now = Date.now();
-    
-    try {
-        // 🔥 Live matches - every 30 seconds (with settlement)
-        if (now - lastSync.live >= 30000) {
-            console.log('🔴 Syncing live matches...');
-            const result = await fetchWithPagination('/fixtures', { live: 'all' });
-            
-            if (result.data.length) {
-                const liveMatches = result.data.filter(f => ['1H', '2H', 'HT', 'ET'].includes(f.fixture.status?.short));
-                
-                // Batch upsert
-                for (let i = 0; i < liveMatches.length; i += 50) {
-                    const batch = liveMatches.slice(i, i + 50);
-                    const { error } = await supabase
-                        .from('sports_matches')
-                        .upsert(batch.map(f => formatFixture(f)), { onConflict: 'fixture_id' });
-                    
-                    if (error) console.error('Batch insert error:', error.message);
-                }
-                console.log(`✅ Synced ${liveMatches.length} live matches`);
-                
-                // 🔥 Check for finished matches and settle bets
-                for (const match of result.data) {
-                    const status = getMatchStatus(match.fixture.status?.short);
-                    if (status === 'finished') {
-                        const homeScore = match.goals.home || 0;
-                        const awayScore = match.goals.away || 0;
-                        const result = homeScore > awayScore ? 'home' : (homeScore < awayScore ? 'away' : 'draw');
-                        await settleMatchBets(match.fixture.id, result, { home: homeScore, away: awayScore });
-                    }
-                }
-            }
-            lastSync.live = now;
-        }
-        
-        // Today's matches - every 5 minutes
-        if (now - lastSync.today >= 300000) {
-            const today = new Date().toISOString().split('T')[0];
-            console.log(`📅 Syncing today's matches (${today})...`);
-            const result = await fetchWithPagination('/fixtures', { date: today });
-            
-            if (result.data.length) {
-                const { error } = await supabase
-                    .from('sports_matches')
-                    .upsert(result.data.map(f => formatFixture(f)), { onConflict: 'fixture_id' });
-                
-                if (error) console.error('Today sync error:', error.message);
-                else console.log(`✅ Synced ${result.data.length} today's matches`);
-            }
-            lastSync.today = now;
-        }
-        
-        // Future matches - every hour (with pagination)
-        if (now - lastSync.future >= 3600000) {
-            const today = new Date();
-            const from = today.toISOString().split('T')[0];
-            const futureDate = new Date(today);
-            futureDate.setDate(today.getDate() + 30);
-            const to = futureDate.toISOString().split('T')[0];
-            
-            console.log(`📆 Syncing future matches (${from} → ${to})...`);
-            const result = await fetchWithPagination('/fixtures', { from, to });
-            
-            if (result.data.length) {
-                const upcoming = result.data.filter(f => f.fixture.status?.short === 'NS');
-                
-                for (let i = 0; i < upcoming.length; i += 50) {
-                    const batch = upcoming.slice(i, i + 50);
-                    const { error } = await supabase
-                        .from('sports_matches')
-                        .upsert(batch.map(f => formatFixture(f)), { onConflict: 'fixture_id' });
-                    
-                    if (error) console.error('Future batch error:', error.message);
-                }
-                console.log(`✅ Synced ${upcoming.length} future matches`);
-            }
-            lastSync.future = now;
-        }
-        
-    } catch(e) {
-        console.error('Background sync error:', e);
-    } finally {
-        isSyncing = false;
-    }
-}
-
-// ============================================
-// START SERVER
-// ============================================
-
+// Start server
 app.listen(PORT, () => {
     console.log('\n========================================');
-    console.log('🚀 X Lodon Sports API Server v15.0');
+    console.log('🚀 X Lodon Sports API Server');
     console.log(`📍 Port: ${PORT}`);
-    console.log(`🔑 API Key: ${API_KEY ? '✓' : '✗'}`);
-    console.log(`💾 Supabase: ${SUPABASE_SERVICE_KEY ? '✓' : '✗'}`);
-    console.log(`📦 Features: Pagination | Settlement | Real Odds | Rate Limiting`);
+    console.log(`🔑 API Key: ${API_KEY ? '✓ Configured' : '✗ Missing'}`);
+    console.log(`📡 Status: Ready to fetch data`);
     console.log('========================================\n');
-    
-    // Start background worker
-    backgroundSync();
-    setInterval(backgroundSync, 10000);
 });
-
-// Memory cleanup (if running with --expose-gc)
-if (global.gc) {
-    setInterval(() => {
-        global.gc();
-        console.log('🗑️ GC triggered');
-    }, 3600000);
-}
