@@ -21,7 +21,7 @@
         .tabs { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 3px; }
         .tab { padding: 8px 12px; background: #1a2332; border-radius: 20px; color: white; text-decoration: none; font-size: 12px; }
         .tab.active { background: #ff5252; color: white; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 15px; padding-bottom: 100px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 15px; }
         .balance-bar { background: #111827; padding: 10px 15px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; border: 1px solid #00ff9d33; }
         .balance-amount { color: #00ff9d; font-weight: bold; font-size: 18px; }
         .selector-bar { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
@@ -29,9 +29,7 @@
         .league-select { flex: 1; min-width: 180px; }
         .search-input { flex: 2; min-width: 200px; }
         .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #ff5252; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .refresh-btn, .sync-btn { padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; border: none; }
-        .refresh-btn { background: #00ff9d; color: black; }
-        .sync-btn { background: #ff9800; color: black; margin-left: auto; }
+        .refresh-btn { background: #00ff9d; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; }
         .live-header { margin-bottom: 15px; }
         .live-badge { background: #ff5252; padding: 10px 20px; border-radius: 30px; font-weight: 600; display: inline-block; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
@@ -113,7 +111,6 @@
         <div class="debug-bar">
             <i class="fas fa-play-circle"></i> <span id="debug-text">Loading live matches...</span>
             <button class="refresh-btn" onclick="loadLiveMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
-            <button class="sync-btn" onclick="forceStatusUpdate()"><i class="fas fa-clock"></i> Update Status</button>
         </div>
         
         <div class="live-header">
@@ -124,22 +121,20 @@
         <div id="empty-state" class="empty-state" style="display:none;">
             <i class="fas fa-futbol" style="font-size:48px; opacity:0.3;"></i>
             <p>No live matches at the moment</p>
-            <p style="font-size:12px; margin-top:10px;">Matches that have ended are automatically moved to Results</p>
             <button onclick="location.href='upcoming-matches.html'" style="margin-top:15px;padding:10px 20px;background:#ff9800;color:black;border:none;border-radius:8px;cursor:pointer;">View Upcoming Matches</button>
         </div>
     </div>
 
     <script src="../js/supabase-client.js"></script>
-    <script src="../js/sports-api.js"></script>
     <script src="../js/betting-engine.js"></script>
     <script>
         let liveMatches = [];
         let refreshInterval = null;
         let eventInterval = null;
-        let statusInterval = null;
-        let countdownIntervals = {};
         let selectedLeague = 'all';
         let previousScores = {};
+        
+        const API_BASE = 'https://millioner.onrender.com';
         
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -172,14 +167,13 @@
             try {
                 const db = firebase.firestore();
                 const doc = await db.collection('wallets').doc(firebase.auth().currentUser.uid).get();
-                const balance = doc.exists ? (doc.data().balance || 0) : 0;
-                document.getElementById('balance-display').textContent = `$${balance.toFixed(2)}`;
+                document.getElementById('balance-display').textContent = `$${(doc.exists ? (doc.data().balance || 0) : 0).toFixed(2)}`;
             } catch(e) { console.error(e); }
         }
         
         async function loadLeagues() {
             try {
-                const res = await fetch('https://millioner.onrender.com/api/leagues');
+                const res = await fetch(`${API_BASE}/api/leagues`);
                 const data = await res.json();
                 if (data.success && data.data) {
                     const select = document.getElementById('league-filter');
@@ -194,127 +188,103 @@
             document.getElementById('league-filter').onchange = (e) => { selectedLeague = e.target.value; filterMatches(); };
         }
         
-        async function forceStatusUpdate() {
-            document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Updating statuses...';
-            if (typeof updateStatuses === 'function') {
-                const updated = await updateStatuses();
-                console.log(`Updated ${updated} matches`);
-            }
-            await loadLiveMatches();
-        }
-        
+        // 🔥 FETCH LIVE MATCHES DIRECTLY FROM API
         async function loadLiveMatches() {
-            if (!supabaseClient) { 
-                document.getElementById('debug-text').innerHTML = '⚠️ Waiting for database...'; 
-                return; 
-            }
-            
             try {
-                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading live matches...';
+                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading live matches from API...';
                 
-                const now = new Date();
-                const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000);
+                // Fetch live scores from API
+                const response = await fetch(`${API_BASE}/api/livescores`);
+                const data = await response.json();
                 
-                const { data: liveData, error } = await supabaseClient
-                    .from('sports_matches')
-                    .select('*')
-                    .eq('status', 'live')
-                    .gte('start_time', twoHoursAgo.toISOString())
-                    .order('start_time', { ascending: true });
+                console.log(`🔴 API returned ${data.count || 0} live matches`);
                 
-                if (error) throw error;
-                
-                const validLiveMatches = [];
-                for (const match of liveData || []) {
-                    const matchStart = new Date(match.start_time);
-                    const elapsedMinutes = (now - matchStart) / 60000;
-                    if (elapsedMinutes < 105) {
-                        validLiveMatches.push(match);
-                    } else {
-                        supabaseClient
-                            .from('sports_matches')
-                            .update({ status: 'finished', updated_at: now.toISOString() })
-                            .eq('fixture_id', match.fixture_id)
-                            .then(({ error }) => { if (!error) console.log(`✅ Updated match ${match.fixture_id} to finished`); });
-                    }
+                if (!data.success || !data.data || data.data.length === 0) {
+                    document.getElementById('matches-container').style.display = 'none';
+                    document.getElementById('empty-state').style.display = 'block';
+                    document.getElementById('debug-text').innerHTML = 'No live matches currently';
+                    document.getElementById('match-count').textContent = '0';
+                    liveMatches = [];
+                    return;
                 }
                 
-                liveMatches = validLiveMatches;
-                
-                console.log(`🔴 Found ${liveData?.length || 0} 'live' matches in DB, ${liveMatches.length} actually in progress`);
+                // Process live matches
+                liveMatches = data.data.map(m => ({
+                    fixture_id: m.fixture.id,
+                    start_time: m.fixture.date,
+                    status: 'live',
+                    elapsed: m.fixture.elapsed || 0,
+                    league_id: m.league.id,
+                    league_name: m.league.name,
+                    league_logo: m.league.logo,
+                    home_team: {
+                        id: m.teams.home.id,
+                        name: m.teams.home.name,
+                        logo: m.teams.home.logo
+                    },
+                    away_team: {
+                        id: m.teams.away.id,
+                        name: m.teams.away.name,
+                        logo: m.teams.away.logo
+                    },
+                    score: {
+                        home: m.goals?.home || 0,
+                        away: m.goals?.away || 0
+                    },
+                    odds: {
+                        home: (1.80 + ((m.fixture.id % 20) / 100)).toFixed(2),
+                        draw: (3.20 + ((m.fixture.id % 15) / 100)).toFixed(2),
+                        away: (2.80 + ((m.fixture.id % 25) / 100)).toFixed(2)
+                    }
+                }));
                 
                 document.getElementById('match-count').textContent = liveMatches.length;
-                const container = document.getElementById('matches-container');
-                const emptyDiv = document.getElementById('empty-state');
+                document.getElementById('debug-text').innerHTML = `🔴 ${liveMatches.length} live match(es) in progress | Auto-refresh every 15s`;
                 
-                if (liveMatches.length === 0) { 
-                    container.style.display = 'none'; 
-                    emptyDiv.style.display = 'block'; 
-                    document.getElementById('debug-text').innerHTML = `No live matches currently`;
-                    return; 
-                }
-                
-                container.style.display = 'block'; 
-                emptyDiv.style.display = 'none';
-                document.getElementById('debug-text').innerHTML = `🔴 ${liveMatches.length} live match(es) in progress | Betting OPEN`;
+                document.getElementById('matches-container').style.display = 'block';
+                document.getElementById('empty-state').style.display = 'none';
                 
                 filterMatches();
                 
+                // Fetch events for each live match
                 for (const match of liveMatches) {
-                    startMatchCountdown(match.fixture_id, match.start_time);
                     fetchMatchEvents(match.fixture_id);
                 }
                 
-            } catch(e) { 
-                console.error(e); 
-                document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`; 
+            } catch(e) {
+                console.error('Load live matches error:', e);
+                document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`;
             }
-        }
-        
-        function startMatchCountdown(fixtureId, startTime) {
-            if (countdownIntervals[fixtureId]) clearInterval(countdownIntervals[fixtureId]);
-            
-            function updateCountdown() {
-                const el = document.getElementById(`countdown-${fixtureId}`);
-                if (!el) { 
-                    if (countdownIntervals[fixtureId]) clearInterval(countdownIntervals[fixtureId]);
-                    return; 
-                }
-                
-                const start = new Date(startTime);
-                const now = new Date();
-                const elapsedMinutes = (now - start) / 60000;
-                const remainingMinutes = Math.max(0, 105 - elapsedMinutes);
-                
-                if (remainingMinutes <= 0) {
-                    el.textContent = 'Match Ended - Betting Closed';
-                    el.className = 'countdown-timer countdown-warning';
-                    if (countdownIntervals[fixtureId]) clearInterval(countdownIntervals[fixtureId]);
-                } else if (remainingMinutes < 10) {
-                    el.textContent = `Ending soon - ${Math.ceil(remainingMinutes)} minutes remaining`;
-                    el.className = 'countdown-timer countdown-warning';
-                } else {
-                    const hours = Math.floor(remainingMinutes / 60);
-                    const minutes = Math.floor(remainingMinutes % 60);
-                    let display = hours > 0 ? `${hours}h ${minutes}m remaining` : `${minutes}m remaining`;
-                    el.textContent = display;
-                    el.className = 'countdown-timer';
-                }
-            }
-            
-            updateCountdown();
-            countdownIntervals[fixtureId] = setInterval(updateCountdown, 1000);
         }
         
         function filterMatches() {
             const search = document.getElementById('search-input').value.toLowerCase();
             let filtered = [...liveMatches];
-            if (selectedLeague !== 'all') filtered = filtered.filter(m => m.league_id == selectedLeague);
-            if (search) filtered = filtered.filter(m => (m.home_team?.name || '').toLowerCase().includes(search) || (m.away_team?.name || '').toLowerCase().includes(search) || (m.league_name || '').toLowerCase().includes(search));
-            if (filtered.length === 0) { document.getElementById('matches-container').innerHTML = '<div class="empty-state">No live matches match your filters</div>'; return; }
             
+            if (selectedLeague !== 'all') {
+                filtered = filtered.filter(m => m.league_id == selectedLeague);
+            }
+            
+            if (search) {
+                filtered = filtered.filter(m => 
+                    (m.home_team?.name || '').toLowerCase().includes(search) || 
+                    (m.away_team?.name || '').toLowerCase().includes(search) || 
+                    (m.league_name || '').toLowerCase().includes(search)
+                );
+            }
+            
+            if (filtered.length === 0) {
+                document.getElementById('matches-container').innerHTML = '<div class="empty-state">No live matches match your filters</div>';
+                return;
+            }
+            
+            // Group by league
             const groupedByLeague = {};
-            filtered.forEach(m => { const ln = m.league_name || 'Other Leagues'; if (!groupedByLeague[ln]) groupedByLeague[ln] = []; groupedByLeague[ln].push(m); });
+            filtered.forEach(m => {
+                const ln = m.league_name || 'Other Leagues';
+                if (!groupedByLeague[ln]) groupedByLeague[ln] = [];
+                groupedByLeague[ln].push(m);
+            });
             
             let html = '';
             Object.keys(groupedByLeague).sort().forEach(leagueName => {
@@ -322,7 +292,16 @@
                 const leagueLogo = leagueMatches[0]?.league_logo || '';
                 let matchesHtml = '';
                 leagueMatches.forEach(m => { matchesHtml += createMatchCard(m); });
-                html += `<div class="league-group"><div class="league-group-header" style="background:#1a2332; padding:10px 15px; border-radius:12px; margin-bottom:10px; display:flex; align-items:center; gap:10px;">${leagueLogo ? `<img src="${leagueLogo}" style="width:24px;height:24px;object-fit:contain;" onerror="this.style.display='none'">` : '<i class="fas fa-trophy"></i>'}<span style="font-weight:600;">${escapeHtml(leagueName)}</span><span style="margin-left:auto; font-size:12px; color:#a0a8c9;">${leagueMatches.length} live</span></div><div>${matchesHtml}</div></div>`;
+                html += `
+                    <div class="league-group">
+                        <div class="league-group-header" style="background:#1a2332; padding:10px 15px; border-radius:12px; margin-bottom:10px; display:flex; align-items:center; gap:10px;">
+                            ${leagueLogo ? `<img src="${leagueLogo}" style="width:24px;height:24px;object-fit:contain;" onerror="this.style.display='none'">` : '<i class="fas fa-trophy"></i>'}
+                            <span style="font-weight:600;">${escapeHtml(leagueName)}</span>
+                            <span style="margin-left:auto; font-size:12px; color:#a0a8c9;">${leagueMatches.length} live</span>
+                        </div>
+                        <div>${matchesHtml}</div>
+                    </div>
+                `;
             });
             document.getElementById('matches-container').innerHTML = html;
         }
@@ -330,7 +309,7 @@
         function createMatchCard(m) {
             const startTime = new Date(m.start_time);
             const now = new Date();
-            let elapsed = Math.floor((now - startTime) / 60000);
+            let elapsed = m.elapsed || Math.floor((now - startTime) / 60000);
             if (elapsed < 0) elapsed = 0;
             
             let period = '';
@@ -359,56 +338,57 @@
             const remainingMinutes = Math.max(0, 105 - elapsed);
             const isBettingOpen = remainingMinutes > 0;
             
-            return `<div class="match-card" onclick="goToMatch(${fixtureId})">
-                <div class="match-header-row">
-                    <div class="match-league">
-                        ${leagueLogo ? `<img class="league-logo" src="${leagueLogo}" onerror="this.style.display='none'">` : '<i class="fas fa-trophy"></i>'}
-                        <span>${escapeHtml(leagueName)}</span>
-                        <span class="live-tag"><i class="fas fa-circle"></i> LIVE</span>
+            return `
+                <div class="match-card" onclick="goToMatch(${fixtureId})">
+                    <div class="match-header-row">
+                        <div class="match-league">
+                            ${leagueLogo ? `<img class="league-logo" src="${leagueLogo}" onerror="this.style.display='none'">` : '<i class="fas fa-trophy"></i>'}
+                            <span>${escapeHtml(leagueName)}</span>
+                            <span class="live-tag"><i class="fas fa-circle"></i> LIVE</span>
+                        </div>
+                        <div class="match-minute ${periodClass}">${period} ${elapsed}'</div>
                     </div>
-                    <div class="match-minute ${periodClass}">${period} ${elapsed}'</div>
-                </div>
-                <div class="match-info">
-                    <span><i class="far fa-calendar-alt"></i> ${matchDate}</span>
-                    <span><i class="fas fa-hourglass-start"></i> ${startTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                    <span><i class="fas fa-hourglass-end"></i> ${endTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                </div>
-                <div class="teams-section">
-                    <div class="team-block">
-                        <img class="team-logo" src="${homeTeam.logo || 'https://via.placeholder.com/60?text=?'}" onerror="this.src='https://via.placeholder.com/60?text=${escapeHtml(homeTeam.name.substring(0,2))}'">
-                        <div class="team-name">${escapeHtml(homeTeam.name)}</div>
+                    <div class="match-info">
+                        <span><i class="far fa-calendar-alt"></i> ${matchDate}</span>
+                        <span><i class="fas fa-hourglass-start"></i> ${startTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                        <span><i class="fas fa-hourglass-end"></i> ${endTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                     </div>
-                    <div class="score ${scoreClass}" id="score-${fixtureId}">${scoreHome} - ${scoreAway}</div>
-                    <div class="team-block">
-                        <img class="team-logo" src="${awayTeam.logo || 'https://via.placeholder.com/60?text=?'}" onerror="this.src='https://via.placeholder.com/60?text=${escapeHtml(awayTeam.name.substring(0,2))}'">
-                        <div class="team-name">${escapeHtml(awayTeam.name)}</div>
+                    <div class="teams-section">
+                        <div class="team-block">
+                            <img class="team-logo" src="${homeTeam.logo || 'https://via.placeholder.com/60?text=?'}" onerror="this.src='https://via.placeholder.com/60?text=${escapeHtml(homeTeam.name.substring(0,2))}'">
+                            <div class="team-name">${escapeHtml(homeTeam.name)}</div>
+                        </div>
+                        <div class="score ${scoreClass}" id="score-${fixtureId}">${scoreHome} - ${scoreAway}</div>
+                        <div class="team-block">
+                            <img class="team-logo" src="${awayTeam.logo || 'https://via.placeholder.com/60?text=?'}" onerror="this.src='https://via.placeholder.com/60?text=${escapeHtml(awayTeam.name.substring(0,2))}'">
+                            <div class="team-name">${escapeHtml(awayTeam.name)}</div>
+                        </div>
                     </div>
+                    <div class="events-section" id="events-${fixtureId}">
+                        <div class="event-row"><span style="color:#a0a8c9;">Loading events...</span></div>
+                    </div>
+                    <div class="stats-row">
+                        <div class="stat-item"><div class="stat-value">${period}</div><div class="stat-label">Period</div></div>
+                        <div class="stat-item"><div class="stat-value">${elapsed}'</div><div class="stat-label">Elapsed</div></div>
+                        <div class="stat-item"><div class="stat-value">${remainingMinutes}'</div><div class="stat-label">Remaining</div></div>
+                        <div class="stat-item"><div class="stat-value">${startTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div><div class="stat-label">Kickoff</div></div>
+                    </div>
+                    <div class="odds-preview">
+                        <div class="odd-box"><div class="label">1</div><div class="value">${odds.home}</div></div>
+                        <div class="odd-box"><div class="label">X</div><div class="value">${odds.draw}</div></div>
+                        <div class="odd-box"><div class="label">2</div><div class="value">${odds.away}</div></div>
+                    </div>
+                    ${isBettingOpen ? 
+                        `<button class="bet-open-btn" onclick="event.stopPropagation();goToMatch(${fixtureId})"><i class="fas fa-gavel"></i> Place Bet Now</button>` : 
+                        `<button class="bet-open-btn" style="background:#a0a8c9; cursor:not-allowed;" disabled><i class="fas fa-ban"></i> Betting Closed</button>`
+                    }
                 </div>
-                <div class="countdown-timer" id="countdown-${fixtureId}">Calculating...</div>
-                <div class="events-section" id="events-${fixtureId}">
-                    <div class="event-row"><span style="color:#a0a8c9;">Loading events...</span></div>
-                </div>
-                <div class="stats-row">
-                    <div class="stat-item"><div class="stat-value">${period}</div><div class="stat-label">Period</div></div>
-                    <div class="stat-item"><div class="stat-value">${elapsed}'</div><div class="stat-label">Elapsed</div></div>
-                    <div class="stat-item"><div class="stat-value">${remainingMinutes}'</div><div class="stat-label">Remaining</div></div>
-                    <div class="stat-item"><div class="stat-value">${startTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div><div class="stat-label">Kickoff</div></div>
-                </div>
-                <div class="odds-preview">
-                    <div class="odd-box"><div class="label">1</div><div class="value">${odds.home}</div></div>
-                    <div class="odd-box"><div class="label">X</div><div class="value">${odds.draw}</div></div>
-                    <div class="odd-box"><div class="label">2</div><div class="value">${odds.away}</div></div>
-                </div>
-                ${isBettingOpen ? 
-                    `<button class="bet-open-btn" onclick="event.stopPropagation();goToMatch(${fixtureId})"><i class="fas fa-gavel"></i> Place Bet Now</button>` : 
-                    `<button class="bet-open-btn" style="background:#a0a8c9; cursor:not-allowed;" disabled><i class="fas fa-ban"></i> Betting Closed</button>`
-                }
-            </div>`;
+            `;
         }
         
         async function fetchMatchEvents(fixtureId) {
             try {
-                const response = await fetch(`https://millioner.onrender.com/api/fixtures/events/${fixtureId}`);
+                const response = await fetch(`${API_BASE}/api/fixtures/events/${fixtureId}`);
                 const data = await response.json();
                 const eventsDiv = document.getElementById(`events-${fixtureId}`);
                 if (eventsDiv && data.success && data.data && data.data.length > 0) {
@@ -425,7 +405,9 @@
             } catch(e) {}
         }
         
-        function goToMatch(fixtureId) { location.href = `match-details.html?id=${fixtureId}`; }
+        function goToMatch(fixtureId) { 
+            location.href = `match-details.html?id=${fixtureId}`; 
+        }
         
         function escapeHtml(str) {
             if (!str) return '';
@@ -440,11 +422,17 @@
         function startAutoRefresh() {
             if (refreshInterval) clearInterval(refreshInterval);
             if (eventInterval) clearInterval(eventInterval);
-            if (statusInterval) clearInterval(statusInterval);
             
-            refreshInterval = setInterval(() => { loadLiveMatches(); loadBalance(); }, 15000);
-            eventInterval = setInterval(() => { for (const match of liveMatches) fetchMatchEvents(match.fixture_id); }, 10000);
-            statusInterval = setInterval(() => { if (typeof updateStatuses === 'function') updateStatuses(); }, 30000);
+            refreshInterval = setInterval(() => { 
+                loadLiveMatches(); 
+                loadBalance(); 
+            }, 15000);
+            
+            eventInterval = setInterval(() => { 
+                for (const match of liveMatches) {
+                    fetchMatchEvents(match.fixture_id);
+                }
+            }, 10000);
             
             console.log('🔄 Live matches auto-refresh active (every 15 seconds)');
         }
@@ -452,9 +440,8 @@
         window.loadLiveMatches = loadLiveMatches;
         window.goToMatch = goToMatch;
         window.toggleLanguage = toggleLanguage;
-        window.forceStatusUpdate = forceStatusUpdate;
         
-        console.log('✅ Live matches page ready - Betting OPEN on live matches');
+        console.log('✅ Live matches page ready - Fetching directly from API');
     </script>
 </body>
 </html>
