@@ -1,8 +1,7 @@
 // ============================================
-// supabase-client.js - v15.0 FINAL
-// ✅ Full CRUD for matches and bets
-// ✅ 90-day query range
-// ✅ Auto-clean old data
+// supabase-client.js - v16.0 WORKING
+// ✅ Correct table schema
+// ✅ All CRUD operations
 // ============================================
 
 const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
@@ -27,9 +26,6 @@ const supaDB = {
             today.setHours(0, 0, 0, 0);
             const ninetyDaysLater = new Date(today);
             ninetyDaysLater.setDate(today.getDate() + 90);
-            ninetyDaysLater.setHours(23, 59, 59, 999);
-            
-            console.log(`📅 Querying matches from ${today.toISOString()} to ${ninetyDaysLater.toISOString()}`);
             
             const { data, error } = await supaClient
                 .from('sports_matches')
@@ -40,15 +36,6 @@ const supaDB = {
                 .order('start_time', { ascending: true });
             
             if (error) throw error;
-            
-            const dateDist = {};
-            for (const m of data || []) {
-                const d = new Date(m.start_time).toDateString();
-                dateDist[d] = (dateDist[d] || 0) + 1;
-            }
-            console.log(`📊 Found ${data?.length || 0} matches for next 90 days`);
-            console.log(`📅 Dates with matches: ${Object.keys(dateDist).length} days`);
-            
             return (data || []).map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
         } catch(e) {
             console.error('getUpcomingMatches error:', e);
@@ -66,7 +53,6 @@ const supaDB = {
                 .order('start_time', { ascending: true });
             
             if (error) throw error;
-            console.log(`🔴 Found ${data?.length || 0} live matches`);
             return (data || []).map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
         } catch(e) {
             console.error('getLiveMatches error:', e);
@@ -154,6 +140,24 @@ const supaDB = {
         } catch(e) {
             console.error('Upsert error:', e);
             return false;
+        }
+    },
+    
+    deleteOldMatches: async function() {
+        if (!supaClient) return;
+        try {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            
+            const { error } = await supaClient
+                .from('sports_matches')
+                .delete()
+                .eq('status', 'finished')
+                .lt('start_time', sevenDaysAgo.toISOString());
+            
+            if (!error) console.log('🗑️ Cleaned old finished matches');
+        } catch(e) {
+            console.error('Clean error:', e);
         }
     },
     
@@ -254,48 +258,6 @@ const supaDB = {
             console.error('getBetById error:', e);
             return null;
         }
-    },
-    
-    getUserBetCounts: async function(userId) {
-        if (!supaClient) return { total: 0, active: 0, won: 0, lost: 0 };
-        try {
-            const { data, error } = await supaClient
-                .from('bets')
-                .select('status')
-                .eq('user_id', userId);
-            
-            if (error || !data) return { total: 0, active: 0, won: 0, lost: 0 };
-            
-            return {
-                total: data.length,
-                active: data.filter(b => b.status === 'active').length,
-                won: data.filter(b => b.status === 'won').length,
-                lost: data.filter(b => b.status === 'lost').length
-            };
-        } catch(e) {
-            console.error('getUserBetCounts error:', e);
-            return { total: 0, active: 0, won: 0, lost: 0 };
-        }
-    },
-    
-    // ============ UTILITIES ============
-    
-    cleanOldMatches: async function() {
-        if (!supaClient) return;
-        try {
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-            
-            const { error } = await supaClient
-                .from('sports_matches')
-                .delete()
-                .eq('status', 'finished')
-                .lt('start_time', sevenDaysAgo.toISOString());
-            
-            if (!error) console.log('🗑️ Cleaned old finished matches');
-        } catch(e) {
-            console.error('Clean error:', e);
-        }
     }
 };
 
@@ -304,4 +266,4 @@ if (typeof window !== 'undefined') {
     window.supaDB = supaDB;
 }
 
-console.log('📦 Supabase Client v15.0 - 90 Days Ready');
+console.log('📦 Supabase Client v16.0 - Ready');
