@@ -1,11 +1,11 @@
 // ============================================
-// sports-api.js - v15.0 FINAL (90 DAYS SYNC)
-// ✅ Syncs 90 days of matches to Supabase
-// ✅ Firebase initialized
-// ✅ All bet types settlement
+// sports-api.js - v16.0 COMPLETE
+// ✅ 90-day sync to Supabase
+// ✅ Auto-settlement for all bet types
+// ✅ Real-time status updates
 // ============================================
 
-// ===== FIREBASE INITIALIZATION =====
+// Firebase initialization
 if (typeof firebase !== 'undefined' && !firebase.apps.length) {
     const firebaseConfig = {
         apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -173,9 +173,9 @@ async function settleMatchBets(fixtureId, result) {
     }
 }
 
-// ===== FIXED: SYNC 90 DAYS =====
+// 90-day sync function
 async function syncUpcomingMatches() {
-    console.log('📅 Syncing matches for 90 days...');
+    console.log('📅 Syncing 90 days of matches...');
     
     const today = new Date();
     const from = today.toISOString().split('T')[0];
@@ -183,7 +183,7 @@ async function syncUpcomingMatches() {
     futureDate.setDate(today.getDate() + 90);
     const to = futureDate.toISOString().split('T')[0];
     
-    console.log(`📅 Date range: ${from} to ${to}`);
+    console.log(`📅 Date range: ${from} → ${to}`);
     
     const data = await fetchAPI(`/api/fixtures/range/${from}/${to}`);
     
@@ -192,16 +192,16 @@ async function syncUpcomingMatches() {
         let synced = 0;
         for (const match of data.data) {
             if (await syncMatchToDB(match)) synced++;
-            if (synced % 50 === 0) console.log(`   Synced ${synced}/${data.data.length}`);
+            if (synced % 100 === 0) console.log(`   Synced ${synced}/${data.data.length}`);
         }
-        console.log(`✅ Synced ${synced} matches to Supabase for 90 days`);
+        console.log(`✅ Synced ${synced} matches to Supabase`);
         
         const { count } = await supabaseClient
             .from('sports_matches')
             .select('*', { count: 'exact' })
             .gte('start_time', today.toISOString())
             .lte('start_time', futureDate.toISOString());
-        console.log(`📊 Total matches in DB for next 90 days: ${count}`);
+        console.log(`📊 Total in DB for next 90 days: ${count}`);
         
         return synced;
     }
@@ -231,6 +231,7 @@ async function forceUpdateMatchStatuses() {
     const nowISO = now.toISOString();
     let updated = 0;
     
+    // Upcoming → Live
     const { data: upcomingMatches } = await supabaseClient
         .from('sports_matches')
         .select('fixture_id')
@@ -247,6 +248,7 @@ async function forceUpdateMatchStatuses() {
         console.log(`⏰ Updated ${upcomingMatches.length} matches: upcoming → live`);
     }
     
+    // Live → Finished (after 105 minutes)
     const { data: liveMatches } = await supabaseClient
         .from('sports_matches')
         .select('fixture_id, start_time, score')
@@ -264,7 +266,7 @@ async function forceUpdateMatchStatuses() {
                     .update({ status: 'finished', result: result, updated_at: nowISO })
                     .eq('fixture_id', match.fixture_id);
                 updated++;
-                console.log(`🏁 Marked match ${match.fixture_id} as finished`);
+                console.log(`🏁 Match ${match.fixture_id} finished`);
                 await settleMatchBets(match.fixture_id, result);
             }
         }
@@ -306,4 +308,4 @@ if (typeof supabaseClient !== 'undefined' && supabaseClient) {
     startAutoSync();
 }
 
-console.log('🏈 Sports API v15.0 - 90 Days Sync Active');
+console.log('🏈 Sports API v16.0 - 90 Days Sync Active');
