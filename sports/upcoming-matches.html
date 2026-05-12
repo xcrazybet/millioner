@@ -30,9 +30,7 @@
         .search-input { flex: 3; min-width: 200px; }
         .date-filter { flex: 1; min-width: 140px; }
         .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #00ff9d; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .refresh-btn, .sync-btn { padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; border: none; }
-        .refresh-btn { background: #00ff9d; color: black; }
-        .sync-btn { background: #ff9800; color: black; margin-left: auto; }
+        .refresh-btn { background: #00ff9d; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; }
         .date-section { margin-bottom: 20px; }
         .date-header { background: linear-gradient(135deg, #00ff9d11, #00ff9d05); border-left: 3px solid #00ff9d; padding: 12px 15px; border-radius: 8px; margin-bottom: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
         .date-title { font-weight: bold; font-size: 16px; color: #00ff9d; }
@@ -64,7 +62,7 @@
         .bet-btn:hover { transform: scale(1.02); background: #00cc7d; }
         .slip-btn { background: #ff9800; color: black; }
         .slip-btn:hover { transform: scale(1.02); background: #e68900; }
-        .bet-slip { position: fixed; bottom: 0; left: 0; right: 0; background: #111827; border-top: 2px solid #ff9800; padding: 15px; z-index: 1000; max-height: 300px; overflow-y: auto; }
+        .bet-slip { position: fixed; bottom: 0; left: 0; right: 0; background: #111827; border-top: 2px solid #ff9800; padding: 15px; z-index: 1000; max-height: 280px; overflow-y: auto; }
         .slip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
         .slip-title { color: #ff9800; font-weight: 600; }
         .slip-clear { color: #ff5252; font-size: 12px; cursor: pointer; }
@@ -115,16 +113,15 @@
         <div class="selector-bar">
             <select id="league-filter" class="league-select"><option value="all">🏆 All Leagues</option></select>
             <input type="text" id="search-input" class="search-input" placeholder="🔍 Search team or league..." oninput="filterMatches()">
-            <input type="date" id="date-filter" class="date-filter" onchange="filterMatches()">
+            <input type="date" id="date-filter" class="date-filter" onchange="filterByDate()">
         </div>
         
         <div class="debug-bar">
-            <i class="fas fa-database"></i> <span id="debug-text">Loading upcoming matches...</span>
+            <i class="fas fa-calendar-week"></i> <span id="debug-text">Loading matches for next 7 days...</span>
             <button class="refresh-btn" onclick="loadMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
-            <button class="sync-btn" onclick="forceManualSync()"><i class="fas fa-cloud-download-alt"></i> Sync</button>
         </div>
         
-        <div id="matches-container"><div style="text-align:center;padding:50px;"><div class="loading-spinner"></div> Loading upcoming matches...</div></div>
+        <div id="matches-container"><div style="text-align:center;padding:50px;"><div class="loading-spinner"></div> Loading matches for today + next 7 days...</div></div>
     </div>
     
     <div class="bet-slip" id="bet-slip" style="display:none;">
@@ -182,7 +179,8 @@
             try {
                 const db = firebase.firestore();
                 const doc = await db.collection('wallets').doc(firebase.auth().currentUser.uid).get();
-                document.getElementById('balance-display').textContent = `$${(doc.exists ? (doc.data().balance || 0) : 0).toFixed(2)}`;
+                const balance = doc.exists ? (doc.data().balance || 0) : 0;
+                document.getElementById('balance-display').textContent = `$${balance.toFixed(2)}`;
             } catch(e) { console.error(e); }
         }
         
@@ -193,7 +191,7 @@
                 if (data.success && data.data) {
                     const select = document.getElementById('league-filter');
                     select.innerHTML = '<option value="all">🏆 All Leagues</option>';
-                    data.data.slice(0, 50).forEach(league => {
+                    data.data.slice(0, 40).forEach(league => {
                         const option = document.createElement('option');
                         option.value = league.id;
                         option.textContent = league.name;
@@ -204,46 +202,56 @@
             document.getElementById('league-filter').onchange = (e) => { selectedLeague = e.target.value; filterMatches(); };
         }
         
-        async function forceManualSync() {
-            document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Syncing...';
-            if (typeof manualSync === 'function') {
-                await manualSync();
-                await loadMatches();
-            } else {
-                await loadMatches();
-            }
-        }
-        
+        // 🔥 OPTIMIZED: Load only TODAY + NEXT 7 DAYS (8 days total)
         async function loadMatches() {
             if (isLoading) return;
             isLoading = true;
             
             try {
-                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading upcoming matches...';
+                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading matches for next 7 days...';
                 
                 const today = new Date();
                 const dates = [];
-                for (let i = 0; i <= 14; i++) {
+                
+                // Get today + next 7 days (8 days total)
+                for (let i = 0; i <= 7; i++) {
                     const date = new Date(today);
                     date.setDate(today.getDate() + i);
-                    dates.push(date.toISOString().split('T')[0]);
+                    const dateStr = date.toISOString().split('T')[0];
+                    dates.push(dateStr);
                 }
                 
+                console.log(`📅 Loading ${dates.length} days (today + next 7 days):`, dates);
+                
+                // Fetch all dates in parallel for speed
                 const fetchPromises = dates.map(date => 
                     fetch(`${API_BASE}/api/fixtures/date/${date}`).then(r => r.json())
                 );
                 
                 const results = await Promise.all(fetchPromises);
                 let allMatchesData = [];
+                let daysWithMatches = 0;
                 
-                for (const data of results) {
+                for (let i = 0; i < results.length; i++) {
+                    const data = results[i];
+                    const date = dates[i];
                     if (data.success && data.data && data.data.length > 0) {
                         allMatchesData.push(...data.data);
+                        daysWithMatches++;
+                        console.log(`   ✅ ${date}: ${data.data.length} matches`);
                     }
                 }
                 
-                console.log(`✅ Found ${allMatchesData.length} upcoming matches`);
+                console.log(`📊 Total: ${allMatchesData.length} matches over ${daysWithMatches} days`);
                 
+                if (allMatchesData.length === 0) {
+                    document.getElementById('matches-container').innerHTML = '<div class="empty-state">No upcoming matches found for the next 7 days</div>';
+                    document.getElementById('debug-text').innerHTML = 'No matches found for next 7 days';
+                    isLoading = false;
+                    return;
+                }
+                
+                // Transform data
                 allMatches = allMatchesData.map(m => ({
                     fixture_id: m.fixture.id,
                     start_time: m.fixture.date,
@@ -270,19 +278,16 @@
                     score: { home: m.goals?.home || 0, away: m.goals?.away || 0 }
                 }));
                 
+                // Sort by date
                 allMatches.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
                 
                 const uniqueDates = [...new Set(allMatches.map(m => new Date(m.start_time).toDateString()))];
                 const uniqueLeagues = [...new Set(allMatches.map(m => m.league_name))];
                 
-                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Next ${uniqueDates.length} days) | ${uniqueLeagues.length} leagues`;
+                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Today + next 7 days) | ${uniqueDates.length} days | ${uniqueLeagues.length} leagues`;
                 
-                if (allMatches.length === 0) {
-                    document.getElementById('matches-container').innerHTML = '<div class="empty-state">No upcoming matches found. Click Sync to refresh.</div>';
-                } else {
-                    filterMatches();
-                    startCountdowns();
-                }
+                filterMatches();
+                startCountdowns();
                 
             } catch(e) {
                 console.error(e);
@@ -292,9 +297,15 @@
             }
         }
         
+        function filterByDate() {
+            const datePicker = document.getElementById('date-filter');
+            selectedDate = datePicker.value;
+            filterMatches();
+        }
+        
         function filterMatches() {
             const search = document.getElementById('search-input').value.toLowerCase();
-            const dateFilter = document.getElementById('date-filter').value;
+            const dateFilter = selectedDate;
             
             let filtered = [...allMatches];
             
@@ -460,8 +471,8 @@
                     if (match) {
                         const diff = new Date(match.start_time) - new Date();
                         if (diff <= 0) {
-                            el.textContent = 'NOW';
-                            el.style.color = '#ff9800';
+                            el.textContent = 'LIVE';
+                            el.style.color = '#ff5252';
                         } else {
                             const hours = Math.floor(diff / 3600000);
                             const minutes = Math.floor((diff % 3600000) / 60000);
@@ -479,9 +490,11 @@
         }
         
         function startAutoRefresh() {
+            // Refresh matches every 5 minutes
             setInterval(() => {
+                loadMatches();
                 loadBalance();
-            }, 30000);
+            }, 300000);
         }
         
         // Bet Slip UI
@@ -542,7 +555,6 @@
             if (typeof window.updateSlipUI === 'function') window.updateSlipUI(); 
         }
         
-        window.forceManualSync = forceManualSync;
         window.goToMatch = goToMatch;
         window.placeAccumulatorBet = placeAccumulatorBet;
         window.loadMatches = loadMatches;
@@ -554,7 +566,7 @@
         };
         window.clearAllSlip = clearAllSlip;
         
-        console.log('✅ Upcoming matches page ready - Betting OPEN');
+        console.log('✅ Upcoming matches page loaded - Today + Next 7 days only (optimized)');
     </script>
 </body>
 </html>
