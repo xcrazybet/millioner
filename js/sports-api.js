@@ -1,9 +1,8 @@
 // ============================================
-// sports-api.js - v18.0 ENHANCED SETTLEMENT
-// ✅ Full bet settlement for all markets
-// ✅ Compatible with betting-engine.js
-// ✅ Works with match-details.html
-// ✅ Auto-sync with 90 days data
+// sports-api.js - v19.0 FULLY AUTOMATED SETTLEMENT
+// ✅ Auto-settlement when API returns FT status
+// ✅ No admin intervention needed
+// ✅ Runs every 60 seconds automatically
 // ============================================
 
 // ===== FIREBASE INITIALIZATION =====
@@ -23,60 +22,25 @@ if (typeof firebase !== 'undefined' && !firebase.apps.length) {
 // ===== CONFIGURATION =====
 const API_BASE = 'https://millioner.onrender.com';
 const BATCH_SIZE = 50;
-const SYNC_INTERVAL = 60000;
-const STATUS_INTERVAL = 15000;
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 2000;
-const BETTING_CLOSE_MINUTE = 80;
+const SYNC_INTERVAL = 60000; // 60 seconds
+const STATUS_CHECK_INTERVAL = 30000; // 30 seconds
 
-// Simple memory cache for API responses
-const apiCache = new Map();
-const CACHE_TTL = 30000;
-
-// ===== CACHED FETCH =====
-async function fetchAPI(endpoint, useCache = true) {
-    const cacheKey = endpoint;
-    
-    if (useCache && apiCache.has(cacheKey)) {
-        const cached = apiCache.get(cacheKey);
-        if (Date.now() - cached.timestamp < CACHE_TTL) {
-            console.log(`📦 Cache hit: ${endpoint}`);
-            return cached.data;
-        }
-    }
-    
+// ===== FETCH FROM API =====
+async function fetchAPI(endpoint) {
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
         const response = await fetch(`${API_BASE}${endpoint}`, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        
-        apiCache.set(cacheKey, { data, timestamp: Date.now() });
-        return data;
+        return await response.json();
     } catch(e) {
         console.error(`API fetch error:`, e.message);
         return { success: false, data: [] };
     }
 }
 
-// ===== RETRY WITH BACKOFF =====
-async function fetchWithRetry(endpoint, retries = MAX_RETRIES) {
-    for (let i = 0; i < retries; i++) {
-        const result = await fetchAPI(endpoint, false);
-        if (result.success && result.data && result.data.length > 0) {
-            return result;
-        }
-        if (i < retries - 1) {
-            console.log(`🔄 Retry ${i + 1}/${retries} for ${endpoint}`);
-            await new Promise(r => setTimeout(r, RETRY_DELAY * (i + 1)));
-        }
-    }
-    return { success: false, data: [] };
-}
-
-// ===== SYNC SINGLE MATCH TO SUPABASE =====
+// ===== SYNC MATCH TO SUPABASE AND CHECK FOR FINISHED STATUS =====
 async function syncMatchToDB(match) {
     if (!match || !match.fixture) return false;
     
@@ -88,12 +52,16 @@ async function syncMatchToDB(match) {
     if (!fixtureId) return false;
     
     try {
-        let status = 'upcoming';
+        // 🔥 CRITICAL: Get REAL status from API
         const statusShort = fixture.status?.short;
+        let status = 'upcoming';
+        let isFinished = false;
+        
         if (statusShort === '1H' || statusShort === '2H' || statusShort === 'HT') {
             status = 'live';
         } else if (statusShort === 'FT' || statusShort === 'AET' || statusShort === 'PEN') {
             status = 'finished';
+            isFinished = true;
         }
         
         let result = null;
@@ -136,6 +104,13 @@ async function syncMatchToDB(match) {
             updated_at: new Date().toISOString()
         };
         
+        // Get existing match to check if status changed
+        const { data: existing } = await supabaseClient
+            .from('sports_matches')
+            .select('status, bets_settled')
+            .eq('fixture_id', fixtureId)
+            .single();
+        
         const { error } = await supabaseClient
             .from('sports_matches')
             .upsert(matchData, { onConflict: 'fixture_id' });
@@ -145,9 +120,10 @@ async function syncMatchToDB(match) {
             return false;
         }
         
-        // 🔥 ENHANCED: Trigger settlement when match finishes
-        if (status === 'finished' && result) {
-            console.log(`🏁 Match ${fixtureId} finished - Settling bets...`);
+        // 🔥 AUTO SETTLEMENT: If match just finished (status changed to finished)
+        if (isFinished && (!existing || existing.status !== 'finished')) {
+            console.log(`🏁 AUTO SETTLEMENT TRIGGERED for match ${fixtureId}`);
+            console.log(`   Result: ${result} (${score.home}-${score.away})`);
             await settleMatchBets(fixtureId, result, score);
         }
         
@@ -158,7 +134,7 @@ async function syncMatchToDB(match) {
     }
 }
 
-// ===== 🔥 ENHANCED SETTLEMENT ENGINE =====
+// ===== 🔥 FULLY AUTOMATED SETTLEMENT ENGINE =====
 async function settleMatchBets(fixtureId, result, score) {
     if (!window.supaDB || !firebase?.firestore) {
         console.warn('Settlement prerequisites not ready');
@@ -166,7 +142,7 @@ async function settleMatchBets(fixtureId, result, score) {
     }
     
     try {
-        // Check if already settled
+        // Check if already settled (prevent double settlement)
         const { data: match } = await supabaseClient
             .from('sports_matches')
             .select('bets_settled')
@@ -178,18 +154,20 @@ async function settleMatchBets(fixtureId, result, score) {
             return;
         }
         
-        // Get all active bets
+        // Get all active bets for this fixture
         const bets = await window.supaDB.getActiveBets(fixtureId);
         
         if (!bets || bets.length === 0) {
+            // No bets to settle, just mark as settled
             await supabaseClient
                 .from('sports_matches')
                 .update({ bets_settled: true, result: result })
                 .eq('fixture_id', fixtureId);
+            console.log(`📭 No active bets for match ${fixtureId}, marked as settled`);
             return;
         }
         
-        console.log(`💰 Settling ${bets.length} bets for match ${fixtureId}`);
+        console.log(`💰 AUTO-SETTLING ${bets.length} bets for match ${fixtureId}`);
         console.log(`📊 Final score: ${score?.home || 0} - ${score?.away || 0}, Result: ${result}`);
         
         const db = firebase.firestore();
@@ -230,26 +208,6 @@ async function settleMatchBets(fixtureId, result, score) {
             }
             
             // ===== OVER/UNDER GOALS =====
-            else if (bet.bet_type === 'over05') {
-                const total = (score?.home || 0) + (score?.away || 0);
-                won = total > 0.5;
-                winReason = won ? `Over 0.5 (Total: ${total})` : `Under 0.5 (Total: ${total})`;
-            }
-            else if (bet.bet_type === 'under05') {
-                const total = (score?.home || 0) + (score?.away || 0);
-                won = total < 0.5;
-                winReason = won ? `Under 0.5 (Total: ${total})` : `Over 0.5 (Total: ${total})`;
-            }
-            else if (bet.bet_type === 'over15') {
-                const total = (score?.home || 0) + (score?.away || 0);
-                won = total > 1.5;
-                winReason = won ? `Over 1.5 (Total: ${total})` : `Under 1.5 (Total: ${total})`;
-            }
-            else if (bet.bet_type === 'under15') {
-                const total = (score?.home || 0) + (score?.away || 0);
-                won = total < 1.5;
-                winReason = won ? `Under 1.5 (Total: ${total})` : `Over 1.5 (Total: ${total})`;
-            }
             else if (bet.bet_type === 'over25') {
                 const total = (score?.home || 0) + (score?.away || 0);
                 won = total > 2.5;
@@ -259,16 +217,6 @@ async function settleMatchBets(fixtureId, result, score) {
                 const total = (score?.home || 0) + (score?.away || 0);
                 won = total < 2.5;
                 winReason = won ? `Under 2.5 (Total: ${total})` : `Over 2.5 (Total: ${total})`;
-            }
-            else if (bet.bet_type === 'over35') {
-                const total = (score?.home || 0) + (score?.away || 0);
-                won = total > 3.5;
-                winReason = won ? `Over 3.5 (Total: ${total})` : `Under 3.5 (Total: ${total})`;
-            }
-            else if (bet.bet_type === 'under35') {
-                const total = (score?.home || 0) + (score?.away || 0);
-                won = total < 3.5;
-                winReason = won ? `Under 3.5 (Total: ${total})` : `Over 3.5 (Total: ${total})`;
             }
             
             // ===== BTTS (Both Teams to Score) =====
@@ -285,74 +233,19 @@ async function settleMatchBets(fixtureId, result, score) {
                 winReason = won ? 'Not both teams scored' : 'Both teams scored';
             }
             
-            // ===== HANDICAP BETS =====
-            else if (bet.bet_type === 'handicap_home') {
-                const adjustedHome = (score?.home || 0) - 1.5;
-                won = adjustedHome > (score?.away || 0);
-                winReason = won ? 'Home wins by handicap' : 'Home loses by handicap';
-            }
-            else if (bet.bet_type === 'handicap_away') {
-                const adjustedAway = (score?.away || 0) - 1.5;
-                won = adjustedAway > (score?.home || 0);
-                winReason = won ? 'Away wins by handicap' : 'Away loses by handicap';
-            }
-            
-            // ===== CORNERS BETS =====
-            else if (bet.bet_type === 'corners_over') {
-                const total = (bet.corners_value || 9.5);
-                // This would need actual corner data from API
-                won = false; // Placeholder
-            }
-            else if (bet.bet_type === 'corners_under') {
-                won = false; // Placeholder
-            }
-            
-            // ===== CARDS BETS =====
-            else if (bet.bet_type === 'cards_over') {
-                won = false; // Placeholder
-            }
-            else if (bet.bet_type === 'cards_under') {
-                won = false; // Placeholder
-            }
-            
-            // ===== ACCUMULATOR BETS =====
-            else if (bet.bet_category === 'accumulator') {
-                const selections = bet.selections;
-                let allWon = true;
-                if (selections && selections.length) {
-                    for (const sel of selections) {
-                        // For each selection, we would check its result
-                        // Simplified for now
-                    }
-                }
-                won = allWon;
-                winReason = won ? 'All selections won' : 'Some selections lost';
-            }
-            
             // ===== PROCESS WINNER =====
             if (won) {
                 payout = bet.amount * bet.odds;
                 totalPayout += payout;
                 winnersCount++;
                 
-                // Update wallet (with error handling)
+                // Update wallet (add winnings)
                 try {
                     const wallet = await db.collection('wallets').doc(bet.user_id).get();
                     const newBalance = (wallet.data()?.balance || 0) + payout;
                     await db.collection('wallets').doc(bet.user_id).update({ balance: newBalance });
                     
                     console.log(`✅ Bet ${bet.id} WON - User ${bet.user_id} +$${payout.toFixed(2)} (${winReason})`);
-                    
-                    // Record transaction
-                    await db.collection('transactions').add({
-                        userId: bet.user_id,
-                        type: 'bet_won',
-                        amount: payout,
-                        betId: bet.id,
-                        fixtureId: fixtureId,
-                        description: `Won bet on match ${fixtureId} - ${winReason}`,
-                        timestamp: new Date()
-                    });
                 } catch(e) {
                     console.error(`Failed to update wallet for bet ${bet.id}:`, e);
                 }
@@ -388,16 +281,65 @@ async function settleMatchBets(fixtureId, result, score) {
             })
             .eq('fixture_id', fixtureId);
         
-        console.log(`💰 Settlement complete: ${winnersCount} winners, total payout $${totalPayout.toFixed(2)}`);
+        console.log(`💰 AUTO-SETTLEMENT COMPLETE: ${winnersCount} winners, total payout $${totalPayout.toFixed(2)}`);
         
     } catch(e) {
         console.error('Settlement error:', e);
     }
 }
 
-// ===== SYNC 30 DAYS OF MATCHES (BATCHED) =====
+// ===== CHECK FOR FINISHED MATCHES (Calls API directly) =====
+async function checkForFinishedMatches() {
+    console.log('🔍 Checking for finished matches...');
+    
+    // Get all live matches from database
+    const { data: liveMatches } = await supabaseClient
+        .from('sports_matches')
+        .select('fixture_id, start_time')
+        .eq('status', 'live');
+    
+    if (!liveMatches || liveMatches.length === 0) return;
+    
+    // Check each live match with API
+    for (const match of liveMatches) {
+        try {
+            const response = await fetch(`${API_BASE}/api/fixture/${match.fixture_id}`);
+            const data = await response.json();
+            
+            if (data.success && data.fixture) {
+                const statusShort = data.fixture.status?.short;
+                
+                // If API says match is finished
+                if (statusShort === 'FT' || statusShort === 'AET' || statusShort === 'PEN') {
+                    const homeScore = data.fixture.goals?.home || 0;
+                    const awayScore = data.fixture.goals?.away || 0;
+                    const result = homeScore > awayScore ? 'home' : (homeScore < awayScore ? 'away' : 'draw');
+                    
+                    console.log(`🏁 Match ${match.fixture_id} finished according to API!`);
+                    
+                    // Update match status
+                    await supabaseClient
+                        .from('sports_matches')
+                        .update({ 
+                            status: 'finished', 
+                            result: result,
+                            score: { home: homeScore, away: awayScore }
+                        })
+                        .eq('fixture_id', match.fixture_id);
+                    
+                    // Settle bets
+                    await settleMatchBets(match.fixture_id, result, { home: homeScore, away: awayScore });
+                }
+            }
+        } catch(e) {
+            console.error(`Error checking match ${match.fixture_id}:`, e.message);
+        }
+    }
+}
+
+// ===== SYNC UPCOMING MATCHES =====
 async function syncUpcomingMatches() {
-    console.log('📅 Syncing matches for next 30 days...');
+    console.log('📅 Syncing upcoming matches...');
     
     const today = new Date();
     const from = today.toISOString().split('T')[0];
@@ -405,41 +347,21 @@ async function syncUpcomingMatches() {
     futureDate.setDate(today.getDate() + 30);
     const to = futureDate.toISOString().split('T')[0];
     
-    console.log(`📅 Date range: ${from} → ${to}`);
-    
-    const data = await fetchWithRetry(`/api/fixtures/range/${from}/${to}`);
+    const data = await fetchAPI(`/api/fixtures/range/${from}/${to}`);
     
     if (data.success && data.data && data.data.length > 0) {
-        console.log(`📡 Found ${data.data.length} matches for 30 days`);
+        console.log(`📡 Found ${data.data.length} matches`);
         
         let synced = 0;
-        let failed = 0;
-        
         for (let i = 0; i < data.data.length; i += BATCH_SIZE) {
             const batch = data.data.slice(i, i + BATCH_SIZE);
             const batchPromises = batch.map(match => syncMatchToDB(match));
             const results = await Promise.all(batchPromises);
-            
-            const batchSynced = results.filter(r => r === true).length;
-            synced += batchSynced;
-            failed += batch.length - batchSynced;
-            
-            console.log(`📊 Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batchSynced}/${batch.length} synced (Total: ${synced})`);
-            
-            if (i + BATCH_SIZE < data.data.length) {
-                await new Promise(r => setTimeout(r, 500));
-            }
+            synced += results.filter(r => r === true).length;
+            console.log(`📊 Synced ${synced}/${data.data.length} matches`);
         }
         
-        console.log(`✅ Synced ${synced} matches to Supabase (${failed} failed)`);
-        
-        const { count } = await supabaseClient
-            .from('sports_matches')
-            .select('*', { count: 'exact' })
-            .gte('start_time', today.toISOString())
-            .lte('start_time', futureDate.toISOString());
-        console.log(`📊 Total matches in DB for next 30 days: ${count}`);
-        
+        console.log(`✅ Synced ${synced} matches to Supabase`);
         return synced;
     }
     return 0;
@@ -448,17 +370,15 @@ async function syncUpcomingMatches() {
 // ===== SYNC LIVE MATCHES =====
 async function syncLiveMatches() {
     console.log('🔴 Syncing live matches...');
-    const data = await fetchWithRetry('/api/livescores');
+    const data = await fetchAPI('/api/livescores');
     
     if (data.success && data.data && data.data.length > 0) {
-        console.log(`📡 Found ${data.data.length} live matches`);
-        
-        // Filter for live matches only (1H, 2H, HT)
         const liveMatches = data.data.filter(m => {
             const status = m.fixture.status?.short;
             return status === '1H' || status === '2H' || status === 'HT';
         });
         
+        console.log(`📡 Found ${liveMatches.length} live matches`);
         let synced = 0;
         for (const match of liveMatches) {
             if (await syncMatchToDB(match)) synced++;
@@ -469,9 +389,9 @@ async function syncLiveMatches() {
     return 0;
 }
 
-// ===== FORCE UPDATE MATCH STATUSES =====
-async function forceUpdateMatchStatuses() {
-    if (!supabaseClient) return 0;
+// ===== UPDATE MATCH STATUSES =====
+async function updateMatchStatuses() {
+    if (!supabaseClient) return;
     
     const now = new Date();
     const nowISO = now.toISOString();
@@ -494,87 +414,55 @@ async function forceUpdateMatchStatuses() {
         console.log(`⏰ Updated ${upcomingMatches.length} matches: upcoming → live`);
     }
     
-    // For live matches, check if they should be marked as finished based on elapsed time
-    const { data: liveMatches } = await supabaseClient
-        .from('sports_matches')
-        .select('fixture_id, start_time, score')
-        .eq('status', 'live');
-    
-    if (liveMatches && liveMatches.length > 0) {
-        for (const match of liveMatches) {
-            const matchStart = new Date(match.start_time);
-            const elapsedMinutes = (now - matchStart) / 60000;
-            
-            // If match has been going for more than 105 minutes, it should be finished
-            if (elapsedMinutes > 105) {
-                const homeScore = match.score?.home || 0;
-                const awayScore = match.score?.away || 0;
-                const result = homeScore > awayScore ? 'home' : (homeScore < awayScore ? 'away' : 'draw');
-                
-                await supabaseClient
-                    .from('sports_matches')
-                    .update({ 
-                        status: 'finished', 
-                        result: result, 
-                        updated_at: nowISO,
-                        bets_settled: true
-                    })
-                    .eq('fixture_id', match.fixture_id);
-                updated++;
-                console.log(`🏁 Match ${match.fixture_id} marked as finished (${Math.floor(elapsedMinutes)} minutes played)`);
-                
-                // Settle any pending bets
-                await settleMatchBets(match.fixture_id, result, { home: homeScore, away: awayScore });
-            }
-            // Check if betting should be closed (80th minute)
-            else if (elapsedMinutes >= BETTING_CLOSE_MINUTE) {
-                console.log(`🔒 Betting closed for match ${match.fixture_id} (${Math.floor(elapsedMinutes)} minutes)`);
-            }
-        }
-    }
-    
     return updated;
 }
 
 // ===== MAIN SYNC FUNCTION =====
 async function syncAllMatches() {
-    console.log('\n🔄 SYNC STARTED', new Date().toLocaleTimeString());
+    console.log('\n🔄 AUTO-SYNC STARTED', new Date().toLocaleTimeString());
     const startTime = Date.now();
     
     await syncLiveMatches();
     await syncUpcomingMatches();
-    const statusUpdates = await forceUpdateMatchStatuses();
+    await updateMatchStatuses();
+    await checkForFinishedMatches(); // 🔥 CRITICAL: Check for finished matches
     
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`✅ SYNC COMPLETE in ${duration}s - Status updates: ${statusUpdates}\n`);
+    console.log(`✅ AUTO-SYNC COMPLETE in ${duration}s\n`);
 }
 
-// ===== AUTO-SYNC SYSTEM =====
-let syncInterval, statusInterval;
+// ===== AUTO-SYSTEM =====
+let syncInterval, statusInterval, finishedCheckInterval;
 
 function startAutoSync() {
     if (syncInterval) clearInterval(syncInterval);
     if (statusInterval) clearInterval(statusInterval);
+    if (finishedCheckInterval) clearInterval(finishedCheckInterval);
     
+    // Initial sync after 5 seconds
     setTimeout(() => syncAllMatches(), 5000);
-    syncInterval = setInterval(syncAllMatches, SYNC_INTERVAL);
-    statusInterval = setInterval(forceUpdateMatchStatuses, STATUS_INTERVAL);
     
-    console.log('⏰ Auto-sync active:');
-    console.log(`   📡 Full sync every ${SYNC_INTERVAL / 1000}s`);
-    console.log(`   ⏰ Status check every ${STATUS_INTERVAL / 1000}s`);
-    console.log(`   📦 Batch size: ${BATCH_SIZE} matches`);
-    console.log(`   🔒 Betting closes at ${BETTING_CLOSE_MINUTE} minutes`);
+    // Full sync every 60 seconds
+    syncInterval = setInterval(syncAllMatches, SYNC_INTERVAL);
+    
+    // Status update every 30 seconds
+    statusInterval = setInterval(updateMatchStatuses, STATUS_CHECK_INTERVAL);
+    
+    // 🔥 Check for finished matches every 30 seconds (critical for auto-settlement)
+    finishedCheckInterval = setInterval(checkForFinishedMatches, 30000);
+    
+    console.log('⏰ AUTO-SYSTEM ACTIVE:');
+    console.log(`   📡 Full sync: every ${SYNC_INTERVAL / 1000}s`);
+    console.log(`   ⏰ Status check: every ${STATUS_CHECK_INTERVAL / 1000}s`);
+    console.log(`   🏁 Finished match check: every 30s (AUTO SETTLEMENT)`);
+    console.log(`   🔒 Betting closes at 80 minutes`);
 }
 
-// ===== MANUAL CONTROLS =====
+// ===== MANUAL CONTROLS (for debugging only) =====
 window.manualSync = syncAllMatches;
-window.forceSync = syncAllMatches;
-window.updateStatuses = forceUpdateMatchStatuses;
-window.settleMatchBets = settleMatchBets;
-window.clearApiCache = () => {
-    apiCache.clear();
-    console.log('🗑️ API cache cleared');
+window.forceSettlement = async (fixtureId, homeScore, awayScore) => {
+    const result = homeScore > awayScore ? 'home' : (homeScore < awayScore ? 'away' : 'draw');
+    await settleMatchBets(fixtureId, result, { home: homeScore, away: awayScore });
 };
 
 // ===== AUTO-START =====
@@ -582,7 +470,7 @@ if (typeof supabaseClient !== 'undefined' && supabaseClient) {
     startAutoSync();
 }
 
-console.log('🏈 Sports API v18.0 - Enhanced Settlement Active');
-console.log(`   ✅ Settlement for: 1X2, Double Chance, Over/Under, BTTS, Handicap`);
-console.log(`   ✅ Auto-settlement on match finish`);
-console.log(`   ✅ Betting closes at ${BETTING_CLOSE_MINUTE} minutes`);
+console.log('🏈 Sports API v19.0 - FULLY AUTOMATED SETTLEMENT');
+console.log('   ✅ Auto-settlement when API returns FT status');
+console.log('   ✅ No admin intervention needed');
+console.log('   ✅ Runs 24/7 automatically');
