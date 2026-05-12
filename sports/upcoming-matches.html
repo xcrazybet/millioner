@@ -29,9 +29,15 @@
         .search-input { flex: 3; min-width: 200px; }
         .date-filter { flex: 1; min-width: 140px; }
         .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #00ff9d; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .refresh-btn, .sync-btn { padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; border: none; }
+        .refresh-btn, .load-more-btn { padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; border: none; }
         .refresh-btn { background: #00ff9d; color: black; }
-        .sync-btn { background: #ff9800; color: black; margin-left: auto; }
+        .load-more-btn { background: #ff9800; color: black; margin-left: auto; }
+        /* Pagination styles */
+        .pagination { display: flex; justify-content: center; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
+        .page-btn { padding: 8px 16px; background: #1a2332; border: 1px solid #ffffff22; border-radius: 8px; color: white; cursor: pointer; transition: all 0.2s; }
+        .page-btn:hover { background: #00ff9d22; border-color: #00ff9d; }
+        .page-btn.active { background: #00ff9d; color: black; border-color: #00ff9d; }
+        .load-more-container { text-align: center; margin: 20px 0; }
         .date-section { margin-bottom: 20px; }
         .date-header { background: linear-gradient(135deg, #00ff9d11, #00ff9d05); border-left: 3px solid #00ff9d; padding: 12px 15px; border-radius: 8px; margin-bottom: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
         .date-title { font-weight: bold; font-size: 16px; color: #00ff9d; }
@@ -60,10 +66,17 @@
         .match-buttons { display: flex; gap: 8px; }
         .bet-btn, .slip-btn { padding: 6px 14px; border-radius: 25px; font-size: 11px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; }
         .bet-btn { background: #00ff9d; color: black; }
-        .bet-btn:hover { transform: scale(1.02); background: #00cc7d; }
         .slip-btn { background: #ff9800; color: black; }
-        .slip-btn:hover { transform: scale(1.02); background: #e68900; }
-        .bet-slip { position: fixed; bottom: 0; left: 0; right: 0; background: #111827; border-top: 2px solid #ff9800; padding: 15px; z-index: 1000; max-height: 300px; overflow-y: auto; }
+        .bet-slip { position: fixed; bottom: 0; left: 0; right: 0; background: #111827; border-top: 2px solid #ff9800; padding: 15px; z-index: 1000; max-height: 280px; overflow-y: auto; }
+        .slip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
+        .slip-title { color: #ff9800; font-weight: 600; }
+        .slip-clear { color: #ff5252; font-size: 12px; cursor: pointer; }
+        .slip-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ffffff11; font-size: 12px; gap: 10px; flex-wrap: wrap; }
+        .slip-remove { color: #ff5252; cursor: pointer; }
+        .slip-total { display: flex; justify-content: space-between; padding: 10px 0; font-weight: bold; flex-wrap: wrap; gap: 10px; }
+        .slip-total-odds { color: #ff9800; font-size: 18px; }
+        .slip-place-btn { width: 100%; padding: 12px; background: #ff9800; color: black; border: none; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        .slip-place-btn:disabled { opacity: 0.5; }
         .empty-state { text-align: center; padding: 60px; color: #a0a8c9; }
         .today-badge { background: #ff5252; color: white; font-size: 10px; padding: 2px 8px; border-radius: 12px; margin-left: 8px; animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
@@ -109,11 +122,12 @@
         </div>
         
         <div class="debug-bar">
-            <i class="fas fa-database"></i> <span id="debug-text">Loading matches for next 30 days...</span>
+            <i class="fas fa-database"></i> <span id="debug-text">Loading matches...</span>
             <button class="refresh-btn" onclick="loadMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
+            <button class="load-more-btn" id="load-more-btn" onclick="loadMoreDays()" style="display:none;"><i class="fas fa-chevron-down"></i> Load More Days</button>
         </div>
         
-        <div id="matches-container"><div style="text-align:center;padding:50px;"><div class="loading-spinner"></div> Loading upcoming matches...</div></div>
+        <div id="matches-container"><div style="text-align:center;padding:50px;"><div class="loading-spinner"></div> Loading matches for next 7 days...</div></div>
     </div>
     
     <div class="bet-slip" id="bet-slip" style="display:none;">
@@ -133,9 +147,11 @@
     <script src="../js/betting-engine.js"></script>
     <script>
         let allMatches = [];
+        let displayedDays = 7; // Start with 7 days
         let countdownInterval;
         let selectedLeague = 'all';
         let selectedDate = '';
+        let isLoading = false;
         
         const API_BASE = 'https://millioner.onrender.com';
         
@@ -179,10 +195,11 @@
                 const data = await res.json();
                 if (data.success && data.data) {
                     const select = document.getElementById('league-filter');
-                    data.data.forEach(league => {
+                    select.innerHTML = '<option value="all">🏆 All Leagues</option>';
+                    data.data.slice(0, 30).forEach(league => {
                         const option = document.createElement('option');
                         option.value = league.id;
-                        option.textContent = league.name;
+                        option.textContent = league.name.length > 30 ? league.name.substring(0, 30) + '...' : league.name;
                         select.appendChild(option);
                     });
                 }
@@ -190,18 +207,19 @@
             document.getElementById('league-filter').onchange = (e) => { selectedLeague = e.target.value; filterMatches(); };
         }
         
-        // 🔥 FIX: Load matches day by day (since range endpoint returns 0)
+        // 🔥 OPTIMIZED: Load only 7 days initially
         async function loadMatches() {
+            if (isLoading) return;
+            isLoading = true;
+            
             try {
-                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading matches for next 30 days...';
+                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading next 7 days...';
                 
                 const today = new Date();
                 let allMatchesData = [];
-                let daysWithMatches = 0;
-                let totalMatches = 0;
                 
-                // Fetch next 30 days individually
-                for (let i = 0; i <= 35; i++) {
+                // Load only first 7 days
+                for (let i = 0; i < displayedDays; i++) {
                     const date = new Date(today);
                     date.setDate(today.getDate() + i);
                     const dateStr = date.toISOString().split('T')[0];
@@ -211,75 +229,147 @@
                         const data = await response.json();
                         
                         if (data.success && data.data && data.data.length > 0) {
-                            // Add source to each match
-                            const matchesWithDate = data.data.map(m => ({
-                                ...m,
-                                _fetchDate: dateStr,
-                                _source: 'api'
-                            }));
-                            allMatchesData.push(...matchesWithDate);
-                            daysWithMatches++;
-                            totalMatches += data.data.length;
-                            console.log(`📅 ${dateStr}: ${data.data.length} matches`);
+                            allMatchesData.push(...data.data);
                         }
                     } catch(e) {
                         console.log(`⚠️ Failed to fetch ${dateStr}:`, e.message);
                     }
-                    
-                    // Small delay to avoid rate limiting
-                    await new Promise(r => setTimeout(r, 100));
                 }
                 
-                console.log(`✅ Total: ${totalMatches} matches over ${daysWithMatches} days`);
+                processMatches(allMatchesData);
                 
-                if (allMatchesData.length === 0) {
-                    document.getElementById('matches-container').innerHTML = '<div class="empty-state">No matches found for next 30 days</div>';
-                    document.getElementById('debug-text').innerHTML = 'No matches found';
-                    return;
+                // Show "Load More" button if there are more days
+                const nextDate = new Date(today);
+                nextDate.setDate(today.getDate() + displayedDays);
+                const nextDateStr = nextDate.toISOString().split('T')[0];
+                const testResponse = await fetch(`${API_BASE}/api/fixtures/date/${nextDateStr}`);
+                const testData = await testResponse.json();
+                
+                if (testData.data && testData.data.length > 0) {
+                    document.getElementById('load-more-btn').style.display = 'inline-block';
+                } else {
+                    document.getElementById('load-more-btn').style.display = 'none';
                 }
-                
-                // Transform to consistent format
-                allMatches = allMatchesData.map(m => ({
-                    fixture_id: m.fixture.id,
-                    start_time: m.fixture.date,
-                    status: m.fixture.status?.short === 'NS' ? 'upcoming' : 
-                            (['1H','2H','HT'].includes(m.fixture.status?.short) ? 'live' : 'finished'),
-                    league_id: m.league.id,
-                    league_name: m.league.name,
-                    league_logo: m.league.logo,
-                    home_team: {
-                        id: m.teams.home.id,
-                        name: m.teams.home.name,
-                        logo: m.teams.home.logo
-                    },
-                    away_team: {
-                        id: m.teams.away.id,
-                        name: m.teams.away.name,
-                        logo: m.teams.away.logo
-                    },
-                    odds: {
-                        home: (1.80 + ((m.fixture.id % 20) / 100)).toFixed(2),
-                        draw: (3.20 + ((m.fixture.id % 15) / 100)).toFixed(2),
-                        away: (2.80 + ((m.fixture.id % 25) / 100)).toFixed(2)
-                    },
-                    score: { home: m.goals?.home || 0, away: m.goals?.away || 0 }
-                }));
-                
-                // Sort by date
-                allMatches.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
-                
-                const uniqueDates = [...new Set(allMatches.map(m => new Date(m.start_time).toDateString()))];
-                const uniqueLeagues = [...new Set(allMatches.map(m => m.league_name))];
-                
-                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches over ${uniqueDates.length} days | ${uniqueLeagues.length} leagues`;
-                
-                filterMatches();
-                startCountdowns();
                 
             } catch(e) {
                 console.error(e);
                 document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`;
+            } finally {
+                isLoading = false;
             }
+        }
+        
+        // Load more days (incremental)
+        async function loadMoreDays() {
+            if (isLoading) return;
+            isLoading = true;
+            
+            const loadMoreBtn = document.getElementById('load-more-btn');
+            loadMoreBtn.innerHTML = '<div class="loading-spinner"></div> Loading...';
+            loadMoreBtn.disabled = true;
+            
+            try {
+                const today = new Date();
+                const newDaysToLoad = 7;
+                let newMatches = [];
+                
+                for (let i = displayedDays; i < displayedDays + newDaysToLoad; i++) {
+                    const date = new Date(today);
+                    date.setDate(today.getDate() + i);
+                    const dateStr = date.toISOString().split('T')[0];
+                    
+                    const response = await fetch(`${API_BASE}/api/fixtures/date/${dateStr}`);
+                    const data = await response.json();
+                    
+                    if (data.success && data.data && data.data.length > 0) {
+                        newMatches.push(...data.data);
+                    }
+                }
+                
+                if (newMatches.length > 0) {
+                    // Add new matches to existing array
+                    allMatches.push(...newMatches.map(m => ({
+                        fixture_id: m.fixture.id,
+                        start_time: m.fixture.date,
+                        status: m.fixture.status?.short === 'NS' ? 'upcoming' : 
+                                (['1H','2H','HT'].includes(m.fixture.status?.short) ? 'live' : 'finished'),
+                        league_id: m.league.id,
+                        league_name: m.league.name,
+                        league_logo: m.league.logo,
+                        home_team: { id: m.teams.home.id, name: m.teams.home.name, logo: m.teams.home.logo },
+                        away_team: { id: m.teams.away.id, name: m.teams.away.name, logo: m.teams.away.logo },
+                        odds: {
+                            home: (1.80 + ((m.fixture.id % 20) / 100)).toFixed(2),
+                            draw: (3.20 + ((m.fixture.id % 15) / 100)).toFixed(2),
+                            away: (2.80 + ((m.fixture.id % 25) / 100)).toFixed(2)
+                        },
+                        score: { home: m.goals?.home || 0, away: m.goals?.away || 0 }
+                    })));
+                    
+                    displayedDays += newDaysToLoad;
+                    filterMatches();
+                    startCountdowns();
+                }
+                
+                // Check if more days available
+                const nextDate = new Date(today);
+                nextDate.setDate(today.getDate() + displayedDays);
+                const nextDateStr = nextDate.toISOString().split('T')[0];
+                const testResponse = await fetch(`${API_BASE}/api/fixtures/date/${nextDateStr}`);
+                const testData = await testResponse.json();
+                
+                if (!testData.data || testData.data.length === 0) {
+                    loadMoreBtn.style.display = 'none';
+                }
+                
+                document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (${displayedDays} days loaded) | Click "Load More" for older matches`;
+                
+            } catch(e) {
+                console.error(e);
+            } finally {
+                loadMoreBtn.innerHTML = '<i class="fas fa-chevron-down"></i> Load More Days';
+                loadMoreBtn.disabled = false;
+                isLoading = false;
+            }
+        }
+        
+        function processMatches(matchesData) {
+            allMatches = matchesData.map(m => ({
+                fixture_id: m.fixture.id,
+                start_time: m.fixture.date,
+                status: m.fixture.status?.short === 'NS' ? 'upcoming' : 
+                        (['1H','2H','HT'].includes(m.fixture.status?.short) ? 'live' : 'finished'),
+                league_id: m.league.id,
+                league_name: m.league.name,
+                league_logo: m.league.logo,
+                home_team: {
+                    id: m.teams.home.id,
+                    name: m.teams.home.name,
+                    logo: m.teams.home.logo
+                },
+                away_team: {
+                    id: m.teams.away.id,
+                    name: m.teams.away.name,
+                    logo: m.teams.away.logo
+                },
+                odds: {
+                    home: (1.80 + ((m.fixture.id % 20) / 100)).toFixed(2),
+                    draw: (3.20 + ((m.fixture.id % 15) / 100)).toFixed(2),
+                    away: (2.80 + ((m.fixture.id % 25) / 100)).toFixed(2)
+                },
+                score: { home: m.goals?.home || 0, away: m.goals?.away || 0 }
+            }));
+            
+            allMatches.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+            
+            const uniqueDates = [...new Set(allMatches.map(m => new Date(m.start_time).toDateString()))];
+            const uniqueLeagues = [...new Set(allMatches.map(m => m.league_name))];
+            
+            document.getElementById('debug-text').innerHTML = `✅ ${allMatches.length} matches (Next ${displayedDays} days) | ${uniqueDates.length} days | ${uniqueLeagues.length} leagues`;
+            document.getElementById('load-more-btn').style.display = 'inline-block';
+            
+            filterMatches();
+            startCountdowns();
         }
         
         function filterByDate() {
@@ -294,12 +384,10 @@
             
             let filtered = [...allMatches];
             
-            // Filter by league
             if (selectedLeague !== 'all') {
                 filtered = filtered.filter(m => m.league_id == selectedLeague);
             }
             
-            // Filter by search
             if (search) {
                 filtered = filtered.filter(m => 
                     (m.home_team?.name || '').toLowerCase().includes(search) || 
@@ -308,7 +396,6 @@
                 );
             }
             
-            // Filter by date
             if (dateFilter) {
                 const filterDate = new Date(dateFilter);
                 filterDate.setHours(0, 0, 0, 0);
@@ -324,7 +411,6 @@
                 return;
             }
             
-            // Group by date
             const groupedByDate = {};
             filtered.forEach(m => {
                 const date = new Date(m.start_time).toDateString();
@@ -349,7 +435,6 @@
                     badge = '<span class="today-badge"><i class="fas fa-calendar-day"></i> TOMORROW</span>';
                 }
                 
-                // Group by league
                 const groupedByLeague = {};
                 groupedByDate[dateKey].forEach(m => {
                     const leagueName = m.league_name || 'Other Leagues';
@@ -481,7 +566,6 @@
             countdownInterval = setInterval(updateCountdowns, 1000);
         }
         
-        // Bet Slip UI
         window.updateSlipUI = function() {
             const slip = document.getElementById('bet-slip');
             const selections = window.ACCUMULATOR_SLIP || [];
@@ -542,6 +626,7 @@
         window.goToMatch = goToMatch;
         window.placeAccumulatorBet = placeAccumulatorBet;
         window.loadMatches = loadMatches;
+        window.loadMoreDays = loadMoreDays;
         window.toggleLanguage = toggleLanguage;
         window.removeFromSlip = (index) => {
             window.ACCUMULATOR_SLIP.splice(index, 1);
@@ -550,7 +635,7 @@
         };
         window.clearAllSlip = clearAllSlip;
         
-        console.log('✅ Upcoming matches page loaded - Fetching day by day');
+        console.log('✅ Upcoming matches page loaded - Optimized: Loading 7 days at a time');
     </script>
 </body>
 </html>
