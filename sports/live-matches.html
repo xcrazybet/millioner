@@ -44,6 +44,7 @@
         @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
         .match-minute { background: #ff5252; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
         .match-minute.ht { background: #ff9800; }
+        .match-minute.betting-closed { background: #a0a8c9; color: black; }
         .teams-section { display: flex; align-items: center; justify-content: space-around; margin: 15px 0; flex-wrap: wrap; gap: 15px; }
         .team-block { text-align: center; flex: 1; min-width: 100px; }
         .team-logo { width: 60px; height: 60px; margin: 0 auto 8px; object-fit: contain; background: rgba(255,255,255,0.08); border-radius: 50%; padding: 8px; }
@@ -66,8 +67,11 @@
         .odd-box .value { font-size: 16px; font-weight: bold; color: #00ff9d; }
         .bet-open-btn { width: 100%; margin-top: 15px; padding: 10px; background: #00ff9d; color: black; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
         .bet-open-btn:hover { background: #00cc7d; transform: scale(1.02); }
+        .bet-closed-btn { width: 100%; margin-top: 15px; padding: 10px; background: #a0a8c9; color: #333; border: none; border-radius: 25px; font-weight: bold; cursor: not-allowed; }
+        .bet-closed-warning { background: #ff525233; color: #ff5252; border: 1px solid #ff5252; }
         .countdown-timer { font-size: 11px; text-align: center; margin-top: 10px; padding: 5px; border-radius: 8px; background: #1a2332; }
         .countdown-warning { background: #ff525222; color: #ff5252; }
+        .settlement-badge { font-size: 10px; background: #4caf50; color: white; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
         .empty-state { text-align: center; padding: 60px; color: #a0a8c9; }
         .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ff5252; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -126,15 +130,19 @@
     </div>
 
     <script src="../js/supabase-client.js"></script>
+    <script src="../js/sports-api.js"></script>
     <script src="../js/betting-engine.js"></script>
     <script>
         let liveMatches = [];
         let refreshInterval = null;
         let eventInterval = null;
+        let settlementInterval = null;
         let selectedLeague = 'all';
         let previousScores = {};
         
         const API_BASE = 'https://millioner.onrender.com';
+        const BETTING_CLOSE_MINUTE = 80; // 🔥 Betting closes at 80th minute
+        const MATCH_DURATION = 105; // 90 min + 15 min halftime + stoppage time
         
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -177,7 +185,7 @@
                 const data = await res.json();
                 if (data.success && data.data) {
                     const select = document.getElementById('league-filter');
-                    data.data.forEach(league => {
+                    data.data.slice(0, 30).forEach(league => {
                         const option = document.createElement('option');
                         option.value = league.id;
                         option.textContent = league.name;
@@ -188,12 +196,11 @@
             document.getElementById('league-filter').onchange = (e) => { selectedLeague = e.target.value; filterMatches(); };
         }
         
-        // 🔥 FETCH LIVE MATCHES DIRECTLY FROM API
+        // 🔥 FETCH LIVE MATCHES AND CHECK FOR FINISHED MATCHES
         async function loadLiveMatches() {
             try {
-                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading live matches from API...';
+                document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading live matches...';
                 
-                // Fetch live scores from API
                 const response = await fetch(`${API_BASE}/api/livescores`);
                 const data = await response.json();
                 
@@ -208,38 +215,69 @@
                     return;
                 }
                 
-                // Process live matches
-                liveMatches = data.data.map(m => ({
-                    fixture_id: m.fixture.id,
-                    start_time: m.fixture.date,
-                    status: 'live',
-                    elapsed: m.fixture.elapsed || 0,
-                    league_id: m.league.id,
-                    league_name: m.league.name,
-                    league_logo: m.league.logo,
-                    home_team: {
-                        id: m.teams.home.id,
-                        name: m.teams.home.name,
-                        logo: m.teams.home.logo
-                    },
-                    away_team: {
-                        id: m.teams.away.id,
-                        name: m.teams.away.name,
-                        logo: m.teams.away.logo
-                    },
-                    score: {
-                        home: m.goals?.home || 0,
-                        away: m.goals?.away || 0
-                    },
-                    odds: {
-                        home: (1.80 + ((m.fixture.id % 20) / 100)).toFixed(2),
-                        draw: (3.20 + ((m.fixture.id % 15) / 100)).toFixed(2),
-                        away: (2.80 + ((m.fixture.id % 25) / 100)).toFixed(2)
+                // Process live matches with elapsed time
+                const now = new Date();
+                const processedMatches = [];
+                
+                for (const match of data.data) {
+                    const startTime = new Date(match.fixture.date);
+                    let elapsed = match.fixture.elapsed || Math.floor((now - startTime) / 60000);
+                    if (elapsed < 0) elapsed = 0;
+                    
+                    // 🔥 Check if match is finished (elapsed > 105 minutes)
+                    const isFinished = elapsed > MATCH_DURATION;
+                    
+                    // If finished, trigger settlement
+                    if (isFinished) {
+                        console.log(`🏁 Match ${match.fixture.id} is finished (${elapsed}'), triggering settlement...`);
+                        await triggerMatchSettlement(match.fixture.id, match.goals);
+                        continue; // Skip adding to live matches
                     }
-                }));
+                    
+                    // Check if betting is closed (elapsed >= 80 minutes)
+                    const isBettingClosed = elapsed >= BETTING_CLOSE_MINUTE;
+                    
+                    processedMatches.push({
+                        fixture_id: match.fixture.id,
+                        start_time: match.fixture.date,
+                        status: 'live',
+                        elapsed: elapsed,
+                        is_betting_closed: isBettingClosed,
+                        league_id: match.league.id,
+                        league_name: match.league.name,
+                        league_logo: match.league.logo,
+                        home_team: {
+                            id: match.teams.home.id,
+                            name: match.teams.home.name,
+                            logo: match.teams.home.logo
+                        },
+                        away_team: {
+                            id: match.teams.away.id,
+                            name: match.teams.away.name,
+                            logo: match.teams.away.logo
+                        },
+                        score: {
+                            home: match.goals?.home || 0,
+                            away: match.goals?.away || 0
+                        },
+                        odds: {
+                            home: (1.80 + ((match.fixture.id % 20) / 100)).toFixed(2),
+                            draw: (3.20 + ((match.fixture.id % 15) / 100)).toFixed(2),
+                            away: (2.80 + ((match.fixture.id % 25) / 100)).toFixed(2)
+                        }
+                    });
+                }
+                
+                liveMatches = processedMatches;
                 
                 document.getElementById('match-count').textContent = liveMatches.length;
-                document.getElementById('debug-text').innerHTML = `🔴 ${liveMatches.length} live match(es) in progress | Auto-refresh every 15s`;
+                document.getElementById('debug-text').innerHTML = `🔴 ${liveMatches.length} live match(es) | Betting closes at ${BETTING_CLOSE_MINUTE}' | Auto-settlement active`;
+                
+                if (liveMatches.length === 0) {
+                    document.getElementById('matches-container').style.display = 'none';
+                    document.getElementById('empty-state').style.display = 'block';
+                    return;
+                }
                 
                 document.getElementById('matches-container').style.display = 'block';
                 document.getElementById('empty-state').style.display = 'none';
@@ -254,6 +292,41 @@
             } catch(e) {
                 console.error('Load live matches error:', e);
                 document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`;
+            }
+        }
+        
+        // 🔥 TRIGGER MATCH SETTLEMENT
+        async function triggerMatchSettlement(fixtureId, goals) {
+            console.log(`💰 Settling match ${fixtureId}...`);
+            
+            const homeScore = goals?.home || 0;
+            const awayScore = goals?.away || 0;
+            const result = homeScore > awayScore ? 'home' : (homeScore < awayScore ? 'away' : 'draw');
+            
+            // Update match status in Supabase
+            const { error } = await supabaseClient
+                .from('sports_matches')
+                .update({ 
+                    status: 'finished', 
+                    result: result,
+                    score: { home: homeScore, away: awayScore },
+                    updated_at: new Date().toISOString(),
+                    bets_settled: true
+                })
+                .eq('fixture_id', fixtureId);
+            
+            if (error) {
+                console.error(`❌ Failed to update match ${fixtureId}:`, error);
+                return;
+            }
+            
+            console.log(`✅ Match ${fixtureId} updated to finished. Result: ${result} (${homeScore}-${awayScore})`);
+            
+            // Call settlement function from sports-api.js
+            if (typeof settleMatchBets === 'function') {
+                await settleMatchBets(fixtureId, result);
+            } else {
+                console.warn('settleMatchBets function not available');
             }
         }
         
@@ -308,16 +381,20 @@
         
         function createMatchCard(m) {
             const startTime = new Date(m.start_time);
-            const now = new Date();
-            let elapsed = m.elapsed || Math.floor((now - startTime) / 60000);
-            if (elapsed < 0) elapsed = 0;
+            const elapsed = m.elapsed;
             
             let period = '';
             let periodClass = '';
+            let bettingStatus = '';
+            
             if (elapsed < 45) { period = '1st Half'; periodClass = ''; }
             else if (elapsed < 60) { period = 'Half Time'; periodClass = 'ht'; }
-            else if (elapsed < 105) { period = '2nd Half'; periodClass = ''; }
-            else { period = 'Ended'; periodClass = ''; }
+            else if (elapsed < 90) { period = '2nd Half'; periodClass = ''; }
+            else { period = 'Added Time'; periodClass = ''; }
+            
+            // 🔥 Betting status
+            const isBettingOpen = !m.is_betting_closed && elapsed < BETTING_CLOSE_MINUTE;
+            const remainingForBetting = Math.max(0, BETTING_CLOSE_MINUTE - elapsed);
             
             const homeTeam = m.home_team || { name: 'Home', logo: '' };
             const awayTeam = m.away_team || { name: 'Away', logo: '' };
@@ -334,9 +411,28 @@
             const scoreClass = (previousScore && previousScore !== currentScore) ? 'goal-animation' : '';
             previousScores[fixtureId] = currentScore;
             
-            const endTime = new Date(startTime.getTime() + 105 * 60000);
-            const remainingMinutes = Math.max(0, 105 - elapsed);
-            const isBettingOpen = remainingMinutes > 0;
+            const endTime = new Date(startTime.getTime() + MATCH_DURATION * 60000);
+            const remainingMinutes = Math.max(0, MATCH_DURATION - elapsed);
+            
+            // Betting button based on status
+            let buttonHtml = '';
+            if (!isBettingOpen) {
+                if (elapsed >= BETTING_CLOSE_MINUTE) {
+                    buttonHtml = `<button class="bet-closed-btn" disabled><i class="fas fa-ban"></i> Betting Closed (${elapsed}' - After ${BETTING_CLOSE_MINUTE}')</button>`;
+                } else {
+                    buttonHtml = `<button class="bet-closed-btn bet-closed-warning" disabled><i class="fas fa-hourglass-end"></i> Betting Closes at ${BETTING_CLOSE_MINUTE}' (${remainingForBetting} min left)</button>`;
+                }
+            } else {
+                buttonHtml = `<button class="bet-open-btn" onclick="event.stopPropagation();goToMatch(${fixtureId})"><i class="fas fa-gavel"></i> Place Bet Now (${remainingForBetting} min left)</button>`;
+            }
+            
+            // Countdown display
+            let countdownHtml = '';
+            if (elapsed >= BETTING_CLOSE_MINUTE && elapsed < MATCH_DURATION) {
+                countdownHtml = `<div class="countdown-timer countdown-warning">⚠️ Betting Closed - Match in progress (${elapsed}')</div>`;
+            } else if (elapsed < BETTING_CLOSE_MINUTE) {
+                countdownHtml = `<div class="countdown-timer">⏰ Betting open for ${remainingForBetting} more minutes</div>`;
+            }
             
             return `
                 <div class="match-card" onclick="goToMatch(${fixtureId})">
@@ -351,7 +447,7 @@
                     <div class="match-info">
                         <span><i class="far fa-calendar-alt"></i> ${matchDate}</span>
                         <span><i class="fas fa-hourglass-start"></i> ${startTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                        <span><i class="fas fa-hourglass-end"></i> ${endTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                        <span><i class="fas fa-hourglass-end"></i> ~${endTime.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                     </div>
                     <div class="teams-section">
                         <div class="team-block">
@@ -364,6 +460,7 @@
                             <div class="team-name">${escapeHtml(awayTeam.name)}</div>
                         </div>
                     </div>
+                    ${countdownHtml}
                     <div class="events-section" id="events-${fixtureId}">
                         <div class="event-row"><span style="color:#a0a8c9;">Loading events...</span></div>
                     </div>
@@ -378,10 +475,7 @@
                         <div class="odd-box"><div class="label">X</div><div class="value">${odds.draw}</div></div>
                         <div class="odd-box"><div class="label">2</div><div class="value">${odds.away}</div></div>
                     </div>
-                    ${isBettingOpen ? 
-                        `<button class="bet-open-btn" onclick="event.stopPropagation();goToMatch(${fixtureId})"><i class="fas fa-gavel"></i> Place Bet Now</button>` : 
-                        `<button class="bet-open-btn" style="background:#a0a8c9; cursor:not-allowed;" disabled><i class="fas fa-ban"></i> Betting Closed</button>`
-                    }
+                    ${buttonHtml}
                 </div>
             `;
         }
@@ -422,26 +516,40 @@
         function startAutoRefresh() {
             if (refreshInterval) clearInterval(refreshInterval);
             if (eventInterval) clearInterval(eventInterval);
+            if (settlementInterval) clearInterval(settlementInterval);
             
+            // Refresh matches every 10 seconds (faster for live)
             refreshInterval = setInterval(() => { 
                 loadLiveMatches(); 
                 loadBalance(); 
-            }, 15000);
+            }, 10000);
             
+            // Refresh events every 8 seconds
             eventInterval = setInterval(() => { 
                 for (const match of liveMatches) {
                     fetchMatchEvents(match.fixture_id);
                 }
-            }, 10000);
+            }, 8000);
             
-            console.log('🔄 Live matches auto-refresh active (every 15 seconds)');
+            // Check for settlements every 15 seconds
+            settlementInterval = setInterval(() => {
+                for (const match of liveMatches) {
+                    if (match.elapsed >= MATCH_DURATION) {
+                        triggerMatchSettlement(match.fixture_id, match.score);
+                    }
+                }
+            }, 15000);
+            
+            console.log('🔄 Live matches auto-refresh active (every 10 seconds)');
+            console.log(`🔒 Betting closes at ${BETTING_CLOSE_MINUTE} minutes`);
+            console.log(`💰 Auto-settlement when matches end`);
         }
         
         window.loadLiveMatches = loadLiveMatches;
         window.goToMatch = goToMatch;
         window.toggleLanguage = toggleLanguage;
         
-        console.log('✅ Live matches page ready - Fetching directly from API');
+        console.log('✅ Live matches page ready - Betting closes at 80th minute, auto-settlement active');
     </script>
 </body>
 </html>
