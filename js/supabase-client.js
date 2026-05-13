@@ -1,269 +1,268 @@
 // ============================================
-// supabase-client.js - v16.0 WORKING
-// ✅ Correct table schema
-// ✅ All CRUD operations
+// supabase-client.js - v3.0 ENHANCED
+// Complete Supabase integration for sports betting
 // ============================================
 
+// Supabase Configuration
 const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_WWHC2XIWlnDR9DsDpg52Vw_UIn2KopQ';
+const SUPABASE_ANON_KEY = 'your-supabase-anon-key-here'; // Replace with your actual key
 
-let supaClient = null;
+// Initialize Supabase
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-if (typeof supabase !== 'undefined') {
-    supaClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('✅ Supabase Connected');
-}
-
-const DEFAULT_ODDS = { home: 2.50, draw: 3.20, away: 2.80 };
-
+// ===== SUPABASE DATABASE SERVICE =====
 const supaDB = {
-    // ============ MATCHES ============
+    // ===== MATCHES =====
     
-    getUpcomingMatches: async function() {
-        if (!supaClient) return [];
-        try {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const ninetyDaysLater = new Date(today);
-            ninetyDaysLater.setDate(today.getDate() + 90);
-            
-            const { data, error } = await supaClient
-                .from('sports_matches')
-                .select('*')
-                .in('status', ['upcoming', 'live'])
-                .gte('start_time', today.toISOString())
-                .lte('start_time', ninetyDaysLater.toISOString())
-                .order('start_time', { ascending: true });
-            
-            if (error) throw error;
-            return (data || []).map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
-        } catch(e) {
-            console.error('getUpcomingMatches error:', e);
-            return [];
-        }
+    // Get all matches with optional filters
+    async getMatches(filters = {}) {
+        let query = supabaseClient.from('sports_matches').select('*');
+        
+        if (filters.status) query = query.eq('status', filters.status);
+        if (filters.league_id) query = query.eq('league_id', filters.league_id);
+        if (filters.date_from) query = query.gte('start_time', filters.date_from);
+        if (filters.date_to) query = query.lte('start_time', filters.date_to);
+        
+        const { data, error } = await query.order('start_time', { ascending: true });
+        if (error) throw error;
+        return data;
     },
     
-    getLiveMatches: async function() {
-        if (!supaClient) return [];
-        try {
-            const { data, error } = await supaClient
-                .from('sports_matches')
-                .select('*')
-                .eq('status', 'live')
-                .order('start_time', { ascending: true });
-            
-            if (error) throw error;
-            return (data || []).map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
-        } catch(e) {
-            console.error('getLiveMatches error:', e);
-            return [];
-        }
+    // Get single match by fixture ID
+    async getMatch(fixtureId) {
+        const { data, error } = await supabaseClient
+            .from('sports_matches')
+            .select('*')
+            .eq('fixture_id', fixtureId)
+            .single();
+        
+        if (error) throw error;
+        return data;
     },
     
-    getFinishedMatches: async function() {
-        if (!supaClient) return [];
-        try {
-            const twoDaysAgo = new Date();
-            twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-            
-            const { data, error } = await supaClient
-                .from('sports_matches')
-                .select('*')
-                .eq('status', 'finished')
-                .gte('start_time', twoDaysAgo.toISOString())
-                .order('start_time', { ascending: false });
-            
-            if (error) throw error;
-            return data || [];
-        } catch(e) {
-            console.error('getFinishedMatches error:', e);
-            return [];
-        }
+    // Get live matches
+    async getLiveMatches() {
+        const { data, error } = await supabaseClient
+            .from('sports_matches')
+            .select('*')
+            .eq('status', 'live')
+            .order('start_time', { ascending: true });
+        
+        if (error) throw error;
+        return data;
     },
     
-    getMatch: async function(fixtureId) {
-        if (!supaClient) return null;
-        try {
-            const { data, error } = await supaClient
-                .from('sports_matches')
-                .select('*')
-                .eq('fixture_id', fixtureId)
-                .single();
-            
-            if (error) return null;
-            return { ...data, odds: data.odds || DEFAULT_ODDS };
-        } catch(e) {
-            console.error('getMatch error:', e);
-            return null;
-        }
+    // Get upcoming matches
+    async getUpcomingMatches(limit = 50) {
+        const now = new Date().toISOString();
+        const { data, error } = await supabaseClient
+            .from('sports_matches')
+            .select('*')
+            .eq('status', 'upcoming')
+            .gte('start_time', now)
+            .order('start_time', { ascending: true })
+            .limit(limit);
+        
+        if (error) throw error;
+        return data;
     },
     
-    getAllMatches: async function() {
-        if (!supaClient) return [];
-        try {
-            const { data, error } = await supaClient
-                .from('sports_matches')
-                .select('*')
-                .order('start_time', { ascending: true });
-            
-            if (error) throw error;
-            return (data || []).map(m => ({ ...m, odds: m.odds || DEFAULT_ODDS }));
-        } catch(e) {
-            console.error('getAllMatches error:', e);
-            return [];
-        }
+    // Get finished matches
+    async getFinishedMatches(limit = 20) {
+        const { data, error } = await supabaseClient
+            .from('sports_matches')
+            .select('*')
+            .eq('status', 'finished')
+            .order('updated_at', { ascending: false })
+            .limit(limit);
+        
+        if (error) throw error;
+        return data;
     },
     
-    upsertMatch: async function(match) {
-        if (!supaClient) return false;
-        try {
-            const matchData = {
-                fixture_id: match.fixture_id,
-                status: match.status,
-                result: match.result,
-                odds: match.odds,
-                league_id: match.league_id,
-                league_name: match.league_name,
-                home_team: match.home_team,
-                away_team: match.away_team,
-                start_time: match.start_time,
-                score: match.score,
+    // Update match scores
+    async updateMatchScore(fixtureId, score, elapsed) {
+        const { data, error } = await supabaseClient
+            .from('sports_matches')
+            .update({
+                score: score,
+                elapsed: elapsed,
                 updated_at: new Date().toISOString()
-            };
-            
-            const { error } = await supaClient
-                .from('sports_matches')
-                .upsert(matchData, { onConflict: 'fixture_id' });
-            
-            if (error) console.error('Upsert error:', error);
-            return !error;
-        } catch(e) {
-            console.error('Upsert error:', e);
-            return false;
-        }
+            })
+            .eq('fixture_id', fixtureId)
+            .select();
+        
+        if (error) throw error;
+        return data;
     },
     
-    deleteOldMatches: async function() {
-        if (!supaClient) return;
-        try {
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-            
-            const { error } = await supaClient
-                .from('sports_matches')
-                .delete()
-                .eq('status', 'finished')
-                .lt('start_time', sevenDaysAgo.toISOString());
-            
-            if (!error) console.log('🗑️ Cleaned old finished matches');
-        } catch(e) {
-            console.error('Clean error:', e);
-        }
+    // ===== BETS =====
+    
+    // Get user's active bets
+    async getActiveBets(userId, fixtureId = null) {
+        let query = supabaseClient
+            .from('bets')
+            .select('*, sports_matches(home_team, away_team, score, elapsed, status)')
+            .eq('user_id', userId)
+            .eq('status', 'active');
+        
+        if (fixtureId) query = query.eq('fixture_id', fixtureId);
+        
+        const { data, error } = await query.order('placed_at', { ascending: false });
+        if (error) throw error;
+        return data;
     },
     
-    // ============ BETS ============
-    
-    insertBet: async function(bet) {
-        if (!supaClient) return { success: false };
-        try {
-            const betData = {
-                user_id: bet.userId,
-                fixture_id: bet.fixtureId,
-                bet_type: bet.betType,
-                amount: bet.amount,
-                odds: bet.odds,
-                potential_win: bet.potentialWin,
-                match_name: bet.matchName,
-                kickoff_time: bet.kickoffTime,
-                bet_category: bet.betCategory || 'single',
-                status: 'active',
-                placed_at: new Date().toISOString()
-            };
-            
-            if (bet.selections) betData.selections = bet.selections;
-            if (bet.totalOdds) betData.total_odds = bet.totalOdds;
-            
-            const { data, error } = await supaClient
-                .from('bets')
-                .insert(betData)
-                .select();
-            
-            return { success: !error, data: data?.[0], error: error?.message };
-        } catch(e) {
-            console.error('insertBet error:', e);
-            return { success: false, error: e.message };
-        }
+    // Get user's bet history
+    async getBetHistory(userId, limit = 50) {
+        const { data, error } = await supabaseClient
+            .from('bets')
+            .select('*')
+            .eq('user_id', userId)
+            .in('status', ['won', 'lost'])
+            .order('settled_at', { ascending: false })
+            .limit(limit);
+        
+        if (error) throw error;
+        return data;
     },
     
-    updateBet: async function(id, updates) {
-        if (!supaClient) return false;
-        try {
-            const { error } = await supaClient
-                .from('bets')
-                .update({ ...updates, updated_at: new Date().toISOString() })
-                .eq('id', id);
-            return !error;
-        } catch(e) {
-            console.error('updateBet error:', e);
-            return false;
-        }
+    // Place a new bet
+    async placeBet(betData) {
+        const { data, error } = await supabaseClient
+            .from('bets')
+            .insert(betData)
+            .select();
+        
+        if (error) throw error;
+        return data[0];
     },
     
-    getUserBets: async function(userId) {
-        if (!supaClient) return [];
-        try {
-            const { data, error } = await supaClient
-                .from('bets')
-                .select('*')
-                .eq('user_id', userId)
-                .order('placed_at', { ascending: false });
-            
-            if (error) return [];
-            return data || [];
-        } catch(e) {
-            console.error('getUserBets error:', e);
-            return [];
-        }
+    // Update bet status
+    async updateBet(betId, updateData) {
+        const { data, error } = await supabaseClient
+            .from('bets')
+            .update({
+                ...updateData,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', betId)
+            .select();
+        
+        if (error) throw error;
+        return data[0];
     },
     
-    getActiveBets: async function(fixtureId) {
-        if (!supaClient) return [];
-        try {
-            const { data, error } = await supaClient
-                .from('bets')
-                .select('*')
-                .eq('fixture_id', fixtureId)
-                .eq('status', 'active');
-            
-            if (error) return [];
-            return data || [];
-        } catch(e) {
-            console.error('getActiveBets error:', e);
-            return [];
-        }
+    // Get all bets for a fixture (for settlement)
+    async getFixtureBets(fixtureId) {
+        const { data, error } = await supabaseClient
+            .from('bets')
+            .select('*')
+            .eq('fixture_id', fixtureId)
+            .eq('status', 'active');
+        
+        if (error) throw error;
+        return data;
     },
     
-    getBetById: async function(betId) {
-        if (!supaClient) return null;
-        try {
-            const { data, error } = await supaClient
-                .from('bets')
-                .select('*')
-                .eq('id', betId)
-                .single();
-            
-            if (error) return null;
-            return data;
-        } catch(e) {
-            console.error('getBetById error:', e);
-            return null;
-        }
+    // ===== STATISTICS =====
+    
+    // Get user statistics
+    async getUserStats(userId) {
+        const [bets, won, lost] = await Promise.all([
+            supabaseClient.from('bets').select('*', { count: 'exact' }).eq('user_id', userId),
+            supabaseClient.from('bets').select('*', { count: 'exact' }).eq('user_id', userId).eq('status', 'won'),
+            supabaseClient.from('bets').select('*', { count: 'exact' }).eq('user_id', userId).eq('status', 'lost')
+        ]);
+        
+        return {
+            total_bets: bets.count || 0,
+            won_bets: won.count || 0,
+            lost_bets: lost.count || 0,
+            win_rate: bets.count ? ((won.count || 0) / bets.count * 100).toFixed(1) : 0
+        };
+    },
+    
+    // ===== LIVE UPDATES =====
+    
+    // Subscribe to match updates
+    subscribeToMatch(fixtureId, callback) {
+        const subscription = supabaseClient
+            .channel(`match-${fixtureId}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'sports_matches',
+                filter: `fixture_id=eq.${fixtureId}`
+            }, payload => {
+                callback(payload.new);
+            })
+            .subscribe();
+        
+        return subscription;
+    },
+    
+    // Subscribe to bet updates for a user
+    subscribeToUserBets(userId, callback) {
+        const subscription = supabaseClient
+            .channel(`user-bets-${userId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'bets',
+                filter: `user_id=eq.${userId}`
+            }, payload => {
+                callback(payload);
+            })
+            .subscribe();
+        
+        return subscription;
     }
 };
 
-if (typeof window !== 'undefined') {
-    window.supabaseClient = supaClient;
-    window.supaDB = supaDB;
-}
+// ===== REAL-TIME SYNC MANAGER =====
+const RealtimeManager = {
+    subscriptions: new Map(),
+    
+    subscribeMatch(fixtureId, onUpdate) {
+        if (this.subscriptions.has(`match-${fixtureId}`)) {
+            this.unsubscribe(`match-${fixtureId}`);
+        }
+        
+        const subscription = supaDB.subscribeToMatch(fixtureId, onUpdate);
+        this.subscriptions.set(`match-${fixtureId}`, subscription);
+        return subscription;
+    },
+    
+    subscribeUserBets(userId, onUpdate) {
+        if (this.subscriptions.has(`bets-${userId}`)) {
+            this.unsubscribe(`bets-${userId}`);
+        }
+        
+        const subscription = supaDB.subscribeToUserBets(userId, onUpdate);
+        this.subscriptions.set(`bets-${userId}`, subscription);
+        return subscription;
+    },
+    
+    unsubscribe(key) {
+        const subscription = this.subscriptions.get(key);
+        if (subscription) {
+            subscription.unsubscribe();
+            this.subscriptions.delete(key);
+        }
+    },
+    
+    unsubscribeAll() {
+        this.subscriptions.forEach((sub, key) => {
+            sub.unsubscribe();
+        });
+        this.subscriptions.clear();
+    }
+};
 
-console.log('📦 Supabase Client v16.0 - Ready');
+// Make available globally
+window.supabaseClient = supabaseClient;
+window.supaDB = supaDB;
+window.RealtimeManager = RealtimeManager;
+
+console.log('✅ Supabase Client v3.0 Initialized');
