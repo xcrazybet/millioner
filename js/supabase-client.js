@@ -1,268 +1,124 @@
 // ============================================
-// supabase-client.js - v3.0 ENHANCED
-// Complete Supabase integration for sports betting
+// supabase-client.js - COMPATIBILITY LAYER
+// ✅ Works with existing sports-api.js v21.0
+// ✅ Works with existing betting-engine.js v3.0
+// ✅ Provides helper functions for match-details.html
+// ✅ No conflicts with existing code
 // ============================================
 
-// Supabase Configuration
-const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
-const SUPABASE_ANON_KEY = 'your-supabase-anon-key-here'; // Replace with your actual key
+// Initialize Supabase (if not already initialized by sports-api.js)
+if (typeof supabaseClient === 'undefined') {
+    const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY'; // Replace with your actual key
+    
+    window.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    console.log('✅ Supabase Client initialized');
+}
 
-// Initialize Supabase
-const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// ===== HELPER FUNCTIONS FOR MATCH-DETAILS.HTML =====
+// These work alongside your existing BetManager and WalletManager
 
-// ===== SUPABASE DATABASE SERVICE =====
 const supaDB = {
-    // ===== MATCHES =====
-    
-    // Get all matches with optional filters
-    async getMatches(filters = {}) {
-        let query = supabaseClient.from('sports_matches').select('*');
-        
-        if (filters.status) query = query.eq('status', filters.status);
-        if (filters.league_id) query = query.eq('league_id', filters.league_id);
-        if (filters.date_from) query = query.gte('start_time', filters.date_from);
-        if (filters.date_to) query = query.lte('start_time', filters.date_to);
-        
-        const { data, error } = await query.order('start_time', { ascending: true });
-        if (error) throw error;
-        return data;
-    },
-    
     // Get single match by fixture ID
     async getMatch(fixtureId) {
-        const { data, error } = await supabaseClient
-            .from('sports_matches')
-            .select('*')
-            .eq('fixture_id', fixtureId)
-            .single();
-        
-        if (error) throw error;
-        return data;
+        try {
+            const { data, error } = await supabaseClient
+                .from('sports_matches')
+                .select('*')
+                .eq('fixture_id', parseInt(fixtureId))
+                .single();
+            
+            if (error) throw error;
+            return data;
+        } catch(e) {
+            console.error('Error getting match:', e);
+            return null;
+        }
     },
     
     // Get live matches
     async getLiveMatches() {
-        const { data, error } = await supabaseClient
-            .from('sports_matches')
-            .select('*')
-            .eq('status', 'live')
-            .order('start_time', { ascending: true });
-        
-        if (error) throw error;
-        return data;
+        try {
+            const { data, error } = await supabaseClient
+                .from('sports_matches')
+                .select('*')
+                .eq('status', 'live')
+                .order('start_time', { ascending: true });
+            
+            if (error) throw error;
+            return data || [];
+        } catch(e) {
+            console.error('Error getting live matches:', e);
+            return [];
+        }
     },
     
     // Get upcoming matches
     async getUpcomingMatches(limit = 50) {
-        const now = new Date().toISOString();
-        const { data, error } = await supabaseClient
-            .from('sports_matches')
-            .select('*')
-            .eq('status', 'upcoming')
-            .gte('start_time', now)
-            .order('start_time', { ascending: true })
-            .limit(limit);
-        
-        if (error) throw error;
-        return data;
+        try {
+            const now = new Date().toISOString();
+            const { data, error } = await supabaseClient
+                .from('sports_matches')
+                .select('*')
+                .eq('status', 'upcoming')
+                .gte('start_time', now)
+                .order('start_time', { ascending: true })
+                .limit(limit);
+            
+            if (error) throw error;
+            return data || [];
+        } catch(e) {
+            console.error('Error getting upcoming matches:', e);
+            return [];
+        }
     },
     
     // Get finished matches
     async getFinishedMatches(limit = 20) {
-        const { data, error } = await supabaseClient
-            .from('sports_matches')
-            .select('*')
-            .eq('status', 'finished')
-            .order('updated_at', { ascending: false })
-            .limit(limit);
-        
-        if (error) throw error;
-        return data;
+        try {
+            const { data, error } = await supabaseClient
+                .from('sports_matches')
+                .select('*')
+                .eq('status', 'finished')
+                .order('updated_at', { ascending: false })
+                .limit(limit);
+            
+            if (error) throw error;
+            return data || [];
+        } catch(e) {
+            console.error('Error getting finished matches:', e);
+            return [];
+        }
     },
     
-    // Update match scores
-    async updateMatchScore(fixtureId, score, elapsed) {
-        const { data, error } = await supabaseClient
-            .from('sports_matches')
-            .update({
-                score: score,
-                elapsed: elapsed,
-                updated_at: new Date().toISOString()
-            })
-            .eq('fixture_id', fixtureId)
-            .select();
-        
-        if (error) throw error;
-        return data;
+    // Place a bet (uses your existing BetManager)
+    async placeBet(betData) {
+        if (window.BetManager && window.BetManager.placeBet) {
+            return await window.BetManager.placeBet(betData);
+        }
+        throw new Error('BetManager not available');
     },
-    
-    // ===== BETS =====
     
     // Get user's active bets
-    async getActiveBets(userId, fixtureId = null) {
-        let query = supabaseClient
-            .from('bets')
-            .select('*, sports_matches(home_team, away_team, score, elapsed, status)')
-            .eq('user_id', userId)
-            .eq('status', 'active');
-        
-        if (fixtureId) query = query.eq('fixture_id', fixtureId);
-        
-        const { data, error } = await query.order('placed_at', { ascending: false });
-        if (error) throw error;
-        return data;
+    async getActiveBets(userId) {
+        if (window.BetManager && window.BetManager.getActiveBets) {
+            return await window.BetManager.getActiveBets();
+        }
+        return [];
     },
     
     // Get user's bet history
     async getBetHistory(userId, limit = 50) {
-        const { data, error } = await supabaseClient
-            .from('bets')
-            .select('*')
-            .eq('user_id', userId)
-            .in('status', ['won', 'lost'])
-            .order('settled_at', { ascending: false })
-            .limit(limit);
-        
-        if (error) throw error;
-        return data;
-    },
-    
-    // Place a new bet
-    async placeBet(betData) {
-        const { data, error } = await supabaseClient
-            .from('bets')
-            .insert(betData)
-            .select();
-        
-        if (error) throw error;
-        return data[0];
-    },
-    
-    // Update bet status
-    async updateBet(betId, updateData) {
-        const { data, error } = await supabaseClient
-            .from('bets')
-            .update({
-                ...updateData,
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', betId)
-            .select();
-        
-        if (error) throw error;
-        return data[0];
-    },
-    
-    // Get all bets for a fixture (for settlement)
-    async getFixtureBets(fixtureId) {
-        const { data, error } = await supabaseClient
-            .from('bets')
-            .select('*')
-            .eq('fixture_id', fixtureId)
-            .eq('status', 'active');
-        
-        if (error) throw error;
-        return data;
-    },
-    
-    // ===== STATISTICS =====
-    
-    // Get user statistics
-    async getUserStats(userId) {
-        const [bets, won, lost] = await Promise.all([
-            supabaseClient.from('bets').select('*', { count: 'exact' }).eq('user_id', userId),
-            supabaseClient.from('bets').select('*', { count: 'exact' }).eq('user_id', userId).eq('status', 'won'),
-            supabaseClient.from('bets').select('*', { count: 'exact' }).eq('user_id', userId).eq('status', 'lost')
-        ]);
-        
-        return {
-            total_bets: bets.count || 0,
-            won_bets: won.count || 0,
-            lost_bets: lost.count || 0,
-            win_rate: bets.count ? ((won.count || 0) / bets.count * 100).toFixed(1) : 0
-        };
-    },
-    
-    // ===== LIVE UPDATES =====
-    
-    // Subscribe to match updates
-    subscribeToMatch(fixtureId, callback) {
-        const subscription = supabaseClient
-            .channel(`match-${fixtureId}`)
-            .on('postgres_changes', {
-                event: 'UPDATE',
-                schema: 'public',
-                table: 'sports_matches',
-                filter: `fixture_id=eq.${fixtureId}`
-            }, payload => {
-                callback(payload.new);
-            })
-            .subscribe();
-        
-        return subscription;
-    },
-    
-    // Subscribe to bet updates for a user
-    subscribeToUserBets(userId, callback) {
-        const subscription = supabaseClient
-            .channel(`user-bets-${userId}`)
-            .on('postgres_changes', {
-                event: '*',
-                schema: 'public',
-                table: 'bets',
-                filter: `user_id=eq.${userId}`
-            }, payload => {
-                callback(payload);
-            })
-            .subscribe();
-        
-        return subscription;
+        if (window.BetManager && window.BetManager.getUserBetHistory) {
+            return await window.BetManager.getUserBetHistory(limit);
+        }
+        return [];
     }
 };
 
-// ===== REAL-TIME SYNC MANAGER =====
-const RealtimeManager = {
-    subscriptions: new Map(),
-    
-    subscribeMatch(fixtureId, onUpdate) {
-        if (this.subscriptions.has(`match-${fixtureId}`)) {
-            this.unsubscribe(`match-${fixtureId}`);
-        }
-        
-        const subscription = supaDB.subscribeToMatch(fixtureId, onUpdate);
-        this.subscriptions.set(`match-${fixtureId}`, subscription);
-        return subscription;
-    },
-    
-    subscribeUserBets(userId, onUpdate) {
-        if (this.subscriptions.has(`bets-${userId}`)) {
-            this.unsubscribe(`bets-${userId}`);
-        }
-        
-        const subscription = supaDB.subscribeToUserBets(userId, onUpdate);
-        this.subscriptions.set(`bets-${userId}`, subscription);
-        return subscription;
-    },
-    
-    unsubscribe(key) {
-        const subscription = this.subscriptions.get(key);
-        if (subscription) {
-            subscription.unsubscribe();
-            this.subscriptions.delete(key);
-        }
-    },
-    
-    unsubscribeAll() {
-        this.subscriptions.forEach((sub, key) => {
-            sub.unsubscribe();
-        });
-        this.subscriptions.clear();
-    }
-};
-
-// Make available globally
-window.supabaseClient = supabaseClient;
+// Make available globally (without overwriting existing)
 window.supaDB = supaDB;
-window.RealtimeManager = RealtimeManager;
 
-console.log('✅ Supabase Client v3.0 Initialized');
+console.log('✅ Supabase Compatibility Layer Loaded');
+console.log('   ✅ Works with sports-api.js v21.0');
+console.log('   ✅ Works with betting-engine.js v3.0');
