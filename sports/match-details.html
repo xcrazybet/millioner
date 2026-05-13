@@ -6,6 +6,8 @@
     <title>Match Details - X Lodon | Sports Betting</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Firebase and Supabase Core Libraries -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -138,13 +140,26 @@
         </div>
     </div>
 
-    <!-- Load scripts in correct order -->
-    <script src="supabase-client.js"></script>
-    <script src="sports-api.js"></script>
-    <script src="betting-engine.js"></script>
-    
     <script>
-        // Firebase config (already initialized in sports-api.js)
+        // ============================================
+        // STANDALONE MATCH DETAILS PAGE
+        // No external JS dependencies - everything self-contained
+        // ============================================
+        
+        // Supabase Configuration
+        const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zenltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzU2MjQwOTEsImV4cCI6MjA1MTIwMDA5MX0.YourActualKeyHere'; // Replace with your actual key
+        
+        // Initialize Supabase
+        let supabaseClient = null;
+        try {
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            console.log('✅ Supabase initialized');
+        } catch(e) {
+            console.error('Failed to initialize Supabase:', e);
+        }
+        
+        // Firebase Config
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
             authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -154,17 +169,116 @@
             appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
         };
         
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        // Initialize Firebase if not already
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+            console.log('✅ Firebase initialized');
+        }
         
-        // Get fixture ID from URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const fixtureId = urlParams.get('id');
+        const db = firebase.firestore();
+        const auth = firebase.auth();
         
-        // App state
+        // ===== WALLET FUNCTIONS =====
+        async function getWalletBalance(userId) {
+            try {
+                const doc = await db.collection('wallets').doc(userId).get();
+                if (doc.exists) {
+                    return doc.data().balance || 0;
+                } else {
+                    await db.collection('wallets').doc(userId).set({
+                        balance: 1000,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    });
+                    return 1000;
+                }
+            } catch(e) {
+                console.error('Error getting balance:', e);
+                return 0;
+            }
+        }
+        
+        async function updateBalance(userId, amount, betId) {
+            const walletRef = db.collection('wallets').doc(userId);
+            try {
+                const result = await db.runTransaction(async (transaction) => {
+                    const doc = await transaction.get(walletRef);
+                    const currentBalance = doc.exists ? doc.data().balance : 0;
+                    const newBalance = currentBalance + amount;
+                    
+                    if (newBalance < 0) throw new Error('Insufficient balance');
+                    
+                    transaction.update(walletRef, {
+                        balance: newBalance,
+                        updated_at: new Date().toISOString()
+                    });
+                    
+                    return newBalance;
+                });
+                return result;
+            } catch(e) {
+                console.error('Balance update error:', e);
+                throw e;
+            }
+        }
+        
+        // ===== BET FUNCTIONS =====
+        async function placeBet(betData) {
+            const user = auth.currentUser;
+            if (!user) throw new Error('Not authenticated');
+            
+            // Check match is live
+            const { data: match, error: matchError } = await supabaseClient
+                .from('sports_matches')
+                .select('status, bets_closed, elapsed')
+                .eq('fixture_id', betData.fixture_id)
+                .single();
+            
+            if (matchError) throw new Error('Match not found');
+            if (match.status !== 'live') throw new Error('Betting only for live matches');
+            if (match.bets_closed) throw new Error('Betting closed');
+            if (match.elapsed >= 80) throw new Error('Betting closes at 80th minute');
+            
+            // Check balance
+            const balance = await getWalletBalance(user.uid);
+            if (balance < betData.amount) throw new Error('Insufficient balance');
+            
+            // Create bet
+            const bet = {
+                id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                user_id: user.uid,
+                fixture_id: betData.fixture_id,
+                bet_type: betData.bet_type,
+                odds: betData.odds,
+                amount: betData.amount,
+                potential_win: betData.amount * betData.odds,
+                status: 'active',
+                placed_at: new Date().toISOString()
+            };
+            
+            // Deduct balance
+            await updateBalance(user.uid, -betData.amount, bet.id);
+            
+            // Save bet
+            const { error: saveError } = await supabaseClient
+                .from('bets')
+                .insert(bet);
+            
+            if (saveError) throw saveError;
+            
+            return bet;
+        }
+        
+        // ===== PAGE VARIABLES =====
         let currentMatch = null;
         let selectedBet = null;
         let selectedOdds = null;
         let currentTab = '1x2';
+        let refreshInterval = null;
+        
+        // Get fixture ID from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const fixtureId = urlParams.get('id');
         
         // Language toggle
         window.toggleLanguage = function() {
@@ -176,7 +290,41 @@
         
         if (localStorage.getItem('lang') === 'ar') toggleLanguage();
         
-        // Load match details using supaDB
+        // Show/hide messages
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+        
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success-message');
+            successDiv.innerHTML = `<i class="fas fa-check-circle"></i> ${message}`;
+            successDiv.style.display = 'block';
+            setTimeout(() => {
+                successDiv.style.display = 'none';
+            }, 3000);
+        }
+        
+        function hideMessages() {
+            document.getElementById('error-message').style.display = 'none';
+            document.getElementById('success-message').style.display = 'none';
+        }
+        
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+        
+        // Load match from database
         async function loadMatch() {
             if (!fixtureId) {
                 showError('No match selected');
@@ -184,17 +332,23 @@
                 return;
             }
             
+            if (!supabaseClient) {
+                showError('Database not connected');
+                document.getElementById('loading').innerHTML = '<div style="color:#ff5252;">Database connection failed. Please refresh the page.</div>';
+                return;
+            }
+            
             try {
-                // Use supaDB from supabase-client.js
-                if (!window.supaDB) {
-                    throw new Error('Database not initialized');
-                }
+                const { data, error } = await supabaseClient
+                    .from('sports_matches')
+                    .select('*')
+                    .eq('fixture_id', parseInt(fixtureId))
+                    .single();
                 
-                currentMatch = await window.supaDB.getMatch(parseInt(fixtureId));
+                if (error) throw error;
+                if (!data) throw new Error('Match not found');
                 
-                if (!currentMatch) {
-                    throw new Error('Match not found');
-                }
+                currentMatch = data;
                 
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
@@ -203,15 +357,17 @@
                 renderBetOptions();
                 checkBettingAvailability();
                 
-                // Start auto-refresh for live matches
+                // Auto-refresh for live matches
                 if (currentMatch.status === 'live') {
                     startAutoRefresh();
+                } else if (currentMatch.status === 'upcoming') {
+                    startCountdown();
                 }
                 
             } catch(e) {
                 console.error('Error loading match:', e);
                 showError(e.message);
-                document.getElementById('loading').innerHTML = `<div style="color:#ff5252;">Error: ${e.message}</div>`;
+                document.getElementById('loading').innerHTML = `<div style="color:#ff5252;text-align:center;padding:40px;">Error: ${e.message}</div>`;
             }
         }
         
@@ -352,7 +508,7 @@
             });
         }
         
-        // Update potential win display
+        // Update potential win
         function updatePotentialWin(amount) {
             if (selectedOdds && amount > 0) {
                 const potential = (amount * selectedOdds).toFixed(2);
@@ -385,28 +541,32 @@
         }
         
         // Auto-refresh for live matches
-        let refreshInterval = null;
-        
         function startAutoRefresh() {
             if (refreshInterval) clearInterval(refreshInterval);
             
             refreshInterval = setInterval(async () => {
                 if (currentMatch && currentMatch.status === 'live') {
                     try {
-                        const updatedMatch = await window.supaDB.getMatch(currentMatch.fixture_id);
-                        if (updatedMatch) {
-                            currentMatch = updatedMatch;
+                        const { data, error } = await supabaseClient
+                            .from('sports_matches')
+                            .select('*')
+                            .eq('fixture_id', currentMatch.fixture_id)
+                            .single();
+                        
+                        if (!error && data) {
+                            const oldScore = currentMatch.score;
+                            currentMatch = data;
                             renderMatchDetails();
                             checkBettingAvailability();
                             
-                            // Update odds if changed
-                            if (currentTab) {
+                            // Refresh odds if changed
+                            if (JSON.stringify(oldScore) !== JSON.stringify(data.score)) {
                                 renderBetOptions();
                             }
-                            
-                            // Update balance
-                            await updateBalance();
                         }
+                        
+                        // Update balance
+                        await updateBalanceDisplay();
                     } catch(e) {
                         console.error('Refresh error:', e);
                     }
@@ -414,19 +574,42 @@
             }, 15000);
         }
         
-        // Update user balance
-        async function updateBalance() {
-            const user = firebase.auth().currentUser;
-            if (user && window.WalletManager) {
-                const balance = await window.WalletManager.getBalance(user.uid);
-                document.getElementById('balance-display').textContent = `$${balance.toFixed(2)}`;
-                return balance;
+        // Countdown for upcoming matches
+        function startCountdown() {
+            const countdownEl = document.getElementById('countdown-timer');
+            if (!countdownEl) return;
+            
+            const matchTime = new Date(currentMatch.start_time);
+            
+            function updateCountdown() {
+                const now = new Date();
+                const diff = matchTime - now;
+                
+                if (diff <= 0) {
+                    countdownEl.innerHTML = '<span style="color:#00ff9d;"><i class="fas fa-play"></i> Match Started!</span>';
+                    setTimeout(() => location.reload(), 3000);
+                } else {
+                    const minutes = Math.floor(diff / 60000);
+                    const seconds = Math.floor((diff % 60000) / 1000);
+                    countdownEl.innerHTML = `<i class="fas fa-hourglass-half"></i> Match starts in: ${minutes}m ${seconds}s`;
+                    setTimeout(updateCountdown, 1000);
+                }
             }
-            return 0;
+            
+            updateCountdown();
         }
         
-        // Place bet using BetManager
-        async function placeBet() {
+        // Update balance display
+        async function updateBalanceDisplay() {
+            const user = auth.currentUser;
+            if (user) {
+                const balance = await getWalletBalance(user.uid);
+                document.getElementById('balance-display').textContent = `$${balance.toFixed(2)}`;
+            }
+        }
+        
+        // Place bet
+        async function placeBetHandler() {
             if (!selectedBet) {
                 showError('Please select an outcome');
                 return;
@@ -439,14 +622,14 @@
                 return;
             }
             
-            const user = firebase.auth().currentUser;
+            const user = auth.currentUser;
             if (!user) {
                 showError('Please login to place bets');
+                window.location.href = '../login.html';
                 return;
             }
             
-            // Get current balance
-            const balance = await updateBalance();
+            const balance = await getWalletBalance(user.uid);
             if (amount > balance) {
                 showError('Insufficient balance!');
                 return;
@@ -458,21 +641,14 @@
             hideMessages();
             
             try {
-                // Use BetManager from sports-api.js
-                if (!window.BetManager) {
-                    throw new Error('Betting system not initialized');
-                }
-                
-                const bet = await window.BetManager.placeBet({
+                const bet = await placeBet({
                     fixture_id: parseInt(fixtureId),
                     bet_type: selectedBet.type,
                     odds: selectedOdds,
                     amount: amount
                 });
                 
-                // Update balance display
-                await updateBalance();
-                
+                await updateBalanceDisplay();
                 showSuccess(`Bet placed! Potential win: $${(amount * selectedOdds).toFixed(2)}`);
                 
                 // Reset form
@@ -484,7 +660,6 @@
                 btn.disabled = true;
                 btn.innerHTML = 'Place Bet';
                 
-                // Redirect after 2 seconds
                 setTimeout(() => {
                     window.location.href = 'my-bets.html';
                 }, 2000);
@@ -497,41 +672,7 @@
             }
         }
         
-        // Helper functions
-        function showError(message) {
-            const errorDiv = document.getElementById('error-message');
-            errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
-            errorDiv.style.display = 'block';
-            setTimeout(() => {
-                errorDiv.style.display = 'none';
-            }, 5000);
-        }
-        
-        function showSuccess(message) {
-            const successDiv = document.getElementById('success-message');
-            successDiv.innerHTML = `<i class="fas fa-check-circle"></i> ${message}`;
-            successDiv.style.display = 'block';
-            setTimeout(() => {
-                successDiv.style.display = 'none';
-            }, 3000);
-        }
-        
-        function hideMessages() {
-            document.getElementById('error-message').style.display = 'none';
-            document.getElementById('success-message').style.display = 'none';
-        }
-        
-        function escapeHtml(str) {
-            if (!str) return '';
-            return String(str).replace(/[&<>]/g, function(m) {
-                if (m === '&') return '&amp;';
-                if (m === '<') return '&lt;';
-                if (m === '>') return '&gt;';
-                return m;
-            });
-        }
-        
-        // Event listeners
+        // Setup event listeners
         function setupEventListeners() {
             // Tab switching
             document.querySelectorAll('.bet-type-tab').forEach(tab => {
@@ -558,22 +699,22 @@
             });
             
             // Place bet button
-            document.getElementById('place-bet-btn').addEventListener('click', placeBet);
+            document.getElementById('place-bet-btn').addEventListener('click', placeBetHandler);
         }
         
-        // Initialize
-        firebase.auth().onAuthStateChanged(async (user) => {
+        // Initialize page
+        auth.onAuthStateChanged(async (user) => {
             if (!user) {
                 window.location.href = '../login.html';
                 return;
             }
             
-            await updateBalance();
+            await updateBalanceDisplay();
             await loadMatch();
             setupEventListeners();
             
             // Refresh balance every 30 seconds
-            setInterval(updateBalance, 30000);
+            setInterval(updateBalanceDisplay, 30000);
         });
         
         // Cleanup
