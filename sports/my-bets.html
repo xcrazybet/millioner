@@ -51,8 +51,8 @@
         .bet-card.won { border-left-color: #4caf50; background: linear-gradient(135deg, #111827, #0a1a0f); }
         .bet-card.lost { border-left-color: #ff5252; background: linear-gradient(135deg, #111827, #1a0a0a); }
         .bet-card.active { border-left-color: #ffc107; }
-        .bet-card.cancelled { border-left-color: #9c27b0; opacity: 0.7; }
-        .bet-card.cashed-out { border-left-color: #00bcd4; opacity: 0.7; }
+        .bet-card.cancelled { border-left-color: #9c27b0; background: linear-gradient(135deg, #111827, #1a0a2a); opacity: 0.8; }
+        .bet-card.cashed-out { border-left-color: #00bcd4; background: linear-gradient(135deg, #111827, #0a2a2a); opacity: 0.8; }
         
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
@@ -72,7 +72,7 @@
         
         .bet-body { margin-bottom: 12px; }
         .bet-match-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .team-logo-small { width: 24px; height: 24px; object-fit: contain; border-radius: 50%; background: rgba(255,255,255,0.1); padding: 2px; }
+        .team-logo-small { width: 28px; height: 28px; object-fit: contain; border-radius: 50%; background: rgba(255,255,255,0.1); padding: 3px; }
         .bet-pick { color: #00ff9d; font-size: 13px; margin-top: 4px; }
         .bet-odds { color: #ff9800; font-size: 12px; font-weight: bold; }
         
@@ -80,6 +80,14 @@
         .bet-detail { text-align: center; }
         .bet-detail .lbl { color: #a0a8c9; font-size: 10px; }
         .bet-detail .val { font-weight: 600; font-size: 12px; }
+        
+        .selections-container { margin-top: 10px; padding: 8px; background: #0a0f1a; border-radius: 8px; }
+        .selection-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #ffffff11; font-size: 11px; }
+        .selection-item:last-child { border-bottom: none; }
+        .selection-logo { width: 20px; height: 20px; object-fit: contain; border-radius: 50%; }
+        .selection-match { flex: 1; }
+        .selection-pick { color: #00ff9d; }
+        .selection-odds { color: #ff9800; font-weight: bold; }
         
         .settlement-timer { font-family: monospace; font-size: 11px; background: #1a2332; padding: 4px 8px; border-radius: 8px; display: inline-block; margin-top: 5px; }
         .settlement-timer.urgent { color: #ff9800; animation: pulse 1s infinite; }
@@ -95,7 +103,7 @@
         .cancel-btn:hover { background: #ff5252; color: white; }
         .cashout-btn { background: #ff980022; color: #ff9800; border: 1px solid #ff9800; padding: 6px 12px; border-radius: 20px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
         .cashout-btn:hover { background: #ff9800; color: black; }
-        .action-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+        .action-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; display: none; }
         
         .modal-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.95); z-index:1000; display:none; align-items:center; justify-content:center; padding:15px; }
         .modal-overlay.show { display:flex; }
@@ -105,9 +113,9 @@
         .modal-section h4 { color:#00ff9d; font-size:14px; margin-bottom:10px; border-bottom: 1px solid #00ff9d33; padding-bottom: 5px; }
         .modal-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #ffffff11; font-size:13px; flex-wrap:wrap; gap:8px; }
         .modal-row .lbl { color:#a0a8c9; }
-        .selection-item { background: #1a2332; padding: 10px; border-radius: 8px; margin-bottom: 8px; }
-        .selection-item .match { font-weight: bold; color: #ff9800; }
-        .selection-item .pick { color: #00ff9d; font-size: 12px; }
+        .selection-item-detail { background: #1a2332; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .selection-item-detail .match { flex: 1; font-weight: bold; color: #ff9800; }
+        .selection-item-detail .pick { color: #00ff9d; font-size: 12px; }
         
         .empty-state { text-align: center; padding: 60px; color: #a0a8c9; }
         .export-btn { background: #00ff9d22; border: 1px solid #00ff9d; color: #00ff9d; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
@@ -190,9 +198,8 @@
 
     <script>
         // ============================================
-        // MY BETS PAGE - FULLY ENHANCED
-        // Cancel before match start only once
-        // Cashout during match only once
+        // MY BETS PAGE - FULLY FIXED
+        // Cancel and Cashout: ONE TIME ONLY
         // ============================================
         
         // Supabase Configuration
@@ -221,8 +228,10 @@
         let refreshInterval = null;
         let settlementTimers = [];
         
+        // Track which bets have been processed for actions
+        let processedBets = new Set();
+        
         const API_BASE = 'https://millioner.onrender.com';
-        const BETTING_CLOSE_MINUTE = 80;
         
         // ===== HELPER FUNCTIONS =====
         function escapeHtml(str) {
@@ -245,6 +254,22 @@
         
         if (localStorage.getItem('lang') === 'ar') toggleLanguage();
         
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.style.position = 'fixed';
+            notification.style.top = '20px';
+            notification.style.right = '20px';
+            notification.style.background = type === 'success' ? '#4caf50' : type === 'error' ? '#ff5252' : '#ff9800';
+            notification.style.color = 'white';
+            notification.style.padding = '12px 20px';
+            notification.style.borderRadius = '8px';
+            notification.style.zIndex = '9999';
+            notification.style.fontSize = '14px';
+            notification.innerHTML = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        }
+        
         // ===== LOAD BALANCE FROM FIREBASE =====
         async function loadBalance() {
             try {
@@ -261,7 +286,6 @@
             }
         }
         
-        // ===== UPDATE WALLET BALANCE =====
         async function updateWalletBalance(userId, amount) {
             const walletRef = db.collection('wallets').doc(userId);
             await walletRef.update({
@@ -270,13 +294,20 @@
             });
         }
         
-        // ===== CANCEL BET (Before match starts only) =====
+        // ===== CANCEL BET (ONE TIME ONLY - Before match starts) =====
         async function cancelBet(betId) {
             const bet = allBets.find(b => b.id === betId);
             if (!bet) return;
             
+            // CRITICAL: Check if already processed
             if (bet.status !== 'active') {
-                alert('This bet cannot be cancelled - already ' + bet.status);
+                showNotification(`❌ This bet is already ${bet.status}`, 'error');
+                return;
+            }
+            
+            // Check if already processed in this session
+            if (processedBets.has(betId)) {
+                showNotification('❌ This bet has already been processed', 'error');
                 return;
             }
             
@@ -285,15 +316,15 @@
                 .from('sports_matches')
                 .select('start_time, status')
                 .eq('fixture_id', bet.fixture_id)
-                .single();
+                .maybeSingle();
             
             if (match && match.status === 'live') {
-                alert('❌ Cannot cancel - Match has already started! Use Cash Out instead.');
+                showNotification('❌ Cannot cancel - Match has already started! Use Cash Out instead.', 'error');
                 return;
             }
             
             if (match && new Date(match.start_time) < new Date()) {
-                alert('❌ Cannot cancel - Match has already started!');
+                showNotification('❌ Cannot cancel - Match has already started!', 'error');
                 return;
             }
             
@@ -301,11 +332,11 @@
             const refundAmount = bet.amount * (1 - feePercent / 100);
             const fee = bet.amount - refundAmount;
             
-            if (!confirm(`Cancel this bet?\nOriginal Stake: $${bet.amount.toFixed(2)}\nRefund: $${refundAmount.toFixed(2)}\nFee (${feePercent}%): $${fee.toFixed(2)}`)) return;
+            if (!confirm(`Cancel this bet?\n\nOriginal Stake: $${bet.amount.toFixed(2)}\nRefund: $${refundAmount.toFixed(2)}\nFee (${feePercent}%): $${fee.toFixed(2)}\n\n⚠️ This action can only be done ONCE!`)) return;
             
             try {
-                // Update bet status
-                await supabaseClient
+                // Update bet status - CRITICAL: This makes it non-cancellable again
+                const { error } = await supabaseClient
                     .from('bets')
                     .update({ 
                         status: 'cancelled', 
@@ -314,28 +345,41 @@
                         cancelled_at: new Date().toISOString(),
                         settlement_reason: `Cancelled before match start - Fee: ${feePercent}%`
                     })
-                    .eq('id', betId);
+                    .eq('id', betId)
+                    .eq('status', 'active'); // Only update if still active
+            
+                if (error) throw error;
+                
+                // Mark as processed
+                processedBets.add(betId);
                 
                 // Refund to wallet
                 await updateWalletBalance(bet.user_id, refundAmount);
                 
-                alert(`✅ Bet cancelled! Refunded: $${refundAmount.toFixed(2)}`);
+                showNotification(`✅ Bet cancelled! Refunded: $${refundAmount.toFixed(2)}`, 'success');
                 await loadBets();
                 await loadBalance();
                 
             } catch(e) {
                 console.error('Cancel error:', e);
-                alert(`Cancellation failed: ${e.message}`);
+                showNotification(`Cancellation failed: ${e.message}`, 'error');
             }
         }
         
-        // ===== CASHOUT BET (During match only) =====
+        // ===== CASHOUT BET (ONE TIME ONLY - During live match) =====
         async function cashoutBet(betId) {
             const bet = allBets.find(b => b.id === betId);
             if (!bet) return;
             
+            // CRITICAL: Check if already processed
             if (bet.status !== 'active') {
-                alert('This bet cannot be cashed out - already ' + bet.status);
+                showNotification(`❌ This bet is already ${bet.status}`, 'error');
+                return;
+            }
+            
+            // Check if already processed in this session
+            if (processedBets.has(betId)) {
+                showNotification('❌ This bet has already been processed', 'error');
                 return;
             }
             
@@ -344,37 +388,30 @@
                 .from('sports_matches')
                 .select('status, elapsed, score')
                 .eq('fixture_id', bet.fixture_id)
-                .single();
+                .maybeSingle();
             
             if (!match || match.status !== 'live') {
-                alert('❌ Cash Out only available during live matches');
+                showNotification('❌ Cash Out only available during live matches', 'error');
                 return;
             }
             
-            // Calculate cashout value (dynamic based on match progress)
+            // Calculate cashout value
             const elapsed = match.elapsed || 0;
             const score = match.score || { home: 0, away: 0 };
             
-            // Dynamic cashout calculation
-            let cashoutPercent = 0.7; // Base 70%
-            
-            // Adjust based on match progress
+            let cashoutPercent = 0.7;
             if (elapsed < 30) cashoutPercent = 0.85;
             else if (elapsed < 60) cashoutPercent = 0.75;
             else cashoutPercent = 0.65;
             
-            // Adjust based on score (if bet is winning)
-            const betResult = evaluateBetResult(bet, score);
-            if (betResult === 'winning') cashoutPercent += 0.1;
-            else if (betResult === 'losing') cashoutPercent -= 0.1;
-            
             const cashoutValue = bet.amount * bet.odds * cashoutPercent;
             const fee = (bet.amount * bet.odds) - cashoutValue;
             
-            if (!confirm(`Cash out this bet?\nStake: $${bet.amount.toFixed(2)} @ ${bet.odds}\nCash Out Value: $${cashoutValue.toFixed(2)}\nFee: $${fee.toFixed(2)}\nMatch Status: ${elapsed}'`)) return;
+            if (!confirm(`Cash out this bet?\n\nStake: $${bet.amount.toFixed(2)} @ ${bet.odds}\nCash Out Value: $${cashoutValue.toFixed(2)}\nFee: $${fee.toFixed(2)}\nMatch Status: ${elapsed}'\n\n⚠️ This action can only be done ONCE!`)) return;
             
             try {
-                await supabaseClient
+                // Update bet status - CRITICAL: This makes it non-cashout-able again
+                const { error } = await supabaseClient
                     .from('bets')
                     .update({ 
                         status: 'cashed-out', 
@@ -383,38 +420,24 @@
                         cashed_out_at: new Date().toISOString(),
                         settlement_reason: `Cashew out at ${elapsed}' - Score: ${score.home}-${score.away}`
                     })
-                    .eq('id', betId);
+                    .eq('id', betId)
+                    .eq('status', 'active'); // Only update if still active
+            
+                if (error) throw error;
+                
+                // Mark as processed
+                processedBets.add(betId);
                 
                 await updateWalletBalance(bet.user_id, cashoutValue);
                 
-                alert(`✅ Cash Out successful! Received: $${cashoutValue.toFixed(2)}`);
+                showNotification(`✅ Cash Out successful! Received: $${cashoutValue.toFixed(2)}`, 'success');
                 await loadBets();
                 await loadBalance();
                 
             } catch(e) {
                 console.error('Cashout error:', e);
-                alert(`Cashout failed: ${e.message}`);
+                showNotification(`Cashout failed: ${e.message}`, 'error');
             }
-        }
-        
-        function evaluateBetResult(bet, currentScore) {
-            // Simple evaluation for cashout offer
-            const homeScore = currentScore.home || 0;
-            const awayScore = currentScore.away || 0;
-            
-            if (bet.bet_type === 'home') {
-                if (homeScore > awayScore) return 'winning';
-                if (homeScore < awayScore) return 'losing';
-                return 'neutral';
-            } else if (bet.bet_type === 'away') {
-                if (awayScore > homeScore) return 'winning';
-                if (awayScore < homeScore) return 'losing';
-                return 'neutral';
-            } else if (bet.bet_type === 'draw') {
-                if (homeScore === awayScore) return 'winning';
-                return 'losing';
-            }
-            return 'neutral';
         }
         
         // ===== LOAD BETS FROM SUPABASE =====
@@ -451,6 +474,8 @@
                             bet.match_name = `${homeTeam?.name || 'Home'} vs ${awayTeam?.name || 'Away'}`;
                             bet.home_team = homeTeam;
                             bet.away_team = awayTeam;
+                            bet.home_logo = homeTeam?.logo || '';
+                            bet.away_logo = awayTeam?.logo || '';
                             bet.league_name = match.league_name;
                             bet.kickoff_time = match.start_time;
                             bet.match_status = match.status;
@@ -472,17 +497,15 @@
         }
         
         function startSettlementTimers() {
-            // Clear existing timers
             settlementTimers.forEach(clearInterval);
             settlementTimers = [];
             
-            // For active bets, calculate estimated settlement time
             const activeBets = allBets.filter(b => b.status === 'active');
             
             activeBets.forEach(bet => {
                 if (bet.kickoff_time) {
                     const kickoff = new Date(bet.kickoff_time);
-                    const estimatedEnd = new Date(kickoff.getTime() + (105 * 60000)); // 105 minutes
+                    const estimatedEnd = new Date(kickoff.getTime() + (105 * 60000));
                     
                     function updateTimer() {
                         const timerEl = document.getElementById(`timer-${bet.id}`);
@@ -517,7 +540,6 @@
             });
         }
         
-        // ===== UPDATE STATISTICS =====
         function updateStats() {
             const total = allBets.length;
             const won = allBets.filter(b => b.status === 'won');
@@ -595,6 +617,22 @@
             startSettlementTimers();
         }
         
+        function formatBetTypeName(betType) {
+            const types = {
+                'home': 'Home Win',
+                'draw': 'Draw',
+                'away': 'Away Win',
+                '1X': 'Home or Draw',
+                '12': 'Home or Away',
+                'X2': 'Draw or Away',
+                'over25': 'Over 2.5 Goals',
+                'under25': 'Under 2.5 Goals',
+                'btts_yes': 'Both Teams to Score',
+                'btts_no': 'Both Teams to Score - No'
+            };
+            return types[betType] || betType;
+        }
+        
         function createBetCard(bet) {
             const isAcc = bet.bet_type === 'accumulator';
             let statusIcon = '';
@@ -612,25 +650,44 @@
             const placed = bet.placed_at ? new Date(bet.placed_at) : new Date();
             const ticketNumber = 'XL' + (bet.id.toString().slice(-8)).toUpperCase();
             
-            let matchDisplay = bet.match_name || 'Match';
-            let pickDisplay = bet.bet_name || bet.bet_type || '';
-            let teamLogo = '';
-            
-            if (bet.home_team) {
-                let homeTeam = bet.home_team;
-                if (typeof homeTeam === 'string') homeTeam = JSON.parse(homeTeam);
-                teamLogo = homeTeam?.logo || '';
-            }
-            
-            // Check if cancel/cashout is available
+            // Check if cancel/cashout is available (ONLY for active bets not processed)
             const isActive = bet.status === 'active';
-            const canCancel = isActive && bet.match_status !== 'live';
-            const canCashout = isActive && bet.match_status === 'live';
+            const canCancel = isActive && bet.match_status !== 'live' && !processedBets.has(bet.id);
+            const canCashout = isActive && bet.match_status === 'live' && !processedBets.has(bet.id);
             
-            // Selections for accumulator
+            // Build selections HTML for accumulator
             let selectionsHtml = '';
             if (isAcc && bet.selections && bet.selections.length > 0) {
-                selectionsHtml = `<div class="bet-detail" style="grid-column: span 5;"><div class="lbl">Selections (${bet.selections.length})</div><div class="val">${bet.selections.map(s => s.betTypeName).join(' | ')}</div></div>`;
+                selectionsHtml = `
+                    <div class="selections-container">
+                        <div class="bet-detail" style="margin-bottom: 5px;"><div class="lbl">Selections (${bet.selections.length})</div></div>
+                        ${bet.selections.map(s => `
+                            <div class="selection-item">
+                                <span class="selection-match">${escapeHtml(s.matchName)}</span>
+                                <span class="selection-pick">${escapeHtml(s.betTypeName)}</span>
+                                <span class="selection-odds">@${s.odds}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            // Show match info with logos for single bets
+            let matchDisplayHtml = '';
+            if (!isAcc && bet.home_team) {
+                matchDisplayHtml = `
+                    <div class="bet-match-name">
+                        ${bet.home_logo ? `<img class="team-logo-small" src="${bet.home_logo}" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt"></i>'}
+                        <span>${escapeHtml(bet.home_team?.name || 'Home')}</span>
+                        <span class="vs">vs</span>
+                        <span>${escapeHtml(bet.away_team?.name || 'Away')}</span>
+                        ${bet.away_logo ? `<img class="team-logo-small" src="${bet.away_logo}" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt"></i>'}
+                    </div>
+                `;
+            } else if (!isAcc) {
+                matchDisplayHtml = `<div class="bet-match-name">${escapeHtml(bet.match_name || 'Match')}</div>`;
+            } else {
+                matchDisplayHtml = `<div class="bet-match-name"><i class="fas fa-layer-group"></i> ${bet.selections?.length || 0}-Fold Accumulator</div>`;
             }
             
             return `
@@ -643,19 +700,16 @@
                         <span class="bet-status-icon ${statusClass}">${statusIcon}</span>
                     </div>
                     <div class="bet-body">
-                        <div class="bet-match-name">
-                            ${teamLogo ? `<img class="team-logo-small" src="${teamLogo}" onerror="this.style.display='none'">` : ''}
-                            ${escapeHtml(matchDisplay)}
-                        </div>
-                        <div class="bet-pick">${escapeHtml(pickDisplay)} <span class="bet-odds">@${parseFloat(bet.odds || 2).toFixed(2)}</span></div>
+                        ${matchDisplayHtml}
+                        <div class="bet-pick">${escapeHtml(formatBetTypeName(bet.bet_type))} <span class="bet-odds">@${parseFloat(bet.odds || 2).toFixed(2)}</span></div>
                     </div>
+                    ${selectionsHtml}
                     <div class="bet-details-grid">
                         <div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amount.toFixed(2)}</div></div>
                         <div class="bet-detail"><div class="lbl">${bet.status === 'active' ? 'Potential' : 'Payout'}</div><div class="val" style="color:${bet.status === 'won' ? '#4caf50' : (bet.status === 'lost' ? '#ff5252' : '#fff')}">$${payout.toFixed(2)}</div></div>
                         <div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${profit >= 0 ? '#4caf50' : '#ff5252'}">${profit >= 0 ? '+' : ''}$${Math.abs(profit).toFixed(2)}</div></div>
                         ${bet.status === 'active' ? `<div class="bet-detail"><div class="lbl">Est. Settlement</div><div class="val"><span class="settlement-timer" id="timer-${bet.id}">Calculating...</span></div></div>` : ''}
                     </div>
-                    ${selectionsHtml}
                     ${bet.settlement_reason ? `<div class="bet-result-row ${statusClass}"><i class="fas fa-info-circle"></i> ${escapeHtml(bet.settlement_reason)}</div>` : ''}
                     <div class="bet-timestamps">
                         <span><i class="far fa-calendar-alt"></i> Placed: ${placed.toLocaleString()}</span>
@@ -690,9 +744,9 @@
                     <div class="modal-section">
                         <h4><i class="fas fa-layer-group"></i> Accumulator Selections (${bet.selections.length})</h4>
                         ${bet.selections.map((s, i) => `
-                            <div class="selection-item">
-                                <div class="match">#${i+1} - ${escapeHtml(s.matchName)}</div>
-                                <div class="pick">${escapeHtml(s.betTypeName)} @ ${s.odds}</div>
+                            <div class="selection-item-detail">
+                                <span class="match">#${i+1} - ${escapeHtml(s.matchName)}</span>
+                                <span class="pick">${escapeHtml(s.betTypeName)} @ ${s.odds}</span>
                             </div>
                         `).join('')}
                     </div>
@@ -711,7 +765,7 @@
                     <div class="modal-row"><span class="lbl">Type</span><span>${bet.bet_type === 'accumulator' ? 'Accumulator' : 'Single'}</span></div>
                     <div class="modal-row"><span class="lbl">Status</span><span class="${bet.status}" style="color:${bet.status === 'won' ? '#4caf50' : (bet.status === 'lost' ? '#ff5252' : '#ffc107')}">${bet.status?.toUpperCase()}</span></div>
                     <div class="modal-row"><span class="lbl">Match</span><span>${escapeHtml(bet.match_name || 'N/A')}</span></div>
-                    <div class="modal-row"><span class="lbl">Bet Type</span><span>${bet.bet_name || bet.bet_type}</span></div>
+                    <div class="modal-row"><span class="lbl">Bet Type</span><span>${escapeHtml(formatBetTypeName(bet.bet_type))}</span></div>
                     <div class="modal-row"><span class="lbl">Odds</span><span>${parseFloat(bet.odds || 2).toFixed(2)}</span></div>
                     <div class="modal-row"><span class="lbl">Placed Date/Time</span><span>${placed.toLocaleString()}</span></div>
                 </div>
@@ -727,6 +781,7 @@
                     ${bet.cancellation_fee ? `<div class="modal-row"><span class="lbl">Cancel Fee</span><span>$${bet.cancellation_fee.toFixed(2)}</span></div>` : ''}
                     ${bet.refund_amount ? `<div class="modal-row"><span class="lbl">Refund Amount</span><span>$${bet.refund_amount.toFixed(2)}</span></div>` : ''}
                     ${bet.cashout_amount ? `<div class="modal-row"><span class="lbl">Cash Out Amount</span><span>$${bet.cashout_amount.toFixed(2)}</span></div>` : ''}
+                    ${bet.cashout_fee ? `<div class="modal-row"><span class="lbl">Cash Out Fee</span><span>$${bet.cashout_fee.toFixed(2)}</span></div>` : ''}
                 </div>
                 
                 ${bet.settlement_reason ? `
@@ -770,7 +825,7 @@
                     new Date(b.placed_at).toLocaleDateString(),
                     b.bet_type === 'accumulator' ? 'Accumulator' : 'Single',
                     b.match_name || '',
-                    b.bet_name || b.bet_type || '',
+                    formatBetTypeName(b.bet_type),
                     parseFloat(b.odds || 2).toFixed(2),
                     amount.toFixed(2),
                     payout.toFixed(2),
@@ -817,7 +872,7 @@
             });
         });
         
-        // Cleanup intervals
+        // Cleanup
         window.addEventListener('beforeunload', () => {
             if (refreshInterval) clearInterval(refreshInterval);
             settlementTimers.forEach(clearInterval);
@@ -832,10 +887,11 @@
         window.exportBetsToCSV = exportBetsToCSV;
         
         console.log('✅ My Bets page fully loaded');
-        console.log('   - Cancel: Only before match start');
-        console.log('   - Cash Out: Only during live matches');
-        console.log('   - One-time actions only');
-        console.log('   - Settlement timer active');
+        console.log('   - Cancel: ONLY before match start, ONE TIME ONLY');
+        console.log('   - Cash Out: ONLY during live matches, ONE TIME ONLY');
+        console.log('   - Once action taken, bet is locked forever');
+        console.log('   - Single bets show team logos');
+        console.log('   - Accumulator bets show all selections');
     </script>
 </body>
 </html>
