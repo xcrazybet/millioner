@@ -68,7 +68,8 @@
         .loading-spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid #00ff9d; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 10px; vertical-align: middle; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        #loading { text-align: center; padding: 40px; display: flex; justify-content: center; align-items: center; gap: 10px; }
+        #loading { text-align: center; padding: 40px; display: flex; justify-content: center; align-items: center; gap: 10px; flex-direction: column; }
+        .no-data { color: #ff9800; text-align: center; padding: 40px; }
         
         @media (max-width: 600px) {
             .team-logo-lg { width: 50px; height: 50px; }
@@ -95,7 +96,8 @@
         
         <div id="loading">
             <div class="loading-spinner"></div>
-            Loading match details...
+            <div>Loading match details...</div>
+            <div style="font-size: 12px; color: #a0a8c9; margin-top: 10px;">Fixture ID: <span id="fixture-id-display"></span></div>
         </div>
         
         <div id="content" style="display:none;">
@@ -142,7 +144,8 @@
 
     <script>
         // ============================================
-        // STANDALONE MATCH DETAILS PAGE
+        // MATCH DETAILS PAGE - CORRECTED VERSION
+        // No elapsed column dependency
         // ============================================
         
         // Supabase Configuration
@@ -158,7 +161,7 @@
             console.error('Failed to initialize Supabase:', e);
         }
         
-        // Firebase Config
+        // Firebase Config (Wallet only)
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
             authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -177,7 +180,12 @@
         const db = firebase.firestore();
         const auth = firebase.auth();
         
-        // ===== WALLET FUNCTIONS =====
+        // Get fixture ID from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const fixtureId = urlParams.get('id');
+        document.getElementById('fixture-id-display').textContent = fixtureId || 'Not provided';
+        
+        // ===== FIREBASE WALLET FUNCTIONS =====
         async function getWalletBalance(userId) {
             try {
                 const doc = await db.collection('wallets').doc(userId).get();
@@ -197,13 +205,13 @@
             }
         }
         
-        async function updateBalance(userId, amount, betId) {
+        async function deductBalance(userId, amount, betId) {
             const walletRef = db.collection('wallets').doc(userId);
             try {
                 const result = await db.runTransaction(async (transaction) => {
                     const doc = await transaction.get(walletRef);
                     const currentBalance = doc.exists ? doc.data().balance : 0;
-                    const newBalance = currentBalance + amount;
+                    const newBalance = currentBalance - amount;
                     
                     if (newBalance < 0) throw new Error('Insufficient balance');
                     
@@ -212,58 +220,71 @@
                         updated_at: new Date().toISOString()
                     });
                     
+                    // Log transaction
+                    const txRef = db.collection('transactions').doc();
+                    transaction.set(txRef, {
+                        user_id: userId,
+                        amount: -amount,
+                        type: 'bet_place',
+                        bet_id: betId,
+                        balance_before: currentBalance,
+                        balance_after: newBalance,
+                        timestamp: new Date().toISOString()
+                    });
+                    
                     return newBalance;
                 });
                 return result;
             } catch(e) {
-                console.error('Balance update error:', e);
+                console.error('Balance deduct error:', e);
                 throw e;
             }
         }
         
-        // ===== BET FUNCTIONS =====
+        // ===== SUPABASE FUNCTIONS =====
+        async function getMatch(fixtureId) {
+            const { data, error } = await supabaseClient
+                .from('sports_matches')
+                .select('*')
+                .eq('fixture_id', parseInt(fixtureId))
+                .single();
+            
+            if (error) throw error;
+            return data;
+        }
+        
         async function placeBet(betData) {
             const user = auth.currentUser;
             if (!user) throw new Error('Not authenticated');
             
-            // Check match is live
-            const { data: match, error: matchError } = await supabaseClient
-                .from('sports_matches')
-                .select('status, bets_closed, elapsed')
-                .eq('fixture_id', betData.fixture_id)
-                .single();
-            
-            if (matchError) throw new Error('Match not found');
+            // Check match exists and is live
+            const match = await getMatch(betData.fixture_id);
+            if (!match) throw new Error('Match not found');
             if (match.status !== 'live') throw new Error('Betting only for live matches');
             if (match.bets_closed) throw new Error('Betting closed');
-            if (match.elapsed >= 80) throw new Error('Betting closes at 80th minute');
             
-            // Check balance
-            const balance = await getWalletBalance(user.uid);
-            if (balance < betData.amount) throw new Error('Insufficient balance');
-            
-            // Create bet
+            // Create bet record
             const bet = {
                 id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 user_id: user.uid,
                 fixture_id: betData.fixture_id,
                 bet_type: betData.bet_type,
+                bet_name: betData.bet_name,
                 odds: betData.odds,
                 amount: betData.amount,
                 potential_win: betData.amount * betData.odds,
                 status: 'active',
-                placed_at: new Date().toISOString()
+                placed_at: new Date().toISOString(),
+                match_status_at_bet: match.status,
+                match_score_at_bet: match.score
             };
             
-            // Deduct balance
-            await updateBalance(user.uid, -betData.amount, bet.id);
+            // Deduct from Firebase wallet
+            await deductBalance(user.uid, betData.amount, bet.id);
             
-            // Save bet
-            const { error: saveError } = await supabaseClient
-                .from('bets')
-                .insert(bet);
-            
-            if (saveError) throw saveError;
+            // Save to Supabase
+            const { error } = await supabaseClient.from('bets').insert(bet);
+            if (error) throw error;
             
             return bet;
         }
@@ -275,10 +296,6 @@
         let currentTab = '1x2';
         let refreshInterval = null;
         
-        // Get fixture ID from URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const fixtureId = urlParams.get('id');
-        
         // Language toggle
         window.toggleLanguage = function() {
             const isArabic = document.body.classList.toggle('arabic');
@@ -289,7 +306,6 @@
         
         if (localStorage.getItem('lang') === 'ar') toggleLanguage();
         
-        // Show/hide messages
         function showError(message) {
             const errorDiv = document.getElementById('error-message');
             errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
@@ -308,13 +324,9 @@
             }, 3000);
         }
         
-        function hideMessages() {
-            document.getElementById('error-message').style.display = 'none';
-            document.getElementById('success-message').style.display = 'none';
-        }
-        
         function escapeHtml(str) {
             if (!str) return '';
+            if (typeof str === 'object') return JSON.stringify(str);
             return String(str).replace(/[&<>]/g, function(m) {
                 if (m === '&') return '&amp;';
                 if (m === '<') return '&lt;';
@@ -323,31 +335,18 @@
             });
         }
         
-        // Load match from database
+        // Load match
         async function loadMatch() {
             if (!fixtureId) {
                 showError('No match selected');
-                document.getElementById('loading').style.display = 'none';
-                return;
-            }
-            
-            if (!supabaseClient) {
-                showError('Database not connected');
-                document.getElementById('loading').innerHTML = '<div style="color:#ff5252;">Database connection failed. Please refresh the page.</div>';
+                document.getElementById('loading').innerHTML = '<div class="no-data">No match selected<br><a href="upcoming-matches.html" style="color:#00ff9d;">Go to Matches</a></div>';
                 return;
             }
             
             try {
-                const { data, error } = await supabaseClient
-                    .from('sports_matches')
-                    .select('*')
-                    .eq('fixture_id', parseInt(fixtureId))
-                    .single();
-                
-                if (error) throw error;
-                if (!data) throw new Error('Match not found');
-                
-                currentMatch = data;
+                console.log(`Loading match ${fixtureId}...`);
+                currentMatch = await getMatch(fixtureId);
+                console.log('Match loaded:', currentMatch);
                 
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
@@ -356,7 +355,6 @@
                 renderBetOptions();
                 checkBettingAvailability();
                 
-                // Auto-refresh for live matches
                 if (currentMatch.status === 'live') {
                     startAutoRefresh();
                 } else if (currentMatch.status === 'upcoming') {
@@ -364,23 +362,34 @@
                 }
                 
             } catch(e) {
-                console.error('Error loading match:', e);
-                showError(e.message);
-                document.getElementById('loading').innerHTML = `<div style="color:#ff5252;text-align:center;padding:40px;">Error: ${e.message}</div>`;
+                console.error('Error:', e);
+                document.getElementById('loading').innerHTML = `
+                    <div class="no-data">
+                        <i class="fas fa-exclamation-triangle"></i><br>
+                        Error: ${e.message}<br><br>
+                        <button onclick="location.reload()" style="background:#00ff9d; color:black; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">Retry</button>
+                    </div>
+                `;
             }
         }
         
-        // Render match details
         function renderMatchDetails() {
             if (!currentMatch) return;
             
             const isLive = currentMatch.status === 'live';
-            const homeTeam = currentMatch.home_team || { name: 'Home', logo: '' };
-            const awayTeam = currentMatch.away_team || { name: 'Away', logo: '' };
+            let homeTeam = currentMatch.home_team;
+            let awayTeam = currentMatch.away_team;
+            
+            if (typeof homeTeam === 'string') homeTeam = JSON.parse(homeTeam);
+            if (typeof awayTeam === 'string') awayTeam = JSON.parse(awayTeam);
+            
+            homeTeam = homeTeam || { name: 'Home', logo: '' };
+            awayTeam = awayTeam || { name: 'Away', logo: '' };
+            
             const matchDate = new Date(currentMatch.start_time);
             const score = currentMatch.score || { home: 0, away: 0 };
             
-            const heroHtml = `
+            document.getElementById('match-hero').innerHTML = `
                 <div class="teams-large">
                     <div>
                         <img class="team-logo-lg" src="${homeTeam.logo || 'https://via.placeholder.com/80'}" 
@@ -388,7 +397,7 @@
                         <div class="team-name-lg">${escapeHtml(homeTeam.name)}</div>
                     </div>
                     <div class="vs-large">
-                        ${isLive ? `<span class="live-score">${score.home} - ${score.away}</span>` : 'VS'}
+                        ${isLive ? `<span class="live-score">${score.home || 0} - ${score.away || 0}</span>` : 'VS'}
                     </div>
                     <div>
                         <img class="team-logo-lg" src="${awayTeam.logo || 'https://via.placeholder.com/80'}" 
@@ -401,18 +410,16 @@
                     <i class="far fa-calendar"></i> ${matchDate.toLocaleDateString()} &nbsp;|&nbsp;
                     <i class="far fa-clock"></i> ${matchDate.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
                 </div>
-                ${isLive ? `<div class="live-status"><i class="fas fa-circle"></i> LIVE ${currentMatch.elapsed || 0}'</div>` : ''}
+                ${isLive ? `<div class="live-status"><i class="fas fa-circle"></i> LIVE</div>` : ''}
             `;
-            
-            document.getElementById('match-hero').innerHTML = heroHtml;
         }
         
-        // Render betting options
         function renderBetOptions() {
             if (!currentMatch) return;
             
-            const odds = currentMatch.odds || { home: 2.50, draw: 3.20, away: 2.80 };
-            const container = document.getElementById('bet-options-container');
+            let odds = currentMatch.odds;
+            if (typeof odds === 'string') odds = JSON.parse(odds);
+            odds = odds || { home: 2.50, draw: 3.20, away: 2.80 };
             
             let html = '<div class="bet-options">';
             
@@ -433,7 +440,6 @@
                         </div>
                     `;
                     break;
-                    
                 case 'double':
                     const homeDraw = 1 / ((1/odds.home) + (1/odds.draw));
                     const homeAway = 1 / ((1/odds.home) + (1/odds.away));
@@ -453,7 +459,6 @@
                         </div>
                     `;
                     break;
-                    
                 case 'overunder':
                     html += `
                         <div class="bet-option" data-type="over25" data-odds="1.85" data-name="Over 2.5 Goals">
@@ -466,7 +471,6 @@
                         </div>
                     `;
                     break;
-                    
                 case 'btts':
                     html += `
                         <div class="bet-option" data-type="btts_yes" data-odds="1.90" data-name="Both Teams to Score">
@@ -482,123 +486,79 @@
             }
             
             html += '</div>';
-            container.innerHTML = html;
+            document.getElementById('bet-options-container').innerHTML = html;
             
-            // Add click handlers
             document.querySelectorAll('.bet-option').forEach(opt => {
                 opt.addEventListener('click', function() {
-                    if (this.classList.contains('disabled')) return;
-                    
                     document.querySelectorAll('.bet-option').forEach(o => o.classList.remove('selected'));
                     this.classList.add('selected');
-                    
                     selectedBet = {
                         type: this.dataset.type,
                         name: this.dataset.name,
                         odds: parseFloat(this.dataset.odds)
                     };
                     selectedOdds = selectedBet.odds;
-                    
                     const amount = parseFloat(document.getElementById('bet-amount').value) || 0;
-                    updatePotentialWin(amount);
-                    
+                    document.getElementById('potential-win').textContent = `$${(amount * selectedOdds).toFixed(2)}`;
                     document.getElementById('place-bet-btn').disabled = false;
                 });
             });
         }
         
-        // Update potential win
-        function updatePotentialWin(amount) {
-            if (selectedOdds && amount > 0) {
-                const potential = (amount * selectedOdds).toFixed(2);
-                document.getElementById('potential-win').textContent = `$${potential}`;
-            } else {
-                document.getElementById('potential-win').textContent = '$0.00';
-            }
-        }
-        
-        // Check betting availability
         function checkBettingAvailability() {
             if (!currentMatch) return;
             
             const isLive = currentMatch.status === 'live';
             const isBetsClosed = currentMatch.bets_closed;
-            const elapsed = currentMatch.elapsed || 0;
             
             if (!isLive) {
-                const infoMsg = document.getElementById('betting-info');
-                if (infoMsg) infoMsg.innerHTML = '<i class="fas fa-info-circle"></i> Betting only available for LIVE matches';
+                document.getElementById('betting-info').innerHTML = '<i class="fas fa-info-circle"></i> Betting only available for LIVE matches';
                 document.getElementById('place-bet-btn').disabled = true;
-            } else if (isBetsClosed || elapsed >= 80) {
-                const infoMsg = document.getElementById('betting-info');
-                if (infoMsg) infoMsg.innerHTML = '<i class="fas fa-ban"></i> Betting closed - Match in final minutes';
+            } else if (isBetsClosed) {
+                document.getElementById('betting-info').innerHTML = '<i class="fas fa-ban"></i> Betting closed';
                 document.getElementById('place-bet-btn').disabled = true;
             } else {
-                const infoMsg = document.getElementById('betting-info');
-                if (infoMsg) infoMsg.innerHTML = '<i class="fas fa-check-circle"></i> Betting active! Place your bets';
+                document.getElementById('betting-info').innerHTML = '<i class="fas fa-check-circle"></i> Betting active!';
             }
         }
         
-        // Auto-refresh for live matches
         function startAutoRefresh() {
             if (refreshInterval) clearInterval(refreshInterval);
-            
             refreshInterval = setInterval(async () => {
                 if (currentMatch && currentMatch.status === 'live') {
                     try {
-                        const { data, error } = await supabaseClient
-                            .from('sports_matches')
-                            .select('*')
-                            .eq('fixture_id', currentMatch.fixture_id)
-                            .single();
-                        
-                        if (!error && data) {
-                            const oldScore = currentMatch.score;
-                            currentMatch = data;
+                        const freshMatch = await getMatch(fixtureId);
+                        if (freshMatch) {
+                            currentMatch = freshMatch;
                             renderMatchDetails();
                             checkBettingAvailability();
-                            
-                            // Refresh odds if changed
-                            if (JSON.stringify(oldScore) !== JSON.stringify(data.score)) {
-                                renderBetOptions();
-                            }
                         }
-                        
-                        // Update balance
                         await updateBalanceDisplay();
-                    } catch(e) {
-                        console.error('Refresh error:', e);
-                    }
+                    } catch(e) { console.error('Refresh error:', e); }
                 }
             }, 15000);
         }
         
-        // Countdown for upcoming matches
         function startCountdown() {
             const countdownEl = document.getElementById('countdown-timer');
-            if (!countdownEl) return;
-            
             const matchTime = new Date(currentMatch.start_time);
             
-            function updateCountdown() {
+            function update() {
                 const now = new Date();
                 const diff = matchTime - now;
-                
                 if (diff <= 0) {
-                    countdownEl.innerHTML = '<span style="color:#00ff9d;"><i class="fas fa-play"></i> Match Started!</span>';
-                    setTimeout(() => location.reload(), 3000);
+                    countdownEl.innerHTML = '<span style="color:#00ff9d;">Match Started! Refresh to bet</span>';
+                    clearInterval(countdownInterval);
                 } else {
                     const minutes = Math.floor(diff / 60000);
                     const seconds = Math.floor((diff % 60000) / 1000);
-                    countdownEl.innerHTML = `<i class="fas fa-hourglass-half"></i> Match starts in: ${minutes}m ${seconds}s`;
-                    setTimeout(updateCountdown, 1000);
+                    countdownEl.innerHTML = `<i class="fas fa-hourglass-half"></i> Starts in: ${minutes}m ${seconds}s`;
                 }
             }
-            
-            updateCountdown();
+            update();
+            const countdownInterval = setInterval(update, 1000);
         }
         
-        // Update balance display
         async function updateBalanceDisplay() {
             const user = auth.currentUser;
             if (user) {
@@ -607,42 +567,27 @@
             }
         }
         
-        // Place bet
         async function placeBetHandler() {
-            if (!selectedBet) {
-                showError('Please select an outcome');
-                return;
-            }
+            if (!selectedBet) { showError('Select an outcome'); return; }
             
             const amount = parseFloat(document.getElementById('bet-amount').value);
-            
-            if (isNaN(amount) || amount < 1) {
-                showError('Minimum bet is $1');
-                return;
-            }
+            if (isNaN(amount) || amount < 1) { showError('Minimum bet $1'); return; }
             
             const user = auth.currentUser;
-            if (!user) {
-                showError('Please login to place bets');
-                window.location.href = '../login.html';
-                return;
-            }
+            if (!user) { window.location.href = '../login.html'; return; }
             
             const balance = await getWalletBalance(user.uid);
-            if (amount > balance) {
-                showError('Insufficient balance!');
-                return;
-            }
+            if (amount > balance) { showError('Insufficient balance!'); return; }
             
             const btn = document.getElementById('place-bet-btn');
             btn.disabled = true;
             btn.innerHTML = '<div class="loading-spinner"></div> Processing...';
-            hideMessages();
             
             try {
-                const bet = await placeBet({
+                await placeBet({
                     fixture_id: parseInt(fixtureId),
                     bet_type: selectedBet.type,
+                    bet_name: selectedBet.name,
                     odds: selectedOdds,
                     amount: amount
                 });
@@ -650,21 +595,8 @@
                 await updateBalanceDisplay();
                 showSuccess(`Bet placed! Potential win: $${(amount * selectedOdds).toFixed(2)}`);
                 
-                // Reset form
-                selectedBet = null;
-                selectedOdds = null;
-                document.getElementById('bet-amount').value = '10';
-                document.getElementById('potential-win').textContent = '$0.00';
-                document.querySelectorAll('.bet-option').forEach(o => o.classList.remove('selected'));
-                btn.disabled = true;
-                btn.innerHTML = 'Place Bet';
-                
-                setTimeout(() => {
-                    window.location.href = 'my-bets.html';
-                }, 2000);
-                
+                setTimeout(() => { window.location.href = 'my-bets.html'; }, 2000);
             } catch(e) {
-                console.error('Bet error:', e);
                 showError(e.message);
                 btn.disabled = false;
                 btn.innerHTML = 'Place Bet';
@@ -672,51 +604,42 @@
         }
         
         // Setup event listeners
-        function setupEventListeners() {
-            // Tab switching
-            document.querySelectorAll('.bet-type-tab').forEach(tab => {
-                tab.addEventListener('click', function() {
-                    document.querySelectorAll('.bet-type-tab').forEach(t => t.classList.remove('active'));
-                    this.classList.add('active');
-                    currentTab = this.dataset.tab;
-                    renderBetOptions();
-                });
+        document.querySelectorAll('.bet-type-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.bet-type-tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                currentTab = this.dataset.tab;
+                renderBetOptions();
             });
-            
-            // Quick amount buttons
-            document.querySelectorAll('.quick-amount').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const amount = btn.dataset.amount;
-                    document.getElementById('bet-amount').value = amount;
-                    updatePotentialWin(parseFloat(amount));
-                });
-            });
-            
-            // Amount input
-            document.getElementById('bet-amount').addEventListener('input', (e) => {
-                updatePotentialWin(parseFloat(e.target.value) || 0);
-            });
-            
-            // Place bet button
-            document.getElementById('place-bet-btn').addEventListener('click', placeBetHandler);
-        }
+        });
         
-        // Initialize page
-        auth.onAuthStateChanged(async (user) => {
-            if (!user) {
-                window.location.href = '../login.html';
-                return;
+        document.querySelectorAll('.quick-amount').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const amount = btn.dataset.amount;
+                document.getElementById('bet-amount').value = amount;
+                if (selectedOdds) {
+                    document.getElementById('potential-win').textContent = `$${(parseFloat(amount) * selectedOdds).toFixed(2)}`;
+                }
+            });
+        });
+        
+        document.getElementById('bet-amount').addEventListener('input', (e) => {
+            if (selectedOdds) {
+                const amount = parseFloat(e.target.value) || 0;
+                document.getElementById('potential-win').textContent = `$${(amount * selectedOdds).toFixed(2)}`;
             }
-            
+        });
+        
+        document.getElementById('place-bet-btn').addEventListener('click', placeBetHandler);
+        
+        // Initialize
+        auth.onAuthStateChanged(async (user) => {
+            if (!user) { window.location.href = '../login.html'; return; }
             await updateBalanceDisplay();
             await loadMatch();
-            setupEventListeners();
-            
-            // Refresh balance every 30 seconds
             setInterval(updateBalanceDisplay, 30000);
         });
         
-        // Cleanup
         window.addEventListener('beforeunload', () => {
             if (refreshInterval) clearInterval(refreshInterval);
         });
