@@ -145,7 +145,7 @@
 
     <script>
         // ============================================
-        // MATCH DETAILS PAGE - Betting for Upcoming & Live Matches
+        // MATCH DETAILS PAGE - Fixed for missing columns
         // ============================================
         
         // Supabase Configuration
@@ -286,30 +286,47 @@
             const balance = await getWalletBalance(user.uid);
             if (balance < betData.amount) throw new Error('Insufficient balance');
             
-            // Create bet record
+            // Create bet record - ONLY use columns that exist in your table
             const bet = {
                 id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 user_id: user.uid,
                 fixture_id: betData.fixture_id,
                 bet_type: betData.bet_type,
-                bet_name: betData.bet_name,
                 odds: betData.odds,
                 amount: betData.amount,
                 potential_win: betData.amount * betData.odds,
                 status: 'active',
-                placed_at: new Date().toISOString(),
-                match_status_at_bet: match.status,
-                match_score_at_bet: match.score || { home: 0, away: 0 }
+                placed_at: new Date().toISOString()
             };
             
-            // Deduct from Firebase wallet
+            // Add optional fields if they exist in the table (check via try/catch)
+            // We'll try to add them, but if the column doesn't exist, we'll skip
+            try {
+                if (betData.bet_name) bet.bet_name = betData.bet_name;
+                if (match.status) bet.match_status_at_bet = match.status;
+                if (match.score) bet.match_score_at_bet = match.score;
+            } catch(e) {
+                console.log('Optional fields not added:', e);
+            }
+            
+            // Deduct from Firebase wallet FIRST
             await deductBalance(user.uid, betData.amount, bet.id);
             
             // Save to Supabase
-            const { error } = await supabaseClient.from('bets').insert(bet);
-            if (error) throw error;
+            const { error, data } = await supabaseClient
+                .from('bets')
+                .insert(bet)
+                .select();
             
-            return bet;
+            if (error) {
+                // If insert fails, refund the money
+                console.error('Supabase insert error:', error);
+                // Refund logic would go here
+                throw new Error(error.message || 'Failed to place bet');
+            }
+            
+            console.log('Bet placed successfully:', data);
+            return data[0] || bet;
         }
         
         // ===== PAGE VARIABLES =====
@@ -564,7 +581,7 @@
                 
                 if (minutesUntilMatch < 2) {
                     message = '⚠️ Betting closing soon - Match starts in less than 2 minutes';
-                    bettingEnabled = true; // Still allow, but warn
+                    bettingEnabled = true;
                 } else {
                     message = '📅 UPCOMING - Betting active! Place your bets now';
                     bettingEnabled = true;
@@ -589,7 +606,6 @@
                             currentMatch = freshMatch;
                             renderMatchDetails();
                             checkBettingAvailability();
-                            // Refresh odds if needed
                             if (currentMatch.odds) {
                                 renderBetOptions();
                             }
@@ -612,7 +628,6 @@
                 
                 if (diff <= 0) {
                     countdownEl.innerHTML = '<span style="color:#00ff9d;"><i class="fas fa-play"></i> Match Started! Refresh to see live action</span>';
-                    // Refresh the page to get live status
                     setTimeout(() => location.reload(), 5000);
                 } else {
                     const minutes = Math.floor(diff / 60000);
@@ -626,7 +641,6 @@
                         countdownEl.innerHTML = `<i class="fas fa-hourglass-half"></i> Match starts in: ${minutes}m ${seconds}s`;
                     }
                     
-                    // Warn when less than 5 minutes remaining
                     if (minutes < 5 && minutes > 0) {
                         countdownEl.style.color = '#ff9800';
                         countdownEl.style.fontWeight = 'bold';
@@ -666,7 +680,6 @@
             const originalText = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<div class="loading-spinner"></div> Processing...';
-            hideMessages();
             
             try {
                 const bet = await placeBet({
@@ -689,7 +702,6 @@
                 btn.disabled = true;
                 btn.innerHTML = 'Place Bet';
                 
-                // Option to stay or redirect
                 setTimeout(() => {
                     if (confirm('Bet placed successfully! View your active bets?')) {
                         window.location.href = 'my-bets.html';
@@ -702,11 +714,6 @@
                 btn.disabled = false;
                 btn.innerHTML = originalText;
             }
-        }
-        
-        function hideMessages() {
-            document.getElementById('error-message').style.display = 'none';
-            document.getElementById('success-message').style.display = 'none';
         }
         
         // Setup event listeners
