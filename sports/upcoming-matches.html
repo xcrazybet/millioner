@@ -143,16 +143,16 @@
 
     <script>
         // ============================================
-        // UPCOMING MATCHES - FIXED VERSION
+        // UPCOMING MATCHES - FULLY FIXED
         // ============================================
         
-        // Supabase Configuration (for matches only, not wallet)
+        // Supabase Configuration
         const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
         
         let supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
-        // Firebase Config (for wallet only)
+        // Firebase Config
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
             authDomain: "x-bet-prod-jd.firebaseapp.com",
@@ -174,10 +174,11 @@
         let selectedLeague = 'all';
         let selectedDate = '';
         let isLoading = false;
+        let accumulatorSlip = [];
         
         const API_BASE = 'https://millioner.onrender.com';
         
-        // ===== FIREBASE WALLET FUNCTIONS (Direct, no Supabase) =====
+        // ===== FIREBASE WALLET FUNCTIONS =====
         async function loadBalance() {
             try {
                 const user = auth.currentUser;
@@ -186,7 +187,6 @@
                 const doc = await db.collection('wallets').doc(user.uid).get();
                 const balance = doc.exists ? (doc.data().balance || 0) : 1000;
                 
-                // Create wallet if doesn't exist
                 if (!doc.exists) {
                     await db.collection('wallets').doc(user.uid).set({
                         balance: 1000,
@@ -214,7 +214,6 @@
                 const today = new Date();
                 const dates = [];
                 
-                // Get today + next 7 days (8 days total)
                 for (let i = 0; i <= 7; i++) {
                     const date = new Date(today);
                     date.setDate(today.getDate() + i);
@@ -222,109 +221,80 @@
                     dates.push(dateStr);
                 }
                 
-                console.log(`📅 Loading ${dates.length} days (today + next 7 days):`, dates);
-                
-                // Fetch all dates in parallel
                 const fetchPromises = dates.map(date => 
                     fetch(`${API_BASE}/api/fixtures/date/${date}`).then(r => r.json())
                 );
                 
                 const results = await Promise.all(fetchPromises);
-                let allMatchesData = [];
+                allMatches = [];
+                liveMatches = [];
+                upcomingMatches = [];
                 
                 for (let i = 0; i < results.length; i++) {
                     const data = results[i];
-                    const date = dates[i];
                     if (data.success && data.data && data.data.length > 0) {
-                        allMatchesData.push(...data.data);
-                        console.log(`   ✅ ${date}: ${data.data.length} matches`);
+                        data.data.forEach(m => {
+                            const matchTime = new Date(m.fixture.date);
+                            const statusShort = m.fixture.status?.short;
+                            const isLive = statusShort === '1H' || statusShort === '2H' || statusShort === 'HT';
+                            
+                            const transformedMatch = {
+                                fixture_id: m.fixture.id,
+                                start_time: m.fixture.date,
+                                status: isLive ? 'live' : (matchTime > new Date() ? 'upcoming' : 'finished'),
+                                league_id: m.league.id,
+                                league_name: m.league.name,
+                                league_logo: m.league.logo,
+                                home_team: {
+                                    id: m.teams.home.id,
+                                    name: m.teams.home.name,
+                                    logo: m.teams.home.logo
+                                },
+                                away_team: {
+                                    id: m.teams.away.id,
+                                    name: m.teams.away.name,
+                                    logo: m.teams.away.logo
+                                },
+                                odds: {
+                                    home: (1.80 + ((m.fixture.id % 20) / 100)).toFixed(2),
+                                    draw: (3.20 + ((m.fixture.id % 15) / 100)).toFixed(2),
+                                    away: (2.80 + ((m.fixture.id % 25) / 100)).toFixed(2)
+                                },
+                                score: { home: m.goals?.home || 0, away: m.goals?.away || 0 },
+                                elapsed: m.fixture.status?.elapsed || 0
+                            };
+                            allMatches.push(transformedMatch);
+                            
+                            if (isLive) {
+                                liveMatches.push(transformedMatch);
+                            } else if (matchTime > new Date()) {
+                                upcomingMatches.push(transformedMatch);
+                            }
+                        });
                     }
                 }
                 
-                console.log(`📊 Total: ${allMatchesData.length} matches found`);
-                
-                if (allMatchesData.length === 0) {
-                    document.getElementById('matches-container').innerHTML = '<div class="empty-state">No upcoming matches found for the next 7 days</div>';
-                    document.getElementById('debug-text').innerHTML = 'No matches found for next 7 days';
-                    isLoading = false;
-                    return;
-                }
-                
-                // Transform and separate live vs upcoming
-                const now = new Date();
-                allMatchesData.forEach(m => {
-                    const matchTime = new Date(m.fixture.date);
-                    const statusShort = m.fixture.status?.short;
-                    const isLive = statusShort === '1H' || statusShort === '2H' || statusShort === 'HT';
-                    
-                    const transformedMatch = {
-                        fixture_id: m.fixture.id,
-                        start_time: m.fixture.date,
-                        status: isLive ? 'live' : (matchTime > now ? 'upcoming' : 'finished'),
-                        league_id: m.league.id,
-                        league_name: m.league.name,
-                        league_logo: m.league.logo,
-                        home_team: {
-                            id: m.teams.home.id,
-                            name: m.teams.home.name,
-                            logo: m.teams.home.logo
-                        },
-                        away_team: {
-                            id: m.teams.away.id,
-                            name: m.teams.away.name,
-                            logo: m.teams.away.logo
-                        },
-                        odds: {
-                            home: (1.80 + ((m.fixture.id % 20) / 100)).toFixed(2),
-                            draw: (3.20 + ((m.fixture.id % 15) / 100)).toFixed(2),
-                            away: (2.80 + ((m.fixture.id % 25) / 100)).toFixed(2)
-                        },
-                        score: { home: m.goals?.home || 0, away: m.goals?.away || 0 },
-                        elapsed: m.fixture.status?.elapsed || 0
-                    };
-                    allMatches.push(transformedMatch);
-                });
-                
-                // Split into live and upcoming
-                liveMatches = allMatches.filter(m => m.status === 'live');
-                upcomingMatches = allMatches.filter(m => m.status === 'upcoming');
-                
-                console.log(`🔴 Live matches: ${liveMatches.length}`);
-                console.log(`📅 Upcoming matches: ${upcomingMatches.length}`);
-                
-                // Sort by date
                 upcomingMatches.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
                 
-                const uniqueDates = [...new Set(upcomingMatches.map(m => new Date(m.start_time).toDateString()))];
-                const uniqueLeagues = [...new Set(upcomingMatches.map(m => m.league_name))];
-                
-                document.getElementById('debug-text').innerHTML = `✅ ${upcomingMatches.length} upcoming matches | ${liveMatches.length} live | ${uniqueDates.length} days | ${uniqueLeagues.length} leagues`;
-                
+                document.getElementById('debug-text').innerHTML = `✅ ${upcomingMatches.length} upcoming | ${liveMatches.length} live`;
                 renderMatches();
                 startCountdowns();
                 
             } catch(e) {
                 console.error(e);
                 document.getElementById('debug-text').innerHTML = `❌ Error: ${e.message}`;
-                document.getElementById('matches-container').innerHTML = `<div class="empty-state">Error loading matches: ${e.message}</div>`;
             } finally {
                 isLoading = false;
             }
         }
         
-        // ===== RENDER MATCHES (Live + Upcoming separate) =====
         function renderMatches() {
             let html = '';
             
             // Live Matches Section
             if (liveMatches.length > 0) {
-                html += `
-                    <div class="section-title live">
-                        <h3><i class="fas fa-circle" style="color:#ff4444; font-size:12px;"></i> LIVE MATCHES (${liveMatches.length})</h3>
-                    </div>
-                `;
+                html += `<div class="section-title live"><h3><i class="fas fa-circle" style="color:#ff4444; font-size:12px;"></i> LIVE MATCHES (${liveMatches.length})</h3></div>`;
                 
-                // Group live matches by league
                 const liveByLeague = {};
                 liveMatches.forEach(m => {
                     const leagueName = m.league_name || 'Other Leagues';
@@ -353,11 +323,7 @@
             
             // Upcoming Matches Section
             if (upcomingMatches.length > 0) {
-                html += `
-                    <div class="section-title">
-                        <h3><i class="fas fa-calendar-alt"></i> UPCOMING MATCHES (${upcomingMatches.length})</h3>
-                    </div>
-                `;
+                html += `<div class="section-title"><h3><i class="fas fa-calendar-alt"></i> UPCOMING MATCHES (${upcomingMatches.length})</h3></div>`;
                 
                 const filtered = filterMatchesArray(upcomingMatches);
                 
@@ -510,7 +476,6 @@
             `;
         }
         
-        // ===== NAVIGATION =====
         function goToMatch(fixtureId) { 
             location.href = `match-details.html?id=${fixtureId}`; 
         }
@@ -520,7 +485,6 @@
             location.href = `match-details.html?id=${fixtureId}`; 
         }
         
-        // ===== FILTER FUNCTIONS =====
         function filterMatches() {
             renderMatches();
         }
@@ -531,7 +495,6 @@
             renderMatches();
         }
         
-        // ===== COUNTDOWN TIMER =====
         function startCountdowns() {
             if (countdownInterval) clearInterval(countdownInterval);
             
@@ -560,9 +523,7 @@
             countdownInterval = setInterval(updateCountdowns, 1000);
         }
         
-        // ===== BET SLIP FUNCTIONS (FIXED) =====
-        let accumulatorSlip = [];
-        
+        // ===== BET SLIP FUNCTIONS =====
         function addToSlip(fixtureId, homeTeam, awayTeam, homeOdds, drawOdds, awayOdds) {
             const betType = prompt('Select bet type:\n1 - Home Win\n2 - Draw\n3 - Away Win', '1');
             let betTypeName = '';
@@ -625,7 +586,6 @@
         function removeFromSlip(index) {
             accumulatorSlip.splice(index, 1);
             updateSlipUI();
-            saveSlip();
         }
         
         function clearAllSlip() { 
@@ -633,21 +593,7 @@
             updateSlipUI(); 
         }
         
-        function saveSlip() {
-            // Optional: save to localStorage
-            localStorage.setItem('accumulatorSlip', JSON.stringify(accumulatorSlip));
-        }
-        
-        function loadSlip() {
-            const saved = localStorage.getItem('accumulatorSlip');
-            if (saved) {
-                try {
-                    accumulatorSlip = JSON.parse(saved);
-                    updateSlipUI();
-                } catch(e) {}
-            }
-        }
-        
+        // ===== FIXED ACCUMULATOR BET PLACEMENT =====
         async function placeAccumulatorBet() {
             if (accumulatorSlip.length < 2) {
                 alert('Add at least 2 selections');
@@ -666,14 +612,12 @@
                 return;
             }
             
-            // Check balance
             const balance = await loadBalance();
             if (amount > balance) {
                 alert(`Insufficient balance! Your balance: $${balance.toFixed(2)}`);
                 return;
             }
             
-            // Calculate total odds and potential win
             let totalOdds = 1;
             accumulatorSlip.forEach(s => totalOdds *= s.odds);
             const potentialWin = amount * totalOdds;
@@ -683,11 +627,12 @@
             }
             
             try {
-                // Create bet record
+                // IMPORTANT: For accumulator bets, fixture_id is NULL
                 const betId = Date.now();
                 const bet = {
                     id: betId,
                     user_id: user.uid,
+                    fixture_id: null,
                     bet_type: 'accumulator',
                     bet_name: `${accumulatorSlip.length}-fold Accumulator`,
                     odds: totalOdds,
@@ -698,32 +643,40 @@
                     selections: accumulatorSlip
                 };
                 
-                // Save to Supabase
-                const { error } = await supabaseClient.from('bets').insert(bet);
-                if (error) throw error;
+                console.log('Placing accumulator bet:', bet);
                 
-                // Deduct from Firebase wallet
+                const { data, error } = await supabaseClient
+                    .from('bets')
+                    .insert(bet)
+                    .select();
+                
+                if (error) {
+                    console.error('Supabase error:', error);
+                    throw new Error(error.message);
+                }
+                
                 const walletRef = db.collection('wallets').doc(user.uid);
                 await walletRef.update({
                     balance: firebase.firestore.FieldValue.increment(-amount),
                     updated_at: new Date().toISOString()
                 });
                 
-                alert(`✅ Bet placed! Potential win: $${potentialWin.toFixed(2)}`);
+                alert(`✅ Accumulator bet placed!\nStake: $${amount}\nPotential Win: $${potentialWin.toFixed(2)}`);
                 
-                // Clear slip and redirect
                 accumulatorSlip = [];
                 updateSlipUI();
                 await loadBalance();
-                location.href = 'my-bets.html';
+                
+                if (confirm('View your active bets?')) {
+                    location.href = 'my-bets.html';
+                }
                 
             } catch(e) {
                 console.error('Bet error:', e);
-                alert(`Failed to place bet: ${e.message}`);
+                alert(`Failed to place bet: ${e.message}\n\nPlease ensure the database has been updated to allow NULL fixture_id for accumulator bets.`);
             }
         }
         
-        // ===== LEAGUES LOADER =====
         async function loadLeagues() {
             try {
                 const res = await fetch(`${API_BASE}/api/leagues`);
@@ -742,15 +695,13 @@
             document.getElementById('league-filter').onchange = (e) => { selectedLeague = e.target.value; renderMatches(); };
         }
         
-        // ===== AUTO REFRESH =====
         function startAutoRefresh() {
             setInterval(() => {
                 loadMatches();
                 loadBalance();
-            }, 300000); // 5 minutes
+            }, 300000);
         }
         
-        // ===== HELPERS =====
         function escapeHtml(str) {
             if (!str) return '';
             return String(str).replace(/[&<>]/g, function(m) {
@@ -779,7 +730,6 @@
             await loadBalance();
             await loadLeagues();
             await loadMatches();
-            loadSlip();
             startAutoRefresh();
         });
         
@@ -795,7 +745,7 @@
         window.clearAllSlip = clearAllSlip;
         window.placeAccumulatorBet = placeAccumulatorBet;
         
-        console.log('✅ Upcoming matches page loaded - Live & Upcoming separated, wallet fixed');
+        console.log('✅ Upcoming matches page loaded - Fully functional with accumulator bets fixed');
     </script>
 </body>
 </html>
