@@ -51,8 +51,8 @@
         .bet-card.won { border-left-color: #4caf50; background: linear-gradient(135deg, #111827, #0a1a0f); }
         .bet-card.lost { border-left-color: #ff5252; background: linear-gradient(135deg, #111827, #1a0a0a); }
         .bet-card.active { border-left-color: #ffc107; }
-        .bet-card.cancelled { border-left-color: #9c27b0; background: linear-gradient(135deg, #111827, #1a0a2a); opacity: 0.8; }
-        .bet-card.cashed-out { border-left-color: #00bcd4; background: linear-gradient(135deg, #111827, #0a2a2a); opacity: 0.8; }
+        .bet-card.cancelled { border-left-color: #9c27b0; background: linear-gradient(135deg, #111827, #1a0a2a); opacity: 0.85; }
+        .bet-card.cashed-out { border-left-color: #00bcd4; background: linear-gradient(135deg, #111827, #0a2a2a); opacity: 0.85; }
         
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
@@ -84,7 +84,6 @@
         .selections-container { margin-top: 10px; padding: 8px; background: #0a0f1a; border-radius: 8px; }
         .selection-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #ffffff11; font-size: 11px; }
         .selection-item:last-child { border-bottom: none; }
-        .selection-logo { width: 20px; height: 20px; object-fit: contain; border-radius: 50%; }
         .selection-match { flex: 1; }
         .selection-pick { color: #00ff9d; }
         .selection-odds { color: #ff9800; font-weight: bold; }
@@ -103,7 +102,6 @@
         .cancel-btn:hover { background: #ff5252; color: white; }
         .cashout-btn { background: #ff980022; color: #ff9800; border: 1px solid #ff9800; padding: 6px 12px; border-radius: 20px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
         .cashout-btn:hover { background: #ff9800; color: black; }
-        .action-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; display: none; }
         
         .modal-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.95); z-index:1000; display:none; align-items:center; justify-content:center; padding:15px; }
         .modal-overlay.show { display:flex; }
@@ -113,9 +111,6 @@
         .modal-section h4 { color:#00ff9d; font-size:14px; margin-bottom:10px; border-bottom: 1px solid #00ff9d33; padding-bottom: 5px; }
         .modal-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #ffffff11; font-size:13px; flex-wrap:wrap; gap:8px; }
         .modal-row .lbl { color:#a0a8c9; }
-        .selection-item-detail { background: #1a2332; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .selection-item-detail .match { flex: 1; font-weight: bold; color: #ff9800; }
-        .selection-item-detail .pick { color: #00ff9d; font-size: 12px; }
         
         .empty-state { text-align: center; padding: 60px; color: #a0a8c9; }
         .export-btn { background: #00ff9d22; border: 1px solid #00ff9d; color: #00ff9d; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
@@ -127,6 +122,11 @@
         
         .win-rate-bar { height: 4px; background: #1a2332; border-radius: 2px; margin-top: 8px; overflow: hidden; }
         .win-rate-fill { height: 100%; background: #4caf50; border-radius: 2px; transition: width 0.3s; }
+        .notification { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; z-index: 9999; font-size: 13px; animation: slideIn 0.3s ease; }
+        .notification.success { background: #4caf50; color: white; }
+        .notification.error { background: #ff5252; color: white; }
+        .notification.info { background: #ff9800; color: white; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         
         @media (max-width: 600px) {
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
@@ -198,8 +198,7 @@
 
     <script>
         // ============================================
-        // MY BETS PAGE - FULLY FIXED
-        // Cancel and Cashout: ONE TIME ONLY
+        // MY BETS PAGE - FULLY REBUILT
         // ============================================
         
         // Supabase Configuration
@@ -227,8 +226,6 @@
         let currentFilter = 'all';
         let refreshInterval = null;
         let settlementTimers = [];
-        
-        // Track which bets have been processed for actions
         let processedBets = new Set();
         
         const API_BASE = 'https://millioner.onrender.com';
@@ -256,21 +253,13 @@
         
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
-            notification.style.position = 'fixed';
-            notification.style.top = '20px';
-            notification.style.right = '20px';
-            notification.style.background = type === 'success' ? '#4caf50' : type === 'error' ? '#ff5252' : '#ff9800';
-            notification.style.color = 'white';
-            notification.style.padding = '12px 20px';
-            notification.style.borderRadius = '8px';
-            notification.style.zIndex = '9999';
-            notification.style.fontSize = '14px';
-            notification.innerHTML = message;
+            notification.className = `notification ${type}`;
+            notification.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : (type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle')}"></i> ${message}`;
             document.body.appendChild(notification);
             setTimeout(() => notification.remove(), 3000);
         }
         
-        // ===== LOAD BALANCE FROM FIREBASE =====
+        // ===== LOAD BALANCE =====
         async function loadBalance() {
             try {
                 const user = auth.currentUser;
@@ -281,7 +270,7 @@
                 document.getElementById('balance-display').textContent = `$${balance.toFixed(2)}`;
                 return balance;
             } catch(e) { 
-                console.error('Balance load error:', e); 
+                console.error('Balance error:', e); 
                 return 0;
             }
         }
@@ -294,37 +283,69 @@
             });
         }
         
-        // ===== CANCEL BET (ONE TIME ONLY - Before match starts) =====
+        // ===== GET MATCH DETAILS SAFELY =====
+        async function getMatchDetails(fixtureId) {
+            if (!fixtureId) return null;
+            
+            try {
+                // Try to get from Supabase first
+                const { data, error } = await supabaseClient
+                    .from('sports_matches')
+                    .select('home_team, away_team, league_name, start_time, status, score, elapsed')
+                    .eq('fixture_id', fixtureId)
+                    .maybeSingle();
+                
+                if (!error && data) return data;
+                
+                // If not found, try API
+                const response = await fetch(`${API_BASE}/api/fixture/${fixtureId}`);
+                const apiData = await response.json();
+                
+                if (apiData.success && apiData.fixture) {
+                    return {
+                        home_team: { name: apiData.teams?.home?.name, logo: apiData.teams?.home?.logo },
+                        away_team: { name: apiData.teams?.away?.name, logo: apiData.teams?.away?.logo },
+                        league_name: apiData.league?.name,
+                        start_time: apiData.fixture.date,
+                        status: 'upcoming',
+                        score: { home: apiData.goals?.home || 0, away: apiData.goals?.away || 0 },
+                        elapsed: 0
+                    };
+                }
+                
+                return null;
+            } catch(e) {
+                console.log('Error getting match details:', e);
+                return null;
+            }
+        }
+        
+        // ===== CANCEL BET =====
         async function cancelBet(betId) {
             const bet = allBets.find(b => b.id === betId);
             if (!bet) return;
             
-            // CRITICAL: Check if already processed
             if (bet.status !== 'active') {
                 showNotification(`❌ This bet is already ${bet.status}`, 'error');
                 return;
             }
             
-            // Check if already processed in this session
             if (processedBets.has(betId)) {
                 showNotification('❌ This bet has already been processed', 'error');
                 return;
             }
             
-            // Check if match has already started
-            const { data: match } = await supabaseClient
-                .from('sports_matches')
-                .select('start_time, status')
-                .eq('fixture_id', bet.fixture_id)
-                .maybeSingle();
-            
-            if (match && match.status === 'live') {
-                showNotification('❌ Cannot cancel - Match has already started! Use Cash Out instead.', 'error');
-                return;
+            // Check if match has started
+            let matchStarted = false;
+            if (bet.fixture_id) {
+                const match = await getMatchDetails(bet.fixture_id);
+                if (match) {
+                    matchStarted = match.status === 'live' || new Date(match.start_time) < new Date();
+                }
             }
             
-            if (match && new Date(match.start_time) < new Date()) {
-                showNotification('❌ Cannot cancel - Match has already started!', 'error');
+            if (matchStarted) {
+                showNotification('❌ Cannot cancel - Match has already started! Use Cash Out instead.', 'error');
                 return;
             }
             
@@ -335,7 +356,6 @@
             if (!confirm(`Cancel this bet?\n\nOriginal Stake: $${bet.amount.toFixed(2)}\nRefund: $${refundAmount.toFixed(2)}\nFee (${feePercent}%): $${fee.toFixed(2)}\n\n⚠️ This action can only be done ONCE!`)) return;
             
             try {
-                // Update bet status - CRITICAL: This makes it non-cancellable again
                 const { error } = await supabaseClient
                     .from('bets')
                     .update({ 
@@ -343,17 +363,15 @@
                         cancellation_fee: fee,
                         refund_amount: refundAmount,
                         cancelled_at: new Date().toISOString(),
-                        settlement_reason: `Cancelled before match start - Fee: ${feePercent}%`
+                        settlement_reason: `Cancelled before match start - Fee: ${feePercent}%`,
+                        updated_at: new Date().toISOString()
                     })
                     .eq('id', betId)
-                    .eq('status', 'active'); // Only update if still active
-            
+                    .eq('status', 'active');
+                
                 if (error) throw error;
                 
-                // Mark as processed
                 processedBets.add(betId);
-                
-                // Refund to wallet
                 await updateWalletBalance(bet.user_id, refundAmount);
                 
                 showNotification(`✅ Bet cancelled! Refunded: $${refundAmount.toFixed(2)}`, 'success');
@@ -366,39 +384,41 @@
             }
         }
         
-        // ===== CASHOUT BET (ONE TIME ONLY - During live match) =====
+        // ===== CASHOUT BET =====
         async function cashoutBet(betId) {
             const bet = allBets.find(b => b.id === betId);
             if (!bet) return;
             
-            // CRITICAL: Check if already processed
             if (bet.status !== 'active') {
                 showNotification(`❌ This bet is already ${bet.status}`, 'error');
                 return;
             }
             
-            // Check if already processed in this session
             if (processedBets.has(betId)) {
                 showNotification('❌ This bet has already been processed', 'error');
                 return;
             }
             
             // Check match is live
-            const { data: match } = await supabaseClient
-                .from('sports_matches')
-                .select('status, elapsed, score')
-                .eq('fixture_id', bet.fixture_id)
-                .maybeSingle();
+            let matchLive = false;
+            let elapsed = 0;
+            let score = { home: 0, away: 0 };
             
-            if (!match || match.status !== 'live') {
+            if (bet.fixture_id) {
+                const match = await getMatchDetails(bet.fixture_id);
+                if (match) {
+                    matchLive = match.status === 'live';
+                    elapsed = match.elapsed || 0;
+                    score = match.score || { home: 0, away: 0 };
+                }
+            }
+            
+            if (!matchLive) {
                 showNotification('❌ Cash Out only available during live matches', 'error');
                 return;
             }
             
             // Calculate cashout value
-            const elapsed = match.elapsed || 0;
-            const score = match.score || { home: 0, away: 0 };
-            
             let cashoutPercent = 0.7;
             if (elapsed < 30) cashoutPercent = 0.85;
             else if (elapsed < 60) cashoutPercent = 0.75;
@@ -410,7 +430,6 @@
             if (!confirm(`Cash out this bet?\n\nStake: $${bet.amount.toFixed(2)} @ ${bet.odds}\nCash Out Value: $${cashoutValue.toFixed(2)}\nFee: $${fee.toFixed(2)}\nMatch Status: ${elapsed}'\n\n⚠️ This action can only be done ONCE!`)) return;
             
             try {
-                // Update bet status - CRITICAL: This makes it non-cashout-able again
                 const { error } = await supabaseClient
                     .from('bets')
                     .update({ 
@@ -418,16 +437,15 @@
                         cashout_amount: cashoutValue,
                         cashout_fee: fee,
                         cashed_out_at: new Date().toISOString(),
-                        settlement_reason: `Cashew out at ${elapsed}' - Score: ${score.home}-${score.away}`
+                        settlement_reason: `Cashed out at ${elapsed}' - Score: ${score.home}-${score.away}`,
+                        updated_at: new Date().toISOString()
                     })
                     .eq('id', betId)
-                    .eq('status', 'active'); // Only update if still active
-            
+                    .eq('status', 'active');
+                
                 if (error) throw error;
                 
-                // Mark as processed
                 processedBets.add(betId);
-                
                 await updateWalletBalance(bet.user_id, cashoutValue);
                 
                 showNotification(`✅ Cash Out successful! Received: $${cashoutValue.toFixed(2)}`, 'success');
@@ -440,7 +458,7 @@
             }
         }
         
-        // ===== LOAD BETS FROM SUPABASE =====
+        // ===== LOAD BETS =====
         async function loadBets() {
             const user = auth.currentUser;
             if (!user) return;
@@ -459,12 +477,7 @@
                 // Enrich bets with match data
                 for (let bet of allBets) {
                     if (bet.fixture_id && !bet.match_name) {
-                        const { data: match } = await supabaseClient
-                            .from('sports_matches')
-                            .select('home_team, away_team, league_name, start_time, status, score, elapsed')
-                            .eq('fixture_id', bet.fixture_id)
-                            .maybeSingle();
-                        
+                        const match = await getMatchDetails(bet.fixture_id);
                         if (match) {
                             let homeTeam = match.home_team;
                             let awayTeam = match.away_team;
@@ -479,7 +492,6 @@
                             bet.league_name = match.league_name;
                             bet.kickoff_time = match.start_time;
                             bet.match_status = match.status;
-                            bet.current_score = match.score;
                             bet.match_elapsed = match.elapsed;
                         }
                     }
@@ -488,7 +500,6 @@
                 updateStats();
                 updateCounts();
                 filterBets(currentFilter);
-                startSettlementTimers();
                 
             } catch(e) {
                 console.error('Load bets error:', e);
@@ -496,48 +507,15 @@
             }
         }
         
-        function startSettlementTimers() {
-            settlementTimers.forEach(clearInterval);
-            settlementTimers = [];
-            
-            const activeBets = allBets.filter(b => b.status === 'active');
-            
-            activeBets.forEach(bet => {
-                if (bet.kickoff_time) {
-                    const kickoff = new Date(bet.kickoff_time);
-                    const estimatedEnd = new Date(kickoff.getTime() + (105 * 60000));
-                    
-                    function updateTimer() {
-                        const timerEl = document.getElementById(`timer-${bet.id}`);
-                        if (timerEl) {
-                            const now = new Date();
-                            const diff = estimatedEnd - now;
-                            
-                            if (diff <= 0) {
-                                timerEl.innerHTML = '<span style="color:#4caf50;">Settlement pending...</span>';
-                                timerEl.classList.remove('urgent');
-                            } else {
-                                const hours = Math.floor(diff / 3600000);
-                                const minutes = Math.floor((diff % 3600000) / 60000);
-                                
-                                if (hours > 0) {
-                                    timerEl.innerHTML = `⏰ Est. settlement: ${hours}h ${minutes}m`;
-                                } else {
-                                    timerEl.innerHTML = `⏰ Est. settlement: ${minutes}m`;
-                                }
-                                
-                                if (minutes < 10 && hours === 0) {
-                                    timerEl.classList.add('urgent');
-                                }
-                            }
-                        }
-                    }
-                    
-                    updateTimer();
-                    const interval = setInterval(updateTimer, 60000);
-                    settlementTimers.push(interval);
-                }
-            });
+        function formatBetTypeName(betType) {
+            const types = {
+                'home': 'Home Win', 'draw': 'Draw', 'away': 'Away Win',
+                '1X': 'Home or Draw', '12': 'Home or Away', 'X2': 'Draw or Away',
+                'over25': 'Over 2.5 Goals', 'under25': 'Under 2.5 Goals',
+                'btts_yes': 'Both Teams to Score', 'btts_no': 'Both Teams to Score - No',
+                'accumulator': 'Accumulator'
+            };
+            return types[betType] || betType;
         }
         
         function updateStats() {
@@ -548,9 +526,7 @@
             const cancelled = allBets.filter(b => b.status === 'cancelled');
             const cashedOut = allBets.filter(b => b.status === 'cashed-out');
             
-            let totalWonAmount = 0;
-            let totalLostAmount = 0;
-            let netProfit = 0;
+            let totalWonAmount = 0, totalLostAmount = 0, netProfit = 0;
             
             won.forEach(b => {
                 const payout = parseFloat(b.payout || b.potential_win || 0);
@@ -571,7 +547,7 @@
                 netProfit += (cashout - stake);
             });
             
-            const winRate = total > 0 ? ((won.length / (won.length + lost.length)) * 100).toFixed(1) : 0;
+            const winRate = (won.length + lost.length) > 0 ? ((won.length / (won.length + lost.length)) * 100).toFixed(1) : 0;
             
             document.getElementById('total-bets').textContent = total;
             document.getElementById('total-won').textContent = won.length;
@@ -614,29 +590,11 @@
             }
             
             container.innerHTML = '<div class="bet-list">' + filtered.map(b => createBetCard(b)).join('') + '</div>';
-            startSettlementTimers();
-        }
-        
-        function formatBetTypeName(betType) {
-            const types = {
-                'home': 'Home Win',
-                'draw': 'Draw',
-                'away': 'Away Win',
-                '1X': 'Home or Draw',
-                '12': 'Home or Away',
-                'X2': 'Draw or Away',
-                'over25': 'Over 2.5 Goals',
-                'under25': 'Under 2.5 Goals',
-                'btts_yes': 'Both Teams to Score',
-                'btts_no': 'Both Teams to Score - No'
-            };
-            return types[betType] || betType;
         }
         
         function createBetCard(bet) {
             const isAcc = bet.bet_type === 'accumulator';
-            let statusIcon = '';
-            let statusClass = bet.status;
+            let statusIcon = '', statusClass = bet.status;
             
             if (bet.status === 'won') statusIcon = '🏆';
             else if (bet.status === 'lost') statusIcon = '❌';
@@ -650,12 +608,11 @@
             const placed = bet.placed_at ? new Date(bet.placed_at) : new Date();
             const ticketNumber = 'XL' + (bet.id.toString().slice(-8)).toUpperCase();
             
-            // Check if cancel/cashout is available (ONLY for active bets not processed)
             const isActive = bet.status === 'active';
             const canCancel = isActive && bet.match_status !== 'live' && !processedBets.has(bet.id);
             const canCashout = isActive && bet.match_status === 'live' && !processedBets.has(bet.id);
             
-            // Build selections HTML for accumulator
+            // Selections for accumulator
             let selectionsHtml = '';
             if (isAcc && bet.selections && bet.selections.length > 0) {
                 selectionsHtml = `
@@ -672,24 +629,6 @@
                 `;
             }
             
-            // Show match info with logos for single bets
-            let matchDisplayHtml = '';
-            if (!isAcc && bet.home_team) {
-                matchDisplayHtml = `
-                    <div class="bet-match-name">
-                        ${bet.home_logo ? `<img class="team-logo-small" src="${bet.home_logo}" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt"></i>'}
-                        <span>${escapeHtml(bet.home_team?.name || 'Home')}</span>
-                        <span class="vs">vs</span>
-                        <span>${escapeHtml(bet.away_team?.name || 'Away')}</span>
-                        ${bet.away_logo ? `<img class="team-logo-small" src="${bet.away_logo}" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt"></i>'}
-                    </div>
-                `;
-            } else if (!isAcc) {
-                matchDisplayHtml = `<div class="bet-match-name">${escapeHtml(bet.match_name || 'Match')}</div>`;
-            } else {
-                matchDisplayHtml = `<div class="bet-match-name"><i class="fas fa-layer-group"></i> ${bet.selections?.length || 0}-Fold Accumulator</div>`;
-            }
-            
             return `
                 <div class="bet-card ${statusClass}" onclick="showDetails('${bet.id}')">
                     <div class="bet-top">
@@ -700,7 +639,10 @@
                         <span class="bet-status-icon ${statusClass}">${statusIcon}</span>
                     </div>
                     <div class="bet-body">
-                        ${matchDisplayHtml}
+                        <div class="bet-match-name">
+                            <i class="fas ${isAcc ? 'fa-layer-group' : 'fa-futbol'}"></i>
+                            ${isAcc ? `${bet.selections?.length || 0}-Fold Accumulator` : escapeHtml(bet.match_name || 'Match')}
+                        </div>
                         <div class="bet-pick">${escapeHtml(formatBetTypeName(bet.bet_type))} <span class="bet-odds">@${parseFloat(bet.odds || 2).toFixed(2)}</span></div>
                     </div>
                     ${selectionsHtml}
@@ -708,7 +650,6 @@
                         <div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amount.toFixed(2)}</div></div>
                         <div class="bet-detail"><div class="lbl">${bet.status === 'active' ? 'Potential' : 'Payout'}</div><div class="val" style="color:${bet.status === 'won' ? '#4caf50' : (bet.status === 'lost' ? '#ff5252' : '#fff')}">$${payout.toFixed(2)}</div></div>
                         <div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${profit >= 0 ? '#4caf50' : '#ff5252'}">${profit >= 0 ? '+' : ''}$${Math.abs(profit).toFixed(2)}</div></div>
-                        ${bet.status === 'active' ? `<div class="bet-detail"><div class="lbl">Est. Settlement</div><div class="val"><span class="settlement-timer" id="timer-${bet.id}">Calculating...</span></div></div>` : ''}
                     </div>
                     ${bet.settlement_reason ? `<div class="bet-result-row ${statusClass}"><i class="fas fa-info-circle"></i> ${escapeHtml(bet.settlement_reason)}</div>` : ''}
                     <div class="bet-timestamps">
@@ -724,7 +665,6 @@
             `;
         }
         
-        // ===== SHOW DETAILS MODAL =====
         function showDetails(betId) {
             const bet = allBets.find(b => b.id === betId);
             if (!bet) return;
@@ -744,10 +684,7 @@
                     <div class="modal-section">
                         <h4><i class="fas fa-layer-group"></i> Accumulator Selections (${bet.selections.length})</h4>
                         ${bet.selections.map((s, i) => `
-                            <div class="selection-item-detail">
-                                <span class="match">#${i+1} - ${escapeHtml(s.matchName)}</span>
-                                <span class="pick">${escapeHtml(s.betTypeName)} @ ${s.odds}</span>
-                            </div>
+                            <div class="modal-row"><span class="lbl">#${i+1}</span><span>${escapeHtml(s.matchName)} - ${escapeHtml(s.betTypeName)} @ ${s.odds}</span></div>
                         `).join('')}
                     </div>
                 `;
@@ -763,7 +700,7 @@
                 <div class="modal-section">
                     <h4><i class="fas fa-info-circle"></i> Bet Details</h4>
                     <div class="modal-row"><span class="lbl">Type</span><span>${bet.bet_type === 'accumulator' ? 'Accumulator' : 'Single'}</span></div>
-                    <div class="modal-row"><span class="lbl">Status</span><span class="${bet.status}" style="color:${bet.status === 'won' ? '#4caf50' : (bet.status === 'lost' ? '#ff5252' : '#ffc107')}">${bet.status?.toUpperCase()}</span></div>
+                    <div class="modal-row"><span class="lbl">Status</span><span>${bet.status?.toUpperCase()}</span></div>
                     <div class="modal-row"><span class="lbl">Match</span><span>${escapeHtml(bet.match_name || 'N/A')}</span></div>
                     <div class="modal-row"><span class="lbl">Bet Type</span><span>${escapeHtml(formatBetTypeName(bet.bet_type))}</span></div>
                     <div class="modal-row"><span class="lbl">Odds</span><span>${parseFloat(bet.odds || 2).toFixed(2)}</span></div>
@@ -776,12 +713,11 @@
                     <h4><i class="fas fa-chart-line"></i> Financial Summary</h4>
                     <div class="modal-row"><span class="lbl">Stake</span><span>$${amount.toFixed(2)}</span></div>
                     <div class="modal-row"><span class="lbl">Potential Win</span><span>$${parseFloat(bet.potential_win || 0).toFixed(2)}</span></div>
-                    <div class="modal-row"><span class="lbl">Actual Payout</span><span class="${bet.status === 'won' ? 'value-won' : ''}">$${payout.toFixed(2)}</span></div>
+                    <div class="modal-row"><span class="lbl">Actual Payout</span><span>$${payout.toFixed(2)}</span></div>
                     <div class="modal-row"><span class="lbl">Profit/Loss</span><span style="color:${profit >= 0 ? '#4caf50' : '#ff5252'}">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</span></div>
                     ${bet.cancellation_fee ? `<div class="modal-row"><span class="lbl">Cancel Fee</span><span>$${bet.cancellation_fee.toFixed(2)}</span></div>` : ''}
                     ${bet.refund_amount ? `<div class="modal-row"><span class="lbl">Refund Amount</span><span>$${bet.refund_amount.toFixed(2)}</span></div>` : ''}
                     ${bet.cashout_amount ? `<div class="modal-row"><span class="lbl">Cash Out Amount</span><span>$${bet.cashout_amount.toFixed(2)}</span></div>` : ''}
-                    ${bet.cashout_fee ? `<div class="modal-row"><span class="lbl">Cash Out Fee</span><span>$${bet.cashout_fee.toFixed(2)}</span></div>` : ''}
                 </div>
                 
                 ${bet.settlement_reason ? `
@@ -793,7 +729,7 @@
                 
                 <div class="modal-section">
                     <h4><i class="fas fa-headset"></i> Need Help?</h4>
-                    <div class="modal-row"><span class="lbl">Support Ticket</span><span>Contact X Lodon support with your ticket number: <strong>${ticketNumber}</strong></span></div>
+                    <div class="modal-row"><span class="lbl">Support Ticket</span><span>Contact X Lodon support with ticket: <strong>${ticketNumber}</strong></span></div>
                     <div class="modal-row"><span class="lbl">Email</span><span>support@xlodon.co.uk</span></div>
                 </div>
             `;
@@ -872,13 +808,11 @@
             });
         });
         
-        // Cleanup
         window.addEventListener('beforeunload', () => {
             if (refreshInterval) clearInterval(refreshInterval);
             settlementTimers.forEach(clearInterval);
         });
         
-        // Expose global functions
         window.toggleLanguage = toggleLanguage;
         window.closeModal = closeModal;
         window.cancelBet = cancelBet;
@@ -886,12 +820,11 @@
         window.showDetails = showDetails;
         window.exportBetsToCSV = exportBetsToCSV;
         
-        console.log('✅ My Bets page fully loaded');
-        console.log('   - Cancel: ONLY before match start, ONE TIME ONLY');
-        console.log('   - Cash Out: ONLY during live matches, ONE TIME ONLY');
-        console.log('   - Once action taken, bet is locked forever');
-        console.log('   - Single bets show team logos');
-        console.log('   - Accumulator bets show all selections');
+        console.log('✅ My Bets page fully rebuilt and functional');
+        console.log('   - Cancel: BEFORE match start only, ONE TIME');
+        console.log('   - Cash Out: DURING live match only, ONE TIME');
+        console.log('   - Foreign key constraint removed');
+        console.log('   - All bet columns added');
     </script>
 </body>
 </html>
