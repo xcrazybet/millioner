@@ -198,7 +198,8 @@
 
     <script>
         // ============================================
-        // MY BETS PAGE - FULLY REBUILT
+        // MY BETS PAGE - FULLY UPGRADED
+        // No external dependencies for match data
         // ============================================
         
         // Supabase Configuration
@@ -283,12 +284,36 @@
             });
         }
         
-        // ===== GET MATCH DETAILS SAFELY =====
+        // ===== FETCH MATCH FROM API (FALLBACK) =====
+        async function fetchMatchFromAPI(fixtureId) {
+            try {
+                const response = await fetch(`${API_BASE}/api/fixture/${fixtureId}`);
+                const data = await response.json();
+                
+                if (data.success && data.fixture) {
+                    return {
+                        home_team: { name: data.teams?.home?.name || 'Home', logo: data.teams?.home?.logo || '' },
+                        away_team: { name: data.teams?.away?.name || 'Away', logo: data.teams?.away?.logo || '' },
+                        league_name: data.league?.name || 'League',
+                        start_time: data.fixture.date,
+                        status: data.fixture.status?.short === 'FT' ? 'finished' : 'upcoming',
+                        score: { home: data.goals?.home || 0, away: data.goals?.away || 0 },
+                        elapsed: data.fixture.status?.elapsed || 0
+                    };
+                }
+                return null;
+            } catch(e) {
+                console.log('API fetch error:', e);
+                return null;
+            }
+        }
+        
+        // ===== GET MATCH DETAILS WITH FALLBACK =====
         async function getMatchDetails(fixtureId) {
             if (!fixtureId) return null;
             
+            // First try Supabase
             try {
-                // Try to get from Supabase first
                 const { data, error } = await supabaseClient
                     .from('sports_matches')
                     .select('home_team, away_team, league_name, start_time, status, score, elapsed')
@@ -296,28 +321,12 @@
                     .maybeSingle();
                 
                 if (!error && data) return data;
-                
-                // If not found, try API
-                const response = await fetch(`${API_BASE}/api/fixture/${fixtureId}`);
-                const apiData = await response.json();
-                
-                if (apiData.success && apiData.fixture) {
-                    return {
-                        home_team: { name: apiData.teams?.home?.name, logo: apiData.teams?.home?.logo },
-                        away_team: { name: apiData.teams?.away?.name, logo: apiData.teams?.away?.logo },
-                        league_name: apiData.league?.name,
-                        start_time: apiData.fixture.date,
-                        status: 'upcoming',
-                        score: { home: apiData.goals?.home || 0, away: apiData.goals?.away || 0 },
-                        elapsed: 0
-                    };
-                }
-                
-                return null;
             } catch(e) {
-                console.log('Error getting match details:', e);
-                return null;
+                console.log('Supabase error, trying API...');
             }
+            
+            // Fallback to API
+            return await fetchMatchFromAPI(fixtureId);
         }
         
         // ===== CANCEL BET =====
@@ -340,7 +349,7 @@
             if (bet.fixture_id) {
                 const match = await getMatchDetails(bet.fixture_id);
                 if (match) {
-                    matchStarted = match.status === 'live' || new Date(match.start_time) < new Date();
+                    matchStarted = match.status === 'live' || (match.start_time && new Date(match.start_time) < new Date());
                 }
             }
             
@@ -474,25 +483,33 @@
                 
                 allBets = data || [];
                 
-                // Enrich bets with match data
+                // Enrich bets with match data (with better error handling)
                 for (let bet of allBets) {
                     if (bet.fixture_id && !bet.match_name) {
-                        const match = await getMatchDetails(bet.fixture_id);
-                        if (match) {
-                            let homeTeam = match.home_team;
-                            let awayTeam = match.away_team;
-                            if (typeof homeTeam === 'string') homeTeam = JSON.parse(homeTeam);
-                            if (typeof awayTeam === 'string') awayTeam = JSON.parse(awayTeam);
-                            
-                            bet.match_name = `${homeTeam?.name || 'Home'} vs ${awayTeam?.name || 'Away'}`;
-                            bet.home_team = homeTeam;
-                            bet.away_team = awayTeam;
-                            bet.home_logo = homeTeam?.logo || '';
-                            bet.away_logo = awayTeam?.logo || '';
-                            bet.league_name = match.league_name;
-                            bet.kickoff_time = match.start_time;
-                            bet.match_status = match.status;
-                            bet.match_elapsed = match.elapsed;
+                        try {
+                            const match = await getMatchDetails(bet.fixture_id);
+                            if (match) {
+                                let homeTeam = match.home_team;
+                                let awayTeam = match.away_team;
+                                if (typeof homeTeam === 'string') homeTeam = JSON.parse(homeTeam);
+                                if (typeof awayTeam === 'string') awayTeam = JSON.parse(awayTeam);
+                                
+                                bet.match_name = `${homeTeam?.name || 'Home'} vs ${awayTeam?.name || 'Away'}`;
+                                bet.home_team = homeTeam;
+                                bet.away_team = awayTeam;
+                                bet.home_logo = homeTeam?.logo || '';
+                                bet.away_logo = awayTeam?.logo || '';
+                                bet.league_name = match.league_name;
+                                bet.kickoff_time = match.start_time;
+                                bet.match_status = match.status;
+                                bet.match_elapsed = match.elapsed;
+                                bet.current_score = match.score;
+                            } else {
+                                bet.match_name = `Match #${bet.fixture_id}`;
+                            }
+                        } catch(e) {
+                            console.log(`Could not fetch match ${bet.fixture_id}:`, e);
+                            bet.match_name = `Match #${bet.fixture_id}`;
                         }
                     }
                 }
@@ -500,6 +517,7 @@
                 updateStats();
                 updateCounts();
                 filterBets(currentFilter);
+                startSettlementTimers();
                 
             } catch(e) {
                 console.error('Load bets error:', e);
@@ -507,13 +525,68 @@
             }
         }
         
+        function startSettlementTimers() {
+            settlementTimers.forEach(clearInterval);
+            settlementTimers = [];
+            
+            const activeBets = allBets.filter(b => b.status === 'active');
+            
+            activeBets.forEach(bet => {
+                if (bet.kickoff_time) {
+                    const kickoff = new Date(bet.kickoff_time);
+                    const estimatedEnd = new Date(kickoff.getTime() + (105 * 60000));
+                    
+                    function updateTimer() {
+                        const timerEl = document.getElementById(`timer-${bet.id}`);
+                        if (timerEl) {
+                            const now = new Date();
+                            const diff = estimatedEnd - now;
+                            
+                            if (diff <= 0) {
+                                timerEl.innerHTML = '<span style="color:#4caf50;">Settlement pending...</span>';
+                                timerEl.classList.remove('urgent');
+                            } else {
+                                const hours = Math.floor(diff / 3600000);
+                                const minutes = Math.floor((diff % 3600000) / 60000);
+                                
+                                if (hours > 0) {
+                                    timerEl.innerHTML = `⏰ Est. settlement: ${hours}h ${minutes}m`;
+                                } else if (minutes > 0) {
+                                    timerEl.innerHTML = `⏰ Est. settlement: ${minutes}m`;
+                                } else {
+                                    const seconds = Math.floor((diff % 60000) / 1000);
+                                    timerEl.innerHTML = `⏰ Est. settlement: ${seconds}s`;
+                                }
+                                
+                                if (minutes < 10 && hours === 0 && minutes > 0) {
+                                    timerEl.classList.add('urgent');
+                                }
+                            }
+                        }
+                    }
+                    
+                    updateTimer();
+                    const interval = setInterval(updateTimer, 1000);
+                    settlementTimers.push(interval);
+                } else if (bet.fixture_id && !bet.kickoff_time) {
+                    // Try to fetch kickoff time
+                    getMatchDetails(bet.fixture_id).then(match => {
+                        if (match && match.start_time) {
+                            bet.kickoff_time = match.start_time;
+                            startSettlementTimers(); // Restart timers
+                        }
+                    });
+                }
+            });
+        }
+        
         function formatBetTypeName(betType) {
             const types = {
-                'home': 'Home Win', 'draw': 'Draw', 'away': 'Away Win',
-                '1X': 'Home or Draw', '12': 'Home or Away', 'X2': 'Draw or Away',
-                'over25': 'Over 2.5 Goals', 'under25': 'Under 2.5 Goals',
-                'btts_yes': 'Both Teams to Score', 'btts_no': 'Both Teams to Score - No',
-                'accumulator': 'Accumulator'
+                'home': '🏆 Home Win', 'draw': '🤝 Draw', 'away': '🏆 Away Win',
+                '1X': '🏠 Home or Draw', '12': '⚡ Home or Away', 'X2': '🚀 Draw or Away',
+                'over25': '⚽ Over 2.5 Goals', 'under25': '🥅 Under 2.5 Goals',
+                'btts_yes': '✅ Both Teams to Score', 'btts_no': '❌ Both Teams to Score - No',
+                'accumulator': '📊 Accumulator'
             };
             return types[betType] || betType;
         }
@@ -590,6 +663,7 @@
             }
             
             container.innerHTML = '<div class="bet-list">' + filtered.map(b => createBetCard(b)).join('') + '</div>';
+            startSettlementTimers();
         }
         
         function createBetCard(bet) {
@@ -611,6 +685,9 @@
             const isActive = bet.status === 'active';
             const canCancel = isActive && bet.match_status !== 'live' && !processedBets.has(bet.id);
             const canCashout = isActive && bet.match_status === 'live' && !processedBets.has(bet.id);
+            
+            // Get match display name
+            let matchDisplay = bet.match_name || (bet.fixture_id ? `Match #${bet.fixture_id}` : 'Unknown Match');
             
             // Selections for accumulator
             let selectionsHtml = '';
@@ -641,7 +718,7 @@
                     <div class="bet-body">
                         <div class="bet-match-name">
                             <i class="fas ${isAcc ? 'fa-layer-group' : 'fa-futbol'}"></i>
-                            ${isAcc ? `${bet.selections?.length || 0}-Fold Accumulator` : escapeHtml(bet.match_name || 'Match')}
+                            ${escapeHtml(isAcc ? `${bet.selections?.length || 0}-Fold Accumulator` : matchDisplay)}
                         </div>
                         <div class="bet-pick">${escapeHtml(formatBetTypeName(bet.bet_type))} <span class="bet-odds">@${parseFloat(bet.odds || 2).toFixed(2)}</span></div>
                     </div>
@@ -650,6 +727,7 @@
                         <div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amount.toFixed(2)}</div></div>
                         <div class="bet-detail"><div class="lbl">${bet.status === 'active' ? 'Potential' : 'Payout'}</div><div class="val" style="color:${bet.status === 'won' ? '#4caf50' : (bet.status === 'lost' ? '#ff5252' : '#fff')}">$${payout.toFixed(2)}</div></div>
                         <div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${profit >= 0 ? '#4caf50' : '#ff5252'}">${profit >= 0 ? '+' : ''}$${Math.abs(profit).toFixed(2)}</div></div>
+                        ${bet.status === 'active' ? `<div class="bet-detail"><div class="lbl">Est. Settlement</div><div class="val"><span class="settlement-timer" id="timer-${bet.id}">Calculating...</span></div></div>` : ''}
                     </div>
                     ${bet.settlement_reason ? `<div class="bet-result-row ${statusClass}"><i class="fas fa-info-circle"></i> ${escapeHtml(bet.settlement_reason)}</div>` : ''}
                     <div class="bet-timestamps">
@@ -820,11 +898,12 @@
         window.showDetails = showDetails;
         window.exportBetsToCSV = exportBetsToCSV;
         
-        console.log('✅ My Bets page fully rebuilt and functional');
+        console.log('✅ My Bets page fully upgraded');
+        console.log('   - Single bets show match names');
+        console.log('   - Settlement timer counts down to 0');
         console.log('   - Cancel: BEFORE match start only, ONE TIME');
         console.log('   - Cash Out: DURING live match only, ONE TIME');
-        console.log('   - Foreign key constraint removed');
-        console.log('   - All bet columns added');
+        console.log('   - API fallback if Supabase fails');
     </script>
 </body>
 </html>
