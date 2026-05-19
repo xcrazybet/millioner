@@ -132,10 +132,10 @@
 
     <script>
         // ============================================
-        // MATCH DETAILS v30 - OPTIMIZED FOR YOUR TABLE
-        // ALL 7 BET CATEGORIES + FAST PERFORMANCE
+        // MATCH DETAILS v31 - WORKING WITH YOUR RLS POLICIES
         // ============================================
         
+        // CORRECT SUPABASE URL - NO TYPOS!
         const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
         
@@ -242,7 +242,6 @@
             throw new Error('Match not found');
         }
         
-        // ===== OPTIMIZED PLACE BET - Uses your index idx_bets_placed_at =====
         async function placeBet(betData) {
             const user = auth.currentUser;
             if (!user) throw new Error('Not authenticated');
@@ -255,29 +254,23 @@
             const balance = await getWalletBalance(user.uid);
             if (balance < betData.amount) throw new Error(`Insufficient balance`);
             
-            const betId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            const now = new Date().toISOString();
-            
-            // Optimized bet object - matches your table structure exactly
             const bet = {
-                id: betId,
-                user_id: user.uid,
+                id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                user_id: user.uid,  // This must match auth.uid() for RLS policy
                 fixture_id: betData.fixture_id,
                 bet_type: betData.bet_type,
+                bet_name: betData.bet_name,
                 odds: betData.odds,
                 amount: betData.amount,
                 potential_win: betData.amount * betData.odds,
                 status: 'active',
-                placed_at: now
+                placed_at: new Date().toISOString()
             };
             
-            // Add bet_name if your table has it (won't error if missing)
-            if (betData.bet_name) bet.bet_name = betData.bet_name;
-            
-            // 1. Deduct from Firestore wallet
+            // Deduct from Firestore wallet FIRST
             await deductBalance(user.uid, betData.amount, bet.id);
             
-            // 2. Insert into Supabase - uses your existing idx_bets_placed_at index
+            // Insert into Supabase - RLS will allow because user_id matches auth.uid()
             const { error } = await supabaseClient.from('bets').insert(bet);
             
             if (error) {
@@ -347,8 +340,6 @@
                 case 'overunder':
                     html += `<div class="bet-option" data-type="over25" data-odds="1.85" data-name="Over 2.5"><div class="bet-option-name">⚽ Over 2.5</div><div class="bet-option-odds">1.85</div></div>`;
                     html += `<div class="bet-option" data-type="under25" data-odds="1.95" data-name="Under 2.5"><div class="bet-option-name">🥅 Under 2.5</div><div class="bet-option-odds">1.95</div></div>`;
-                    html += `<div class="bet-option" data-type="over15" data-odds="1.35" data-name="Over 1.5"><div class="bet-option-name">⚽ Over 1.5</div><div class="bet-option-odds">1.35</div></div>`;
-                    html += `<div class="bet-option" data-type="under15" data-odds="2.85" data-name="Under 1.5"><div class="bet-option-name">🥅 Under 1.5</div><div class="bet-option-odds">2.85</div></div>`;
                     break;
                 case 'btts':
                     html += `<div class="bet-option" data-type="btts_yes" data-odds="1.90" data-name="BTTS Yes"><div class="bet-option-name">✅ BTTS Yes</div><div class="bet-option-odds">1.90</div></div>`;
@@ -402,16 +393,15 @@
         function startCountdown() {
             if (!currentMatch || currentMatch.status !== 'upcoming') return;
             const matchTime = new Date(currentMatch.start_time);
-            const countdownEl = document.getElementById('countdown-timer');
             const interval = setInterval(() => {
                 const diff = matchTime - new Date();
                 if (diff <= 0) {
                     clearInterval(interval);
-                    countdownEl.innerHTML = 'Match started! Refreshing...';
+                    document.getElementById('countdown-timer').innerHTML = 'Match started! Refreshing...';
                     setTimeout(() => location.reload(), 2000);
                 } else {
                     const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000);
-                    countdownEl.innerHTML = h > 0 ? `Match starts in: ${h}h ${m}m ${s}s` : `Match starts in: ${m}m ${s}s`;
+                    document.getElementById('countdown-timer').innerHTML = h > 0 ? `Match starts in: ${h}h ${m}m ${s}s` : `Match starts in: ${m}m ${s}s`;
                 }
             }, 1000);
             countdownInterval = interval;
@@ -440,16 +430,10 @@
                     try {
                         const fresh = await getMatch(currentMatch.fixture_id);
                         if (fresh) { 
-                            const oldScore = currentMatch.score;
                             currentMatch = fresh; 
                             renderMatchDetails(); 
                             renderBetOptions(); 
                             checkBettingAvailability();
-                            if (oldScore !== currentMatch.score) {
-                                const scoreEl = document.querySelector('.live-score');
-                                if (scoreEl) scoreEl.classList.add('goal-animation');
-                                setTimeout(() => scoreEl?.classList.remove('goal-animation'), 500);
-                            }
                         }
                         await updateBalanceDisplay();
                     } catch(e) { console.error('Refresh error'); }
@@ -465,7 +449,6 @@
             if (!selectedBet) { showError('Select an outcome'); return; }
             const amount = parseFloat(document.getElementById('bet-amount').value);
             if (amount < 1) { showError('Minimum bet $1'); return; }
-            if (amount > 1000) { showError('Maximum bet $1000'); return; }
             
             const btn = document.getElementById('place-bet-btn');
             btn.disabled = true; 
@@ -489,12 +472,6 @@
                 document.querySelectorAll('.bet-option').forEach(o => o.classList.remove('selected'));
                 btn.disabled = true; 
                 btn.innerHTML = 'Place Bet';
-                
-                setTimeout(() => {
-                    if (confirm('Bet placed successfully! View your active bets?')) {
-                        window.location.href = 'my-bets.html';
-                    }
-                }, 1000);
             } catch(e) { 
                 showError(e.message); 
                 btn.disabled = false; 
