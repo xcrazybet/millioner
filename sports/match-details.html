@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Match Details - X London | Sports Betting</title>
+    <title>Match Details - X Lodon | Sports Betting</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     
@@ -74,7 +74,7 @@
 </head>
 <body>
     <div class="header">
-        <button class="back-btn" onclick="window.location.href='upcoming-matches.html'"><i class="fas fa-arrow-left"></i></button>
+        <button class="back-btn" id="back-btn"><i class="fas fa-arrow-left"></i></button>
         <h1 style="font-size:18px;"><i class="fas fa-futbol"></i> Match Details</h1>
         <button class="lang-toggle" onclick="toggleLanguage()">عربي</button>
     </div>
@@ -88,6 +88,7 @@
         <div id="loading">
             <div class="loading-spinner"></div>
             <div>Loading match details...</div>
+            <div style="font-size: 12px; color: #a0a8c9; margin-top: 10px;">Fixture ID: <span id="fixture-id-display"></span></div>
         </div>
         
         <div id="content" style="display:none;">
@@ -132,10 +133,9 @@
 
     <script>
         // ============================================
-        // MATCH DETAILS v31 - WORKING WITH YOUR RLS POLICIES
+        // MATCH DETAILS v32 - FIXED RELOAD LOOP
         // ============================================
         
-        // CORRECT SUPABASE URL - NO TYPOS!
         const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
         
@@ -154,6 +154,7 @@
         let supabaseClient = null, db = null, auth = null;
         let currentMatch = null, selectedBet = null, selectedOdds = null, currentTab = '1x2';
         let refreshInterval = null, liveTimerInterval = null, countdownInterval = null;
+        let authInitialized = false;
         
         function safeParseJSON(data, defaultValue = {}) {
             if (!data) return defaultValue;
@@ -256,7 +257,7 @@
             
             const bet = {
                 id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                user_id: user.uid,  // This must match auth.uid() for RLS policy
+                user_id: user.uid,
                 fixture_id: betData.fixture_id,
                 bet_type: betData.bet_type,
                 bet_name: betData.bet_name,
@@ -267,14 +268,11 @@
                 placed_at: new Date().toISOString()
             };
             
-            // Deduct from Firestore wallet FIRST
             await deductBalance(user.uid, betData.amount, bet.id);
             
-            // Insert into Supabase - RLS will allow because user_id matches auth.uid()
             const { error } = await supabaseClient.from('bets').insert(bet);
             
             if (error) {
-                // Rollback on failure
                 await db.collection('wallets').doc(user.uid).update({ 
                     balance: firebase.firestore.FieldValue.increment(betData.amount) 
                 });
@@ -481,7 +479,10 @@
         
         async function loadMatch() {
             try {
+                console.log(`Loading match ${fixtureId}...`);
                 currentMatch = await getMatch(fixtureId);
+                console.log('Match loaded successfully');
+                
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
                 renderMatchDetails(); 
@@ -494,6 +495,7 @@
                     startCountdown();
                 }
             } catch(e) { 
+                console.error('Load match error:', e);
                 document.getElementById('loading').innerHTML = `<div class="error-msg" style="display:block;">Error: ${e.message}<br><button onclick="location.reload()">Retry</button></div>`; 
             }
         }
@@ -521,32 +523,60 @@
                 }
             });
             document.getElementById('place-bet-btn').addEventListener('click', placeBetHandler);
+            
+            // FIXED: Smart back button
+            const backBtn = document.getElementById('back-btn');
+            if (backBtn) {
+                backBtn.addEventListener('click', function() {
+                    // Check if we came from live matches (referrer contains 'live-matches')
+                    if (document.referrer && document.referrer.includes('live-matches.html')) {
+                        window.location.href = 'live-matches.html';
+                    } else {
+                        // Default to upcoming matches
+                        window.location.href = 'upcoming-matches.html';
+                    }
+                });
+            }
         }
         
         window.toggleLanguage = function() { 
             const isArabic = document.body.classList.toggle('arabic'); 
             localStorage.setItem('lang', isArabic ? 'ar' : 'en'); 
             document.documentElement.dir = isArabic ? 'rtl' : 'ltr';
-            document.querySelector('.lang-toggle').textContent = isArabic ? 'English' : 'عربي';
+            const toggleBtn = document.querySelector('.lang-toggle');
+            if (toggleBtn) toggleBtn.textContent = isArabic ? 'English' : 'عربي';
         };
         if (localStorage.getItem('lang') === 'ar') toggleLanguage();
         
         const urlParams = new URLSearchParams(window.location.search);
         const fixtureId = urlParams.get('id');
+        document.getElementById('fixture-id-display').textContent = fixtureId || 'Not provided';
         
-        initFirebase(); 
-        initSupabase();
+        // FIXED: Prevent multiple initializations
+        let isInitialized = false;
         
-        auth.onAuthStateChanged(async (user) => {
-            if (!user) { 
-                window.location.href = '../login.html'; 
-                return; 
-            }
-            await updateBalanceDisplay();
-            await loadMatch();
-            setupEventListeners();
-            setInterval(updateBalanceDisplay, 30000);
-        });
+        function initialize() {
+            if (isInitialized) return;
+            isInitialized = true;
+            
+            initFirebase(); 
+            initSupabase();
+            
+            auth.onAuthStateChanged(async (user) => {
+                if (!user) { 
+                    window.location.href = '../login.html'; 
+                    return; 
+                }
+                console.log(`User authenticated: ${user.email}`);
+                await updateBalanceDisplay();
+                await loadMatch();
+                setupEventListeners();
+                setInterval(updateBalanceDisplay, 30000);
+            });
+        }
+        
+        // Start initialization
+        initialize();
         
         window.addEventListener('beforeunload', () => {
             if (refreshInterval) clearInterval(refreshInterval);
