@@ -168,7 +168,7 @@
 
     <script>
         // ============================================
-        // MATCH DETAILS PAGE - COMPLETE VERSION
+        // MATCH DETAILS PAGE - FIXED VERSION
         // Compatible with upcoming-matches.html & live-matches.html
         // Betting Rules:
         // - Upcoming matches: OPEN until match starts
@@ -212,6 +212,9 @@
         document.getElementById('fixture-id-display').textContent = fixtureId || 'Not provided';
         
         const API_BASE = 'https://millioner.onrender.com';
+        
+        // Fallback placeholder image (data URI for a simple shield icon)
+        const PLACEHOLDER_LOGO = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="80" height="80" fill="#1a2332"/><text x="40" y="45" text-anchor="middle" fill="#00ff9d" font-size="20" font-family="Arial">?</text></svg>');
         
         // ===== FIREBASE WALLET FUNCTIONS =====
         async function getWalletBalance(userId) {
@@ -284,7 +287,6 @@
                     if (isLive) status = 'live';
                     else if (isFinished) status = 'finished';
                     
-                    // Check if match date is in the future
                     const matchDate = new Date(data.fixture.date);
                     const now = new Date();
                     if (!isLive && !isFinished && matchDate > now) {
@@ -327,7 +329,6 @@
         }
         
         async function getMatch(fixtureId) {
-            // First try Supabase
             if (supabaseClient) {
                 try {
                     const { data, error } = await supabaseClient
@@ -338,6 +339,19 @@
                     
                     if (!error && data) {
                         console.log('Match found in Supabase:', data);
+                        // Parse JSON fields if they are strings
+                        if (typeof data.home_team === 'string') {
+                            try { data.home_team = JSON.parse(data.home_team); } catch(e) {}
+                        }
+                        if (typeof data.away_team === 'string') {
+                            try { data.away_team = JSON.parse(data.away_team); } catch(e) {}
+                        }
+                        if (typeof data.odds === 'string') {
+                            try { data.odds = JSON.parse(data.odds); } catch(e) {}
+                        }
+                        if (typeof data.score === 'string') {
+                            try { data.score = JSON.parse(data.score); } catch(e) {}
+                        }
                         return data;
                     }
                 } catch(e) {
@@ -345,7 +359,6 @@
                 }
             }
             
-            // If not in Supabase, fetch from API
             const apiMatch = await fetchMatchFromAPI(fixtureId);
             if (apiMatch) {
                 if (supabaseClient) {
@@ -371,13 +384,10 @@
             const match = await getMatch(betData.fixture_id);
             if (!match) throw new Error('Match not found');
             
-            // BETTING RULES:
-            // 1. Finished matches - NO betting
             if (match.status === 'finished') {
                 throw new Error('🔒 Match already finished - Cannot place bets');
             }
             
-            // 2. Live matches - betting closes at 80th minute
             if (match.status === 'live') {
                 const elapsed = match.elapsed || 0;
                 if (elapsed >= BETTING_CLOSE_MINUTE) {
@@ -388,7 +398,6 @@
                 }
             }
             
-            // 3. Upcoming matches - ALWAYS OPEN until match starts
             if (match.status === 'upcoming') {
                 const now = new Date();
                 const matchTime = new Date(match.start_time);
@@ -397,11 +406,9 @@
                 }
             }
             
-            // Check balance
             const balance = await getWalletBalance(user.uid);
             if (balance < betData.amount) throw new Error(`Insufficient balance! Your balance: $${balance.toFixed(2)}`);
             
-            // Create bet record
             const bet = {
                 id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 user_id: user.uid,
@@ -440,11 +447,9 @@
         
         // ===== NAVIGATION =====
         function goBack() {
-            // Try to go back to previous page
             if (document.referrer && document.referrer.includes(window.location.hostname)) {
                 window.history.back();
             } else {
-                // Default fallback
                 window.location.href = 'live-matches.html';
             }
         }
@@ -459,7 +464,7 @@
         
         if (localStorage.getItem('lang') === 'ar') toggleLanguage();
         
-        // ===== NOTIFICATIONS =====
+        // ===== HELPER FUNCTIONS =====
         function showNotification(message, type = 'success') {
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
@@ -472,18 +477,14 @@
             const errorDiv = document.getElementById('error-message');
             errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
             errorDiv.style.display = 'block';
-            setTimeout(() => {
-                errorDiv.style.display = 'none';
-            }, 5000);
+            setTimeout(() => { errorDiv.style.display = 'none'; }, 5000);
         }
         
         function showSuccess(message) {
             const successDiv = document.getElementById('success-message');
             successDiv.innerHTML = `<i class="fas fa-check-circle"></i> ${message}`;
             successDiv.style.display = 'block';
-            setTimeout(() => {
-                successDiv.style.display = 'none';
-            }, 3000);
+            setTimeout(() => { successDiv.style.display = 'none'; }, 3000);
         }
         
         function escapeHtml(str) {
@@ -499,6 +500,17 @@
         function formatMatchTime(date) {
             const d = new Date(date);
             return d.toLocaleDateString() + ' at ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        // Safe image URL helper
+        function getSafeLogo(logo, teamName) {
+            if (logo && logo.trim() !== '' && !logo.includes('placeholder.com')) {
+                return escapeHtml(logo);
+            }
+            // Return a data URI with team initials
+            const initials = (teamName || '?').substring(0, 2).toUpperCase();
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><rect width="80" height="80" rx="40" fill="#1a2332" stroke="#00ff9d" stroke-width="2"/><text x="40" y="48" text-anchor="middle" fill="#00ff9d" font-size="28" font-family="Arial" font-weight="bold">${initials}</text></svg>`;
+            return 'data:image/svg+xml,' + encodeURIComponent(svg);
         }
         
         // ===== BETTING COUNTDOWN =====
@@ -518,6 +530,7 @@
                         bettingCountdownEl.style.color = '#ff5252';
                         bettingCountdownEl.style.fontWeight = 'bold';
                         document.getElementById('place-bet-btn').disabled = true;
+                        document.getElementById('place-bet-btn').innerHTML = 'Betting Closed';
                         document.querySelectorAll('.bet-option').forEach(opt => opt.classList.add('disabled'));
                     } else {
                         bettingCountdownEl.innerHTML = `<i class="fas fa-clock"></i> Betting Open for ${remainingForBetting} more minutes (closes at ${BETTING_CLOSE_MINUTE}')`;
@@ -529,8 +542,7 @@
                 updateCountdown();
                 bettingCountdownInterval = setInterval(updateCountdown, 1000);
             } else {
-                const bettingCountdownEl = document.getElementById('betting-countdown');
-                bettingCountdownEl.style.display = 'none';
+                document.getElementById('betting-countdown').style.display = 'none';
             }
         }
         
@@ -573,8 +585,7 @@
                 updateTimer();
                 liveTimerInterval = setInterval(updateTimer, 1000);
             } else {
-                const timerEl = document.getElementById('live-timer');
-                timerEl.style.display = 'none';
+                document.getElementById('live-timer').style.display = 'none';
             }
         }
         
@@ -610,14 +621,8 @@
                     }
                     
                     countdownEl.innerHTML = `<i class="fas fa-hourglass-half"></i> Match starts in: ${display}`;
-                    
-                    if (minutes < 5 && hours === 0) {
-                        countdownEl.style.color = '#ff9800';
-                        countdownEl.style.fontWeight = 'bold';
-                    } else {
-                        countdownEl.style.color = '#a0a8c9';
-                        countdownEl.style.fontWeight = 'normal';
-                    }
+                    countdownEl.style.color = (minutes < 5 && hours === 0) ? '#ff9800' : '#a0a8c9';
+                    countdownEl.style.fontWeight = (minutes < 5 && hours === 0) ? 'bold' : 'normal';
                 }
                 
                 update();
@@ -674,18 +679,25 @@
             const isLive = currentMatch.status === 'live';
             const isUpcoming = currentMatch.status === 'upcoming';
             const isFinished = currentMatch.status === 'finished';
+            
+            // Safely extract team data
             let homeTeam = currentMatch.home_team;
             let awayTeam = currentMatch.away_team;
             
             if (typeof homeTeam === 'string') {
-                try { homeTeam = JSON.parse(homeTeam); } catch(e) { homeTeam = { name: homeTeam, logo: '' }; }
+                try { homeTeam = JSON.parse(homeTeam); } catch(e) { homeTeam = { name: homeTeam || 'Home', logo: '', id: 0 }; }
             }
             if (typeof awayTeam === 'string') {
-                try { awayTeam = JSON.parse(awayTeam); } catch(e) { awayTeam = { name: awayTeam, logo: '' }; }
+                try { awayTeam = JSON.parse(awayTeam); } catch(e) { awayTeam = { name: awayTeam || 'Away', logo: '', id: 0 }; }
             }
             
             homeTeam = homeTeam || { name: 'Home', logo: '', id: 0 };
             awayTeam = awayTeam || { name: 'Away', logo: '', id: 0 };
+            
+            const homeName = homeTeam.name || 'Home';
+            const awayName = awayTeam.name || 'Away';
+            const homeLogo = getSafeLogo(homeTeam.logo, homeName);
+            const awayLogo = getSafeLogo(awayTeam.logo, awayName);
             
             const matchDate = new Date(currentMatch.start_time);
             const score = currentMatch.score || { home: 0, away: 0 };
@@ -699,10 +711,14 @@
                 statusHtml = `<div class="finished-status"><i class="fas fa-check-circle"></i> FINISHED</div>`;
             }
             
-            const statsHtml = `
+            const bettingStatusText = isLive 
+                ? ((currentMatch.elapsed || 0) >= 80 ? '🔒 CLOSED' : '🟢 OPEN until 80th minute')
+                : (isUpcoming ? '🟢 OPEN until match starts' : '🔴 CLOSED');
+            
+            document.getElementById('match-stats-container').innerHTML = `
                 <div class="match-detail-row">
                     <span class="match-detail-label"><i class="fas fa-trophy"></i> League:</span>
-                    <span class="match-detail-value">${escapeHtml(currentMatch.league_name)}</span>
+                    <span class="match-detail-value">${escapeHtml(currentMatch.league_name || 'Unknown League')}</span>
                 </div>
                 <div class="match-detail-row">
                     <span class="match-detail-label"><i class="far fa-calendar-alt"></i> Date & Time:</span>
@@ -717,29 +733,23 @@
                 <div class="match-detail-row">
                     <span class="match-detail-label"><i class="fas fa-info-circle"></i> Betting Status:</span>
                     <span class="match-detail-value" style="color: ${isLive && (currentMatch.elapsed || 0) >= 80 ? '#ff5252' : '#00ff9d'}">
-                        ${isLive ? ((currentMatch.elapsed || 0) >= 80 ? '🔒 CLOSED' : '🟢 OPEN until 80th minute') : (isUpcoming ? '🟢 OPEN until match starts' : '🔴 CLOSED')}
+                        ${bettingStatusText}
                     </span>
                 </div>
             `;
             
-            document.getElementById('match-stats-container').innerHTML = statsHtml;
-            
             document.getElementById('match-hero').innerHTML = `
                 <div class="teams-large">
                     <div>
-                        <img class="team-logo-lg" src="${homeTeam.logo || 'https://via.placeholder.com/80'}" 
-                             onerror="this.src='https://via.placeholder.com/80?text=' + encodeURIComponent((homeTeam.name || 'Home').substring(0,2))"
-                             onclick="window.open('${homeTeam.logo || '#'}', '_blank')">
-                        <div class="team-name-lg">${escapeHtml(homeTeam.name)}</div>
+                        <img class="team-logo-lg" src="${homeLogo}" alt="${escapeHtml(homeName)}">
+                        <div class="team-name-lg">${escapeHtml(homeName)}</div>
                     </div>
                     <div class="vs-large">
                         ${isLive ? `<span class="live-score">${score.home || 0} - ${score.away || 0}</span>` : 'VS'}
                     </div>
                     <div>
-                        <img class="team-logo-lg" src="${awayTeam.logo || 'https://via.placeholder.com/80'}" 
-                             onerror="this.src='https://via.placeholder.com/80?text=' + encodeURIComponent((awayTeam.name || 'Away').substring(0,2))"
-                             onclick="window.open('${awayTeam.logo || '#'}', '_blank')">
-                        <div class="team-name-lg">${escapeHtml(awayTeam.name)}</div>
+                        <img class="team-logo-lg" src="${awayLogo}" alt="${escapeHtml(awayName)}">
+                        <div class="team-name-lg">${escapeHtml(awayName)}</div>
                     </div>
                 </div>
                 ${statusHtml}
@@ -780,15 +790,15 @@
                     const drawAway = 1 / ((1/parseFloat(odds.draw)) + (1/parseFloat(odds.away)));
                     html += `
                         <div class="bet-option" data-type="1X" data-odds="${homeDraw.toFixed(2)}" data-name="Home or Draw">
-                            <div class="bet-option-name">🏠🤝 1X (Home or Draw)</div>
+                            <div class="bet-option-name">🏠🤝 1X</div>
                             <div class="bet-option-odds">${homeDraw.toFixed(2)}</div>
                         </div>
                         <div class="bet-option" data-type="12" data-odds="${homeAway.toFixed(2)}" data-name="Home or Away">
-                            <div class="bet-option-name">⚡ 12 (Home or Away)</div>
+                            <div class="bet-option-name">⚡ 12</div>
                             <div class="bet-option-odds">${homeAway.toFixed(2)}</div>
                         </div>
                         <div class="bet-option" data-type="X2" data-odds="${drawAway.toFixed(2)}" data-name="Draw or Away">
-                            <div class="bet-option-name">🤝✈️ X2 (Draw or Away)</div>
+                            <div class="bet-option-name">🤝✈️ X2</div>
                             <div class="bet-option-odds">${drawAway.toFixed(2)}</div>
                         </div>
                     `;
@@ -796,11 +806,11 @@
                 case 'overunder':
                     html += `
                         <div class="bet-option" data-type="over25" data-odds="1.85" data-name="Over 2.5 Goals">
-                            <div class="bet-option-name">⬆️ Over 2.5 Goals</div>
+                            <div class="bet-option-name">⬆️ Over 2.5</div>
                             <div class="bet-option-odds">1.85</div>
                         </div>
                         <div class="bet-option" data-type="under25" data-odds="1.95" data-name="Under 2.5 Goals">
-                            <div class="bet-option-name">⬇️ Under 2.5 Goals</div>
+                            <div class="bet-option-name">⬇️ Under 2.5</div>
                             <div class="bet-option-odds">1.95</div>
                         </div>
                     `;
@@ -808,11 +818,11 @@
                 case 'btts':
                     html += `
                         <div class="bet-option" data-type="btts_yes" data-odds="1.90" data-name="Both Teams to Score - YES">
-                            <div class="bet-option-name">✅ BTTS - YES</div>
+                            <div class="bet-option-name">✅ BTTS Yes</div>
                             <div class="bet-option-odds">1.90</div>
                         </div>
                         <div class="bet-option" data-type="btts_no" data-odds="1.90" data-name="Both Teams to Score - NO">
-                            <div class="bet-option-name">❌ BTTS - NO</div>
+                            <div class="bet-option-name">❌ BTTS No</div>
                             <div class="bet-option-odds">1.90</div>
                         </div>
                     `;
@@ -851,7 +861,6 @@
         
         function checkIfBettingDisabled() {
             if (!currentMatch) return true;
-            
             if (currentMatch.status === 'finished') return true;
             
             if (currentMatch.status === 'live') {
@@ -860,7 +869,6 @@
                 if (currentMatch.bets_closed) return true;
             }
             
-            // Upcoming matches are always open
             return false;
         }
         
@@ -887,7 +895,7 @@
                     bettingEnabled = false;
                 } else {
                     const remaining = BETTING_CLOSE_MINUTE - elapsed;
-                    message = `🟢 LIVE - Betting OPEN! ${remaining} minutes remaining to bet (closes at ${BETTING_CLOSE_MINUTE}')`;
+                    message = `🟢 LIVE - Betting OPEN! ${remaining} minutes remaining (closes at ${BETTING_CLOSE_MINUTE}')`;
                     messageClass = 'betting-open';
                     bettingEnabled = true;
                 }
@@ -895,8 +903,7 @@
                 const now = new Date();
                 const matchTime = new Date(currentMatch.start_time);
                 const minutesUntilMatch = Math.floor((matchTime - now) / 60000);
-                
-                message = `🟢 UPCOMING - Betting OPEN! Place your bets now${minutesUntilMatch > 0 ? ' (' + minutesUntilMatch + ' minutes until kickoff)' : ' (match starting soon)'}`;
+                message = `🟢 UPCOMING - Betting OPEN!${minutesUntilMatch > 0 ? ' (' + minutesUntilMatch + ' min until kickoff)' : ''}`;
                 messageClass = 'betting-open';
                 bettingEnabled = true;
             }
@@ -950,7 +957,7 @@
             
             const amount = parseFloat(document.getElementById('bet-amount').value);
             if (isNaN(amount) || amount < 1) { showError('Minimum bet is $1'); return; }
-            if (amount > 1000) { showError('Maximum bet is $1000 per transaction'); return; }
+            if (amount > 1000) { showError('Maximum bet is $1000'); return; }
             
             const user = auth.currentUser;
             if (!user) { 
@@ -972,7 +979,7 @@
             btn.innerHTML = '<div class="loading-spinner"></div> Processing...';
             
             try {
-                const bet = await placeBet({
+                await placeBet({
                     fixture_id: parseInt(fixtureId),
                     bet_type: selectedBet.type,
                     bet_name: selectedBet.name,
@@ -993,7 +1000,7 @@
                 btn.innerHTML = 'Select Outcome';
                 
                 setTimeout(() => {
-                    if (confirm('Bet placed successfully! View your active bets?')) {
+                    if (confirm('View your active bets?')) {
                         window.location.href = 'my-bets.html';
                     }
                 }, 1000);
@@ -1008,8 +1015,6 @@
         }
         
         // ===== EVENT LISTENERS =====
-        
-        // Tab switching
         document.getElementById('bet-tabs').addEventListener('click', function(e) {
             if (e.target.classList.contains('bet-type-tab')) {
                 document.querySelectorAll('.bet-type-tab').forEach(tab => tab.classList.remove('active'));
@@ -1024,7 +1029,6 @@
             }
         });
         
-        // Quick amount buttons
         document.querySelectorAll('.quick-amount').forEach(btn => {
             btn.addEventListener('click', function() {
                 const amount = parseFloat(this.dataset.amount);
@@ -1035,7 +1039,6 @@
             });
         });
         
-        // Amount input change
         document.getElementById('bet-amount').addEventListener('input', function() {
             const amount = parseFloat(this.value) || 0;
             if (selectedOdds) {
@@ -1043,10 +1046,9 @@
             }
         });
         
-        // Place bet button
         document.getElementById('place-bet-btn').addEventListener('click', placeBetHandler);
         
-        // Auth state listener
+        // Auth state listener with retry
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 console.log(`✅ User authenticated: ${user.email}`);
@@ -1057,7 +1059,6 @@
                 document.getElementById('balance-display').textContent = '$0.00';
                 document.getElementById('place-bet-btn').disabled = true;
                 
-                // Retry auth
                 let retries = 0;
                 const maxRetries = 10;
                 const checkAuth = setInterval(() => {
@@ -1075,7 +1076,6 @@
             }
         });
         
-        // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
             if (refreshInterval) clearInterval(refreshInterval);
             if (liveTimerInterval) clearInterval(liveTimerInterval);
@@ -1083,7 +1083,6 @@
             if (countdownInterval) clearInterval(countdownInterval);
         });
         
-        // Expose global functions
         window.goBack = goBack;
         window.toggleLanguage = toggleLanguage;
         
