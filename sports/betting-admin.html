@@ -110,7 +110,6 @@
         .match-info-box .team { font-weight: bold; color: #fff; }
         .match-info-box .score { font-size: 18px; color: #ff9800; }
         
-        /* Bet detail modal styles */
         .bet-detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ffffff11; font-size: 13px; flex-wrap: wrap; gap: 8px; }
         .bet-detail-row .lbl { color: #a0a8c9; }
         .selections-container { margin-top: 10px; padding: 8px; background: #0a0f1a; border-radius: 8px; }
@@ -203,9 +202,8 @@
             </div>
         </div>
         
-        <!-- Settlement Center Panel - UPGRADED -->
+        <!-- Settlement Center Panel -->
         <div class="panel" id="settle-panel">
-            <!-- Manual Match Settlement -->
             <div class="card">
                 <div class="card-title"><i class="fas fa-exchange-alt"></i> Manual Match Settlement</div>
                 <div class="settlement-form">
@@ -225,7 +223,6 @@
                 </div>
             </div>
             
-            <!-- Pending Settlements (ALL bets) -->
             <div class="card">
                 <div class="card-title"><i class="fas fa-clock"></i> Pending Settlements <span class="badge" id="pending-count-display">0</span></div>
                 <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
@@ -253,7 +250,7 @@
         </div>
     </div>
     
-    <!-- Bet Detail Modal (like my-bets) -->
+    <!-- Bet Detail Modal (full info) -->
     <div class="modal-overlay" id="bet-detail-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -292,7 +289,6 @@
         let allPendingSettlements = [];
         let pendingAccumulatorLegs = [];
         let matchCache = {};
-        let pendingSettlementData = null;
         
         // ===== UTILITIES =====
         function addLog(msg) {
@@ -332,7 +328,6 @@
             return 'lost';
         }
         
-        // ===== MATCH CACHE =====
         async function getMatchData(fixtureId) {
             if (matchCache[fixtureId]) return matchCache[fixtureId];
             try {
@@ -356,10 +351,9 @@
         // ===== LOAD MATCHES =====
         async function loadMatches() {
             try {
-                const { data } = await supabaseClient.from('sports_matches').select('*').order('start_time', { ascending: false }).limit(100);
+                const { data } = await supabaseClient.from('sports_matches').select('*').order('start_time', { ascending: false }).limit(200);
                 allMatches = data || [];
                 for (const m of allMatches) matchCache[m.fixture_id] = m;
-                addLog(`Loaded ${allMatches.length} matches`);
             } catch(e) { addLog('Matches load error: ' + e.message); }
             renderMatchesTable();
             updateStats();
@@ -398,7 +392,6 @@
             try {
                 const { data } = await supabaseClient.from('bets').select('*').order('placed_at', { ascending: false }).limit(200);
                 allBets = data || [];
-                addLog(`Loaded ${allBets.length} bets`);
             } catch(e) { addLog('Bets load error: ' + e.message); }
             renderBetsTable();
             updateStats();
@@ -431,14 +424,12 @@
             document.getElementById('bets-tbody').innerHTML = html;
         }
         
-        // ===== PENDING SETTLEMENTS (THE CORE FIX) =====
+        // ===== PENDING SETTLEMENTS (ROBUST) =====
         async function loadPendingSettlements() {
             addLog('Loading pending settlements...');
             document.getElementById('pending-settlements-container').innerHTML = '<div class="loading-spinner"></div> Loading...';
             try {
-                // Get active bets
                 const { data: activeBets } = await supabaseClient.from('bets').select('*').eq('status', 'active');
-                // Get finished matches (any status 'finished')
                 const { data: finishedMatches } = await supabaseClient.from('sports_matches').select('*').eq('status', 'finished');
                 
                 const finishedMap = {};
@@ -447,7 +438,6 @@
                     matchCache[m.fixture_id] = m;
                 }
                 
-                // Gather accumulator IDs
                 const accIds = [...new Set((activeBets||[]).filter(b => b.bet_category === 'accumulator' && b.accumulator_id).map(b => b.accumulator_id))];
                 let accumulatorLegs = [];
                 if (accIds.length) {
@@ -457,16 +447,16 @@
                 pendingAccumulatorLegs = accumulatorLegs;
                 
                 allPendingSettlements = (activeBets||[]).filter(b => {
-                    if ((b.bet_category || 'single') === 'single') {
-                        return !!finishedMap[b.fixture_id];
-                    } else {
+                    if ((b.bet_category || 'single') === 'single') return !!finishedMap[b.fixture_id];
+                    if (b.bet_category === 'accumulator') {
                         const legs = accumulatorLegs.filter(l => l.accumulator_id === b.accumulator_id);
                         if (legs.length > 0) return legs.some(leg => finishedMap[leg.fixture_id]);
                         const selections = b.selections || [];
-                        return selections.some(s => finishedMap[s.fixture_id]);
+                        return selections.some(s => finishedMap[s.fixture_id]) || !!finishedMap[b.fixture_id];
                     }
+                    return false;
                 });
-                addLog(`Pending: ${allPendingSettlements.length} bets (${allPendingSettlements.filter(b=>(b.bet_category||'single')==='single').length} single, ${allPendingSettlements.filter(b=>b.bet_category==='accumulator').length} accumulator)`);
+                addLog(`Pending: ${allPendingSettlements.length} bets`);
             } catch(e) { addLog('Pending load error: ' + e.message); allPendingSettlements = []; }
             renderPendingSettlements();
             updateStats();
@@ -480,7 +470,6 @@
             if (singles.length === 0 && accumulators.length === 0) {
                 html = '<div class="empty-state" style="padding:20px;text-align:center;"><i class="fas fa-check-circle"></i> No pending settlements</div>';
             } else {
-                // Singles table
                 if (singles.length) {
                     html += `<div class="card" style="border:1px solid #ff980044;"><div class="card-title"><i class="fas fa-ticket-alt"></i> Single Bets (${singles.length})</div>
                     <div class="table-container"><table><thead><tr><th>Ticket</th><th>User</th><th>Fixture</th><th>Match</th><th>Score</th><th>Bet Type</th><th>Odds</th><th>Stake</th><th>Potential</th><th>Actions</th></tr></thead><tbody>`;
@@ -503,8 +492,6 @@
                     }
                     html += '</tbody></table></div></div>';
                 }
-                
-                // Accumulators with direct settlement buttons
                 if (accumulators.length) {
                     const accGroups = {};
                     for (const b of accumulators) {
@@ -515,7 +502,6 @@
                         group.legs = pendingAccumulatorLegs.filter(l => l.accumulator_id === parseInt(accId));
                         if (group.legs.length === 0 && group.main.selections) group.legs = group.main.selections;
                     }
-                    
                     html += `<div class="card" style="border:1px solid #2196f344;"><div class="card-title"><i class="fas fa-layer-group"></i> Accumulators (${Object.keys(accGroups).length})</div>`;
                     for (const [accId, group] of Object.entries(accGroups)) {
                         const main = group.main;
@@ -550,15 +536,14 @@
             try {
                 for (const leg of legs) {
                     await supabaseClient.from('bets').update({
-                        status: result, payout: payout, settled_at: new Date().toISOString(),
+                        status: result, payout, settled_at: new Date().toISOString(),
                         settled_by: auth.currentUser?.email, settlement_result: result
                     }).eq('id', leg.id);
                     if (result === 'won' && payout > 0) {
                         try { await db.collection('wallets').doc(leg.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) }); } catch(e){}
                     }
                 }
-                const fixtures = [...new Set(legs.map(l => l.fixture_id))];
-                for (const fid of fixtures) {
+                for (const fid of [...new Set(legs.map(l => l.fixture_id))]) {
                     await supabaseClient.from('sports_matches').update({ bets_settled: true }).eq('fixture_id', fid);
                 }
                 showNotification(`Accumulator settled as ${result.toUpperCase()}`, 'success');
@@ -581,20 +566,32 @@
                     const match = matchCache[bet.fixture_id] || await getMatchData(bet.fixture_id);
                     const matchName = match ? `${match.home_team?.name||'Home'} vs ${match.away_team?.name||'Away'}` : (bet.match_name || 'Unknown');
                     const score = match?.score ? `${match.score.home||0} - ${match.score.away||0}` : '?-?';
-                    matchHtml = `<div class="match-info-box"><div style="font-size:20px;text-align:center;"><strong>${escapeHtml(matchName)}</strong></div><div style="font-size:28px;text-align:center;color:#ff9800;">${score}</div></div>`;
+                    const league = match?.league_name || '';
+                    const matchStatus = match?.status || bet.match_status || '';
+                    matchHtml = `<div class="match-info-box">
+                        <div style="font-size:18px;text-align:center;font-weight:bold;">${escapeHtml(matchName)}</div>
+                        <div style="font-size:26px;text-align:center;color:#ff9800;">${score}</div>
+                        <div style="font-size:10px;text-align:center;color:#a0a8c9;">${escapeHtml(league)} | Status: ${matchStatus.toUpperCase()}</div>
+                    </div>`;
                 }
                 
                 let legsHtml = '';
                 if (isAcc) {
                     const legs = pendingAccumulatorLegs.filter(l => l.accumulator_id === bet.accumulator_id) || bet.selections || [];
                     if (legs.length) {
-                        legsHtml = `<div class="selections-container"><h4 style="color:#ff9800;">Legs (${legs.length})</h4>`;
+                        legsHtml = `<div class="selections-container"><h4 style="color:#ff9800;margin-bottom:8px;">Accumulator Legs (${legs.length})</h4>`;
                         for (const leg of legs) {
                             const m = matchCache[leg.fixture_id] || await getMatchData(leg.fixture_id);
                             const legName = m ? `${m.home_team?.name||'Home'} vs ${m.away_team?.name||'Away'}` : (leg.match_name || 'Unknown');
                             const legScore = m?.score ? `${m.score.home||0} - ${m.score.away||0}` : '?-?';
                             const legResult = determineLegResult(leg, m);
-                            legsHtml += `<div class="selection-item"><span class="selection-match">${escapeHtml(legName)}</span> <span class="selection-pick">${escapeHtml(formatBetTypeLabel(leg.bet_type))}</span> @${leg.odds} <span>${legScore}</span> <span class="status-badge status-${legResult}">${legResult.toUpperCase()}</span></div>`;
+                            legsHtml += `<div class="selection-item">
+                                <span style="flex:1;">${escapeHtml(legName)}</span>
+                                <span style="color:#00ff9d;">${escapeHtml(formatBetTypeLabel(leg.bet_type))}</span>
+                                <span style="color:#ff9800;font-weight:bold;">@${leg.odds}</span>
+                                <span><strong>${legScore}</strong></span>
+                                <span class="status-badge status-${legResult}">${legResult.toUpperCase()}</span>
+                            </div>`;
                         }
                         legsHtml += '</div>';
                     }
@@ -606,18 +603,21 @@
                 const ticket = 'XL' + bet.id.toString().slice(-8).toUpperCase();
                 
                 let body = `
-                    <div class="bet-detail-row"><span class="lbl">Ticket</span><span><strong>${ticket}</strong></span></div>
+                    <div class="bet-detail-row"><span class="lbl">Ticket Number</span><span><strong>${ticket}</strong></span></div>
                     <div class="bet-detail-row"><span class="lbl">Status</span><span>${bet.status?.toUpperCase()}</span></div>
                     <div class="bet-detail-row"><span class="lbl">User</span><span>${escapeHtml(bet.user_email || bet.user_id)}</span></div>
+                    ${!isAcc ? `<div class="bet-detail-row"><span class="lbl">Match</span><span>${escapeHtml(bet.match_name || 'N/A')}</span></div>` : ''}
                     <div class="bet-detail-row"><span class="lbl">Bet Type</span><span>${escapeHtml(formatBetTypeLabel(bet.bet_type))}</span></div>
                     <div class="bet-detail-row"><span class="lbl">Odds</span><span>${bet.odds}</span></div>
                     <div class="bet-detail-row"><span class="lbl">Stake</span><span>${formatCurrency(amount)}</span></div>
                     <div class="bet-detail-row"><span class="lbl">Potential Win</span><span>${formatCurrency(bet.potential_win)}</span></div>
-                    ${bet.status !== 'active' ? `<div class="bet-detail-row"><span class="lbl">Payout</span><span>${formatCurrency(payout)}</span></div>
+                    ${bet.status !== 'active' ? `
+                    <div class="bet-detail-row"><span class="lbl">Actual Payout</span><span>${formatCurrency(payout)}</span></div>
                     <div class="bet-detail-row"><span class="lbl">Profit/Loss</span><span style="color:${profit>=0?'#4caf50':'#ff5252'}">${profit>=0?'+':''}${formatCurrency(profit)}</span></div>` : ''}
                     <div class="bet-detail-row"><span class="lbl">Placed</span><span>${formatFullDate(bet.placed_at)}</span></div>
-                    ${bet.settlement_reason ? `<div class="bet-detail-row"><span class="lbl">Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div>` : ''}
-                    ${matchHtml} ${legsHtml}
+                    ${bet.settlement_reason ? `<div class="bet-detail-row"><span class="lbl">Settlement Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div>` : ''}
+                    ${matchHtml}
+                    ${legsHtml}
                 `;
                 
                 let actionsHtml = '';
@@ -633,13 +633,13 @@
                 document.getElementById('bet-detail-body').innerHTML = body;
                 document.getElementById('bet-detail-actions').innerHTML = actionsHtml;
                 document.getElementById('bet-detail-modal').classList.add('show');
-            } catch(e) { showNotification('Error: ' + e.message, 'error'); }
+            } catch(e) { showNotification('Error loading bet details: ' + e.message, 'error'); }
         }
         
         function closeBetDetailModal() { document.getElementById('bet-detail-modal').classList.remove('show'); }
         
         async function quickSettleSingle(betId, result) {
-            if (!confirm(`Settle this single bet as ${result.toUpperCase()}?`)) return;
+            if (!confirm(`Settle this bet as ${result.toUpperCase()}?`)) return;
             try {
                 const { data: bet } = await supabaseClient.from('bets').select('*').eq('id', betId).single();
                 const payout = result === 'won' ? (bet.amount * bet.odds) : 0;
@@ -656,7 +656,7 @@
                 await loadPendingSettlements();
                 await loadBets();
                 await updateStats();
-            } catch(e) { showNotification('Error: ' + e.message, 'error'); }
+            } catch(e) { showNotification('Settlement failed: ' + e.message, 'error'); }
         }
         
         async function quickSettleAccumulator(accId, result) {
@@ -666,7 +666,7 @@
         
         // ===== SETTLE ALL PENDING =====
         async function settleAllPending() {
-            if (!confirm(`Auto-settle all ${allPendingSettlements.length} pending bets based on match results?`)) return;
+            if (!confirm(`Auto-settle all ${allPendingSettlements.length} pending bets?`)) return;
             let settled = 0;
             const updatedMatches = new Set();
             for (const bet of allPendingSettlements) {
@@ -678,16 +678,13 @@
                         let allWon = true;
                         for (const leg of legs) {
                             const m = matchCache[leg.fixture_id] || await getMatchData(leg.fixture_id);
-                            const res = determineLegResult(leg, m);
-                            if (res !== 'won') { allWon = false; break; }
+                            if (determineLegResult(leg, m) !== 'won') { allWon = false; break; }
                         }
                         const result = allWon ? 'won' : 'lost';
                         const payout = result === 'won' ? (bet.potential_win || bet.amount * (bet.total_odds||bet.odds)) : 0;
                         for (const leg of legs) {
                             await supabaseClient.from('bets').update({ status: result, payout, settled_at: new Date().toISOString(), settled_by: auth.currentUser?.email, settlement_result: result }).eq('id', leg.id);
-                            if (result === 'won' && payout > 0) {
-                                try { await db.collection('wallets').doc(leg.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) }); } catch(e){}
-                            }
+                            if (result === 'won' && payout > 0) try { await db.collection('wallets').doc(leg.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) }); } catch(e){}
                             updatedMatches.add(leg.fixture_id);
                         }
                     } else {
@@ -696,17 +693,13 @@
                         const result = auto === 'won' ? 'won' : 'lost';
                         const payout = result === 'won' ? (bet.amount * bet.odds) : 0;
                         await supabaseClient.from('bets').update({ status: result, payout, settled_at: new Date().toISOString(), settled_by: auth.currentUser?.email, settlement_result: result }).eq('id', bet.id);
-                        if (result === 'won' && payout > 0) {
-                            try { await db.collection('wallets').doc(bet.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) }); } catch(e){}
-                        }
+                        if (result === 'won' && payout > 0) try { await db.collection('wallets').doc(bet.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) }); } catch(e){}
                         updatedMatches.add(bet.fixture_id);
                     }
                     settled++;
                 } catch(e) { addLog(`Error settling bet ${bet.id}: ${e.message}`); }
             }
-            for (const fid of updatedMatches) {
-                await supabaseClient.from('sports_matches').update({ bets_settled: true }).eq('fixture_id', fid);
-            }
+            for (const fid of updatedMatches) await supabaseClient.from('sports_matches').update({ bets_settled: true }).eq('fixture_id', fid);
             showNotification(`Auto-settled ${settled} bets`, 'success');
             matchCache = {};
             await loadPendingSettlements();
@@ -714,7 +707,7 @@
             await updateStats();
         }
         
-        // ===== MANUAL SETTLEMENT FOR A SINGLE MATCH =====
+        // ===== MANUAL SETTLEMENT =====
         async function settleSingleMatchManually() {
             const fixtureId = parseInt(document.getElementById('settle-fixture-id').value);
             if (!fixtureId) return showNotification('Enter fixture ID', 'error');
@@ -722,13 +715,12 @@
             const awayScore = parseInt(document.getElementById('settle-away-score').value) || 0;
             if (!confirm(`Settle match ${fixtureId} with score ${homeScore}-${awayScore}?`)) return;
             try {
-                // Update match in DB
                 await supabaseClient.from('sports_matches').update({
                     score: { home: homeScore, away: awayScore },
                     status: 'finished',
-                    bets_settled: false // will be settled by our logic
+                    bets_settled: false
                 }).eq('fixture_id', fixtureId);
-                // Recalculate pending for this match
+                
                 const { data: bets } = await supabaseClient.from('bets').select('*').eq('fixture_id', fixtureId).eq('status', 'active');
                 if (bets && bets.length) {
                     for (const bet of bets) {
@@ -736,9 +728,7 @@
                         const result = won ? 'won' : 'lost';
                         const payout = result === 'won' ? (bet.amount * bet.odds) : 0;
                         await supabaseClient.from('bets').update({ status: result, payout, settled_at: new Date().toISOString(), settled_by: auth.currentUser?.email }).eq('id', bet.id);
-                        if (result === 'won' && payout > 0) {
-                            try { await db.collection('wallets').doc(bet.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) }); } catch(e){}
-                        }
+                        if (result === 'won' && payout > 0) try { await db.collection('wallets').doc(bet.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) }); } catch(e){}
                     }
                 }
                 await supabaseClient.from('sports_matches').update({ bets_settled: true }).eq('fixture_id', fixtureId);
@@ -756,7 +746,6 @@
             loadMatchForSettlement();
             switchTab('settle');
         }
-        
         async function loadMatchForSettlement() {
             const fixtureId = document.getElementById('settle-fixture-id').value;
             if (!fixtureId) return;
@@ -773,7 +762,7 @@
             } catch(e) {}
         }
         
-        // ===== STATS & MISC =====
+        // ===== STATS =====
         async function updateStats() {
             try {
                 const { count: total } = await supabaseClient.from('bets').select('*', { count: 'exact', head: true });
@@ -815,7 +804,6 @@
         }
         
         async function syncAllData() {
-            addLog('Manual sync...');
             matchCache = {};
             await loadMatches();
             await loadBets();
@@ -823,9 +811,8 @@
             await updateStats();
             showNotification('Sync complete', 'success');
         }
-        function clearAllCache() { localStorage.clear(); matchCache = {}; addLog('Cache cleared'); showNotification('Cache cleared'); }
-        async function checkUnsettledMatches() { await loadPendingSettlements(); }
-        
+        function clearAllCache() { localStorage.clear(); matchCache = {}; showNotification('Cache cleared'); }
+        function checkUnsettledMatches() { loadPendingSettlements(); }
         function filterMatches() { renderMatchesTable(); }
         function filterBets() { renderBetsTable(); }
         
