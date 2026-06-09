@@ -1,5 +1,5 @@
 // ============================================
-// CONFIGURATION
+// CONFIGURATION - DO NOT CHANGE UNLESS NEEDED
 // ============================================
 
 const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
@@ -14,4 +14,5 @@ const firebaseConfig = {
     appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
 };
 
+// Only these emails can access the admin panel
 const ALLOWED_ADMINS = ['coca@x.com', 'ooo@x.com'];
