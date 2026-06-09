@@ -1,5 +1,5 @@
 // ============================================
-// UTILITIES
+// UTILITY FUNCTIONS
 // ============================================
 
 function showNotification(msg, isError = false) {
@@ -9,7 +9,7 @@ function showNotification(msg, isError = false) {
     n.className = `notification ${isError ? 'error' : ''}`;
     n.innerHTML = `<i class="fas ${isError ? 'fa-exclamation-circle' : 'fa-check-circle'}"></i> ${msg}`;
     document.body.appendChild(n);
-    setTimeout(() => n.remove(), 3000);
+    setTimeout(() => n.remove(), 3500);
 }
 
 function esc(str) {
@@ -23,7 +23,9 @@ function $c(v) {
 
 function formatDate(d) {
     if (!d) return '-';
-    return new Date(d).toLocaleString();
+    return new Date(d).toLocaleString('en-US', {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
 }
 
 function formatBetType(t) {
@@ -31,13 +33,13 @@ function formatBetType(t) {
         'home': '🏆 Home Win',
         'away': '✈️ Away Win', 
         'draw': '🤝 Draw',
-        'over25': '⚽ Over 2.5',
-        'under25': '🥅 Under 2.5',
-        'btts_yes': '✅ BTTS Yes',
-        'btts_no': '❌ BTTS No',
-        '1X': 'Home/Draw',
-        '12': 'Home/Away',
-        'X2': 'Draw/Away'
+        'over25': '⚽ Over 2.5 Goals',
+        'under25': '🥅 Under 2.5 Goals',
+        'btts_yes': '✅ Both Teams Score',
+        'btts_no': '❌ BTTS - No',
+        '1X': '🏠 Home or Draw',
+        '12': '⚡ Home or Away',
+        'X2': '🚀 Draw or Away'
     };
     return types[t] || t;
 }
@@ -46,6 +48,7 @@ function detectWinner(betType, homeScore, awayScore) {
     const hs = parseInt(homeScore) || 0;
     const as = parseInt(awayScore) || 0;
     const total = hs + as;
+    
     switch(betType) {
         case 'home': return hs > as;
         case 'away': return as > hs;
