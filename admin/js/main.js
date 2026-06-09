@@ -2,15 +2,24 @@
 // MAIN INITIALIZATION
 // ============================================
 
-let supabaseClient = null;
+let supabase = null;
 let db = null;
 let auth = null;
 
-// Initialize on page load
+// Make functions globally available
+window.settleSingleBet = settleSingleBet;
+window.settleAccumulatorBet = settleAccumulatorBet;
+window.autoSettleAll = autoSettleAll;
+window.filterPending = filterPending;
+window.loadPending = loadPending;
+window.loadActive = loadActive;
+window.loadSettled = loadSettled;
+window.loadUsers = loadUsers;
+
 document.addEventListener('DOMContentLoaded', async () => {
     // Initialize Supabase
-    supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    window.supabase = supabaseClient;
+    supabase = supabaseJs.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    window.supabase = supabase;
     
     // Initialize Firebase
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
@@ -27,13 +36,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         
         if (!ALLOWED_ADMINS.includes(user.email)) {
-            alert('Access Denied!');
+            alert('⛔ Access Denied! You are not authorized to access this panel.');
             await auth.signOut();
             window.location.href = '../login.html';
             return;
         }
         
-        document.getElementById('admin-email').textContent = user.email;
+        document.getElementById('admin-email').innerHTML = `<i class="fas fa-user-shield"></i> ${user.email}`;
+        console.log('✅ Admin authenticated:', user.email);
         
         // Load all data
         await loadPending();
@@ -71,11 +81,5 @@ async function logout() {
     window.location.href = '../login.html';
 }
 
-// Make functions global for onclick handlers
 window.switchTab = switchTab;
 window.logout = logout;
-window.loadPending = loadPending;
-window.settleSingleBet = settleSingleBet;
-window.settleAccumulatorBet = settleAccumulatorBet;
-window.autoSettleAll = autoSettleAll;
-window.filterPending = filterPending;
