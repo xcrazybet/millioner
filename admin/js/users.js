@@ -1,5 +1,5 @@
 // ============================================
-// USERS MODULE
+// USERS MANAGEMENT MODULE
 // ============================================
 
 async function loadUsers() {
@@ -16,14 +16,14 @@ async function loadUsers() {
         if (!tbody) return;
         
         if (!data || data.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state">No users found</div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state"><i class="fas fa-users"></i><p>No users found</p></div></td></tr>';
             return;
         }
         
         tbody.innerHTML = data.map(w => `
             <tr>
                 <td>${esc(w.user_id)}</td>
-                <td>${$c(w.balance)}</td>
+                <td class="text-green">${$c(w.balance)}</td>
                 <td>${$c(w.total_wagered || 0)}</td>
             </tr>
         `).join('');
