@@ -3,132 +3,572 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X Lodon Admin - Settlement Panel</title>
+    <title>X Lodon Admin - Complete Settlement Panel</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="admin/css/admin.css">
     
-    <!-- Libraries -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     
-    <!-- App Scripts -->
-    <script src="admin/js/config.js"></script>
-    <script src="admin/js/utils.js"></script>
-    <script src="admin/js/bets.js"></script>
-    <script src="admin/js/users.js"></script>
-    <script src="admin/js/settlements.js"></script>
-    <script src="admin/js/main.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0f1a; color: white; font-family: 'Segoe UI', sans-serif; }
+        
+        .header { background: #111827; padding: 12px 20px; border-bottom: 2px solid #ff9800; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .logo { font-size: 20px; font-weight: bold; color: #ff9800; }
+        .logo i { color: #00ff9d; }
+        .logout-btn { background: #ff5252; border: none; color: white; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .logout-btn:hover { background: #ff0000; }
+        
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .stat-card { background: linear-gradient(135deg, #111827, #1a2332); border-radius: 16px; padding: 20px; text-align: center; border: 1px solid #ff980033; cursor: pointer; transition: all 0.3s; }
+        .stat-card:hover { transform: translateY(-5px); border-color: #ff9800; }
+        .stat-card .value { font-size: 32px; font-weight: bold; color: #ff9800; }
+        .stat-card .label { font-size: 12px; color: #a0a8c9; margin-top: 8px; }
+        
+        .tabs { display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 2px solid #2a2a3a; padding-bottom: 10px; flex-wrap: wrap; }
+        .tab-btn { padding: 10px 24px; background: transparent; border: none; color: #a0a8c9; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+        .tab-btn:hover { color: #ff9800; background: #ffffff0a; }
+        .tab-btn.active { color: #ff9800; border-bottom: 2px solid #ff9800; margin-bottom: -12px; }
+        .tab-btn .badge { background: #ff5252; color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; margin-left: 8px; }
+        
+        .panel { display: none; animation: fadeIn 0.3s ease; }
+        .panel.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .card { background: #111827; border-radius: 16px; padding: 20px; margin-bottom: 20px; border: 1px solid #2a2a3a; }
+        .card-title { font-size: 18px; font-weight: bold; color: #ff9800; margin-bottom: 20px; border-left: 4px solid #ff9800; padding-left: 15px; }
+        
+        .settle-card { background: #0f1622; border-radius: 16px; margin-bottom: 20px; border: 1px solid #2a2a3a; overflow: hidden; }
+        .settle-card.single { border-left: 5px solid #00ff9d; }
+        .settle-card.accumulator { border-left: 5px solid #ff9800; }
+        .settle-header { background: #1a2332; padding: 15px 20px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid #2a2a3a; }
+        .settle-body { padding: 20px; }
+        
+        .match-score { background: #0a0f1a; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; border: 1px solid #ff980033; }
+        .match-score .teams { font-size: 16px; font-weight: 600; }
+        .match-score .score { font-size: 36px; font-weight: bold; color: #ff9800; margin: 8px 0; }
+        
+        .legs-list { margin-bottom: 20px; background: #0a0f1a; border-radius: 12px; overflow: hidden; }
+        .leg-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; border-bottom: 1px solid #2a2a3a; font-size: 13px; flex-wrap: wrap; gap: 10px; }
+        .leg-row:last-child { border-bottom: none; }
+        .leg-match { flex: 2; font-weight: 600; }
+        .leg-score { color: #ff9800; font-weight: bold; min-width: 80px; text-align: center; }
+        .leg-pick { color: #00ff9d; min-width: 130px; }
+        .leg-result { min-width: 90px; text-align: right; }
+        
+        .fin-row { display: flex; gap: 25px; padding: 15px; background: #1a2332; border-radius: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .fin-item .label { font-size: 11px; color: #888; }
+        .fin-item .value { font-size: 18px; font-weight: bold; }
+        
+        .action-buttons { display: flex; gap: 15px; flex-wrap: wrap; }
+        .btn-win, .btn-lose { padding: 12px 28px; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; border: none; }
+        .btn-win { background: #4caf50; color: white; }
+        .btn-win:hover { background: #388e3c; }
+        .btn-lose { background: #ff5252; color: white; }
+        .btn-lose:hover { background: #c62828; }
+        
+        .badge { padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: bold; display: inline-block; }
+        .badge-won { background: #4caf50; color: white; }
+        .badge-lost { background: #ff5252; color: white; }
+        .badge-pending { background: #ff9800; color: black; }
+        
+        .auto-banner-won { background: #4caf5022; border: 1px solid #4caf50; border-radius: 10px; padding: 12px 15px; margin-bottom: 20px; color: #4caf50; }
+        .auto-banner-lost { background: #ff525222; border: 1px solid #ff5252; border-radius: 10px; padding: 12px 15px; margin-bottom: 20px; color: #ff5252; }
+        .auto-banner-warning { background: #ff980022; border: 1px solid #ff9800; border-radius: 10px; padding: 12px 15px; margin-bottom: 20px; color: #ff9800; }
+        
+        .table-container { overflow-x: auto; max-height: 500px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #2a2a3a; font-size: 13px; }
+        th { color: #ff9800; background: #1a2332; position: sticky; top: 0; }
+        
+        .search-box { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .search-box input { padding: 10px 15px; background: #1a2332; border: 1px solid #2a2a3a; border-radius: 8px; color: white; flex: 1; min-width: 200px; }
+        .btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; }
+        .btn-primary { background: #ff9800; color: black; }
+        .btn-success { background: #4caf50; color: white; }
+        
+        .notification { position: fixed; top: 20px; right: 20px; background: #4caf50; color: white; padding: 12px 24px; border-radius: 10px; z-index: 1000; animation: slideIn 0.3s ease; }
+        .notification.error { background: #ff5252; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        
+        .loading-spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #ff9800; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin: 20px auto; display: block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-state { text-align: center; padding: 50px; color: #888; }
+        
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .leg-row { flex-direction: column; align-items: flex-start; }
+            .action-buttons { flex-direction: column; }
+            .btn-win, .btn-lose { width: 100%; text-align: center; }
+        }
+    </style>
 </head>
 <body>
 
 <div class="header">
-    <div class="logo">
-        <i class="fas fa-crown"></i> X Lodon Admin 
-        <span style="background:#ff9800;color:black;padding:2px 8px;border-radius:12px;font-size:10px;margin-left:8px;">FULL CONTROL</span>
-    </div>
-    <div>
-        <span id="admin-email" style="margin-right:15px;"></span>
-        <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
-    </div>
+    <div class="logo"><i class="fas fa-crown"></i> X Lodon Admin</div>
+    <div><span id="admin-email"></span> <button class="logout-btn" onclick="logout()">Logout</button></div>
 </div>
 
 <div class="container">
-    <!-- Stats Cards -->
     <div class="stats-grid">
-        <div class="stat-card" onclick="switchTab('pending')">
-            <div class="value" id="stat-pending">0</div>
-            <div class="label"><i class="fas fa-hourglass-half"></i> Pending Settlement</div>
-        </div>
-        <div class="stat-card" onclick="switchTab('active')">
-            <div class="value" id="stat-active">0</div>
-            <div class="label"><i class="fas fa-play-circle"></i> Active Bets</div>
-        </div>
-        <div class="stat-card" onclick="switchTab('settled')">
-            <div class="value" id="stat-settled">0</div>
-            <div class="label"><i class="fas fa-check-circle"></i> Settled Bets</div>
-        </div>
+        <div class="stat-card" onclick="switchTab('pending')"><div class="value" id="stat-pending">0</div><div class="label">Pending Settlement</div></div>
+        <div class="stat-card" onclick="switchTab('active')"><div class="value" id="stat-active">0</div><div class="label">Active Bets</div></div>
+        <div class="stat-card" onclick="switchTab('settled')"><div class="value" id="stat-settled">0</div><div class="label">Settled Bets</div></div>
     </div>
 
-    <!-- Tabs Navigation -->
     <div class="tabs">
-        <button class="tab-btn active" data-tab="pending">
-            <i class="fas fa-gavel"></i> Pending Settlement 
-            <span class="badge" id="pending-badge">0</span>
-        </button>
-        <button class="tab-btn" data-tab="active">
-            <i class="fas fa-play-circle"></i> Active Bets
-        </button>
-        <button class="tab-btn" data-tab="settled">
-            <i class="fas fa-history"></i> Settled History
-        </button>
-        <button class="tab-btn" data-tab="users">
-            <i class="fas fa-users"></i> Users
-        </button>
+        <button class="tab-btn active" data-tab="pending"><i class="fas fa-gavel"></i> Pending Settlement <span class="badge" id="pending-badge">0</span></button>
+        <button class="tab-btn" data-tab="active"><i class="fas fa-play-circle"></i> Active Bets</button>
+        <button class="tab-btn" data-tab="settled"><i class="fas fa-history"></i> Settled History</button>
+        <button class="tab-btn" data-tab="users"><i class="fas fa-users"></i> Users</button>
     </div>
 
-    <!-- PENDING SETTLEMENT PANEL -->
     <div class="panel active" id="pending-panel">
         <div class="card">
-            <div class="card-title">
-                <i class="fas fa-gavel"></i> Bets Requiring Settlement 
-                <span style="font-size:12px;color:#888;margin-left:10px;">(Finished matches with unsettled bets)</span>
-            </div>
+            <div class="card-title"><i class="fas fa-gavel"></i> Bets Requiring Settlement</div>
             <div class="search-box">
-                <input type="text" id="search-pending" placeholder="🔍 Search by user email or ticket number..." onkeyup="filterPending()">
-                <button class="btn btn-primary" onclick="loadPending()"><i class="fas fa-sync-alt"></i> Refresh</button>
-                <button class="btn btn-success" onclick="autoSettleAll()"><i class="fas fa-magic"></i> Auto-Settle All</button>
+                <input type="text" id="search-pending" placeholder="Search by user or ticket..." onkeyup="filterPending()">
+                <button class="btn btn-primary" onclick="loadPending()">Refresh</button>
+                <button class="btn btn-success" onclick="autoSettleAll()">Auto-Settle All</button>
             </div>
-            <div id="pending-list"><div class="loading-spinner"></div> Loading pending settlements...</div>
+            <div id="pending-list"><div class="loading-spinner"></div> Loading...</div>
         </div>
     </div>
 
-    <!-- ACTIVE BETS PANEL -->
     <div class="panel" id="active-panel">
         <div class="card">
-            <div class="card-title"><i class="fas fa-play-circle"></i> Active Bets (Unsettled)</div>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr><th>Ticket</th><th>User</th><th>Match</th><th>Type</th><th>Odds</th><th>Stake</th><th>Potential</th></tr>
-                    </thead>
-                    <tbody id="active-list"></tbody>
-                </table>
-            </div>
+            <div class="card-title"><i class="fas fa-play-circle"></i> Active Bets</div>
+            <div class="table-container"><table><thead><tr><th>Ticket</th><th>User</th><th>Match</th><th>Type</th><th>Odds</th><th>Stake</th><th>Potential</th></tr></thead><tbody id="active-list"></tbody></table></div>
         </div>
     </div>
 
-    <!-- SETTLED HISTORY PANEL -->
     <div class="panel" id="settled-panel">
         <div class="card">
             <div class="card-title"><i class="fas fa-history"></i> Settlement History</div>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr><th>Ticket</th><th>User</th><th>Match</th><th>Result</th><th>Payout</th><th>Settled At</th></tr>
-                    </thead>
-                    <tbody id="settled-list"></tbody>
-                </table>
-            </div>
+            <div class="table-container"><table><thead><tr><th>Ticket</th><th>User</th><th>Match</th><th>Result</th><th>Payout</th><th>Date</th></tr></thead><tbody id="settled-list"></tbody></table></div>
         </div>
     </div>
 
-    <!-- USERS PANEL -->
     <div class="panel" id="users-panel">
         <div class="card">
-            <div class="card-title"><i class="fas fa-users"></i> User Wallets</div>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr><th>User ID</th><th>Balance</th><th>Total Wagered</th></tr>
-                    </thead>
-                    <tbody id="users-list"></tbody>
-                </table>
-            </div>
+            <div class="card-title"><i class="fas fa-users"></i> Users</div>
+            <div class="table-container"><table><thead><tr><th>User ID</th><th>Balance</th><th>Total Wagered</th></tr></thead><tbody id="users-list"></tbody></table></div>
         </div>
     </div>
 </div>
+
+<script>
+// ============================================
+// X LODON ADMIN - COMPLETE WORKING PANEL
+// ============================================
+
+// CONFIGURATION
+const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
+
+const firebaseConfig = {
+    apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+    authDomain: "x-bet-prod-jd.firebaseapp.com",
+    projectId: "x-bet-prod-jd",
+    storageBucket: "x-bet-prod-jd.firebasestorage.app",
+    messagingSenderId: "499334334535",
+    appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+};
+
+const ALLOWED_ADMINS = ['coca@x.com', 'ooo@x.com'];
+
+// Global variables
+let supabaseClient = null;
+let db = null;
+let auth = null;
+let pendingBets = [];
+let matchCache = {};
+
+// Helper functions
+function showNotification(msg, isError = false) {
+    const existing = document.querySelector('.notification');
+    if (existing) existing.remove();
+    const n = document.createElement('div');
+    n.className = `notification ${isError ? 'error' : ''}`;
+    n.innerHTML = msg;
+    document.body.appendChild(n);
+    setTimeout(() => n.remove(), 3000);
+}
+
+function esc(str) { if (!str) return ''; return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+function $c(v) { return '$' + (parseFloat(v) || 0).toFixed(2); }
+function formatDate(d) { if (!d) return '-'; return new Date(d).toLocaleString(); }
+
+function formatBetType(t) {
+    const types = { 'home': 'Home Win', 'away': 'Away Win', 'draw': 'Draw', 'over25': 'Over 2.5', 'under25': 'Under 2.5', 'btts_yes': 'BTTS Yes', 'btts_no': 'BTTS No' };
+    return types[t] || t;
+}
+
+function detectWinner(betType, homeScore, awayScore) {
+    const hs = parseInt(homeScore) || 0;
+    const as = parseInt(awayScore) || 0;
+    const total = hs + as;
+    switch(betType) {
+        case 'home': return hs > as;
+        case 'away': return as > hs;
+        case 'draw': return hs === as;
+        case 'over25': return total > 2.5;
+        case 'under25': return total < 2.5;
+        case 'btts_yes': return hs > 0 && as > 0;
+        case 'btts_no': return hs === 0 || as === 0;
+        default: return false;
+    }
+}
+
+function parseSelections(bet) {
+    if (!bet) return [];
+    if (bet.selections && Array.isArray(bet.selections)) return bet.selections;
+    if (bet.selections && typeof bet.selections === 'string') {
+        try { return JSON.parse(bet.selections); } catch(e) { return []; }
+    }
+    return [];
+}
+
+function getTicketNumber(betId) {
+    return '#' + String(betId).slice(-8).toUpperCase();
+}
+
+// Load Pending Settlements
+async function loadPending() {
+    showNotification('Loading pending settlements...');
+    document.getElementById('pending-list').innerHTML = '<div class="loading-spinner"></div> Loading...';
+    
+    try {
+        const { data: finishedMatches } = await supabaseClient
+            .from('sports_matches')
+            .select('*')
+            .eq('status', 'finished');
+        
+        const finishedIds = new Set();
+        for (const m of finishedMatches || []) {
+            matchCache[m.fixture_id] = m;
+            finishedIds.add(m.fixture_id);
+        }
+        
+        const { data: activeBets } = await supabaseClient
+            .from('bets')
+            .select('*')
+            .eq('status', 'active');
+        
+        pendingBets = [];
+        for (const bet of activeBets || []) {
+            const isAcc = bet.bet_type === 'accumulator' || bet.bet_category === 'accumulator';
+            if (!isAcc) {
+                if (finishedIds.has(bet.fixture_id)) pendingBets.push(bet);
+            } else {
+                const selections = parseSelections(bet);
+                if (selections.some(s => finishedIds.has(s.fixture_id || s.fixtureId))) pendingBets.push(bet);
+            }
+        }
+        
+        renderPending();
+        updateStats();
+    } catch(e) {
+        console.error(e);
+        document.getElementById('pending-list').innerHTML = '<div class="empty-state">Error loading data. Check console.</div>';
+    }
+}
+
+function renderPending() {
+    const search = document.getElementById('search-pending')?.value?.toLowerCase() || '';
+    let filtered = pendingBets.filter(b => (b.user_email || '').toLowerCase().includes(search) || (b.id || '').toLowerCase().includes(search));
+    
+    if (filtered.length === 0) {
+        document.getElementById('pending-list').innerHTML = '<div class="empty-state">No pending settlements</div>';
+        document.getElementById('stat-pending').textContent = '0';
+        document.getElementById('pending-badge').textContent = '0';
+        return;
+    }
+    
+    let html = '';
+    for (const bet of filtered) {
+        const isAcc = bet.bet_type === 'accumulator' || bet.bet_category === 'accumulator';
+        
+        if (!isAcc) {
+            const match = matchCache[bet.fixture_id];
+            const homeName = match?.home_team?.name || match?.home_team || 'Home';
+            const awayName = match?.away_team?.name || match?.away_team || 'Away';
+            const homeScore = match?.score?.home ?? '?';
+            const awayScore = match?.score?.away ?? '?';
+            const hasScore = typeof homeScore === 'number' && typeof awayScore === 'number';
+            const isWin = hasScore ? detectWinner(bet.bet_type, homeScore, awayScore) : null;
+            
+            html += `
+            <div class="settle-card single">
+                <div class="settle-header">
+                    <div><strong>${getTicketNumber(bet.id)}</strong> <span class="badge" style="background:#00ff9d22;color:#00ff9d;">SINGLE</span></div>
+                    <div>👤 ${esc(bet.user_email || bet.user_id?.slice(-10))}</div>
+                    <div>💰 ${$c(bet.amount)} @ ${bet.odds}</div>
+                </div>
+                <div class="settle-body">
+                    <div class="match-score">
+                        <div class="teams">${esc(homeName)} vs ${esc(awayName)}</div>
+                        <div class="score">${homeScore} - ${awayScore}</div>
+                    </div>
+                    <div class="legs-list">
+                        <div class="leg-row">
+                            <span class="leg-match">${esc(homeName)} vs ${esc(awayName)}</span>
+                            <span class="leg-score">${homeScore}–${awayScore}</span>
+                            <span class="leg-pick">${formatBetType(bet.bet_type)} @ ${bet.odds}</span>
+                            <span class="leg-result">${isWin !== null ? `<span class="badge ${isWin ? 'badge-won' : 'badge-lost'}">${isWin ? 'WINS' : 'LOSS'}</span>` : '<span class="badge badge-pending">Waiting</span>'}</span>
+                        </div>
+                    </div>
+                    <div class="fin-row">
+                        <div class="fin-item"><div class="label">Stake</div><div class="value">${$c(bet.amount)}</div></div>
+                        <div class="fin-item"><div class="label">Potential Win</div><div class="value" style="color:#4caf50;">${$c(bet.potential_win)}</div></div>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="btn-win" onclick="settleSingleBet('${bet.id}', 'won')">WIN - Pay ${$c(bet.potential_win)}</button>
+                        <button class="btn-lose" onclick="settleSingleBet('${bet.id}', 'lost')">LOSE - No Payout</button>
+                    </div>
+                </div>
+            </div>`;
+        } else {
+            const selections = parseSelections(bet);
+            let legsHtml = '';
+            let allWon = true;
+            let hasAllScores = true;
+            
+            for (let i = 0; i < selections.length; i++) {
+                const s = selections[i];
+                const fid = s.fixture_id || s.fixtureId;
+                const match = matchCache[fid];
+                const homeName = match?.home_team?.name || match?.home_team || 'Home';
+                const awayName = match?.away_team?.name || match?.away_team || 'Away';
+                const homeScore = match?.score?.home ?? '?';
+                const awayScore = match?.score?.away ?? '?';
+                const hasScore = typeof homeScore === 'number' && typeof awayScore === 'number';
+                const sBetType = s.bet_type || s.betType;
+                let legWin = null;
+                
+                if (hasScore) {
+                    legWin = detectWinner(sBetType, homeScore, awayScore);
+                    if (!legWin) allWon = false;
+                } else {
+                    hasAllScores = false;
+                }
+                
+                legsHtml += `<div class="leg-row">
+                    <span class="leg-match">#${i+1} ${esc(homeName)} vs ${esc(awayName)}</span>
+                    <span class="leg-score">${homeScore}–${awayScore}</span>
+                    <span class="leg-pick">${formatBetType(sBetType)} @ ${s.odds}</span>
+                    <span class="leg-result">${legWin !== null ? `<span class="badge ${legWin ? 'badge-won' : 'badge-lost'}">${legWin ? 'WON' : 'LOST'}</span>` : '<span class="badge badge-pending">No score</span>'}</span>
+                </div>`;
+            }
+            
+            let verdictHtml = '';
+            if (hasAllScores && selections.length > 0) {
+                if (allWon) verdictHtml = `<div class="auto-banner-won">✅ ALL LEGS WON - Settle as WIN</div>`;
+                else verdictHtml = `<div class="auto-banner-lost">❌ AT LEAST ONE LEG LOST - Settle as LOSS</div>`;
+            } else {
+                verdictHtml = `<div class="auto-banner-warning">⏳ Waiting for match scores</div>`;
+            }
+            
+            html += `
+            <div class="settle-card accumulator">
+                <div class="settle-header">
+                    <div><strong>${getTicketNumber(bet.id)}</strong> <span class="badge" style="background:#ff980022;color:#ff9800;">ACCUMULATOR</span></div>
+                    <div>👤 ${esc(bet.user_email || bet.user_id?.slice(-10))}</div>
+                    <div>💰 ${$c(bet.amount)} | ${selections.length} legs</div>
+                </div>
+                <div class="settle-body">
+                    ${verdictHtml}
+                    <div class="legs-list">${legsHtml}</div>
+                    <div class="fin-row">
+                        <div class="fin-item"><div class="label">Total Stake</div><div class="value">${$c(bet.amount)}</div></div>
+                        <div class="fin-item"><div class="label">Total Odds</div><div class="value">${bet.total_odds || bet.odds || '-'}</div></div>
+                        <div class="fin-item"><div class="label">Potential Win</div><div class="value" style="color:#4caf50;">${$c(bet.potential_win)}</div></div>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="btn-win" onclick="settleAccumulatorBet('${bet.id}', 'won')">ALL WIN - Pay ${$c(bet.potential_win)}</button>
+                        <button class="btn-lose" onclick="settleAccumulatorBet('${bet.id}', 'lost')">ALL LOSE - No Payout</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+    }
+    
+    document.getElementById('pending-list').innerHTML = html;
+    document.getElementById('stat-pending').textContent = filtered.length;
+    document.getElementById('pending-badge').textContent = filtered.length;
+}
+
+// Settle Single Bet
+async function settleSingleBet(betId, result) {
+    if (!confirm(`Settle bet as ${result.toUpperCase()}?`)) return;
+    
+    try {
+        const { data: bet } = await supabaseClient.from('bets').select('*').eq('id', betId).single();
+        const payout = result === 'won' ? parseFloat(bet.potential_win) : 0;
+        
+        await supabaseClient.from('bets').update({
+            status: result, payout, settled_at: new Date().toISOString(), settled_by: auth.currentUser?.email
+        }).eq('id', betId);
+        
+        if (result === 'won' && payout > 0) {
+            await db.collection('wallets').doc(bet.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) });
+        }
+        
+        showNotification(`Bet settled as ${result.toUpperCase()}!`);
+        await loadPending();
+        await loadActive();
+        await loadSettled();
+    } catch(e) { showNotification('Error: ' + e.message, true); }
+}
+
+// Settle Accumulator Bet
+async function settleAccumulatorBet(betId, result) {
+    if (!confirm(`Settle accumulator as ${result.toUpperCase()}?`)) return;
+    
+    try {
+        const { data: bet } = await supabaseClient.from('bets').select('*').eq('id', betId).single();
+        const payout = result === 'won' ? parseFloat(bet.potential_win) : 0;
+        
+        await supabaseClient.from('bets').update({
+            status: result, payout, settled_at: new Date().toISOString(), settled_by: auth.currentUser?.email
+        }).eq('id', betId);
+        
+        if (result === 'won' && payout > 0) {
+            await db.collection('wallets').doc(bet.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) });
+        }
+        
+        showNotification(`Accumulator settled as ${result.toUpperCase()}!`);
+        await loadPending();
+        await loadActive();
+        await loadSettled();
+    } catch(e) { showNotification('Error: ' + e.message, true); }
+}
+
+// Auto Settle All
+async function autoSettleAll() {
+    if (pendingBets.length === 0) { showNotification('No pending bets'); return; }
+    if (!confirm(`Auto-settle ${pendingBets.length} bets?`)) return;
+    
+    let settled = 0;
+    for (const bet of pendingBets) {
+        const isAcc = bet.bet_type === 'accumulator' || bet.bet_category === 'accumulator';
+        let result = null;
+        
+        if (!isAcc) {
+            const match = matchCache[bet.fixture_id];
+            if (match?.score && typeof match.score.home === 'number') {
+                result = detectWinner(bet.bet_type, match.score.home, match.score.away) ? 'won' : 'lost';
+            }
+        } else {
+            const selections = parseSelections(bet);
+            let allWon = true, hasData = true;
+            for (const s of selections) {
+                const match = matchCache[s.fixture_id || s.fixtureId];
+                if (!match?.score || typeof match.score.home !== 'number') { hasData = false; break; }
+                if (!detectWinner(s.bet_type || s.betType, match.score.home, match.score.away)) allWon = false;
+            }
+            if (hasData) result = allWon ? 'won' : 'lost';
+        }
+        
+        if (result) {
+            const payout = result === 'won' ? parseFloat(bet.potential_win) : 0;
+            await supabaseClient.from('bets').update({ status: result, payout, settled_at: new Date().toISOString() }).eq('id', bet.id);
+            if (result === 'won' && payout > 0) {
+                await db.collection('wallets').doc(bet.user_id).update({ balance: firebase.firestore.FieldValue.increment(payout) });
+            }
+            settled++;
+        }
+    }
+    showNotification(`Auto-settled ${settled} bets`);
+    await loadPending();
+    await loadActive();
+    await loadSettled();
+}
+
+// Load Active Bets
+async function loadActive() {
+    const { data } = await supabaseClient.from('bets').select('*').eq('status', 'active').limit(100);
+    if (data) {
+        document.getElementById('active-list').innerHTML = data.map(b => `<tr><td>${getTicketNumber(b.id)}</td><td>${esc(b.user_email || '')}</td><td>${esc(b.match_name || 'N/A')}</td><td>${b.bet_type}</td><td>${b.odds}</td><td>${$c(b.amount)}</td><td>${$c(b.potential_win)}</td></tr>`).join('');
+        document.getElementById('stat-active').textContent = data.length;
+    }
+}
+
+// Load Settled History
+async function loadSettled() {
+    const { data } = await supabaseClient.from('bets').select('*').in('status', ['won', 'lost']).order('settled_at', { ascending: false }).limit(100);
+    if (data) {
+        document.getElementById('settled-list').innerHTML = data.map(b => `<tr><td>${getTicketNumber(b.id)}</td><td>${esc(b.user_email || '')}</td><td>${esc(b.match_name || 'N/A')}</td><td><span class="badge ${b.status === 'won' ? 'badge-won' : 'badge-lost'}">${b.status}</span></td><td>${$c(b.payout)}</td><td>${formatDate(b.settled_at)}</td></tr>`).join('');
+        document.getElementById('stat-settled').textContent = data.length;
+    }
+}
+
+// Load Users
+async function loadUsers() {
+    const { data } = await supabaseClient.from('wallets').select('*').limit(50);
+    if (data) {
+        document.getElementById('users-list').innerHTML = data.map(w => `<tr><td>${esc(w.user_id)}</td><td>${$c(w.balance)}</td><td>${$c(w.total_wagered || 0)}</td></tr>`).join('');
+    }
+}
+
+async function updateStats() {
+    const { count } = await supabaseClient.from('bets').select('*', { count: 'exact', head: true }).eq('status', 'active');
+    document.getElementById('stat-pending').textContent = count || 0;
+}
+
+function filterPending() { renderPending(); }
+
+function switchTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelector(`.tab-btn[data-tab="${tabName}"]`).classList.add('active');
+    document.getElementById(`${tabName}-panel`).classList.add('active');
+    if (tabName === 'pending') loadPending();
+    if (tabName === 'active') loadActive();
+    if (tabName === 'settled') loadSettled();
+    if (tabName === 'users') loadUsers();
+}
+
+async function logout() { await auth.signOut(); window.location.href = '../login.html'; }
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    auth = firebase.auth();
+    
+    auth.onAuthStateChanged(async (user) => {
+        if (!user) { window.location.href = '../login.html'; return; }
+        if (!ALLOWED_ADMINS.includes(user.email)) {
+            alert('Access Denied!');
+            await auth.signOut();
+            window.location.href = '../login.html';
+            return;
+        }
+        document.getElementById('admin-email').innerHTML = user.email;
+        await loadPending();
+        await loadActive();
+        await loadSettled();
+        await loadUsers();
+        setInterval(() => loadPending(), 30000);
+    });
+});
+
+// Make functions global
+window.settleSingleBet = settleSingleBet;
+window.settleAccumulatorBet = settleAccumulatorBet;
+window.autoSettleAll = autoSettleAll;
+window.filterPending = filterPending;
+window.switchTab = switchTab;
+window.logout = logout;
+window.loadPending = loadPending;
+</script>
 
 </body>
 </html>
