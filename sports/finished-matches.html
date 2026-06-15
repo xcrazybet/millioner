@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Results Dashboard - X Lodon | النتائج النهائية</title>
+    <title>Results Dashboard - X Lodon | جميع النتائج</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -86,6 +86,8 @@
         .info-banner { background: #00ff9d22; border: 1px solid #00ff9d44; border-radius: 12px; padding: 10px 15px; margin-bottom: 15px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
         .live-badge { background: #ff5252; padding: 3px 10px; border-radius: 20px; font-size: 11px; animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+        
+        .debug-info { background: #1a2332; padding: 8px 12px; border-radius: 8px; font-size: 11px; margin-bottom: 15px; font-family: monospace; color: #a0a8c9; }
     </style>
 </head>
 <body>
@@ -94,7 +96,7 @@
             <div class="header-left">
                 <a href="betting-sport.html" class="back-btn"><i class="fas fa-arrow-left"></i></a>
                 <h1 style="font-size:18px;"><i class="fas fa-trophy"></i> <span class="en">Finished Results</span><span class="ar" style="display:none;">النتائج النهائية</span></h1>
-                <span class="admin-badge"><i class="fas fa-calendar-check"></i> Mar 2026 - Today</span>
+                <span class="admin-badge"><i class="fas fa-database"></i> ALL TIME RESULTS</span>
             </div>
             <button class="lang-toggle" onclick="toggleLanguage()"><span class="en">عربي</span><span class="ar" style="display:none;">English</span></button>
         </div>
@@ -110,8 +112,13 @@
     <div class="container">
         <!-- Info Banner -->
         <div class="info-banner">
-            <span><i class="fas fa-check-circle" style="color:#00ff9d;"></i> <strong>Showing finished matches only</strong> | From March 1, 2026 to <span id="today-date"></span></span>
-            <span class="live-badge"><i class="fas fa-sync-alt"></i> Auto-refreshes daily</span>
+            <span><i class="fas fa-check-circle" style="color:#00ff9d;"></i> <strong>Showing ALL finished matches</strong> | No date restriction - all completed matches from database</span>
+            <span class="live-badge"><i class="fas fa-sync-alt"></i> Live Data</span>
+        </div>
+        
+        <!-- Debug Info -->
+        <div class="debug-info" id="debug-info">
+            <i class="fas fa-info-circle"></i> Connecting to database...
         </div>
         
         <!-- Stats Summary -->
@@ -120,7 +127,7 @@
             <div class="stat-card"><div class="icon"><i class="fas fa-chart-simple"></i></div><div class="label">Total Goals</div><div class="value" id="total-goals">0</div></div>
             <div class="stat-card"><div class="icon"><i class="fas fa-yellow-card"></i></div><div class="label">Yellow Cards</div><div class="value" id="total-yellow">0</div></div>
             <div class="stat-card"><div class="icon"><i class="fas fa-red-card"></i></div><div class="label">Red Cards</div><div class="value" id="total-red">0</div></div>
-            <div class="stat-card"><div class="icon"><i class="fas fa-calendar-week"></i></div><div class="label">Date Range</div><div class="value" id="date-range-label">Mar 2026 - Today</div></div>
+            <div class="stat-card"><div class="icon"><i class="fas fa-calendar-week"></i></div><div class="label">Date Range</div><div class="value" id="date-range-label">Loading...</div></div>
         </div>
         
         <!-- Advanced Filter Bar -->
@@ -135,7 +142,7 @@
         
         <!-- Results Table -->
         <div class="results-table-container" id="results-container">
-            <div style="text-align:center;padding:40px;"><div class="loading-spinner"></div> Loading finished matches from March 2026...</div>
+            <div style="text-align:center;padding:40px;"><div class="loading-spinner"></div> Loading all finished matches from database...</div>
         </div>
         
         <!-- Pagination -->
@@ -161,10 +168,6 @@
         let currentPage = 1;
         const rowsPerPage = 30;
         
-        // Date boundaries: March 1, 2026 to today
-        const START_DATE = new Date(2026, 2, 1); // March 1, 2026 (month is 0-indexed)
-        const TODAY = new Date();
-        
         // Firebase Config
         const firebaseConfig = { 
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM", 
@@ -176,9 +179,6 @@
         };
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         
-        // Display today's date
-        document.getElementById('today-date').textContent = TODAY.toLocaleDateString();
-        
         // ==================== LANGUAGE TOGGLE ====================
         function toggleLanguage() {
             const isEn = document.querySelector('.en:not([style*="display: none"])') !== null;
@@ -189,28 +189,38 @@
         }
         if(localStorage.getItem('lang') === 'ar') setTimeout(toggleLanguage, 10);
         
-        // ==================== CHECK IF MATCH IS FINISHED ====================
+        // ==================== DETECT FINISHED MATCHES (AGGRESSIVE) ====================
         function isMatchFinished(match) {
-            // Check by status field
-            const finishedStatuses = ['finished', 'FT', 'fulltime', 'FINISHED', 'complete', 'played'];
-            if (match.status && finishedStatuses.includes(match.status.toLowerCase())) {
+            // Method 1: Check status field against various finished values
+            const finishedStatuses = ['finished', 'FT', 'fulltime', 'FINISHED', 'complete', 'played', 'ft', 'Full Time', 'match finished'];
+            if (match.status && finishedStatuses.some(s => match.status.toLowerCase().includes(s.toLowerCase()))) {
                 return true;
             }
             
-            // Check by having a score (both teams have numbers, not null)
-            if (match.score && (match.score.home !== undefined || match.score.away !== undefined)) {
+            // Method 2: Check if score exists with numeric values (including 0-0)
+            if (match.score) {
                 const homeScore = match.score.home;
                 const awayScore = match.score.away;
-                // If scores are numbers (even 0-0), it's finished
+                // If both scores are numbers (not null/undefined), it's finished
                 if (typeof homeScore === 'number' && typeof awayScore === 'number') {
+                    return true;
+                }
+                // If score object exists and has values
+                if ((homeScore !== undefined && homeScore !== null) || (awayScore !== undefined && awayScore !== null)) {
                     return true;
                 }
             }
             
-            // Check if match date is in the past AND we have a score
+            // Method 3: Check if elapsed time indicates completion
+            if (match.elapsed && match.elapsed >= 90) {
+                return true;
+            }
+            
+            // Method 4: If match date is in the past AND we have any score data
             if (match.start_time) {
                 const matchDate = new Date(match.start_time);
-                if (matchDate < TODAY && match.score && (match.score.home !== undefined || match.score.away !== undefined)) {
+                const now = new Date();
+                if (matchDate < now && match.score) {
                     return true;
                 }
             }
@@ -218,10 +228,12 @@
             return false;
         }
         
-        // ==================== LOAD FINISHED MATCHES (ONLY FINISHED, MAR 2026 - TODAY) ====================
+        // ==================== LOAD ALL FINISHED MATCHES (NO DATE RESTRICTION) ====================
         async function loadFinishedMatches() {
             const container = document.getElementById('results-container');
-            container.innerHTML = '<div style="text-align:center;padding:40px;"><div class="loading-spinner"></div> Loading finished matches from March 2026 to today...</div>';
+            const debugEl = document.getElementById('debug-info');
+            container.innerHTML = '<div style="text-align:center;padding:40px;"><div class="loading-spinner"></div> Loading all matches from Supabase...</div>';
+            debugEl.innerHTML = '<i class="fas fa-spinner fa-pulse"></i> Fetching data from Supabase...';
             
             try {
                 if(!supabaseClient) {
@@ -231,7 +243,7 @@
                     });
                 }
                 
-                // Fetch all matches
+                // Fetch ALL matches - no filters, get everything
                 let allData = [];
                 let page = 0;
                 const pageSize = 1000;
@@ -249,6 +261,7 @@
                     
                     if(error) {
                         console.error(`Batch ${page} error:`, error.message);
+                        debugEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Error: ${error.message}`;
                         hasMore = false;
                         break;
                     }
@@ -260,6 +273,7 @@
                     
                     allData = [...allData, ...data];
                     console.log(`Batch ${page + 1}: loaded ${data.length} matches. Total so far: ${allData.length}`);
+                    debugEl.innerHTML = `<i class="fas fa-database"></i> Loaded ${allData.length} raw matches from DB...`;
                     
                     if(data.length < pageSize) hasMore = false;
                     page++;
@@ -267,32 +281,35 @@
                 }
                 
                 console.log(`Total raw matches from DB: ${allData.length}`);
+                debugEl.innerHTML = `<i class="fas fa-filter"></i> Filtering ${allData.length} matches for finished status...`;
                 
-                // FILTER: Only finished matches AND date from March 1, 2026 to today
-                const startTimestamp = START_DATE.getTime();
-                const todayTimestamp = TODAY.getTime();
-                
+                // FILTER: Only finished matches - NO DATE RESTRICTION
                 allFinishedMatches = allData.filter(match => {
-                    // First check if match is finished
                     const finished = isMatchFinished(match);
-                    if (!finished) return false;
-                    
-                    // Then check date range
-                    if (match.start_time) {
-                        const matchDate = new Date(match.start_time);
-                        const matchTimestamp = matchDate.getTime();
-                        // Only include matches from March 1, 2026 up to today
-                        return matchTimestamp >= startTimestamp && matchTimestamp <= todayTimestamp;
+                    if (finished) {
+                        console.log(`Finished match: ID ${match.fixture_id} - ${match.home_team?.name} vs ${match.away_team?.name} - Score: ${match.score?.home}-${match.score?.away}`);
                     }
-                    
-                    // If no start_time, include if finished
-                    return true;
+                    return finished;
                 });
                 
-                console.log(`✅ FILTERED FINISHED MATCHES (Mar 2026 - Today): ${allFinishedMatches.length}`);
+                console.log(`✅ TOTAL FINISHED MATCHES: ${allFinishedMatches.length}`);
+                debugEl.innerHTML = `<i class="fas fa-check-circle" style="color:#00ff9d;"></i> Found ${allFinishedMatches.length} finished matches out of ${allData.length} total`;
                 
                 if(allFinishedMatches.length === 0) {
-                    container.innerHTML = '<div style="text-align:center;padding:60px;"><i class="fas fa-check-circle" style="font-size:48px;opacity:0.3;"></i><p>No finished matches found from March 2026 to today.</p><p>New finished matches will appear here daily.</p></div>';
+                    // Show sample of what data looks like for debugging
+                    if(allData.length > 0) {
+                        const sample = allData[0];
+                        debugEl.innerHTML += `<br><i class="fas fa-code"></i> Sample match data: status="${sample.status}", score=${JSON.stringify(sample.score)}`;
+                        container.innerHTML = `<div style="text-align:center;padding:60px;">
+                            <i class="fas fa-database" style="font-size:48px;opacity:0.3;"></i>
+                            <p>Found ${allData.length} total matches in database, but none marked as "finished".</p>
+                            <p>Your matches have status: <strong>"${sample.status}"</strong> and scores: ${JSON.stringify(sample.score)}</p>
+                            <p>Try clicking Refresh after checking your database schema.</p>
+                            <button onclick="loadFinishedMatches()" style="margin-top:15px;background:#ff9800;border:none;padding:8px 20px;border-radius:20px;color:black;cursor:pointer;">Retry</button>
+                        </div>`;
+                    } else {
+                        container.innerHTML = '<div style="text-align:center;padding:60px;"><i class="fas fa-database" style="font-size:48px;opacity:0.3;"></i><p>No matches found in database.</p></div>';
+                    }
                     updateStatistics();
                     return;
                 }
@@ -305,10 +322,11 @@
                 
                 updateStatistics();
                 applyFilters();
-                showNotification(`✅ Loaded ${allFinishedMatches.length} finished matches from March 2026 to today`, 'info');
+                showNotification(`✅ Loaded ${allFinishedMatches.length} finished matches!`, 'info');
                 
             } catch(e) {
                 console.error('Load matches error:', e);
+                debugEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="color:#ff5252;"></i> Error: ${e.message}`;
                 container.innerHTML = `<div style="text-align:center;padding:40px;color:#ff5252;"><i class="fas fa-exclamation-triangle"></i> Error: ${e.message}<br><button onclick="loadFinishedMatches()" style="margin-top:15px;background:#ff9800;border:none;padding:8px 20px;border-radius:20px;color:black;cursor:pointer;">Retry</button></div>`;
             }
         }
@@ -319,6 +337,8 @@
             let totalGoals = 0;
             let totalYellow = 0;
             let totalRed = 0;
+            let minDate = null;
+            let maxDate = null;
             
             allFinishedMatches.forEach(m => {
                 const homeScore = m.score?.home || 0;
@@ -326,6 +346,12 @@
                 totalGoals += (homeScore + awayScore);
                 totalYellow += (m.cards?.home_yellow || 0) + (m.cards?.away_yellow || 0);
                 totalRed += (m.cards?.home_red || 0) + (m.cards?.away_red || 0);
+                
+                if(m.start_time) {
+                    const matchDate = new Date(m.start_time);
+                    if(!minDate || matchDate < minDate) minDate = matchDate;
+                    if(!maxDate || matchDate > maxDate) maxDate = matchDate;
+                }
             });
             
             document.getElementById('total-matches').textContent = total.toLocaleString();
@@ -333,14 +359,11 @@
             document.getElementById('total-yellow').textContent = totalYellow.toLocaleString();
             document.getElementById('total-red').textContent = totalRed.toLocaleString();
             
-            if(allFinishedMatches.length > 0) {
-                const dates = allFinishedMatches.map(m => m.start_time).filter(Boolean).sort();
-                if(dates.length) {
-                    const firstDate = new Date(dates[dates.length-1]);
-                    const lastDate = new Date(dates[0]);
-                    const rangeLabel = `${firstDate.toLocaleDateString()} - ${lastDate.toLocaleDateString()}`;
-                    document.getElementById('date-range-label').textContent = rangeLabel;
-                }
+            if(minDate && maxDate) {
+                const rangeLabel = `${minDate.toLocaleDateString()} - ${maxDate.toLocaleDateString()}`;
+                document.getElementById('date-range-label').textContent = rangeLabel;
+            } else {
+                document.getElementById('date-range-label').textContent = 'All Time';
             }
         }
         
@@ -575,17 +598,6 @@
             return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); 
         }
         
-        // ==================== AUTO REFRESH EVERY HOUR ====================
-        let autoRefreshInterval = null;
-        function startAutoRefresh() {
-            if(autoRefreshInterval) clearInterval(autoRefreshInterval);
-            // Refresh every hour to catch new finished matches
-            autoRefreshInterval = setInterval(() => {
-                console.log('Auto-refreshing finished matches...');
-                loadFinishedMatches();
-            }, 60 * 60 * 1000);
-        }
-        
         // ==================== INIT ====================
         firebase.auth().onAuthStateChanged(async (user) => {
             if(!user) { 
@@ -593,7 +605,6 @@
                 return; 
             }
             await loadFinishedMatches();
-            startAutoRefresh();
         });
         
         // Event listeners
@@ -610,8 +621,7 @@
         window.closeModal = closeModal;
         window.loadFinishedMatches = loadFinishedMatches;
         
-        console.log('✅ Results Dashboard - Only finished matches from March 2026 to today');
-        console.log(`📅 Date range: ${START_DATE.toLocaleDateString()} to ${TODAY.toLocaleDateString()}`);
+        console.log('✅ Results Dashboard - ALL FINISHED MATCHES (no date restriction)');
     </script>
 </body>
 </html>
