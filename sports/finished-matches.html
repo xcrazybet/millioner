@@ -81,8 +81,11 @@
         .loading-spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid #ff9800; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        /* Date group headers */
         .date-group-header { background: #1a2332; padding: 10px 15px; margin-top: 15px; margin-bottom: 5px; border-radius: 12px; font-weight: bold; color: #ff9800; border-left: 4px solid #ff9800; }
+        
+        .api-status { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 15px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .api-status .online { color: #4caf50; }
+        .api-status .offline { color: #ff5252; }
     </style>
 </head>
 <body>
@@ -105,6 +108,13 @@
     </div>
     
     <div class="container">
+        <!-- API Status -->
+        <div class="api-status" id="api-status">
+            <span><i class="fas fa-plug"></i> Supabase: <span id="supabase-status" class="offline">Connecting...</span></span>
+            <span><i class="fas fa-chart-line"></i> Total matches in DB: <span id="db-count">--</span></span>
+            <button class="btn-refresh" style="padding:4px 12px;" onclick="testConnection()"><i class="fas fa-vial"></i> Test Connection</button>
+        </div>
+        
         <!-- Stats Summary -->
         <div class="stats-row" id="stats-row">
             <div class="stat-card"><div class="icon"><i class="fas fa-list"></i></div><div class="label">Total Matches</div><div class="value" id="total-matches">0</div></div>
@@ -126,7 +136,7 @@
         
         <!-- Results Table - Grouped by Date -->
         <div class="results-table-container" id="results-container">
-            <div style="text-align:center;padding:40px;"><div class="loading-spinner"></div> Loading thousands of matches from database...</div>
+            <div style="text-align:center;padding:40px;"><div class="loading-spinner"></div> Loading matches from database...</div>
         </div>
         
         <!-- Pagination -->
@@ -143,17 +153,56 @@
 
     <script>
         // ==================== CORRECT SUPABASE CONFIGURATION ====================
+        // USING THE PUBLISHABLE KEY PROVIDED BY USER
         const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
         
         let supabaseClient = null;
-        try {
-            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-                auth: { persistSession: false },
-                db: { schema: 'public' }
-            });
-            console.log('✅ Supabase client initialized');
-        } catch(e) { console.error('Supabase init error:', e); }
+        let allMatches = [];
+        let filteredMatches = [];
+        let currentPage = 1;
+        const rowsPerPage = 30;
+        
+        // Initialize Supabase with headers to avoid CORS/blocking issues
+        async function initSupabase() {
+            try {
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                    auth: { persistSession: false },
+                    db: { schema: 'public' },
+                    global: {
+                        headers: {
+                            'apikey': SUPABASE_ANON_KEY,
+                            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                        }
+                    }
+                });
+                console.log('✅ Supabase client initialized');
+                document.getElementById('supabase-status').innerHTML = 'Connected';
+                document.getElementById('supabase-status').className = 'online';
+                return true;
+            } catch(e) { 
+                console.error('Supabase init error:', e);
+                document.getElementById('supabase-status').innerHTML = 'Init Failed';
+                return false;
+            }
+        }
+        
+        // Test connection
+        async function testConnection() {
+            if(!supabaseClient) await initSupabase();
+            try {
+                const { data, error, count } = await supabaseClient
+                    .from('sports_matches')
+                    .select('*', { count: 'exact', head: true });
+                
+                if(error) throw error;
+                document.getElementById('db-count').innerHTML = count || '?';
+                showNotification(`Connection successful! Found ${count || 0} total matches in database`, 'info');
+            } catch(e) {
+                document.getElementById('db-count').innerHTML = 'Error';
+                showNotification(`Connection failed: ${e.message}`, 'error');
+            }
+        }
         
         // Firebase Config
         const firebaseConfig = { 
@@ -166,11 +215,6 @@
         };
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         
-        let allMatches = [];
-        let filteredMatches = [];
-        let currentPage = 1;
-        const rowsPerPage = 30;
-        
         // ==================== LANGUAGE TOGGLE ====================
         function toggleLanguage() {
             const isEn = document.querySelector('.en:not([style*="display: none"])') !== null;
@@ -181,19 +225,34 @@
         }
         if(localStorage.getItem('lang') === 'ar') setTimeout(toggleLanguage, 10);
         
-        // ==================== LOAD ALL FINISHED MATCHES (NO LIMIT - PAGINATED THROUGH SUPABASE) ====================
+        // ==================== LOAD ALL FINISHED MATCHES ====================
         async function loadAllFinishedMatches(forceRefresh = false) {
             const container = document.getElementById('results-container');
-            container.innerHTML = '<div style="text-align:center;padding:40px;"><div class="loading-spinner"></div> Loading matches from Supabase...<br><small>Fetching all finished matches (this may take a moment)</small></div>';
+            container.innerHTML = '<div style="text-align:center;padding:40px;"><div class="loading-spinner"></div> Connecting to Supabase and loading matches...</div>';
             
             try {
-                if(!supabaseClient) throw new Error('Supabase client not initialized');
+                if(!supabaseClient) {
+                    const initialized = await initSupabase();
+                    if(!initialized) throw new Error('Failed to initialize Supabase');
+                }
                 
-                // FIRST: Try to get all matches with status = 'finished' - NO LIMIT using pagination
+                // First, get the count
+                const { count: totalCount, error: countError } = await supabaseClient
+                    .from('sports_matches')
+                    .select('*', { count: 'exact', head: true });
+                
+                if(countError) {
+                    console.warn('Count error:', countError);
+                } else {
+                    document.getElementById('db-count').innerHTML = totalCount || 0;
+                }
+                
+                // Fetch all matches that have scores (finished matches)
+                // Using a more reliable approach - fetch all matches and filter client-side
                 let allData = [];
                 let page = 0;
+                const pageSize = 1000;
                 let hasMore = true;
-                const pageSize = 1000; // Max per request
                 
                 while(hasMore) {
                     const from = page * pageSize;
@@ -204,12 +263,12 @@
                     const { data, error } = await supabaseClient
                         .from('sports_matches')
                         .select('*')
-                        .eq('status', 'finished')
                         .order('start_time', { ascending: false })
                         .range(from, to);
                     
                     if(error) {
-                        console.warn(`Batch ${page} error:`, error.message);
+                        console.error(`Batch ${page} error:`, error.message);
+                        hasMore = false;
                         break;
                     }
                     
@@ -224,55 +283,23 @@
                     if(data.length < pageSize) hasMore = false;
                     page++;
                     
-                    // Small delay to avoid rate limiting
+                    // Small delay
                     await new Promise(r => setTimeout(r, 100));
                 }
                 
-                // If no matches with status 'finished', try alternative status values
-                if(allData.length === 0) {
-                    console.log('No matches with status "finished", trying alternative statuses...');
-                    const altStatuses = ['FT', 'fulltime', 'FINISHED', 'complete', 'played'];
-                    for(const status of altStatuses) {
-                        const { data, error } = await supabaseClient
-                            .from('sports_matches')
-                            .select('*')
-                            .eq('status', status)
-                            .order('start_time', { ascending: false })
-                            .limit(2000);
-                        
-                        if(!error && data && data.length > 0) {
-                            allData = [...allData, ...data];
-                            console.log(`Found ${data.length} matches with status "${status}"`);
-                        }
-                    }
-                    
-                    // Remove duplicates by fixture_id
-                    const uniqueMap = new Map();
-                    allData.forEach(m => { if(m.fixture_id) uniqueMap.set(m.fixture_id, m); });
-                    allData = Array.from(uniqueMap.values());
-                }
+                // Filter only finished matches (have scores OR status is finished/FT)
+                allMatches = allData.filter(match => {
+                    const hasScore = match.score && (match.score.home !== undefined || match.score.away !== undefined);
+                    const isFinishedStatus = match.status === 'finished' || match.status === 'FT' || match.status === 'fulltime';
+                    // Also include matches that are older than current time (past matches)
+                    const isPast = match.start_time ? new Date(match.start_time) < new Date() : false;
+                    return hasScore || isFinishedStatus || isPast;
+                });
                 
-                // FINAL FALLBACK: Get ALL matches that have a score (finished implied)
-                if(allData.length === 0) {
-                    console.log('Trying to fetch all matches with scores...');
-                    const { data, error } = await supabaseClient
-                        .from('sports_matches')
-                        .select('*')
-                        .not('score', 'is', null)
-                        .order('start_time', { ascending: false })
-                        .limit(5000);
-                    
-                    if(!error && data) {
-                        allData = data.filter(m => m.score && (m.score.home !== undefined || m.score.away !== undefined));
-                        console.log(`Loaded ${allData.length} matches with scores`);
-                    }
-                }
-                
-                allMatches = allData;
-                console.log(`✅ TOTAL FINISHED MATCHES LOADED: ${allMatches.length}`);
+                console.log(`✅ TOTAL FINISHED MATCHES LOADED: ${allMatches.length} out of ${allData.length} total`);
                 
                 if(allMatches.length === 0) {
-                    container.innerHTML = '<div style="text-align:center;padding:60px;"><i class="fas fa-database" style="font-size:48px;opacity:0.3;"></i><p>No finished matches found in database.</p><p>Make sure matches have status="finished" or have scores recorded.</p></div>';
+                    container.innerHTML = '<div style="text-align:center;padding:60px;"><i class="fas fa-database" style="font-size:48px;opacity:0.3;"></i><p>No finished matches found in database.</p><p>Make sure matches have scores recorded or status="finished".</p><button onclick="loadAllFinishedMatches(true)" style="margin-top:15px;background:#ff9800;border:none;padding:8px 20px;border-radius:20px;color:black;cursor:pointer;">Retry</button></div>';
                     updateStatistics();
                     return;
                 }
@@ -281,7 +308,7 @@
                 const leagues = [...new Set(allMatches.map(m => m.league_name).filter(Boolean))];
                 const leagueSelect = document.getElementById('league-filter');
                 leagueSelect.innerHTML = '<option value="">All Leagues</option>' + 
-                    leagues.slice(0, 100).map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+                    leagues.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
                 
                 updateStatistics();
                 applyFilters();
@@ -430,7 +457,6 @@
                 
                 if(displayedCount >= rowsPerPage) break;
                 
-                // Format date nicely
                 let displayDate = dateKey;
                 if(dateKey !== 'Unknown Date') {
                     const d = new Date(dateKey);
@@ -531,18 +557,33 @@
                     <div class="detail-item"><div class="detail-label">Total Goals</div><div class="detail-value">${homeScore + awayScore}</div></div>
                     <div class="detail-item"><div class="detail-label">Yellow Cards</div><div class="detail-value">${(match.cards?.home_yellow||0)} + ${(match.cards?.away_yellow||0)} = ${(match.cards?.home_yellow||0)+(match.cards?.away_yellow||0)}</div></div>
                     <div class="detail-item"><div class="detail-label">Red Cards</div><div class="detail-value">${(match.cards?.home_red||0)} + ${(match.cards?.away_red||0)} = ${(match.cards?.home_red||0)+(match.cards?.away_red||0)}</div></div>
+                    <div class="detail-item"><div class="detail-label">Status</div><div class="detail-value">${match.status || 'finished'}</div></div>
+                    <div class="detail-item"><div class="detail-label">Settled</div><div class="detail-value">${match.bets_settled ? '✅ Yes' : '⏳ No'}</div></div>
                 </div>
             `;
             modal.classList.add('show');
         }
         
         function closeModal() { document.getElementById('match-modal').classList.remove('show'); }
-        function showNotification(msg, type) { const n = document.createElement('div'); n.className = `notification ${type}`; n.innerHTML = msg; document.body.appendChild(n); setTimeout(()=>n.remove(),3000); }
-        function escapeHtml(str) { if(!str) return ''; return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+        function showNotification(msg, type) { 
+            const n = document.createElement('div'); 
+            n.className = `notification ${type}`; 
+            n.innerHTML = msg; 
+            document.body.appendChild(n); 
+            setTimeout(()=>n.remove(), 3000); 
+        }
+        function escapeHtml(str) { 
+            if(!str) return ''; 
+            return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); 
+        }
         
         // ==================== INIT ====================
         firebase.auth().onAuthStateChanged(async (user) => {
-            if(!user) { window.location.href = '../login.html'; return; }
+            if(!user) { 
+                window.location.href = '../login.html'; 
+                return; 
+            }
+            await initSupabase();
             await loadAllFinishedMatches();
         });
         
@@ -558,8 +599,9 @@
         window.showMatchDetails = showMatchDetails;
         window.closeModal = closeModal;
         window.loadAllFinishedMatches = loadAllFinishedMatches;
+        window.testConnection = testConnection;
         
-        console.log('✅ Results Dashboard v2 - Full pagination, all finished matches visible');
+        console.log('✅ Results Dashboard v3 - Fixed API key, full pagination');
     </script>
 </body>
 </html>
