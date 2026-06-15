@@ -68,12 +68,16 @@
         .detail-label { font-size: 10px; color: #ff9800; text-transform: uppercase; }
         .detail-value { font-size: 18px; font-weight: bold; margin-top: 5px; }
         .notification { position: fixed; bottom: 20px; right: 20px; background: #4caf50; padding: 12px 20px; border-radius: 8px; z-index: 2000; animation: slideIn 0.3s ease; }
+        .notification.error { background: #ff5252; }
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         
         @media (max-width: 768px) {
             th, td { font-size: 10px; padding: 8px 6px; }
             .stat-detail { display: none; }
         }
+        
+        .loading-spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid #ff9800; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -122,7 +126,7 @@
                         <th>Fixture ID</th><th>Date / Time</th><th>League</th><th>Home Team</th><th>Score</th><th>Away Team</th><th>Result</th><th>Details</th>
                     </tr>
                 </thead>
-                <tbody id="results-tbody"><tr><td colspan="8" style="text-align:center;"><div class="loading-spinner" style="display:inline-block; width:20px;height:20px; border:2px solid #ff9800; border-top-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite;"></div> Loading matches...</td></tr></tbody>
+                <tbody id="results-tbody"><tr><td colspan="8" style="text-align:center;"><div class="loading-spinner"></div> Loading matches...</td></tr></tbody>
             </table>
         </div>
         
@@ -139,16 +143,34 @@
     </div>
 
     <script>
-        // ==================== CONFIGURATION ====================
+        // ==================== CORRECT SUPABASE CONFIGURATION ====================
+        // USING THE CORRECT ANON KEY PROVIDED BY USER
         const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
-        let supabaseClient = null;
-        try { supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch(e) { console.error(e); }
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
         
-        const firebaseConfig = { apiKey:"AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM", authDomain:"x-bet-prod-jd.firebaseapp.com", projectId:"x-bet-prod-jd", storageBucket:"x-bet-prod-jd.firebasestorage.app", messagingSenderId:"499334334535", appId:"1:499334334535:web:bebc1bf817e24d9e3c4962" };
+        // Initialize Supabase client
+        let supabaseClient = null;
+        try {
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                auth: { persistSession: false }
+            });
+            console.log('✅ Supabase client initialized with correct key');
+        } catch(e) { 
+            console.error('Supabase init error:', e); 
+        }
+        
+        // Firebase Config
+        const firebaseConfig = { 
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM", 
+            authDomain: "x-bet-prod-jd.firebaseapp.com", 
+            projectId: "x-bet-prod-jd", 
+            storageBucket: "x-bet-prod-jd.firebasestorage.app", 
+            messagingSenderId: "499334334535", 
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962" 
+        };
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         
-        let allMatches = [];      // Store all finished matches
+        let allMatches = [];
         let filteredMatches = [];
         let currentPage = 1;
         const rowsPerPage = 20;
@@ -163,48 +185,75 @@
         }
         if(localStorage.getItem('lang') === 'ar') setTimeout(toggleLanguage, 10);
         
-        // ==================== LOAD FINISHED MATCHES (ALL TIME, NO 24h LIMIT) ====================
+        // ==================== LOAD FINISHED MATCHES (ALL TIME) ====================
         async function loadAllFinishedMatches() {
+            const tbody = document.getElementById('results-tbody');
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;"><div class="loading-spinner"></div> Loading matches from database...</td></tr>';
+            
             try {
-                if(!supabaseClient) throw new Error('Supabase not ready');
-                // Fetch ALL finished matches, ordered by start_time descending
-                const { data, error } = await supabaseClient
+                if(!supabaseClient) throw new Error('Supabase client not initialized');
+                
+                // Method 1: Try with status 'finished'
+                let { data, error } = await supabaseClient
                     .from('sports_matches')
                     .select('*')
                     .eq('status', 'finished')
                     .order('start_time', { ascending: false });
                 
-                if(error) throw error;
+                if(error) {
+                    console.warn('Status "finished" query error:', error.message);
+                    // Try alternative status values
+                    const { data: altData, error: altError } = await supabaseClient
+                        .from('sports_matches')
+                        .select('*')
+                        .in('status', ['FT', 'fulltime', 'FINISHED', 'complete'])
+                        .order('start_time', { ascending: false });
+                    
+                    if(altError) throw altError;
+                    data = altData;
+                }
                 
-                allMatches = data || [];
+                if(data && data.length > 0) {
+                    allMatches = data;
+                    console.log(`✅ Loaded ${allMatches.length} finished matches`);
+                } else {
+                    // If no finished matches found, try to get all matches and filter by score presence
+                    const { data: allData, error: allError } = await supabaseClient
+                        .from('sports_matches')
+                        .select('*')
+                        .order('start_time', { ascending: false })
+                        .limit(200);
+                    
+                    if(allError) throw allError;
+                    
+                    // Filter matches that have scores (indicating they are finished)
+                    allMatches = (allData || []).filter(m => {
+                        const hasScore = m.score && (m.score.home !== undefined || m.score.away !== undefined);
+                        const isPast = m.start_time ? new Date(m.start_time) < new Date() : false;
+                        return hasScore || isPast;
+                    });
+                    console.log(`✅ Loaded ${allMatches.length} matches with scores (finished implied)`);
+                }
                 
-                // Also fetch any matches marked as finished but status might be 'FT' or 'finished' in diff format
-                // Just in case, also get matches with status 'FT'
-                const { data: ftData, error: ftError } = await supabaseClient
-                    .from('sports_matches')
-                    .select('*')
-                    .in('status', ['FT', 'fulltime', 'FINISHED'])
-                    .order('start_time', { ascending: false });
-                
-                if(!ftError && ftData) {
-                    const existingIds = new Set(allMatches.map(m => m.fixture_id));
-                    const newMatches = ftData.filter(m => !existingIds.has(m.fixture_id));
-                    allMatches = [...allMatches, ...newMatches];
-                    // sort again
-                    allMatches.sort((a,b) => new Date(b.start_time) - new Date(a.start_time));
+                if(allMatches.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No finished matches found in database</td></tr>';
+                    updateStatistics();
+                    return;
                 }
                 
                 // Populate league filter dropdown
                 const leagues = [...new Set(allMatches.map(m => m.league_name).filter(Boolean))];
                 const leagueSelect = document.getElementById('league-filter');
-                leagueSelect.innerHTML = '<option value="">All Leagues</option>' + leagues.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+                leagueSelect.innerHTML = '<option value="">All Leagues</option>' + 
+                    leagues.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
                 
                 updateStatistics();
                 applyFilters();
                 
             } catch(e) {
                 console.error('Load matches error:', e);
-                document.getElementById('results-tbody').innerHTML = `<tr><td colspan="8" style="text-align:center;color:#ff5252;">Error loading matches: ${e.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#ff5252;">❌ Database error: ${e.message}. Please check connection.</td></tr>`;
+                showNotification('Failed to load matches: ' + e.message, 'error');
             }
         }
         
@@ -229,10 +278,13 @@
             document.getElementById('total-red').textContent = totalRed;
             
             if(allMatches.length > 0) {
-                const firstDate = new Date(allMatches[allMatches.length-1]?.start_time);
-                const lastDate = new Date(allMatches[0]?.start_time);
-                const rangeLabel = `${firstDate.toLocaleDateString()} - ${lastDate.toLocaleDateString()}`;
-                document.getElementById('date-range-label').textContent = rangeLabel;
+                const dates = allMatches.map(m => m.start_time).filter(Boolean).sort();
+                if(dates.length) {
+                    const firstDate = new Date(dates[dates.length-1]);
+                    const lastDate = new Date(dates[0]);
+                    const rangeLabel = `${firstDate.toLocaleDateString()} - ${lastDate.toLocaleDateString()}`;
+                    document.getElementById('date-range-label').textContent = rangeLabel;
+                }
             }
         }
         
@@ -245,7 +297,6 @@
             const dateTo = document.getElementById('date-to').value;
             
             filteredMatches = allMatches.filter(match => {
-                // Search by fixture_id, team names, league
                 const homeName = match.home_team?.name || '';
                 const awayName = match.away_team?.name || '';
                 const leagueName = match.league_name || '';
@@ -259,20 +310,20 @@
                 if(leagueVal && leagueName !== leagueVal) return false;
                 
                 if(resultVal) {
-                    let matchResult = '';
                     const homeScore = match.score?.home || 0;
                     const awayScore = match.score?.away || 0;
+                    let matchResult = '';
                     if(homeScore > awayScore) matchResult = 'home';
                     else if(homeScore < awayScore) matchResult = 'away';
                     else matchResult = 'draw';
                     if(matchResult !== resultVal) return false;
                 }
                 
-                if(dateFrom) {
+                if(dateFrom && match.start_time) {
                     const matchDate = new Date(match.start_time).toISOString().slice(0,10);
                     if(matchDate < dateFrom) return false;
                 }
-                if(dateTo) {
+                if(dateTo && match.start_time) {
                     const matchDate = new Date(match.start_time).toISOString().slice(0,10);
                     if(matchDate > dateTo) return false;
                 }
@@ -293,11 +344,11 @@
             applyFilters();
         }
         
-        // ==================== RENDER TABLE with full details (ID, goals, cards, etc) ====================
+        // ==================== RENDER TABLE ====================
         function renderTable() {
             const tbody = document.getElementById('results-tbody');
             if(!filteredMatches.length) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No finished matches found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No matches match your filters</td></tr>';
                 return;
             }
             
@@ -306,8 +357,8 @@
             
             tbody.innerHTML = '';
             pageMatches.forEach(match => {
-                const homeName = match.home_team?.name || 'Home';
-                const awayName = match.away_team?.name || 'Away';
+                const homeName = match.home_team?.name || 'Home Team';
+                const awayName = match.away_team?.name || 'Away Team';
                 const homeScore = match.score?.home ?? 0;
                 const awayScore = match.score?.away ?? 0;
                 let resultClass = '', resultText = '';
@@ -318,9 +369,9 @@
                 const matchDate = match.start_time ? new Date(match.start_time).toLocaleString() : 'Date TBD';
                 const fixtureId = match.fixture_id || match.id || 'N/A';
                 
-                // Extra details: yellow/red cards, possession
                 const yellowTotal = (match.cards?.home_yellow || 0) + (match.cards?.away_yellow || 0);
                 const redTotal = (match.cards?.home_red || 0) + (match.cards?.away_red || 0);
+                const possession = match.stats?.possession_home || '-';
                 
                 const row = document.createElement('tr');
                 row.onclick = () => showMatchDetails(match);
@@ -336,7 +387,7 @@
                     <td class="stat-detail">
                         <span><i class="fas fa-yellow-card"></i> ${yellowTotal}</span>
                         <span><i class="fas fa-red-card"></i> ${redTotal}</span>
-                        <span><i class="fas fa-chart-line"></i> ${match.stats?.possession_home || '-'}%</span>
+                        <span><i class="fas fa-chart-line"></i> ${possession}%</span>
                     </td>
                 `;
                 tbody.appendChild(row);
@@ -371,7 +422,7 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
         
-        // ==================== DETAIL MODAL (Full match info: cards, lineups, goalscorers, etc) ====================
+        // ==================== DETAIL MODAL ====================
         function showMatchDetails(match) {
             const modal = document.getElementById('match-modal');
             const detailsDiv = document.getElementById('modal-details');
@@ -386,35 +437,31 @@
             const awayYellow = match.cards?.away_yellow || 0;
             const homeRed = match.cards?.home_red || 0;
             const awayRed = match.cards?.away_red || 0;
-            
-            // Goalscorers (if available)
-            let goalscorersHtml = '<div class="detail-item"><div class="detail-label">Goalscorers</div><div class="detail-value">';
-            if(match.goalscorers && match.goalscorers.length) {
-                goalscorersHtml += match.goalscorers.map(g => `${g.name} (${g.minute}')`).join(', ');
-            } else {
-                goalscorersHtml += '<span style="font-size:12px;">Not available</span>';
-            }
-            goalscorersHtml += '</div></div>';
-            
-            // Statistics
+            const htHome = match.score?.halftime_home ?? '-';
+            const htAway = match.score?.halftime_away ?? '-';
             const stats = match.stats || {};
             
             detailsDiv.innerHTML = `
                 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-                    <div style="text-align:center;"><img src="${homeLogo}" style="width:50px; height:50px; object-fit:contain; border-radius:50%; background:#fff; padding:3px;" onerror="this.style.display='none'"><br><strong>${escapeHtml(homeName)}</strong></div>
+                    <div style="text-align:center;">
+                        ${homeLogo ? `<img src="${homeLogo}" style="width:50px; height:50px; object-fit:contain; border-radius:50%; background:#fff; padding:3px;" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt" style="font-size:40px;"></i>'}
+                        <br><strong>${escapeHtml(homeName)}</strong>
+                    </div>
                     <div style="font-size:32px; font-weight:bold;">${homeScore} - ${awayScore}</div>
-                    <div style="text-align:center;"><img src="${awayLogo}" style="width:50px; height:50px; object-fit:contain; border-radius:50%; background:#fff; padding:3px;" onerror="this.style.display='none'"><br><strong>${escapeHtml(awayName)}</strong></div>
+                    <div style="text-align:center;">
+                        ${awayLogo ? `<img src="${awayLogo}" style="width:50px; height:50px; object-fit:contain; border-radius:50%; background:#fff; padding:3px;" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt" style="font-size:40px;"></i>'}
+                        <br><strong>${escapeHtml(awayName)}</strong>
+                    </div>
                 </div>
                 <div class="detail-grid">
                     <div class="detail-item"><div class="detail-label">Fixture ID</div><div class="detail-value">#${match.fixture_id || match.id}</div></div>
-                    <div class="detail-item"><div class="detail-label">Match Date / Time</div><div class="detail-value">${new Date(match.start_time).toLocaleString()}</div></div>
+                    <div class="detail-item"><div class="detail-label">Match Date / Time</div><div class="detail-value">${match.start_time ? new Date(match.start_time).toLocaleString() : 'N/A'}</div></div>
                     <div class="detail-item"><div class="detail-label">League / Round</div><div class="detail-value">${escapeHtml(match.league_name || 'N/A')} ${match.round ? `(${match.round})` : ''}</div></div>
                     <div class="detail-item"><div class="detail-label">Referee</div><div class="detail-value">${match.referee || 'N/A'}</div></div>
-                    <div class="detail-item"><div class="detail-label">🏆 Half Time Score</div><div class="detail-value">${match.score?.halftime_home ?? '-'} - ${match.score?.halftime_away ?? '-'}</div></div>
+                    <div class="detail-item"><div class="detail-label">🏆 Half Time Score</div><div class="detail-value">${htHome} - ${htAway}</div></div>
                     <div class="detail-item"><div class="detail-label">⚽ Total Goals</div><div class="detail-value">${homeScore + awayScore}</div></div>
                     <div class="detail-item"><div class="detail-label">🟨 Yellow Cards</div><div class="detail-value">${homeYellow} (Home) | ${awayYellow} (Away) | Total: ${homeYellow+awayYellow}</div></div>
                     <div class="detail-item"><div class="detail-label">🟥 Red Cards</div><div class="detail-value">${homeRed} (Home) | ${awayRed} (Away) | Total: ${homeRed+awayRed}</div></div>
-                    ${goalscorersHtml}
                     <div class="detail-item"><div class="detail-label">Possession</div><div class="detail-value">${stats.possession_home || '-'}% / ${stats.possession_away || '-'}%</div></div>
                     <div class="detail-item"><div class="detail-label">Shots on Target</div><div class="detail-value">${stats.shots_on_target_home || '-'} / ${stats.shots_on_target_away || '-'}</div></div>
                     <div class="detail-item"><div class="detail-label">Corners</div><div class="detail-value">${stats.corners_home || '-'} / ${stats.corners_away || '-'}</div></div>
@@ -430,29 +477,29 @@
             document.getElementById('match-modal').classList.remove('show');
         }
         
-        function escapeHtml(str) { if(!str) return ''; return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+        function showNotification(msg, type) {
+            const n = document.createElement('div');
+            n.className = `notification ${type || ''}`;
+            n.innerHTML = `<i class="fas ${type==='error'?'fa-exclamation-circle':'fa-info-circle'}"></i> ${msg}`;
+            document.body.appendChild(n);
+            setTimeout(() => n.remove(), 3000);
+        }
         
-        // ==================== LOAD USER BALANCE (for consistency) ====================
-        async function loadBalance() {
-            try {
-                const user = firebase.auth().currentUser;
-                if(user) {
-                    const db = firebase.firestore();
-                    const w = await db.collection('wallets').doc(user.uid).get();
-                    const bal = w.exists ? (w.data().balance || 0) : 1000;
-                    // optional: update any balance display if needed
-                }
-            } catch(e){}
+        function escapeHtml(str) { 
+            if(!str) return ''; 
+            return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); 
         }
         
         // ==================== INIT ====================
         firebase.auth().onAuthStateChanged(async (user) => {
-            if(!user) { window.location.href = '../login.html'; return; }
-            await loadBalance();
+            if(!user) { 
+                window.location.href = '../login.html'; 
+                return; 
+            }
             await loadAllFinishedMatches();
         });
         
-        // Event listeners for filters
+        // Event listeners
         document.getElementById('search-input').addEventListener('input', applyFilters);
         document.getElementById('league-filter').addEventListener('change', applyFilters);
         document.getElementById('result-filter').addEventListener('change', applyFilters);
@@ -465,7 +512,7 @@
         window.showMatchDetails = showMatchDetails;
         window.closeModal = closeModal;
         
-        console.log('✅ Results Dashboard loaded - All finished matches with full details (IDs, goals, cards)');
+        console.log('✅ Results Dashboard loaded with correct Supabase key');
     </script>
 </body>
 </html>
