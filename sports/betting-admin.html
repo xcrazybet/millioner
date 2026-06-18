@@ -82,12 +82,13 @@
         
         .modal-overlay { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.95); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px; }
         .modal-overlay.show { display: flex; }
-        .modal-content { background: #111827; border-radius: 20px; padding: 25px; max-width: 700px; width: 100%; border: 2px solid #ff9800; max-height: 85vh; overflow-y: auto; }
+        .modal-content { background: #111827; border-radius: 20px; padding: 25px; max-width: 750px; width: 100%; border: 2px solid #ff9800; max-height: 85vh; overflow-y: auto; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #ff980033; padding-bottom: 10px; }
         .modal-close { background: none; border: none; color: #a0a8c9; font-size: 24px; cursor: pointer; }
         
         .bet-detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ffffff11; font-size: 13px; flex-wrap: wrap; gap: 8px; }
         .bet-detail-row .lbl { color: #a0a8c9; }
+        .bet-detail-row .highlight { color: #ff9800; font-weight: bold; }
         
         .match-info-box { background: #1a2332; padding: 15px; border-radius: 12px; margin: 15px 0; border-left: 4px solid #ff9800; }
         .match-info-box .teams { display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap; }
@@ -112,6 +113,28 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         
         .empty-state { text-align: center; padding: 40px; color: #a0a8c9; }
+        
+        /* Settlement Timer Styles */
+        .settlement-info {
+            background: #1a2332;
+            padding: 12px 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #ff9800;
+        }
+        .settlement-info .timer {
+            color: #ff9800;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .settlement-info .timer.urgent {
+            color: #ff5252;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
         
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -221,8 +244,7 @@
 
     <script>
         // ============================================
-        // ADMIN PANEL - COMPLETE WITH ALL BET TYPES
-        // FIXED: Accumulator shows Match + Bet Type + Odds + SCORES
+        // ADMIN PANEL - COMPLETE WITH SETTLEMENT TIMERS
         // ============================================
         
         // Supabase Configuration
@@ -251,6 +273,7 @@
         let allMatches = [];
         let matchCache = {};
         let userEmailCache = {};
+        let settlementTimers = [];
         
         // ===== HELPER FUNCTIONS =====
         function escapeHtml(str) { if (!str) return ''; return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
@@ -260,25 +283,16 @@
         // 🔥 COMPLETE BET TYPE MAPPING - SAME AS MY-BETS.HTML
         function formatBetType(type) {
             const map = { 
-                // 1X2 (Match Winner)
                 'home': '🏆 Home Win',
                 'draw': '🤝 Draw', 
                 'away': '🏆 Away Win',
-                
-                // Double Chance
                 '1X': '🏠 Home or Draw',
                 '12': '⚡ Home or Away',
                 'X2': '🚀 Draw or Away',
-                
-                // Over/Under
                 'over25': '⚽ Over 2.5 Goals',
                 'under25': '🥅 Under 2.5 Goals',
-                
-                // Both Teams to Score (BTTS)
                 'btts_yes': '✅ Both Teams to Score',
                 'btts_no': '❌ Both Teams to Score - No',
-                
-                // Accumulator
                 'accumulator': '📊 Accumulator'
             };
             return map[type] || type;
@@ -292,7 +306,62 @@
             setTimeout(() => n.remove(), 3000);
         }
         
-        // ===== FETCH MATCH FROM API (FALLBACK - SAME AS MY-BETS.HTML) =====
+        // ===== CALCULATE SETTLEMENT TIME =====
+        function calculateSettlementTime(kickoffTime, matchStatus) {
+            if (!kickoffTime) return null;
+            
+            const kickoff = new Date(kickoffTime);
+            const now = new Date();
+            
+            // If match hasn't started yet
+            if (now < kickoff) {
+                const diff = kickoff - now;
+                const hours = Math.floor(diff / 3600000);
+                const minutes = Math.floor((diff % 3600000) / 60000);
+                return {
+                    status: 'upcoming',
+                    display: `⏰ Starts in ${hours}h ${minutes}m`,
+                    urgent: false,
+                    estimatedEnd: null
+                };
+            }
+            
+            // If match is live or finished, calculate estimated end (kickoff + 105 minutes)
+            const estimatedEnd = new Date(kickoff.getTime() + (105 * 60000));
+            
+            if (matchStatus === 'live') {
+                const diff = estimatedEnd - now;
+                if (diff > 0) {
+                    const minutes = Math.floor(diff / 60000);
+                    return {
+                        status: 'live',
+                        display: `⏳ Settlement in ${minutes}m`,
+                        urgent: minutes < 10,
+                        estimatedEnd: estimatedEnd
+                    };
+                } else {
+                    return {
+                        status: 'settling',
+                        display: '🔄 Settlement pending...',
+                        urgent: false,
+                        estimatedEnd: null
+                    };
+                }
+            }
+            
+            if (matchStatus === 'finished') {
+                return {
+                    status: 'finished',
+                    display: '✅ Match finished - Ready for settlement',
+                    urgent: false,
+                    estimatedEnd: null
+                };
+            }
+            
+            return null;
+        }
+        
+        // ===== FETCH MATCH FROM API (FALLBACK) =====
         async function fetchMatchFromAPI(fixtureId) {
             try {
                 const response = await fetch(`${API_BASE}/api/fixture/${fixtureId}`);
@@ -310,7 +379,7 @@
                         },
                         league_name: data.league?.name || 'League',
                         start_time: data.fixture.date,
-                        status: data.fixture.status?.short === 'FT' ? 'finished' : 'upcoming',
+                        status: data.fixture.status?.short === 'FT' ? 'finished' : (data.fixture.status?.short === 'LIVE' ? 'live' : 'upcoming'),
                         score: { home: data.goals?.home || 0, away: data.goals?.away || 0 },
                         elapsed: data.fixture.status?.elapsed || 0
                     };
@@ -322,7 +391,7 @@
             }
         }
         
-        // ===== GET MATCH DETAILS WITH FALLBACK (SAME AS MY-BETS.HTML) =====
+        // ===== GET MATCH DETAILS WITH FALLBACK =====
         async function getMatchDetails(fixtureId) {
             if (!fixtureId) return null;
             if (matchCache[fixtureId]) return matchCache[fixtureId];
@@ -331,12 +400,11 @@
             try {
                 const { data, error } = await supabaseClient
                     .from('sports_matches')
-                    .select('home_team, away_team, league_name, start_time, status, score, elapsed')
+                    .select('*')
                     .eq('fixture_id', fixtureId)
                     .maybeSingle();
                 
                 if (!error && data) {
-                    // Parse JSON strings if needed
                     let homeTeam = data.home_team;
                     let awayTeam = data.away_team;
                     let score = data.score;
@@ -402,11 +470,9 @@
                 if (error) throw error;
                 allBets = data || [];
                 
-                // Enrich each bet with match details (SAME AS MY-BETS.HTML)
                 for (let i = 0; i < allBets.length; i++) {
                     const bet = allBets[i];
                     
-                    // For single bets - fetch match details with API fallback
                     if (bet.fixture_id && bet.bet_type !== 'accumulator') {
                         const match = await getMatchDetails(bet.fixture_id);
                         if (match) {
@@ -424,7 +490,6 @@
                         }
                     }
                     
-                    // For accumulator bets - enrich selections with match details AND scores
                     if (bet.bet_type === 'accumulator' && bet.selections && bet.selections.length) {
                         for (let leg of bet.selections) {
                             if (leg.fixture_id) {
@@ -436,6 +501,7 @@
                                     leg.score = match.score || { home: 0, away: 0 };
                                     leg.match_status = match.status || 'upcoming';
                                     leg.league_name = match.league_name || '';
+                                    leg.kickoff_time = match.start_time || null;
                                 } else {
                                     leg.matchName = `Match #${leg.fixture_id}`;
                                     leg.score = { home: '?', away: '?' };
@@ -444,7 +510,6 @@
                         }
                     }
                     
-                    // Get user email
                     if (bet.user_id && !bet.user_email) {
                         bet.user_email = await getUserEmail(bet.user_id);
                     }
@@ -499,8 +564,7 @@
             document.getElementById('bets-tbody').innerHTML = html;
         }
         
-        // ===== SHOW BET DETAILS WITH FULL MATCH INFO =====
-        // 🔥 FIXED: Accumulator shows Match Name + Score + Bet Type + Odds
+        // ===== SHOW BET DETAILS WITH SETTLEMENT TIMERS =====
         async function showBetDetails(betId) {
             const bet = allBets.find(b => b.id === betId);
             if (!bet) return;
@@ -513,10 +577,10 @@
             const userDisplay = bet.user_email || bet.user_id?.slice(-12) || 'Unknown';
             
             let matchHtml = '';
+            let settlementHtml = '';
             
             // For single bets - show full match details with logos and scores
             if (!isAcc && bet.fixture_id) {
-                // Try to get fresh match data (with API fallback)
                 const match = await getMatchDetails(bet.fixture_id);
                 
                 if (match && match.home_team && match.away_team) {
@@ -528,6 +592,25 @@
                     const awayScore = match.score?.away || 0;
                     const league = match.league_name || '';
                     const matchStatus = match.status || 'upcoming';
+                    const kickoffTime = match.start_time || null;
+                    
+                    // Calculate settlement info
+                    const settlementInfo = calculateSettlementTime(kickoffTime, matchStatus);
+                    
+                    if (settlementInfo) {
+                        settlementHtml = `
+                            <div class="settlement-info">
+                                <div class="timer ${settlementInfo.urgent ? 'urgent' : ''}">
+                                    <i class="fas fa-clock"></i> ${settlementInfo.display}
+                                </div>
+                                ${settlementInfo.estimatedEnd ? `
+                                    <div style="font-size:10px;color:#a0a8c9;margin-top:4px;">
+                                        Estimated settlement: ${formatFullDate(settlementInfo.estimatedEnd)}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    }
                     
                     matchHtml = `
                         <div class="match-info-box">
@@ -548,8 +631,10 @@
                             <div class="league">
                                 ${league ? `🏆 ${escapeHtml(league)}` : ''}
                                 <span class="status-badge status-${matchStatus}" style="margin-left:10px;">${matchStatus.toUpperCase()}</span>
+                                ${kickoffTime ? `<span style="margin-left:10px;font-size:10px;color:#a0a8c9;">🕐 ${formatFullDate(kickoffTime)}</span>` : ''}
                             </div>
                         </div>
+                        ${settlementHtml}
                     `;
                 } else if (bet.match_name) {
                     matchHtml = `<div class="match-info-box">${escapeHtml(bet.match_name)}</div>`;
@@ -558,25 +643,44 @@
                 }
             }
             
-            // 🔥 FIXED: For accumulator bets - show Match Name + Score + Bet Type + Odds
+            // For accumulator bets - show all selections with settlement info
             let legsHtml = '';
             if (isAcc && bet.selections && bet.selections.length) {
+                const enrichedLegs = [];
+                for (const leg of bet.selections) {
+                    if (leg.fixture_id) {
+                        const match = await getMatchDetails(leg.fixture_id);
+                        if (match) {
+                            enrichedLegs.push({
+                                ...leg,
+                                matchName: `${match.home_team?.name || 'Home'} vs ${match.away_team?.name || 'Away'}`,
+                                home_team: match.home_team,
+                                away_team: match.away_team,
+                                score: match.score || { home: '?', away: '?' },
+                                match_status: match.status || 'upcoming',
+                                league_name: match.league_name || '',
+                                kickoff_time: match.start_time || null
+                            });
+                        } else {
+                            enrichedLegs.push(leg);
+                        }
+                    } else {
+                        enrichedLegs.push(leg);
+                    }
+                }
+                
                 legsHtml = `
                     <div class="selections-container">
                         <h4 style="color:#ff9800;margin-bottom:12px;font-size:15px;border-bottom:1px solid #ff980033;padding-bottom:8px;">
-                            <i class="fas fa-layer-group"></i> Selections (${bet.selections.length})
+                            <i class="fas fa-layer-group"></i> Selections (${enrichedLegs.length})
                         </h4>
-                        ${bet.selections.map((leg, idx) => {
-                            // Get the match name
+                        ${enrichedLegs.map((leg, idx) => {
                             const matchName = leg.matchName || leg.match_name || `Match #${leg.fixture_id}`;
-                            
-                            // Get the score
                             const score = leg.score || { home: '?', away: '?' };
                             const homeScore = score.home !== undefined && score.home !== null ? score.home : '?';
                             const awayScore = score.away !== undefined && score.away !== null ? score.away : '?';
                             const scoreDisplay = `${homeScore} - ${awayScore}`;
                             
-                            // Get bet type
                             let betType = leg.bet_type || leg.betType || leg.type || 'Unknown';
                             if (!betType || betType === 'Unknown' || betType === '') {
                                 if (leg.pick) betType = leg.pick;
@@ -585,15 +689,22 @@
                                 else betType = 'Unknown';
                             }
                             
-                            // Get the bet type display name
                             const betTypeDisplay = formatBetType(betType);
-                            
-                            // Get the odds
                             const odds = leg.odds || leg.price || '?';
-                            
-                            // Get match status
                             const matchStatus = leg.match_status || 'upcoming';
                             const statusClass = matchStatus === 'finished' ? 'status-finished' : (matchStatus === 'live' ? 'status-live' : 'status-upcoming');
+                            const kickoffTime = leg.kickoff_time || null;
+                            
+                            // Calculate settlement for each leg
+                            const settlementInfo = calculateSettlementTime(kickoffTime, matchStatus);
+                            let legSettlementHtml = '';
+                            if (settlementInfo) {
+                                legSettlementHtml = `
+                                    <span style="font-size:9px;color:#a0a8c9;margin-left:5px;">
+                                        ${settlementInfo.display}
+                                    </span>
+                                `;
+                            }
                             
                             return `
                                 <div class="selection-item" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #ffffff11;flex-wrap:wrap;">
@@ -605,6 +716,7 @@
                                     </span>
                                     <span style="color:#ff9800;font-weight:bold;font-size:13px;background:#ff980022;padding:2px 10px;border-radius:10px;">@${odds}</span>
                                     <span class="status-badge ${statusClass}" style="font-size:8px;">${matchStatus.toUpperCase()}</span>
+                                    ${legSettlementHtml}
                                 </div>
                             `;
                         }).join('')}
@@ -623,8 +735,10 @@
                 <div class="bet-detail-row"><span class="lbl">Stake</span><span>${formatCurrency(amount)}</span></div>
                 <div class="bet-detail-row"><span class="lbl">Potential Win</span><span class="text-green">${formatCurrency(bet.potential_win)}</span></div>
                 ${bet.status !== 'active' ? `<div class="bet-detail-row"><span class="lbl">Actual Payout</span><span>${formatCurrency(payout)}</span></div>` : ''}
+                ${bet.status !== 'active' ? `<div class="bet-detail-row"><span class="lbl">Profit/Loss</span><span style="color:${profit >= 0 ? '#4caf50' : '#ff5252'}">${profit >= 0 ? '+' : ''}${formatCurrency(profit)}</span></div>` : ''}
                 <div class="bet-detail-row"><span class="lbl">Placed</span><span>${formatFullDate(bet.placed_at)}</span></div>
                 ${bet.settlement_reason ? `<div class="bet-detail-row"><span class="lbl">Settlement Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div>` : ''}
+                ${bet.settled_at ? `<div class="bet-detail-row"><span class="lbl">Settled At</span><span>${formatFullDate(bet.settled_at)}</span></div>` : ''}
                 ${matchHtml}
                 ${legsHtml}
             `;
@@ -699,7 +813,8 @@
                     .from('bets')
                     .update({
                         status: 'cancelled',
-                        settlement_reason: `Admin cancelled - Refunded $${bet.amount}`
+                        settlement_reason: `Admin cancelled - Refunded $${bet.amount}`,
+                        settled_at: new Date().toISOString()
                     })
                     .eq('id', betId);
                 
@@ -914,7 +1029,6 @@
             await loadMatches();
             await loadPendingSettlements();
             
-            // Auto-refresh every 30 seconds
             setInterval(async () => {
                 await loadBets();
                 await loadPendingSettlements();
@@ -937,9 +1051,8 @@
         window.loadPendingSettlements = loadPendingSettlements;
         window.logout = logout;
         
-        console.log('🚀 Admin panel loaded with ALL bet types!');
-        console.log('✅ Bet types: home, draw, away, 1X, 12, X2, over25, under25, btts_yes, btts_no, accumulator');
-        console.log('✅ Accumulator selections now show: Match Name + Score + Bet Type + Odds');
+        console.log('🚀 Admin panel loaded with Settlement Timers!');
+        console.log('✅ Settlement times calculated based on match start + 105 minutes');
     </script>
 </body>
 </html>
