@@ -221,15 +221,16 @@
 
     <script>
         // ============================================
-        // ADMIN PANEL - FIXED DUPLICATE DECLARATION
+        // ADMIN PANEL - WITH API FALLBACK (LIKE MY-BETS.HTML)
         // ============================================
         
-        // Supabase Configuration - Using a different variable name to avoid conflicts
+        // Supabase Configuration
         const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
-        
-        // 🔥 FIX: Use a different variable name to avoid conflicts with the script tag
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        
+        // API Fallback (SAME AS MY-BETS.HTML)
+        const API_BASE = 'https://millioner.onrender.com';
         
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -273,13 +274,95 @@
             setTimeout(() => n.remove(), 3000);
         }
         
-        // ===== GET USER EMAIL FROM FIREBASE =====
+        // ===== FETCH MATCH FROM API (FALLBACK - SAME AS MY-BETS.HTML) =====
+        async function fetchMatchFromAPI(fixtureId) {
+            try {
+                const response = await fetch(`${API_BASE}/api/fixture/${fixtureId}`);
+                const data = await response.json();
+                
+                if (data.success && data.fixture) {
+                    return {
+                        home_team: { 
+                            name: data.teams?.home?.name || 'Home', 
+                            logo: data.teams?.home?.logo || '' 
+                        },
+                        away_team: { 
+                            name: data.teams?.away?.name || 'Away', 
+                            logo: data.teams?.away?.logo || '' 
+                        },
+                        league_name: data.league?.name || 'League',
+                        start_time: data.fixture.date,
+                        status: data.fixture.status?.short === 'FT' ? 'finished' : 'upcoming',
+                        score: { home: data.goals?.home || 0, away: data.goals?.away || 0 },
+                        elapsed: data.fixture.status?.elapsed || 0
+                    };
+                }
+                return null;
+            } catch(e) {
+                console.log('API fetch error:', e);
+                return null;
+            }
+        }
+        
+        // ===== GET MATCH DETAILS WITH FALLBACK (SAME AS MY-BETS.HTML) =====
+        async function getMatchDetails(fixtureId) {
+            if (!fixtureId) return null;
+            if (matchCache[fixtureId]) return matchCache[fixtureId];
+            
+            // FIRST TRY: Supabase
+            try {
+                const { data, error } = await supabaseClient
+                    .from('sports_matches')
+                    .select('home_team, away_team, league_name, start_time, status, score, elapsed')
+                    .eq('fixture_id', fixtureId)
+                    .maybeSingle();
+                
+                if (!error && data) {
+                    // Parse JSON strings if needed
+                    let homeTeam = data.home_team;
+                    let awayTeam = data.away_team;
+                    let score = data.score;
+                    
+                    if (homeTeam && typeof homeTeam === 'string') {
+                        try { homeTeam = JSON.parse(homeTeam); } catch(e) { homeTeam = { name: 'Home', logo: '' }; }
+                    }
+                    if (awayTeam && typeof awayTeam === 'string') {
+                        try { awayTeam = JSON.parse(awayTeam); } catch(e) { awayTeam = { name: 'Away', logo: '' }; }
+                    }
+                    if (score && typeof score === 'string') {
+                        try { score = JSON.parse(score); } catch(e) { score = { home: 0, away: 0 }; }
+                    }
+                    
+                    const enrichedData = {
+                        ...data,
+                        home_team: homeTeam || { name: 'Home', logo: '' },
+                        away_team: awayTeam || { name: 'Away', logo: '' },
+                        score: score || { home: 0, away: 0 }
+                    };
+                    
+                    matchCache[fixtureId] = enrichedData;
+                    return enrichedData;
+                }
+            } catch(e) {
+                console.log('Supabase error, trying API...');
+            }
+            
+            // SECOND TRY: API Fallback
+            const apiData = await fetchMatchFromAPI(fixtureId);
+            if (apiData) {
+                matchCache[fixtureId] = apiData;
+                return apiData;
+            }
+            
+            return null;
+        }
+        
+        // ===== GET USER EMAIL =====
         async function getUserEmail(userId) {
             if (!userId) return 'Unknown';
             if (userEmailCache[userId]) return userEmailCache[userId];
             
             try {
-                // Try to get user record from Firebase Auth
                 const userRecord = await auth.getUser(userId).catch(() => null);
                 if (userRecord && userRecord.email) {
                     userEmailCache[userId] = userRecord.email;
@@ -287,63 +370,12 @@
                 }
             } catch(e) {}
             
-            // Fallback to showing partial ID
             return userId.slice(-12);
-        }
-        
-        // ===== GET MATCH DETAILS - FIXED VERSION =====
-        async function getMatchDetails(fixtureId) {
-            if (!fixtureId) return null;
-            if (matchCache[fixtureId]) return matchCache[fixtureId];
-            
-            try {
-                // 🔥 FIX: Use supabaseClient instead of supabase
-                const { data, error } = await supabaseClient
-                    .from('sports_matches')
-                    .select('*')
-                    .eq('fixture_id', fixtureId)
-                    .maybeSingle();
-                
-                if (error || !data) {
-                    console.log(`No match data for ${fixtureId}`);
-                    return null;
-                }
-                
-                // CRITICAL: Parse JSON strings that might be stored in Supabase
-                let homeTeam = data.home_team;
-                let awayTeam = data.away_team;
-                let score = data.score;
-                
-                if (homeTeam && typeof homeTeam === 'string') {
-                    try { homeTeam = JSON.parse(homeTeam); } catch(e) { homeTeam = { name: 'Home', logo: '' }; }
-                }
-                if (awayTeam && typeof awayTeam === 'string') {
-                    try { awayTeam = JSON.parse(awayTeam); } catch(e) { awayTeam = { name: 'Away', logo: '' }; }
-                }
-                if (score && typeof score === 'string') {
-                    try { score = JSON.parse(score); } catch(e) { score = { home: 0, away: 0 }; }
-                }
-                
-                const enrichedData = {
-                    ...data,
-                    home_team: homeTeam || { name: 'Home', logo: '' },
-                    away_team: awayTeam || { name: 'Away', logo: '' },
-                    score: score || { home: 0, away: 0 }
-                };
-                
-                matchCache[fixtureId] = enrichedData;
-                return enrichedData;
-                
-            } catch(e) {
-                console.error('Match fetch error:', e);
-                return null;
-            }
         }
         
         // ===== LOAD BETS WITH FULL ENRICHMENT =====
         async function loadBets() {
             try {
-                // 🔥 FIX: Use supabaseClient instead of supabase
                 const { data, error } = await supabaseClient
                     .from('bets')
                     .select('*')
@@ -356,7 +388,7 @@
                 for (let i = 0; i < allBets.length; i++) {
                     const bet = allBets[i];
                     
-                    // For single bets - fetch match details
+                    // For single bets - fetch match details with API fallback
                     if (bet.fixture_id && bet.bet_type !== 'accumulator') {
                         const match = await getMatchDetails(bet.fixture_id);
                         if (match) {
@@ -461,7 +493,7 @@
             
             // For single bets - show full match details with logos and scores
             if (!isAcc && bet.fixture_id) {
-                // Try to get fresh match data
+                // Try to get fresh match data (with API fallback)
                 const match = await getMatchDetails(bet.fixture_id);
                 
                 if (match && match.home_team && match.away_team) {
@@ -565,7 +597,6 @@
             const payout = result === 'won' ? (bet.amount * bet.odds) : 0;
             
             try {
-                // 🔥 FIX: Use supabaseClient instead of supabase
                 await supabaseClient
                     .from('bets')
                     .update({
@@ -605,7 +636,6 @@
                     balance: firebase.firestore.FieldValue.increment(bet.amount)
                 });
                 
-                // 🔥 FIX: Use supabaseClient instead of supabase
                 await supabaseClient
                     .from('bets')
                     .update({
@@ -669,7 +699,6 @@
             if (!confirm(`Settle match ${fixtureId} with score ${homeScore}-${awayScore}?`)) return;
             
             try {
-                // 🔥 FIX: Use supabaseClient instead of supabase
                 await supabaseClient
                     .from('sports_matches')
                     .update({
@@ -694,7 +723,6 @@
                     }
                     const payout = result === 'won' ? (bet.amount * bet.odds) : 0;
                     
-                    // 🔥 FIX: Use supabaseClient instead of supabase
                     await supabaseClient
                         .from('bets')
                         .update({
@@ -725,7 +753,6 @@
         // ===== LOAD MATCHES =====
         async function loadMatches() {
             try {
-                // 🔥 FIX: Use supabaseClient instead of supabase
                 const { data } = await supabaseClient.from('sports_matches').select('*').order('start_time', { ascending: false }).limit(100);
                 allMatches = data || [];
                 renderMatchesTable();
@@ -851,8 +878,8 @@
         window.loadPendingSettlements = loadPendingSettlements;
         window.logout = logout;
         
-        console.log('🚀 Admin panel loaded successfully!');
-        console.log('✅ All Supabase queries now use supabaseClient to avoid conflicts');
+        console.log('🚀 Admin panel loaded with API fallback!');
+        console.log('✅ Single bets will now show team names from API if not in Supabase');
     </script>
 </body>
 </html>
