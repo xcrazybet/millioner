@@ -222,7 +222,7 @@
     <script>
         // ============================================
         // ADMIN PANEL - COMPLETE WITH ALL BET TYPES
-        // FIXED: Accumulator shows Match + Bet Type + Odds
+        // FIXED: Accumulator shows Match + Bet Type + Odds + SCORES
         // ============================================
         
         // Supabase Configuration
@@ -424,17 +424,21 @@
                         }
                     }
                     
-                    // For accumulator bets - enrich selections
+                    // For accumulator bets - enrich selections with match details AND scores
                     if (bet.bet_type === 'accumulator' && bet.selections && bet.selections.length) {
                         for (let leg of bet.selections) {
-                            if (leg.fixture_id && !leg.matchName) {
+                            if (leg.fixture_id) {
                                 const match = await getMatchDetails(leg.fixture_id);
                                 if (match) {
                                     leg.matchName = `${match.home_team?.name || 'Home'} vs ${match.away_team?.name || 'Away'}`;
                                     leg.home_team = match.home_team;
                                     leg.away_team = match.away_team;
+                                    leg.score = match.score || { home: 0, away: 0 };
+                                    leg.match_status = match.status || 'upcoming';
+                                    leg.league_name = match.league_name || '';
                                 } else {
                                     leg.matchName = `Match #${leg.fixture_id}`;
+                                    leg.score = { home: '?', away: '?' };
                                 }
                             }
                         }
@@ -496,7 +500,7 @@
         }
         
         // ===== SHOW BET DETAILS WITH FULL MATCH INFO =====
-        // 🔥 FIXED: Accumulator shows Match Name + Bet Type + Odds clearly
+        // 🔥 FIXED: Accumulator shows Match Name + Score + Bet Type + Odds
         async function showBetDetails(betId) {
             const bet = allBets.find(b => b.id === betId);
             if (!bet) return;
@@ -554,7 +558,7 @@
                 }
             }
             
-            // 🔥 FIXED: For accumulator bets - show Match Name + Bet Type + Odds clearly
+            // 🔥 FIXED: For accumulator bets - show Match Name + Score + Bet Type + Odds
             let legsHtml = '';
             if (isAcc && bet.selections && bet.selections.length) {
                 legsHtml = `
@@ -566,12 +570,15 @@
                             // Get the match name
                             const matchName = leg.matchName || leg.match_name || `Match #${leg.fixture_id}`;
                             
-                            // 🔥 FIX: Get bet type - check multiple possible locations
-                            let betType = leg.bet_type || leg.betType || leg.type || 'Unknown';
+                            // Get the score
+                            const score = leg.score || { home: '?', away: '?' };
+                            const homeScore = score.home !== undefined && score.home !== null ? score.home : '?';
+                            const awayScore = score.away !== undefined && score.away !== null ? score.away : '?';
+                            const scoreDisplay = `${homeScore} - ${awayScore}`;
                             
-                            // If bet type is still empty, try to determine from the leg data
+                            // Get bet type
+                            let betType = leg.bet_type || leg.betType || leg.type || 'Unknown';
                             if (!betType || betType === 'Unknown' || betType === '') {
-                                // Check if there's a pick or selection type
                                 if (leg.pick) betType = leg.pick;
                                 else if (leg.selection) betType = leg.selection;
                                 else if (leg.market) betType = leg.market;
@@ -584,14 +591,20 @@
                             // Get the odds
                             const odds = leg.odds || leg.price || '?';
                             
+                            // Get match status
+                            const matchStatus = leg.match_status || 'upcoming';
+                            const statusClass = matchStatus === 'finished' ? 'status-finished' : (matchStatus === 'live' ? 'status-live' : 'status-upcoming');
+                            
                             return `
                                 <div class="selection-item" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #ffffff11;flex-wrap:wrap;">
                                     <span style="font-weight:bold;color:#ff9800;min-width:35px;font-size:14px;">${idx+1}.</span>
                                     <span style="flex:2;font-weight:500;font-size:13px;">${escapeHtml(matchName)}</span>
+                                    <span style="color:#ff9800;font-weight:bold;font-size:13px;background:#ff980022;padding:2px 10px;border-radius:10px;min-width:60px;text-align:center;">${escapeHtml(scoreDisplay)}</span>
                                     <span style="color:#00ff9d;font-weight:bold;padding:3px 12px;background:#00ff9d22;border-radius:15px;font-size:11px;border:1px solid #00ff9d33;">
                                         ${escapeHtml(betTypeDisplay)}
                                     </span>
                                     <span style="color:#ff9800;font-weight:bold;font-size:13px;background:#ff980022;padding:2px 10px;border-radius:10px;">@${odds}</span>
+                                    <span class="status-badge ${statusClass}" style="font-size:8px;">${matchStatus.toUpperCase()}</span>
                                 </div>
                             `;
                         }).join('')}
@@ -926,7 +939,7 @@
         
         console.log('🚀 Admin panel loaded with ALL bet types!');
         console.log('✅ Bet types: home, draw, away, 1X, 12, X2, over25, under25, btts_yes, btts_no, accumulator');
-        console.log('✅ Accumulator selections now show: Match Name + Bet Type + Odds');
+        console.log('✅ Accumulator selections now show: Match Name + Score + Bet Type + Odds');
     </script>
 </body>
 </html>
