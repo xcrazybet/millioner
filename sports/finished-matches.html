@@ -21,7 +21,7 @@
         .tab { padding: 8px 12px; background: #1a2332; border-radius: 20px; color: white; text-decoration: none; font-size: 12px; white-space: nowrap; }
         .tab.active { background: #ff9800; color: black; }
         .container { max-width: 1400px; margin: 0 auto; padding: 15px; }
-        .debug-info { background: #1a2332; padding: 15px; border-radius: 12px; font-size: 13px; margin-bottom: 20px; border: 1px solid #2a3344; font-family: monospace; }
+        .debug-info { background: #1a2332; padding: 15px; border-radius: 12px; font-size: 13px; margin-bottom: 20px; border: 1px solid #2a3344; font-family: monospace; max-height: 200px; overflow-y: auto; }
         .debug-info .error { color: #ff5252; }
         .debug-info .success { color: #00ff9d; }
         .debug-info .warning { color: #ffc107; }
@@ -46,8 +46,10 @@
         .badge-home { background: #4caf50; color: white; }
         .badge-draw { background: #ffc107; color: black; }
         .badge-away { background: #2196f3; color: white; }
-        .badge-live { background: #ff4444; color: white; }
+        .badge-live { background: #ff4444; color: white; animation: pulse 1.5s infinite; }
         .badge-upcoming { background: #00ff9d; color: black; }
+        .badge-finished { background: #666; color: white; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
         .loading-spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #ff9800; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .empty-state { text-align: center; padding: 60px; }
@@ -96,10 +98,10 @@
         </div>
         
         <div class="stats-row" id="stats-row">
-            <div class="stat-card"><div class="icon"><i class="fas fa-list"></i></div><div class="label">Total Matches</div><div class="value" id="total-matches">0</div></div>
-            <div class="stat-card"><div class="icon"><i class="fas fa-check-circle"></i></div><div class="label">Finished</div><div class="value" id="finished-count">0</div></div>
-            <div class="stat-card"><div class="icon"><i class="fas fa-futbol"></i></div><div class="label">Live</div><div class="value" id="live-count">0</div></div>
-            <div class="stat-card"><div class="icon"><i class="fas fa-clock"></i></div><div class="label">Upcoming</div><div class="value" id="upcoming-count">0</div></div>
+            <div class="stat-card"><div class="icon"><i class="fas fa-database"></i></div><div class="label">Total Matches</div><div class="value" id="total-matches">0</div></div>
+            <div class="stat-card"><div class="icon"><i class="fas fa-check-circle"></i></div><div class="label">Finished</div><div class="value" id="finished-count" style="color:#4caf50;">0</div></div>
+            <div class="stat-card"><div class="icon"><i class="fas fa-bolt"></i></div><div class="label">Live</div><div class="value" id="live-count" style="color:#ff4444;">0</div></div>
+            <div class="stat-card"><div class="icon"><i class="fas fa-clock"></i></div><div class="label">Upcoming</div><div class="value" id="upcoming-count" style="color:#00ff9d;">0</div></div>
         </div>
         
         <div class="filter-bar">
@@ -143,9 +145,9 @@
     </div>
 
     <script>
-        // Supabase Config - YOUR ACTUAL CONFIG
+        // ==================== SUPABASE CONFIG ====================
         const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
         
         let supabaseClient = null;
         let allMatches = [];
@@ -163,9 +165,11 @@
         };
         if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         
-        // ==================== DETECT IF MATCH IS FINISHED ====================
+        // ==================== DETECT FINISHED MATCHES ====================
         function isMatchFinished(match) {
-            // Check status
+            if (!match) return false;
+            
+            // 🔥 METHOD 1: Check if status is "finished"
             if (match.status) {
                 const status = match.status.toLowerCase();
                 if (['finished', 'ft', 'fulltime', 'complete', 'final', 'ended'].includes(status)) {
@@ -173,25 +177,39 @@
                 }
             }
             
-            // Check if there's a result (may be stored in 'result' column)
+            // 🔥 METHOD 2: Check if 'result' column has a value
             if (match.result && match.result !== 'NULL' && match.result !== '' && match.result !== null) {
                 return true;
             }
             
-            // Check if score exists (may be stored as JSON or separate columns)
+            // 🔥 METHOD 3: Check if score has numeric values
             if (match.score) {
                 const homeScore = match.score.home;
                 const awayScore = match.score.away;
                 if (homeScore !== undefined && homeScore !== null && 
                     awayScore !== undefined && awayScore !== null) {
-                    return true;
+                    // If both scores are numbers (including 0), it's finished
+                    if (typeof homeScore === 'number' && typeof awayScore === 'number') {
+                        return true;
+                    }
                 }
             }
             
-            // Check for separate score columns (if your table has them)
-            if (match.home_score !== undefined && match.away_score !== undefined) {
-                if (match.home_score !== null && match.away_score !== null) {
-                    return true;
+            // 🔥 METHOD 4: Check if match has elapsed >= 90 minutes
+            if (match.elapsed && match.elapsed >= 90) {
+                return true;
+            }
+            
+            // 🔥 METHOD 5: If match time is in the past AND we have any score data
+            if (match.start_time) {
+                const matchDate = new Date(match.start_time);
+                const now = new Date();
+                // If match was more than 2 hours ago, assume it's finished
+                if (now - matchDate > 2 * 60 * 60 * 1000) {
+                    // Check if we have ANY score info
+                    if (match.score || match.result) {
+                        return true;
+                    }
                 }
             }
             
@@ -214,7 +232,7 @@
                     });
                 }
                 
-                // 🔥 GET ALL MATCHES (NO FILTERS)
+                // 🔥 GET ALL MATCHES
                 let allData = [];
                 let page = 0;
                 const pageSize = 1000;
@@ -251,15 +269,16 @@
                 
                 allMatches = allData;
                 
-                // 🔥 SHOW COLUMN INFO
+                // 🔥 SHOW SAMPLE DATA
                 if (allMatches.length > 0) {
                     const sample = allMatches[0];
                     const columns = Object.keys(sample);
                     debugEl.innerHTML = `
                         <i class="fas fa-check-circle success"></i> Loaded ${allMatches.length} matches
                         <br><i class="fas fa-table"></i> Columns: ${columns.join(', ')}
-                        <br><i class="fas fa-code"></i> Sample: fixture_id=${sample.fixture_id}, status="${sample.status}"
-                        <pre>${JSON.stringify(sample, null, 2)}</pre>
+                        <br><i class="fas fa-info-circle"></i> Sample: fixture_id=${sample.fixture_id}, status="${sample.status}", has_score=${!!sample.score}
+                        ${sample.score ? `, score=${JSON.stringify(sample.score)}` : ''}
+                        ${sample.result ? `, result="${sample.result}"` : ''}
                     `;
                 } else {
                     debugEl.innerHTML = `<span class="warning">⚠️ No matches found in database</span>`;
@@ -281,7 +300,12 @@
                 }
                 
                 applyFilters();
-                showNotification(`✅ Loaded ${allMatches.length} matches (${finished.length} finished)`, 'success');
+                
+                if (finished.length > 0) {
+                    showNotification(`✅ Loaded ${finished.length} finished matches out of ${allMatches.length} total`, 'success');
+                } else {
+                    showNotification(`⚠️ No finished matches found. Check your data structure.`, 'info');
+                }
                 
             } catch(e) {
                 console.error('Error:', e);
@@ -346,39 +370,50 @@
             const pageMatches = filteredMatches.slice(startIdx, startIdx + rowsPerPage);
             
             let html = `<table><thead><tr>
-                <th>ID</th><th>Fixture</th><th>League</th><th>Home</th><th>Score</th><th>Away</th><th>Status</th><th>Result</th>
+                <th>Fixture</th><th>League</th><th>Home</th><th>Score</th><th>Away</th><th>Status</th><th>Result</th>
             </tr></thead><tbody>`;
             
             for(const match of pageMatches) {
                 const homeName = match.home_team?.name || 'Home';
                 const awayName = match.away_team?.name || 'Away';
-                const homeScore = match.score?.home ?? '?';
-                const awayScore = match.score?.away ?? '?';
                 const fixtureId = match.fixture_id || match.id || 'N/A';
                 
-                // Determine status class
+                // Get score
+                let homeScore = '?';
+                let awayScore = '?';
+                if (match.score) {
+                    homeScore = match.score.home !== undefined ? match.score.home : '?';
+                    awayScore = match.score.away !== undefined ? match.score.away : '?';
+                }
+                
+                // Determine status
                 let statusClass = 'badge-upcoming';
                 let statusText = match.status || 'unknown';
-                if(isMatchFinished(match)) { statusClass = 'status-finished'; statusText = 'FINISHED'; }
-                else if(match.status === 'live') { statusClass = 'badge-live'; statusText = 'LIVE'; }
-                else { statusText = 'UPCOMING'; }
+                if(isMatchFinished(match)) { 
+                    statusClass = 'badge-finished'; 
+                    statusText = 'FINISHED'; 
+                } else if(match.status === 'live') { 
+                    statusClass = 'badge-live'; 
+                    statusText = '🔴 LIVE'; 
+                } else if(match.status === 'upcoming') {
+                    statusText = 'UPCOMING';
+                }
                 
                 // Determine result
                 let resultClass = '', resultText = '';
-                if(homeScore !== '?' && awayScore !== '?') {
-                    if(homeScore > awayScore) { resultClass = 'badge-home'; resultText = '🏠 HOME'; }
-                    else if(homeScore < awayScore) { resultClass = 'badge-away'; resultText = '✈️ AWAY'; }
+                if(homeScore !== '?' && awayScore !== '?' && homeScore !== null && awayScore !== null) {
+                    if(homeScore > awayScore) { resultClass = 'badge-home'; resultText = '🏠 HOME WIN'; }
+                    else if(homeScore < awayScore) { resultClass = 'badge-away'; resultText = '✈️ AWAY WIN'; }
                     else { resultClass = 'badge-draw'; resultText = '🤝 DRAW'; }
                 }
                 
                 html += `<tr onclick='showMatchDetails(${JSON.stringify(match).replace(/'/g, "&#39;")})'>
-                    <td>#${fixtureId}</td>
-                    <td>${fixtureId}</td>
+                    <td><strong>#${fixtureId}</strong></td>
                     <td>${escapeHtml(match.league_name || 'N/A')}</td>
                     <td>${escapeHtml(homeName)}</td>
-                    <td style="font-weight:bold;color:#ff9800;text-align:center;">${homeScore} - ${awayScore}</td>
+                    <td style="font-weight:bold;color:#ff9800;text-align:center;font-size:16px;">${homeScore} - ${awayScore}</td>
                     <td>${escapeHtml(awayName)}</td>
-                    <td><span class="${statusClass}" style="padding:3px 10px;border-radius:12px;font-size:10px;font-weight:bold;">${statusText}</span></td>
+                    <td><span style="padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;display:inline-block;background:${statusClass === 'badge-finished' ? '#666' : statusClass === 'badge-live' ? '#ff4444' : '#00ff9d'};color:${statusClass === 'badge-upcoming' ? '#000' : '#fff'};">${statusText}</span></td>
                     <td>${resultText ? `<span class="badge-result ${resultClass}">${resultText}</span>` : '-'}</td>
                 </tr>`;
             }
@@ -428,21 +463,26 @@
             detailsDiv.innerHTML = `
                 <div style="text-align:center;margin-bottom:20px;">
                     <div style="display:flex;justify-content:center;align-items:center;gap:20px;flex-wrap:wrap;">
-                        <div><strong>${escapeHtml(homeName)}</strong></div>
-                        <div style="font-size:28px;font-weight:bold;color:#ff9800;">${homeScore} - ${awayScore}</div>
-                        <div><strong>${escapeHtml(awayName)}</strong></div>
+                        <div><strong style="font-size:18px;">${escapeHtml(homeName)}</strong></div>
+                        <div style="font-size:32px;font-weight:bold;color:#ff9800;">${homeScore} - ${awayScore}</div>
+                        <div><strong style="font-size:18px;">${escapeHtml(awayName)}</strong></div>
                     </div>
-                    <div style="color:#a0a8c9;margin-top:10px;">${match.start_time ? new Date(match.start_time).toLocaleString() : 'Date TBD'}</div>
+                    <div style="color:#a0a8c9;margin-top:10px;">
+                        ${match.start_time ? new Date(match.start_time).toLocaleString() : 'Date TBD'}
+                        ${match.league_name ? ` | 🏆 ${escapeHtml(match.league_name)}` : ''}
+                    </div>
                 </div>
                 <div class="detail-grid">
                     <div class="detail-item"><div class="detail-label">Fixture ID</div><div class="detail-value">#${match.fixture_id || match.id}</div></div>
-                    <div class="detail-item"><div class="detail-label">League</div><div class="detail-value">${escapeHtml(match.league_name || 'N/A')}</div></div>
                     <div class="detail-item"><div class="detail-label">Status</div><div class="detail-value">${match.status || 'Unknown'}</div></div>
+                    <div class="detail-item"><div class="detail-label">Result</div><div class="detail-value">${match.result || 'N/A'}</div></div>
                     <div class="detail-item"><div class="detail-label">Settled</div><div class="detail-value">${match.bets_settled ? '✅ Yes' : '⏳ No'}</div></div>
+                    <div class="detail-item"><div class="detail-label">Elapsed</div><div class="detail-value">${match.elapsed ? match.elapsed + "'" : 'N/A'}</div></div>
+                    <div class="detail-item"><div class="detail-label">League</div><div class="detail-value">${escapeHtml(match.league_name || 'N/A')}</div></div>
                 </div>
-                <div style="margin-top:15px;background:#1a2332;padding:10px;border-radius:8px;font-size:11px;color:#a0a8c9;overflow-x:auto;">
-                    <strong>Full Data:</strong><br>
-                    <pre style="white-space:pre-wrap;word-break:break-all;">${JSON.stringify(match, null, 2)}</pre>
+                <div style="margin-top:15px;background:#0a0f1a;padding:15px;border-radius:8px;font-size:11px;color:#a0a8c9;overflow-x:auto;max-height:200px;overflow-y:auto;">
+                    <strong>📊 Full Data:</strong><br>
+                    <pre style="white-space:pre-wrap;word-break:break-all;margin-top:5px;">${JSON.stringify(match, null, 2)}</pre>
                 </div>
             `;
             modal.classList.add('show');
@@ -482,6 +522,7 @@
         
         console.log('✅ Results Dashboard with Supabase connection');
         console.log('📊 Connected to:', SUPABASE_URL);
+        console.log('🔑 Using anon key');
     </script>
 </body>
 </html>
