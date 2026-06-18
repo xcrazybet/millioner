@@ -96,6 +96,7 @@
         .match-info-box .team-logo { width: 50px; height: 50px; object-fit: contain; border-radius: 50%; background: rgba(255,255,255,0.1); padding: 5px; }
         .match-info-box .score { font-size: 28px; font-weight: bold; color: #ff9800; text-align: center; }
         .match-info-box .vs { font-size: 12px; color: #a0a8c9; margin-top: 5px; }
+        .match-info-box .league { text-align: center; margin-top: 10px; font-size: 11px; color: #a0a8c9; }
         
         .selections-container { margin-top: 10px; padding: 8px; background: #0a0f1a; border-radius: 8px; }
         .selection-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #ffffff11; font-size: 11px; flex-wrap: wrap; }
@@ -147,7 +148,7 @@
             <div class="card">
                 <div class="card-title"><i class="fas fa-ticket-alt"></i> All Bets</div>
                 <div class="search-box">
-                    <input type="text" id="bet-search" placeholder="Search by user ID..." oninput="filterBets()">
+                    <input type="text" id="bet-search" placeholder="Search by user email or ID..." oninput="filterBets()">
                     <select id="bet-status-filter" onchange="filterBets()">
                         <option value="all">All</option>
                         <option value="active">Active</option>
@@ -220,7 +221,7 @@
 
     <script>
         // ============================================
-        // ADMIN PANEL - USING SAME LOGIC AS MY-BETS.HTML
+        // ADMIN PANEL - FULLY WORKING WITH MATCH DETAILS
         // ============================================
         
         const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
@@ -244,13 +245,20 @@
         let allBets = [];
         let allMatches = [];
         let matchCache = {};
+        let userEmailCache = {};
         
-        // ===== HELPER FUNCTIONS (SAME AS MY-BETS.HTML) =====
+        // ===== HELPER FUNCTIONS =====
         function escapeHtml(str) { if (!str) return ''; return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
         function formatCurrency(amount) { return '$' + (parseFloat(amount) || 0).toFixed(2); }
-        function formatDate(dateStr) { if (!dateStr) return '-'; return new Date(dateStr).toLocaleString(); }
+        function formatFullDate(dateStr) { if (!dateStr) return '-'; return new Date(dateStr).toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit' }); }
+        
         function formatBetType(type) {
-            const map = { 'home': '🏆 Home Win', 'away': '🏆 Away Win', 'draw': '🤝 Draw', 'over25': '⚽ Over 2.5', 'under25': '🥅 Under 2.5', 'btts_yes': '✅ BTTS Yes', 'btts_no': '❌ BTTS No', 'accumulator': '📊 Accumulator' };
+            const map = { 
+                'home': '🏆 Home Win', 'away': '🏆 Away Win', 'draw': '🤝 Draw', 
+                'over25': '⚽ Over 2.5 Goals', 'under25': '🥅 Under 2.5 Goals', 
+                'btts_yes': '✅ BTTS Yes', 'btts_no': '❌ BTTS No', 
+                'accumulator': '📊 Accumulator'
+            };
             return map[type] || type;
         }
         
@@ -262,7 +270,25 @@
             setTimeout(() => n.remove(), 3000);
         }
         
-        // ===== GET MATCH DETAILS (EXACT COPY FROM MY-BETS.HTML) =====
+        // ===== GET USER EMAIL FROM FIREBASE =====
+        async function getUserEmail(userId) {
+            if (!userId) return 'Unknown';
+            if (userEmailCache[userId]) return userEmailCache[userId];
+            
+            try {
+                // Try to get user record from Firebase Auth
+                const userRecord = await auth.getUser(userId).catch(() => null);
+                if (userRecord && userRecord.email) {
+                    userEmailCache[userId] = userRecord.email;
+                    return userRecord.email;
+                }
+            } catch(e) {}
+            
+            // Fallback to showing partial ID
+            return userId.slice(-12);
+        }
+        
+        // ===== GET MATCH DETAILS - FIXED VERSION =====
         async function getMatchDetails(fixtureId) {
             if (!fixtureId) return null;
             if (matchCache[fixtureId]) return matchCache[fixtureId];
@@ -270,32 +296,47 @@
             try {
                 const { data, error } = await supabase
                     .from('sports_matches')
-                    .select('home_team, away_team, league_name, start_time, status, score, elapsed')
+                    .select('*')
                     .eq('fixture_id', fixtureId)
                     .maybeSingle();
                 
-                if (!error && data) {
-                    // Parse JSON strings if needed
-                    if (data.home_team && typeof data.home_team === 'string') {
-                        try { data.home_team = JSON.parse(data.home_team); } catch(e) { data.home_team = { name: 'Home' }; }
-                    }
-                    if (data.away_team && typeof data.away_team === 'string') {
-                        try { data.away_team = JSON.parse(data.away_team); } catch(e) { data.away_team = { name: 'Away' }; }
-                    }
-                    if (data.score && typeof data.score === 'string') {
-                        try { data.score = JSON.parse(data.score); } catch(e) { data.score = { home: 0, away: 0 }; }
-                    }
-                    matchCache[fixtureId] = data;
-                    return data;
+                if (error || !data) {
+                    console.log(`No match data for ${fixtureId}`);
+                    return null;
                 }
-                return null;
+                
+                // CRITICAL: Parse JSON strings that might be stored in Supabase
+                let homeTeam = data.home_team;
+                let awayTeam = data.away_team;
+                let score = data.score;
+                
+                if (homeTeam && typeof homeTeam === 'string') {
+                    try { homeTeam = JSON.parse(homeTeam); } catch(e) { homeTeam = { name: 'Home', logo: '' }; }
+                }
+                if (awayTeam && typeof awayTeam === 'string') {
+                    try { awayTeam = JSON.parse(awayTeam); } catch(e) { awayTeam = { name: 'Away', logo: '' }; }
+                }
+                if (score && typeof score === 'string') {
+                    try { score = JSON.parse(score); } catch(e) { score = { home: 0, away: 0 }; }
+                }
+                
+                const enrichedData = {
+                    ...data,
+                    home_team: homeTeam || { name: 'Home', logo: '' },
+                    away_team: awayTeam || { name: 'Away', logo: '' },
+                    score: score || { home: 0, away: 0 }
+                };
+                
+                matchCache[fixtureId] = enrichedData;
+                return enrichedData;
+                
             } catch(e) {
-                console.log('Match fetch error:', e);
+                console.error('Match fetch error:', e);
                 return null;
             }
         }
         
-        // ===== LOAD BETS WITH ENRICHMENT (SAME AS MY-BETS.HTML) =====
+        // ===== LOAD BETS WITH FULL ENRICHMENT =====
         async function loadBets() {
             try {
                 const { data, error } = await supabase
@@ -306,21 +347,19 @@
                 if (error) throw error;
                 allBets = data || [];
                 
-                // ENRICH EACH BET WITH MATCH DATA (LIKE MY-BETS.HTML)
-                for (let bet of allBets) {
-                    if (bet.fixture_id && !bet.match_name) {
+                // Enrich each bet with match details (SAME AS MY-BETS.HTML)
+                for (let i = 0; i < allBets.length; i++) {
+                    const bet = allBets[i];
+                    
+                    // For single bets - fetch match details
+                    if (bet.fixture_id && bet.bet_type !== 'accumulator') {
                         const match = await getMatchDetails(bet.fixture_id);
                         if (match) {
-                            let homeTeam = match.home_team;
-                            let awayTeam = match.away_team;
-                            if (typeof homeTeam === 'string') homeTeam = JSON.parse(homeTeam);
-                            if (typeof awayTeam === 'string') awayTeam = JSON.parse(awayTeam);
-                            
-                            bet.match_name = `${homeTeam?.name || 'Home'} vs ${awayTeam?.name || 'Away'}`;
-                            bet.home_team = homeTeam;
-                            bet.away_team = awayTeam;
-                            bet.home_logo = homeTeam?.logo || '';
-                            bet.away_logo = awayTeam?.logo || '';
+                            bet.match_name = `${match.home_team?.name || 'Home'} vs ${match.away_team?.name || 'Away'}`;
+                            bet.home_team = match.home_team;
+                            bet.away_team = match.away_team;
+                            bet.home_logo = match.home_team?.logo || '';
+                            bet.away_logo = match.away_team?.logo || '';
                             bet.league_name = match.league_name;
                             bet.kickoff_time = match.start_time;
                             bet.match_status = match.status;
@@ -330,21 +369,32 @@
                         }
                     }
                     
-                    // For accumulator bets, enrich selections
+                    // For accumulator bets - enrich selections
                     if (bet.bet_type === 'accumulator' && bet.selections && bet.selections.length) {
                         for (let leg of bet.selections) {
                             if (leg.fixture_id && !leg.matchName) {
                                 const match = await getMatchDetails(leg.fixture_id);
                                 if (match) {
                                     leg.matchName = `${match.home_team?.name || 'Home'} vs ${match.away_team?.name || 'Away'}`;
+                                    leg.home_team = match.home_team;
+                                    leg.away_team = match.away_team;
+                                } else {
+                                    leg.matchName = `Match #${leg.fixture_id}`;
                                 }
                             }
                         }
+                    }
+                    
+                    // Get user email
+                    if (bet.user_id && !bet.user_email) {
+                        bet.user_email = await getUserEmail(bet.user_id);
                     }
                 }
                 
                 renderBetsTable();
                 updateStats();
+                console.log('Loaded and enriched', allBets.length, 'bets');
+                
             } catch(e) {
                 console.error('Load bets error:', e);
                 document.getElementById('bets-tbody').innerHTML = `<tr><td colspan="9">Error: ${e.message}</td></tr>`;
@@ -357,7 +407,12 @@
             
             let filtered = allBets;
             if (filter !== 'all') filtered = filtered.filter(b => b.status === filter);
-            if (search) filtered = filtered.filter(b => (b.user_id || '').toLowerCase().includes(search));
+            if (search) {
+                filtered = filtered.filter(b => 
+                    (b.user_email || b.user_id || '').toLowerCase().includes(search) ||
+                    (b.match_name || '').toLowerCase().includes(search)
+                );
+            }
             
             if (!filtered.length) {
                 document.getElementById('bets-tbody').innerHTML = '<tr><td colspan="9">No bets found</td></tr>';
@@ -368,10 +423,11 @@
             for (const b of filtered) {
                 const statusClass = b.status === 'won' ? 'status-won' : (b.status === 'lost' ? 'status-lost' : 'status-active');
                 const matchDisplay = b.bet_type === 'accumulator' ? `${b.selections?.length || 0}-Fold Accumulator` : (b.match_name || `Match #${b.fixture_id}`);
+                const userDisplay = b.user_email || b.user_id?.slice(-12) || 'Unknown';
                 
                 html += `<tr onclick="showBetDetails('${b.id}')">
                     <td>#${b.id?.slice(-8)}</td>
-                    <td>${escapeHtml(b.user_id?.slice(-12) || 'Unknown')}</td>
+                    <td>${escapeHtml(userDisplay)}</td>
                     <td>${escapeHtml(matchDisplay)}</td>
                     <td>${escapeHtml(formatBetType(b.bet_type))}</td>
                     <td>${b.odds}</td>
@@ -384,7 +440,7 @@
             document.getElementById('bets-tbody').innerHTML = html;
         }
         
-        // ===== SHOW BET DETAILS (LIKE MY-BETS.HTML) =====
+        // ===== SHOW BET DETAILS WITH FULL MATCH INFO =====
         async function showBetDetails(betId) {
             const bet = allBets.find(b => b.id === betId);
             if (!bet) return;
@@ -394,24 +450,30 @@
             const payout = parseFloat(bet.payout || bet.potential_win || 0);
             const profit = bet.status === 'won' ? payout - amount : (bet.status === 'lost' ? -amount : 0);
             const ticket = 'XL' + bet.id.slice(-8).toUpperCase();
-            const placed = bet.placed_at ? new Date(bet.placed_at) : new Date();
+            const userDisplay = bet.user_email || bet.user_id?.slice(-12) || 'Unknown';
             
             let matchHtml = '';
+            
+            // For single bets - show full match details with logos and scores
             if (!isAcc && bet.fixture_id) {
+                // Try to get fresh match data
                 const match = await getMatchDetails(bet.fixture_id);
-                if (match) {
+                
+                if (match && match.home_team && match.away_team) {
                     const homeTeam = match.home_team?.name || 'Home';
                     const awayTeam = match.away_team?.name || 'Away';
                     const homeLogo = match.home_team?.logo || '';
                     const awayLogo = match.away_team?.logo || '';
                     const homeScore = match.score?.home || 0;
                     const awayScore = match.score?.away || 0;
+                    const league = match.league_name || '';
+                    const matchStatus = match.status || 'upcoming';
                     
                     matchHtml = `
                         <div class="match-info-box">
                             <div class="teams">
                                 <div class="team">
-                                    ${homeLogo ? `<img src="${homeLogo}" class="team-logo" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt" style="font-size:40px;"></i>'}
+                                    ${homeLogo ? `<img src="${homeLogo}" class="team-logo" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt" style="font-size:40px;opacity:0.5;"></i>'}
                                     <div class="team-name">${escapeHtml(homeTeam)}</div>
                                 </div>
                                 <div class="score">
@@ -419,45 +481,54 @@
                                     <div class="vs">VS</div>
                                 </div>
                                 <div class="team">
-                                    ${awayLogo ? `<img src="${awayLogo}" class="team-logo" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt" style="font-size:40px;"></i>'}
+                                    ${awayLogo ? `<img src="${awayLogo}" class="team-logo" onerror="this.style.display='none'">` : '<i class="fas fa-shield-alt" style="font-size:40px;opacity:0.5;"></i>'}
                                     <div class="team-name">${escapeHtml(awayTeam)}</div>
                                 </div>
                             </div>
+                            <div class="league">
+                                ${league ? `🏆 ${escapeHtml(league)}` : ''}
+                                <span class="status-badge status-${matchStatus}" style="margin-left:10px;">${matchStatus.toUpperCase()}</span>
+                            </div>
                         </div>
                     `;
+                } else if (bet.match_name) {
+                    matchHtml = `<div class="match-info-box">${escapeHtml(bet.match_name)}</div>`;
                 } else {
-                    matchHtml = `<div class="match-info-box">Match: ${escapeHtml(bet.match_name || 'Unknown')}</div>`;
+                    matchHtml = `<div class="match-info-box">Match #${bet.fixture_id}</div>`;
                 }
             }
             
+            // For accumulator bets - show all selections
             let legsHtml = '';
             if (isAcc && bet.selections && bet.selections.length) {
                 legsHtml = `
                     <div class="selections-container">
-                        <h4 style="color:#ff9800;margin-bottom:10px;"><i class="fas fa-layer-group"></i> Selections (${bet.selections.length})</h4>
-                        ${bet.selections.map((leg, i) => `
+                        <h4 style="color:#ff9800;margin-bottom:12px;"><i class="fas fa-layer-group"></i> Selections (${bet.selections.length})</h4>
+                        ${bet.selections.map((leg, idx) => `
                             <div class="selection-item">
-                                <span style="font-weight:bold;color:#ff9800;">${i+1}.</span>
+                                <span style="font-weight:bold;color:#ff9800;min-width:30px;">${idx+1}.</span>
                                 <span style="flex:2;">${escapeHtml(leg.matchName || `Match #${leg.fixture_id}`)}</span>
                                 <span style="color:#00ff9d;">${escapeHtml(formatBetType(leg.bet_type))}</span>
-                                <span style="color:#ff9800;">@${leg.odds}</span>
+                                <span style="color:#ff9800;font-weight:bold;">@${leg.odds}</span>
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
+            // Build modal body
             const modalBody = `
                 <div class="bet-detail-row"><span class="lbl">Ticket Number</span><span><strong>${escapeHtml(ticket)}</strong></span></div>
                 <div class="bet-detail-row"><span class="lbl">Status</span><span class="status-badge status-${bet.status}">${bet.status?.toUpperCase()}</span></div>
-                <div class="bet-detail-row"><span class="lbl">User ID</span><span>${escapeHtml(bet.user_id || 'Unknown')}</span></div>
+                <div class="bet-detail-row"><span class="lbl">User</span><span>${escapeHtml(userDisplay)}</span></div>
                 ${!isAcc ? `<div class="bet-detail-row"><span class="lbl">Fixture ID</span><span>${bet.fixture_id || 'N/A'}</span></div>` : ''}
                 <div class="bet-detail-row"><span class="lbl">Bet Type</span><span>${escapeHtml(formatBetType(bet.bet_type))}</span></div>
                 <div class="bet-detail-row"><span class="lbl">Odds</span><span>${bet.odds}</span></div>
                 <div class="bet-detail-row"><span class="lbl">Stake</span><span>${formatCurrency(amount)}</span></div>
                 <div class="bet-detail-row"><span class="lbl">Potential Win</span><span class="text-green">${formatCurrency(bet.potential_win)}</span></div>
                 ${bet.status !== 'active' ? `<div class="bet-detail-row"><span class="lbl">Actual Payout</span><span>${formatCurrency(payout)}</span></div>` : ''}
-                <div class="bet-detail-row"><span class="lbl">Placed</span><span>${placed.toLocaleString()}</span></div>
+                <div class="bet-detail-row"><span class="lbl">Placed</span><span>${formatFullDate(bet.placed_at)}</span></div>
+                ${bet.settlement_reason ? `<div class="bet-detail-row"><span class="lbl">Settlement Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div>` : ''}
                 ${matchHtml}
                 ${legsHtml}
             `;
@@ -510,8 +581,7 @@
                 
                 showNotification(`Bet settled as ${result.toUpperCase()}`, 'success');
                 closeModal();
-                await loadBets();
-                await loadPendingSettlements();
+                await loadAllData();
             } catch(e) {
                 showNotification(`Error: ${e.message}`, 'error');
             }
@@ -538,8 +608,7 @@
                     .eq('id', betId);
                 
                 showNotification(`Bet cancelled, $${bet.amount} refunded`, 'success');
-                await loadBets();
-                await loadPendingSettlements();
+                await loadAllData();
             } catch(e) {
                 showNotification(`Failed: ${e.message}`, 'error');
             }
@@ -559,13 +628,15 @@
             let html = '<div style="display:flex;flex-direction:column;gap:10px;">';
             for (const bet of pendingBets) {
                 const matchDisplay = bet.bet_type === 'accumulator' ? `${bet.selections?.length || 0}-Fold Acc` : (bet.match_name || `Match #${bet.fixture_id}`);
+                const userDisplay = bet.user_email || bet.user_id?.slice(-12) || 'Unknown';
+                
                 html += `
                     <div style="background:#1a2332;padding:12px;border-radius:8px;border-left:3px solid #ff9800;cursor:pointer;" onclick="showBetDetails('${bet.id}')">
                         <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
                             <span><strong>#${bet.id.slice(-8)}</strong></span>
-                            <span>${escapeHtml(bet.user_id?.slice(-12))}</span>
+                            <span>${escapeHtml(userDisplay)}</span>
                             <span>${escapeHtml(matchDisplay)}</span>
-                            <span>${formatBetType(bet.bet_type)}</span>
+                            <span>${escapeHtml(formatBetType(bet.bet_type))}</span>
                             <span>${formatCurrency(bet.amount)} → ${formatCurrency(bet.potential_win)}</span>
                         </div>
                         <div style="display:flex;gap:8px;margin-top:10px;">
@@ -656,9 +727,15 @@
             let filtered = allMatches;
             if (search) {
                 filtered = filtered.filter(m => {
-                    const home = m.home_team?.name || '';
-                    const away = m.away_team?.name || '';
-                    return home.toLowerCase().includes(search) || away.toLowerCase().includes(search);
+                    let homeName = m.home_team?.name || '';
+                    let awayName = m.away_team?.name || '';
+                    if (typeof homeName === 'string' && homeName.startsWith('"')) {
+                        try { homeName = JSON.parse(homeName); } catch(e) {}
+                    }
+                    if (typeof awayName === 'string' && awayName.startsWith('"')) {
+                        try { awayName = JSON.parse(awayName); } catch(e) {}
+                    }
+                    return homeName.toLowerCase().includes(search) || awayName.toLowerCase().includes(search);
                 });
             }
             
@@ -669,14 +746,21 @@
             
             let html = '';
             for (const m of filtered) {
-                const home = m.home_team?.name || 'Home';
-                const away = m.away_team?.name || 'Away';
+                let homeName = m.home_team?.name || 'Home';
+                let awayName = m.away_team?.name || 'Away';
+                if (typeof homeName === 'string' && homeName.startsWith('"')) {
+                    try { homeName = JSON.parse(homeName); } catch(e) {}
+                }
+                if (typeof awayName === 'string' && awayName.startsWith('"')) {
+                    try { awayName = JSON.parse(awayName); } catch(e) {}
+                }
+                
                 const score = m.score ? `${m.score.home||0} - ${m.score.away||0}` : 'vs';
                 const statusClass = m.status === 'live' ? 'status-live' : (m.status === 'upcoming' ? 'status-upcoming' : 'status-finished');
                 html += `<tr onclick="document.getElementById('settle-fixture-id').value=${m.fixture_id}; switchTab('settle')">
                     <td>${m.fixture_id}</td>
                     <td>${escapeHtml(m.league_name || 'N/A')}</td>
-                    <td><strong>${escapeHtml(home)}</strong> vs <strong>${escapeHtml(away)}</strong></td>
+                    <td><strong>${escapeHtml(homeName)}</strong> vs <strong>${escapeHtml(awayName)}</strong></td>
                     <td><span style="color:#ff9800;font-weight:bold;">${score}</span></td>
                     <td><span class="status-badge ${statusClass}">${m.status?.toUpperCase()}</span></td>
                 </tr>`;
@@ -717,6 +801,10 @@
         async function logout() { await auth.signOut(); window.location.href = '../login.html'; }
         
         // ===== INIT =====
+        document.querySelectorAll('.tab-btn').forEach(b => {
+            b.onclick = function() { switchTab(this.dataset.tab); };
+        });
+        
         auth.onAuthStateChanged(async user => {
             if (!user) { window.location.href = '../login.html'; return; }
             if (!ALLOWED_ADMINS.includes(user.email)) {
@@ -730,6 +818,7 @@
             await loadMatches();
             await loadPendingSettlements();
             
+            // Auto-refresh every 30 seconds
             setInterval(async () => {
                 await loadBets();
                 await loadPendingSettlements();
@@ -751,6 +840,8 @@
         window.loadMatches = loadMatches;
         window.loadPendingSettlements = loadPendingSettlements;
         window.logout = logout;
+        
+        console.log('🚀 Admin panel loaded - Single bets will now show full match details!');
     </script>
 </body>
 </html>
