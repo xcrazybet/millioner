@@ -33,6 +33,55 @@
         .debug-bar { background: #1a2332; padding: 8px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 11px; color: #00ff9d; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .refresh-btn { background: #00ff9d; color: black; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 11px; }
         
+        /* League filter banner */
+        .league-filter-banner {
+            background: linear-gradient(135deg, #00ff9d11, #00ff9d05);
+            border: 1px solid #00ff9d33;
+            border-radius: 12px;
+            padding: 12px 15px;
+            margin-bottom: 15px;
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .league-filter-banner.active { display: flex; }
+        .league-filter-banner .league-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .league-filter-banner .league-logo {
+            width: 40px;
+            height: 40px;
+            object-fit: contain;
+            background: #1a2332;
+            border-radius: 50%;
+            padding: 5px;
+        }
+        .league-filter-banner .league-name {
+            font-size: 16px;
+            font-weight: 700;
+            color: #ff9800;
+        }
+        .league-filter-banner .match-count {
+            font-size: 12px;
+            color: #a0a8c9;
+        }
+        .clear-filter-btn {
+            background: #ff5252;
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .clear-filter-btn:hover { background: #ff3333; transform: scale(1.02); }
+        
         /* Match Cards */
         .date-section { margin-bottom: 20px; }
         .date-header { background: linear-gradient(135deg, #00ff9d11, #00ff9d05); border-left: 3px solid #00ff9d; padding: 12px 15px; border-radius: 8px; margin-bottom: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
@@ -117,6 +166,7 @@
             .match-buttons { justify-content: center; }
             .match-time-col { display: flex; justify-content: space-between; align-items: center; }
             .side-cart { width: 100%; right: -100%; }
+            .league-filter-banner .league-info { flex-wrap: wrap; }
         }
     </style>
 </head>
@@ -142,6 +192,20 @@
         <div class="balance-bar">
             <span><i class="fas fa-wallet"></i> Balance</span>
             <span class="balance-amount" id="balance-display">$0.00</span>
+        </div>
+        
+        <!-- League Filter Banner (shows when filtering by league) -->
+        <div class="league-filter-banner" id="league-filter-banner">
+            <div class="league-info">
+                <img class="league-logo" id="filter-league-logo" src="" alt="League Logo">
+                <div>
+                    <div class="league-name" id="filter-league-name">League Name</div>
+                    <div class="match-count" id="filter-match-count">0 matches</div>
+                </div>
+            </div>
+            <button class="clear-filter-btn" onclick="clearLeagueFilter()">
+                <i class="fas fa-times"></i> Clear Filter
+            </button>
         </div>
         
         <div class="selector-bar">
@@ -190,7 +254,7 @@
 
     <script>
         // ============================================
-        // UPCOMING MATCHES - FLOATING SIDE CART
+        // UPCOMING MATCHES - WITH LEAGUE FILTER FROM URL
         // ============================================
         
         // Supabase Configuration
@@ -221,8 +285,56 @@
         let selectedDate = '';
         let isLoading = false;
         let accumulatorSlip = [];
+        let filterLeagueId = null;
+        let filterLeagueName = null;
+        let filterLeagueLogo = null;
         
         const API_BASE = 'https://millioner.onrender.com';
+        
+        // ===== URL PARAMETER HANDLING =====
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            const leagueId = params.get('league');
+            const leagueName = params.get('name');
+            
+            if (leagueId) {
+                filterLeagueId = parseInt(leagueId);
+                filterLeagueName = leagueName || 'League';
+                selectedLeague = leagueId;
+            }
+        }
+        
+        function showLeagueFilterBanner(leagueId, leagueName, leagueLogo) {
+            const banner = document.getElementById('league-filter-banner');
+            banner.classList.add('active');
+            document.getElementById('filter-league-logo').src = leagueLogo || 'https://via.placeholder.com/40/1a2332/00ff9d?text=L';
+            document.getElementById('filter-league-logo').onerror = function() {
+                this.src = 'https://via.placeholder.com/40/1a2332/00ff9d?text=L';
+            };
+            document.getElementById('filter-league-name').textContent = leagueName || 'League';
+            
+            // Update match count after rendering
+            setTimeout(() => {
+                const matchCount = document.querySelectorAll('.match-row').length;
+                document.getElementById('filter-match-count').textContent = `${matchCount} matches`;
+            }, 100);
+        }
+        
+        function clearLeagueFilter() {
+            filterLeagueId = null;
+            filterLeagueName = null;
+            filterLeagueLogo = null;
+            selectedLeague = 'all';
+            document.getElementById('league-filter').value = 'all';
+            document.getElementById('league-filter-banner').classList.remove('active');
+            
+            // Update URL without parameters
+            const url = new URL(window.location.href);
+            url.search = '';
+            window.history.pushState({}, '', url);
+            
+            renderMatches();
+        }
         
         // ===== FIREBASE WALLET FUNCTIONS =====
         async function loadBalance() {
@@ -368,9 +480,6 @@
             
             updateCartUI();
             showNotification(`Added to slip: ${betTypeName} @ ${odds}`);
-            
-            // Auto-open cart after adding if user wants (optional)
-            // toggleCart();
         }
         
         function removeFromSlip(index) {
@@ -546,6 +655,20 @@
                 if (upcomingMatches.length === 0) {
                     document.getElementById('matches-container').innerHTML = '<div class="empty-state">No upcoming matches found for the next 7 days</div>';
                 } else {
+                    // Apply league filter from URL if present
+                    if (filterLeagueId) {
+                        // Set the league dropdown to match
+                        document.getElementById('league-filter').value = filterLeagueId;
+                        
+                        // Find league info from matches
+                        const leagueMatch = upcomingMatches.find(m => m.league_id == filterLeagueId);
+                        if (leagueMatch) {
+                            filterLeagueName = leagueMatch.league_name;
+                            filterLeagueLogo = leagueMatch.league_logo;
+                            showLeagueFilterBanner(filterLeagueId, filterLeagueName, filterLeagueLogo);
+                        }
+                    }
+                    
                     renderMatches();
                     startCountdowns();
                 }
@@ -565,6 +688,10 @@
             }
             
             const filtered = filterMatchesArray(upcomingMatches);
+            
+            // Update match count in banner
+            const matchCount = filtered.length;
+            document.getElementById('filter-match-count').textContent = `${matchCount} matches`;
             
             if (filtered.length === 0) {
                 document.getElementById('matches-container').innerHTML = '<div class="empty-state">No matches match your filters</div>';
@@ -712,7 +839,29 @@
             location.href = `match-details.html?id=${fixtureId}`; 
         }
         
-        function filterMatches() { renderMatches(); }
+        function filterMatches() { 
+            // If league filter changes, clear the banner
+            const selected = document.getElementById('league-filter').value;
+            if (selected !== 'all') {
+                selectedLeague = selected;
+                // Find league info
+                const leagueMatch = upcomingMatches.find(m => m.league_id == selected);
+                if (leagueMatch) {
+                    filterLeagueId = parseInt(selected);
+                    filterLeagueName = leagueMatch.league_name;
+                    filterLeagueLogo = leagueMatch.league_logo;
+                    showLeagueFilterBanner(filterLeagueId, filterLeagueName, filterLeagueLogo);
+                }
+                // Update URL
+                const url = new URL(window.location.href);
+                url.search = `?league=${selected}&name=${encodeURIComponent(filterLeagueName || 'League')}`;
+                window.history.pushState({}, '', url);
+            } else {
+                clearLeagueFilter();
+            }
+            renderMatches(); 
+        }
+        
         function filterByDate() {
             const datePicker = document.getElementById('date-filter');
             selectedDate = datePicker.value;
@@ -769,7 +918,6 @@
                     });
                 }
             } catch(e) { console.error(e); }
-            document.getElementById('league-filter').onchange = (e) => { selectedLeague = e.target.value; renderMatches(); };
         }
         
         function startAutoRefresh() {
@@ -804,6 +952,9 @@
                 return;
             }
             
+            // Get URL parameters first
+            getUrlParams();
+            
             await loadBalance();
             await loadLeagues();
             await loadMatches();
@@ -821,8 +972,10 @@
         window.clearAllSlip = clearAllSlip;
         window.placeAccumulatorBet = placeAccumulatorBet;
         window.toggleCart = toggleCart;
+        window.clearLeagueFilter = clearLeagueFilter;
         
-        console.log('✅ Upcoming matches page loaded - Floating side cart');
+        console.log('✅ Upcoming matches page loaded - WITH LEAGUE FILTER');
+        console.log(`   Filtering by league ID: ${filterLeagueId || 'none'}`);
         console.log('   Click odds or "Slip" button to add to cart');
         console.log('   Click cart icon to review selections');
         console.log('   Minimum 2 selections required for accumulator');
