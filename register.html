@@ -315,7 +315,7 @@
         <div class="header">
             <h1>Create Account</h1>
             <p>Join our gaming platform today</p>
-            <div class="bonus-badge">🎁 $10 Welcome Bonus</div>
+            <div class="bonus-badge">🎁 Welcome Bonus</div>
         </div>
         
         <div class="content">
@@ -358,7 +358,7 @@
                 </div>
                 
                 <button type="submit" class="btn" id="submit-btn">
-                    <span id="btn-text">Create Account & Get $10 Bonus</span>
+                    <span id="btn-text">Create Account</span>
                     <span id="btn-loader" class="loading" style="display: none;"></span>
                 </button>
             </form>
@@ -367,14 +367,14 @@
                 <h3>🎉 Wallet Created Successfully!</h3>
                 <p><strong>Wallet ID:</strong> <span id="wallet-id-display" class="wallet-id"></span></p>
                 <p><strong>Starting Balance:</strong> <span id="wallet-balance" style="color: #4ade80; font-weight: bold;"></span></p>
-                <p><strong>Welcome Bonus:</strong> <span style="color: #10b981; font-weight: bold;">+ $10.00</span></p>
+                <p><strong>Welcome Bonus:</strong> <span style="color: #94a3b8; font-weight: bold;">$0.00</span></p>
                 <p><strong>Status:</strong> <span id="wallet-status" style="color: #60a5fa;">Active</span></p>
                 
                 <div class="bonus-info">
-                    <h4>🎁 Welcome Bonus Activated!</h4>
-                    <p>• $10 bonus credited to your wallet</p>
+                    <h4>📝 Account Created!</h4>
+                    <p>• Your account is ready to use</p>
                     <p>• Start playing games immediately</p>
-                    <p>• Withdraw your winnings anytime</p>
+                    <p>• Deposit funds to start winning</p>
                 </div>
                 
                 <p><em style="font-size: 12px; color: #94a3b8; margin-top: 10px; display: block;">Please verify your email address to access your wallet.</em></p>
@@ -442,10 +442,10 @@
                 return `WALLET-${timestamp}-${randomStr}`.toUpperCase();
             }
 
-            // Create user wallet in Firestore - FIXED VERSION
+            // Create user wallet in Firestore - MODIFIED (removed bonus)
             async function createUserWallet(uid, email, username) {
                 const walletId = generateWalletId();
-                const startingBalance = 10.00; // 🎁 $10 BONUS FOR NEW USERS
+                const startingBalance = 0.00; // No bonus for new users
                 
                 // CRITICAL FIX: Create wallet data EXACTLY matching dashboard.html expectations
                 const walletData = {
@@ -484,53 +484,19 @@
                     ipAddress: await getUserIP(),
                     deviceInfo: navigator.userAgent.substring(0, 100),
                     
-                    // Bonus tracking
-                    welcomeBonus: 10.00,
-                    bonusClaimed: true,
-                    bonusClaimedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    // Bonus tracking (set to 0)
+                    welcomeBonus: 0.00,
+                    bonusClaimed: false,
+                    bonusClaimedAt: null
                 };
 
                 try {
-                    console.log("🔄 Creating wallet with $10 bonus...");
+                    console.log("🔄 Creating wallet...");
                     console.log("📊 Wallet data structure:", walletData);
                     
                     // Save wallet to Firestore
                     await db.collection("wallets").doc(uid).set(walletData);
-                    console.log("✅ Wallet created with $10 bonus");
-                    
-                    // Create welcome bonus transaction (MAIN transactions collection)
-                    const transactionId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                    const transactionData = {
-                        transactionId: transactionId,
-                        type: "welcome_bonus",
-                        amount: 10.00,
-                        description: "Welcome bonus - $10 free credit",
-                        status: "completed",
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        userId: uid,
-                        userEmail: email.toLowerCase(),
-                        username: username,
-                        previousBalance: 0,
-                        newBalance: 10.00,
-                        category: "bonus",
-                        notes: "New user welcome bonus"
-                    };
-                    
-                    await db.collection("transactions").doc(transactionId).set(transactionData);
-                    console.log("✅ Bonus transaction recorded");
-                    
-                    // Also create transaction in wallet subcollection for rules compatibility
-                    const walletTransactionData = {
-                        type: "welcome_bonus",
-                        amount: 10.00,
-                        description: "$10 Welcome Bonus",
-                        status: "completed",
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        transactionId: transactionId
-                    };
-                    
-                    await db.collection("wallets").doc(uid).collection("transactions").doc(transactionId).set(walletTransactionData);
-                    console.log("✅ Wallet subcollection transaction created");
+                    console.log("✅ Wallet created successfully");
                     
                     // Log user activity for admin panel
                     const activityId = `activity_${Date.now()}`;
@@ -539,12 +505,12 @@
                         email: email.toLowerCase(),
                         username: username,
                         action: "account_created",
-                        description: "New user registration with $10 bonus",
+                        description: "New user registration",
                         timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                         ipAddress: await getUserIP(),
                         userAgent: navigator.userAgent,
                         status: "success",
-                        bonusAmount: 10.00
+                        bonusAmount: 0.00
                     };
                     
                     await db.collection("user_activities").doc(activityId).set(activityData);
@@ -555,7 +521,7 @@
                         walletId: walletId,
                         balance: startingBalance,
                         userId: uid,
-                        bonus: 10.00
+                        bonus: 0.00
                     };
                     
                 } catch (error) {
@@ -648,25 +614,25 @@
                     });
                     console.log("✅ Profile updated with username");
                     
-                    // 3. Create wallet with $10 bonus
-                    console.log("🔄 Creating wallet with $10 bonus...");
+                    // 3. Create wallet (no bonus)
+                    console.log("🔄 Creating wallet...");
                     const walletResult = await createUserWallet(user.uid, email, username);
                     
                     if (!walletResult.success) {
                         throw new Error(`Wallet creation failed: ${walletResult.error}`);
                     }
-                    console.log("✅ Wallet created with $10 bonus");
+                    console.log("✅ Wallet created successfully");
                     
                     // 4. Send email verification
                     await user.sendEmailVerification();
                     console.log("✅ Verification email sent");
                     
                     // 5. Show success message
-                    showStatus(`Account created successfully! Welcome ${username}. You received a $10 welcome bonus!`, 'success');
+                    showStatus(`Account created successfully! Welcome ${username}.`, 'success');
                     
                     // 6. Display wallet information
                     walletIdDisplay.textContent = walletResult.walletId;
-                    walletBalance.textContent = `$${walletResult.balance.toFixed(2)} (Includes $10 bonus)`;
+                    walletBalance.textContent = `$${walletResult.balance.toFixed(2)}`;
                     walletInfo.style.display = 'block';
                     
                     // 7. Log success
@@ -675,8 +641,7 @@
                         email: user.email,
                         username: username,
                         walletId: walletResult.walletId,
-                        balance: walletResult.balance,
-                        bonus: walletResult.bonus
+                        balance: walletResult.balance
                     });
                     
                     // 8. Reset form
@@ -751,7 +716,7 @@
             
             function setLoading(isLoading) {
                 submitBtn.disabled = isLoading;
-                btnText.textContent = isLoading ? "Creating Account..." : "Create Account & Get $10 Bonus";
+                btnText.textContent = isLoading ? "Creating Account..." : "Create Account";
                 btnLoader.style.display = isLoading ? 'inline-block' : 'none';
             }
             
