@@ -16,9 +16,6 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     
-    <!-- Supabase -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-    
     <style>
         * {
             margin: 0;
@@ -254,10 +251,6 @@
             color: #ffa000;
         }
         
-        .data-source-badge .supabase {
-            color: #3ecf8e;
-        }
-        
         /* ===== TRANSACTIONS LIST ===== */
         .transactions-header {
             display: flex;
@@ -308,27 +301,6 @@
         .transaction-item:hover {
             border-color: #00ff9d33;
             transform: translateX(5px);
-        }
-        
-        .transaction-item .source-badge {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            font-size: 9px;
-            padding: 2px 8px;
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.05);
-            color: #6b7280;
-        }
-        
-        .transaction-item .source-badge.firebase {
-            background: rgba(255, 160, 0, 0.15);
-            color: #ffa000;
-        }
-        
-        .transaction-item .source-badge.supabase {
-            background: rgba(62, 207, 142, 0.15);
-            color: #3ecf8e;
         }
         
         .transaction-icon {
@@ -395,6 +367,11 @@
         .transaction-icon.cancelled {
             background: rgba(158, 158, 158, 0.15);
             color: #9e9e9e;
+        }
+        
+        .transaction-icon.balance_adjustment {
+            background: rgba(33, 150, 243, 0.15);
+            color: #2196f3;
         }
         
         .transaction-info {
@@ -725,8 +702,7 @@
             <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                 <input type="text" class="filter-search" id="searchInput" placeholder="🔍 Search transactions...">
                 <span class="data-source-badge">
-                    <span class="firebase">🔥 Firebase</span> + 
-                    <span class="supabase">⚡ Supabase</span>
+                    <span class="firebase">🔥 Firebase</span>
                 </span>
             </div>
         </div>
@@ -740,7 +716,7 @@
         <div id="transactions-container">
             <div class="loading-container">
                 <div class="loading-spinner"></div>
-                <p>Loading transactions from Firebase & Supabase...</p>
+                <p>Loading your transaction history...</p>
             </div>
         </div>
     </div>
@@ -771,7 +747,8 @@
 
     <script>
         // ============================================
-        // WALLET PAGE - FIREBASE + SUPABASE TRANSACTIONS
+        // WALLET PAGE - FIREBASE ONLY
+        // All transactions from Firebase
         // ============================================
         
         // Firebase Config
@@ -784,15 +761,10 @@
             appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
         };
 
-        // Supabase Config
-        const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
-
-        // Initialize
+        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         // ===== STATE =====
         let allTransactions = [];
@@ -869,7 +841,8 @@
                 profit: 'fa-chart-line',
                 finished: 'fa-check-circle',
                 cancelled: 'fa-ban',
-                active: 'fa-circle'
+                active: 'fa-circle',
+                balance_adjustment: 'fa-adjust'
             };
             return icons[type] || 'fa-circle';
         }
@@ -889,13 +862,14 @@
                 profit: 'win',
                 finished: 'finished',
                 cancelled: 'cancelled',
-                active: 'bet'
+                active: 'bet',
+                balance_adjustment: 'balance_adjustment'
             };
             return classes[type] || 'deposit';
         }
 
         function getTransactionTitle(transaction) {
-            const type = transaction.type || transaction.bet_type || 'unknown';
+            const type = transaction.type || 'unknown';
             const titles = {
                 deposit: 'Deposit',
                 withdraw: 'Withdrawal',
@@ -911,8 +885,7 @@
                 finished: 'Finished',
                 cancelled: 'Cancelled',
                 active: 'Active Bet',
-                accumulator: 'Accumulator Bet',
-                single: 'Single Bet'
+                balance_adjustment: 'Balance Adjustment'
             };
             return titles[type] || type.charAt(0).toUpperCase() + type.slice(1);
         }
@@ -932,15 +905,6 @@
             return classes[status] || 'completed';
         }
 
-        function getSourceBadge(source) {
-            if (source === 'firebase') {
-                return '<span class="source-badge firebase">🔥 Firebase</span>';
-            } else if (source === 'supabase') {
-                return '<span class="source-badge supabase">⚡ Supabase</span>';
-            }
-            return '';
-        }
-
         // ===== AUTH =====
         auth.onAuthStateChanged(async (user) => {
             if (!user) {
@@ -953,7 +917,7 @@
             setupEventListeners();
         });
 
-        // ===== LOAD TRANSACTIONS FROM BOTH SOURCES =====
+        // ===== LOAD ALL TRANSACTIONS FROM FIREBASE =====
         async function loadAllTransactions() {
             if (!currentUser) return;
             
@@ -963,17 +927,17 @@
             allTransactions = [];
             
             try {
-                // 1. LOAD FROM FIREBASE - Wallet transactions
-                await loadFirebaseTransactions();
+                // 1. LOAD FROM WALLET SUBCOLLECTION (Primary source)
+                await loadWalletTransactions();
                 
-                // 2. LOAD FROM FIREBASE - Bets (from bets collection)
-                await loadFirebaseBets();
+                // 2. LOAD FROM MAIN TRANSACTIONS COLLECTION
+                await loadMainTransactions();
                 
-                // 3. LOAD FROM SUPABASE - Bets
-                await loadSupabaseBets();
+                // 3. LOAD BETS FROM BETS COLLECTION
+                await loadBets();
                 
-                // 4. LOAD FROM SUPABASE - Transactions (if any)
-                await loadSupabaseTransactions();
+                // 4. LOAD FROM USER ACTIVITIES (if any)
+                await loadUserActivities();
                 
                 // Sort all transactions by date (newest first)
                 allTransactions.sort((a, b) => {
@@ -987,9 +951,7 @@
                 updateStats();
                 updateBalance();
                 
-                console.log(`✅ Loaded ${allTransactions.length} total transactions`);
-                console.log(`   🔥 Firebase: ${allTransactions.filter(t => t.source === 'firebase').length}`);
-                console.log(`   ⚡ Supabase: ${allTransactions.filter(t => t.source === 'supabase').length}`);
+                console.log(`✅ Loaded ${allTransactions.length} total transactions from Firebase`);
                 
             } catch (error) {
                 console.error('Error loading transactions:', error);
@@ -1007,208 +969,215 @@
                 if (tx.createdAt instanceof Date) return tx.createdAt.getTime();
                 return new Date(tx.createdAt).getTime();
             }
-            if (tx.placed_at) {
-                if (typeof tx.placed_at === 'string') return new Date(tx.placed_at).getTime();
-                if (tx.placed_at.seconds) return tx.placed_at.seconds * 1000;
-                return new Date(tx.placed_at).getTime();
-            }
             if (tx.timestamp) {
+                if (tx.timestamp.toDate) return tx.timestamp.toDate().getTime();
                 if (tx.timestamp.seconds) return tx.timestamp.seconds * 1000;
                 return new Date(tx.timestamp).getTime();
             }
             if (tx.time) {
                 return new Date(tx.time).getTime();
             }
-            return 0;
+            if (tx.placed_at) {
+                return new Date(tx.placed_at).getTime();
+            }
+            return Date.now();
         }
 
-        // ----- FIREBASE: Wallet Transactions -----
-        async function loadFirebaseTransactions() {
+        // ----- 1. WALLET SUBCOLLECTION TRANSACTIONS -----
+        async function loadWalletTransactions() {
             try {
-                // From wallet subcollection
                 const walletRef = db.collection('wallets').doc(currentUser.uid);
-                const txSnapshot = await walletRef.collection('transactions')
+                const snapshot = await walletRef.collection('transactions')
                     .orderBy('createdAt', 'desc')
-                    .limit(500)
+                    .limit(1000)
                     .get();
                 
-                txSnapshot.forEach(doc => {
+                snapshot.forEach(doc => {
                     const data = doc.data();
                     allTransactions.push({
                         id: doc.id,
-                        ...data,
+                        type: data.type || 'transaction',
+                        amount: data.amount || 0,
+                        description: data.description || data.notes || '',
+                        status: data.status || 'completed',
+                        createdAt: data.createdAt || data.timestamp || new Date(),
                         source: 'firebase',
-                        sourceType: 'wallet_transaction'
+                        sourceType: 'wallet_transaction',
+                        previousBalance: data.previousBalance || 0,
+                        newBalance: data.newBalance || 0,
+                        category: data.category || '',
+                        transactionId: data.transactionId || doc.id
                     });
                 });
                 
-                // Also from main transactions collection
-                const mainTxSnapshot = await db.collection('transactions')
+                console.log(`📊 Wallet transactions: ${snapshot.size}`);
+                
+            } catch (error) {
+                console.error('Error loading wallet transactions:', error);
+            }
+        }
+
+        // ----- 2. MAIN TRANSACTIONS COLLECTION -----
+        async function loadMainTransactions() {
+            try {
+                const snapshot = await db.collection('transactions')
                     .where('userId', '==', currentUser.uid)
                     .orderBy('createdAt', 'desc')
-                    .limit(500)
+                    .limit(1000)
                     .get();
                 
-                mainTxSnapshot.forEach(doc => {
+                snapshot.forEach(doc => {
                     const data = doc.data();
-                    // Avoid duplicates by checking if ID already exists
-                    if (!allTransactions.some(t => t.id === doc.id && t.source === 'firebase')) {
+                    // Avoid duplicates
+                    if (!allTransactions.some(t => t.id === doc.id && t.sourceType === 'wallet_transaction')) {
                         allTransactions.push({
                             id: doc.id,
-                            ...data,
+                            type: data.type || 'transaction',
+                            amount: data.amount || 0,
+                            description: data.description || data.notes || '',
+                            status: data.status || 'completed',
+                            createdAt: data.createdAt || data.timestamp || new Date(),
                             source: 'firebase',
-                            sourceType: 'main_transaction'
+                            sourceType: 'main_transaction',
+                            previousBalance: data.previousBalance || 0,
+                            newBalance: data.newBalance || 0,
+                            category: data.category || '',
+                            transactionId: data.transactionId || doc.id
                         });
                     }
                 });
                 
-                console.log(`🔥 Firebase wallet: ${txSnapshot.size} transactions`);
-                console.log(`🔥 Firebase main: ${mainTxSnapshot.size} transactions`);
+                console.log(`📊 Main transactions: ${snapshot.size}`);
                 
             } catch (error) {
-                console.error('Error loading Firebase transactions:', error);
+                console.error('Error loading main transactions:', error);
             }
         }
 
-        // ----- FIREBASE: Bets -----
-        async function loadFirebaseBets() {
+        // ----- 3. BETS COLLECTION -----
+        async function loadBets() {
             try {
-                // From bets collection (assuming you store bets here)
-                const betsSnapshot = await db.collection('bets')
+                // Try with user_id field
+                let snapshot = await db.collection('bets')
                     .where('user_id', '==', currentUser.uid)
                     .orderBy('placed_at', 'desc')
-                    .limit(500)
+                    .limit(1000)
                     .get();
                 
-                betsSnapshot.forEach(doc => {
+                // If no results, try with userId field
+                if (snapshot.empty) {
+                    snapshot = await db.collection('bets')
+                        .where('userId', '==', currentUser.uid)
+                        .orderBy('placed_at', 'desc')
+                        .limit(1000)
+                        .get();
+                }
+                
+                snapshot.forEach(doc => {
                     const data = doc.data();
                     const amount = data.amount || 0;
                     const status = data.status || 'pending';
-                    const isWin = status === 'win' || status === 'won';
-                    const isLoss = status === 'loss' || status === 'lost';
+                    const isWin = status === 'win' || status === 'won' || status === 'completed';
+                    const isLoss = status === 'loss' || status === 'lost' || status === 'failed';
                     
                     // Determine transaction type based on bet outcome
                     let type = 'bet';
                     let displayAmount = -amount; // Bets are negative (money going out)
                     
-                    if (isWin) {
+                    if (isWin && data.potential_win) {
                         type = 'win';
-                        displayAmount = data.potential_win || amount * 2; // Positive amount
+                        displayAmount = data.potential_win || amount * 2;
+                    } else if (isWin) {
+                        type = 'win';
+                        displayAmount = amount * 1.5;
                     } else if (isLoss) {
                         type = 'loss';
                         displayAmount = -amount;
                     }
                     
-                    allTransactions.push({
-                        id: doc.id,
-                        type: type,
-                        amount: displayAmount,
-                        description: data.bet_name || `${data.bet_type || 'Bet'} on ${data.fixture_id || 'match'}`,
-                        status: status,
-                        createdAt: data.placed_at || data.createdAt,
-                        source: 'firebase',
-                        sourceType: 'bet',
-                        betDetails: data
-                    });
+                    // Check for duplicate
+                    if (!allTransactions.some(t => t.id === doc.id && t.sourceType === 'bet')) {
+                        allTransactions.push({
+                            id: doc.id,
+                            type: type,
+                            amount: displayAmount,
+                            description: data.bet_name || `${data.bet_type || 'Bet'} on match`,
+                            status: status,
+                            createdAt: data.placed_at || data.createdAt || new Date(),
+                            source: 'firebase',
+                            sourceType: 'bet',
+                            betDetails: data,
+                            fixture_id: data.fixture_id || '',
+                            bet_type: data.bet_type || '',
+                            odds: data.odds || 0,
+                            potential_win: data.potential_win || 0
+                        });
+                    }
                 });
                 
-                console.log(`🔥 Firebase bets: ${betsSnapshot.size} transactions`);
+                console.log(`📊 Bets: ${snapshot.size}`);
                 
             } catch (error) {
-                console.error('Error loading Firebase bets:', error);
+                console.error('Error loading bets:', error);
             }
         }
 
-        // ----- SUPABASE: Bets -----
-        async function loadSupabaseBets() {
+        // ----- 4. USER ACTIVITIES -----
+        async function loadUserActivities() {
             try {
-                const { data: bets, error } = await supabase
-                    .from('bets')
-                    .select('*')
-                    .eq('user_id', currentUser.uid)
-                    .order('placed_at', { ascending: false })
-                    .limit(500);
+                const snapshot = await db.collection('user_activities')
+                    .where('userId', '==', currentUser.uid)
+                    .orderBy('timestamp', 'desc')
+                    .limit(500)
+                    .get();
                 
-                if (error) throw error;
-                
-                if (bets) {
-                    bets.forEach(bet => {
-                        const amount = bet.amount || 0;
-                        const status = bet.status || 'pending';
-                        const isWin = status === 'win' || status === 'won';
-                        const isLoss = status === 'loss' || status === 'lost';
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    // Only include activities that involve money
+                    if (data.action === 'deposit' || data.action === 'withdraw' || 
+                        data.action === 'bet_placed' || data.action === 'bet_won' ||
+                        data.action === 'bet_lost' || data.action === 'bonus_claimed') {
                         
-                        let type = 'bet';
-                        let displayAmount = -amount;
+                        let type = data.action;
+                        let amount = data.amount || 0;
                         
-                        if (isWin) {
+                        if (data.action === 'bet_placed') {
+                            type = 'bet';
+                            amount = -Math.abs(amount);
+                        } else if (data.action === 'bet_won') {
                             type = 'win';
-                            displayAmount = bet.potential_win || amount * 2;
-                        } else if (isLoss) {
+                            amount = Math.abs(amount);
+                        } else if (data.action === 'bet_lost') {
                             type = 'loss';
-                            displayAmount = -amount;
+                            amount = -Math.abs(amount);
+                        } else if (data.action === 'deposit' || data.action === 'bonus_claimed') {
+                            type = data.action === 'bonus_claimed' ? 'bonus' : 'deposit';
+                            amount = Math.abs(amount);
+                        } else if (data.action === 'withdraw') {
+                            amount = -Math.abs(amount);
                         }
                         
                         // Check for duplicate
-                        if (!allTransactions.some(t => t.id === bet.id && t.source === 'supabase')) {
+                        if (!allTransactions.some(t => t.id === doc.id && t.sourceType === 'activity')) {
                             allTransactions.push({
-                                id: bet.id,
+                                id: doc.id,
                                 type: type,
-                                amount: displayAmount,
-                                description: bet.bet_name || `${bet.bet_type || 'Bet'} on match`,
-                                status: status,
-                                createdAt: bet.placed_at || bet.created_at,
-                                source: 'supabase',
-                                sourceType: 'bet',
-                                betDetails: bet
-                            });
-                        }
-                    });
-                }
-                
-                console.log(`⚡ Supabase bets: ${bets?.length || 0} transactions`);
-                
-            } catch (error) {
-                console.error('Error loading Supabase bets:', error);
-            }
-        }
-
-        // ----- SUPABASE: Transactions -----
-        async function loadSupabaseTransactions() {
-            try {
-                const { data: txs, error } = await supabase
-                    .from('transactions')
-                    .select('*')
-                    .eq('user_id', currentUser.uid)
-                    .order('created_at', { ascending: false })
-                    .limit(500);
-                
-                if (error) throw error;
-                
-                if (txs) {
-                    txs.forEach(tx => {
-                        const amount = tx.amount || 0;
-                        
-                        // Check for duplicate
-                        if (!allTransactions.some(t => t.id === tx.id && t.source === 'supabase')) {
-                            allTransactions.push({
-                                id: tx.id,
-                                type: tx.type || 'transfer',
                                 amount: amount,
-                                description: tx.description || tx.notes || 'Transaction',
-                                status: tx.status || 'completed',
-                                createdAt: tx.created_at || tx.timestamp,
-                                source: 'supabase',
-                                sourceType: 'transaction'
+                                description: data.description || data.action || 'Activity',
+                                status: data.status || 'completed',
+                                createdAt: data.timestamp || new Date(),
+                                source: 'firebase',
+                                sourceType: 'activity',
+                                activityData: data
                             });
                         }
-                    });
-                }
+                    }
+                });
                 
-                console.log(`⚡ Supabase transactions: ${txs?.length || 0} transactions`);
+                console.log(`📊 User activities: ${snapshot.size}`);
                 
             } catch (error) {
-                console.error('Error loading Supabase transactions:', error);
+                console.error('Error loading user activities:', error);
             }
         }
 
@@ -1253,11 +1222,9 @@
                 const status = tx.status || 'completed';
                 const time = formatDate(tx.createdAt);
                 const txId = tx.transactionId || tx.id || `tx_${index}`;
-                const sourceBadge = getSourceBadge(tx.source);
                 
                 html += `
                     <div class="transaction-item" onclick="showTransactionDetails('${txId}')">
-                        ${sourceBadge}
                         <div class="transaction-icon ${iconClass}">
                             <i class="fas ${icon}"></i>
                         </div>
@@ -1267,7 +1234,8 @@
                             <div class="transaction-meta">
                                 <span class="transaction-tag ${getStatusClass(status)}">${(status || 'completed').toUpperCase()}</span>
                                 ${tx.bet_type ? `<span style="font-size:10px;color:#6b7280;">${tx.bet_type}</span>` : ''}
-                                ${tx.sourceType ? `<span style="font-size:10px;color:#6b7280;">${tx.sourceType}</span>` : ''}
+                                ${tx.category ? `<span style="font-size:10px;color:#6b7280;">${tx.category}</span>` : ''}
+                                ${tx.sourceType ? `<span style="font-size:10px;color:#6b7280;">${tx.sourceType.replace('_', ' ')}</span>` : ''}
                             </div>
                         </div>
                         <div class="transaction-amount ${isPositive ? 'positive' : 'negative'}">
@@ -1289,6 +1257,7 @@
             let withdrawals = 0;
             let wins = 0;
             let losses = 0;
+            let bonuses = 0;
             
             allTransactions.forEach(tx => {
                 const amount = tx.amount || 0;
@@ -1300,17 +1269,19 @@
                     deposits += amount > 0 ? amount : 0;
                 } else if (type === 'withdraw' || type === 'send') {
                     withdrawals += amount < 0 ? Math.abs(amount) : 0;
-                } else if (type === 'win' || type === 'profit' || type === 'welcome_bonus') {
+                } else if (type === 'win' || type === 'profit') {
                     wins += amount > 0 ? amount : 0;
-                } else if (type === 'loss' || type === 'bet') {
+                } else if (type === 'loss' || (type === 'bet' && amount < 0)) {
                     losses += amount < 0 ? Math.abs(amount) : 0;
+                } else if (type === 'bonus' || type === 'welcome_bonus') {
+                    bonuses += amount > 0 ? amount : 0;
                 }
             });
             
             totalDeposits.textContent = formatCurrency(deposits);
             totalWithdrawals.textContent = formatCurrency(withdrawals);
             
-            const net = wins - losses;
+            const net = (wins + bonuses) - losses;
             netProfit.textContent = formatCurrency(net);
             netProfit.style.color = net >= 0 ? '#00ff9d' : '#ff5252';
         }
@@ -1339,11 +1310,13 @@
                     const notes = (tx.notes || '').toLowerCase();
                     const id = (tx.id || '').toLowerCase();
                     const betName = (tx.bet_name || '').toLowerCase();
+                    const category = (tx.category || '').toLowerCase();
                     return description.includes(query) || 
                            type.includes(query) || 
                            notes.includes(query) || 
                            id.includes(query) ||
-                           betName.includes(query);
+                           betName.includes(query) ||
+                           category.includes(query);
                 });
             }
             
@@ -1355,7 +1328,7 @@
             container.innerHTML = `
                 <div class="loading-container">
                     <div class="loading-spinner"></div>
-                    <p>Loading transactions from Firebase & Supabase...</p>
+                    <p>Loading your transaction history...</p>
                 </div>
             `;
         }
@@ -1417,11 +1390,18 @@
                 `Type: ${type}`,
                 `Amount: ${isPositive ? '+' : '-'}$${Math.abs(amount).toFixed(2)}`,
                 `Status: ${status.toUpperCase()}`,
-                `Source: ${tx.source || 'Unknown'}`,
                 `Date: ${time instanceof Date && !isNaN(time) ? time.toLocaleString() : 'N/A'}`,
                 `Description: ${tx.description || tx.notes || 'N/A'}`,
                 `ID: ${tx.transactionId || tx.id || 'N/A'}`
             ];
+            
+            // Add balance info if available
+            if (tx.previousBalance !== undefined || tx.newBalance !== undefined) {
+                details.push(``);
+                details.push(`--- Balance Info ---`);
+                if (tx.previousBalance !== undefined) details.push(`Previous: $${tx.previousBalance.toFixed(2)}`);
+                if (tx.newBalance !== undefined) details.push(`New: $${tx.newBalance.toFixed(2)}`);
+            }
             
             // Add bet details if available
             if (tx.betDetails) {
@@ -1444,8 +1424,9 @@
         }, 60000);
 
         console.log('💳 Wallet page loaded successfully!');
-        console.log('   📊 Loading from Firebase + Supabase');
-        console.log('   🔍 Search and filter all transactions');
+        console.log('   📊 Loading ALL transactions from Firebase');
+        console.log('   🔍 Search and filter your history');
+        console.log('   📈 Tracking: deposits, withdrawals, wins, losses, bets, bonuses');
     </script>
 </body>
 </html>
