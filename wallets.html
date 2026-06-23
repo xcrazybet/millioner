@@ -614,9 +614,8 @@
 
     <script>
         // ============================================
-        // WALLET PAGE - ALL COLLECTIONS
-        // Reads from: transactions, wallet_transactions, 
-        // user_activities, bets, slot_history, trades
+        // WALLET PAGE - NO INDEXES REQUIRED
+        // Fetches data without ordering queries
         // ============================================
         
         // Firebase Config
@@ -662,9 +661,9 @@
             if (!timestamp) return 'N/A';
             
             let date;
-            if (timestamp.toDate) {
+            if (timestamp && timestamp.toDate) {
                 date = timestamp.toDate();
-            } else if (timestamp.seconds) {
+            } else if (timestamp && timestamp.seconds) {
                 date = new Date(timestamp.seconds * 1000);
             } else if (typeof timestamp === 'string') {
                 date = new Date(timestamp);
@@ -708,7 +707,10 @@
                 slot: 'fa-gamepad',
                 trade: 'fa-chart-line',
                 shadow: 'fa-ghost',
-                balance_adjustment: 'fa-adjust'
+                balance_adjustment: 'fa-adjust',
+                bet: 'fa-dice',
+                win: 'fa-trophy',
+                loss: 'fa-times-circle'
             };
             return icons[type] || 'fa-circle';
         }
@@ -727,7 +729,10 @@
                 slot: 'slot',
                 trade: 'trade',
                 shadow: 'shadow',
-                balance_adjustment: 'balance_adjustment'
+                balance_adjustment: 'balance_adjustment',
+                bet: 'bet_place',
+                win: 'bet_win',
+                loss: 'bet_lost'
             };
             return classes[type] || 'deposit';
         }
@@ -747,7 +752,10 @@
                 slot: 'Slot Game',
                 trade: 'Trade',
                 shadow: 'Shadow Bet',
-                balance_adjustment: 'Balance Adjustment'
+                balance_adjustment: 'Balance Adjustment',
+                bet: 'Bet',
+                win: 'Win',
+                loss: 'Loss'
             };
             return titles[type] || type.replace('_', ' ').toUpperCase();
         }
@@ -780,7 +788,7 @@
             setupEventListeners();
         });
 
-        // ===== LOAD ALL TRANSACTIONS FROM ALL COLLECTIONS =====
+        // ===== LOAD ALL TRANSACTIONS - NO INDEXES REQUIRED =====
         async function loadAllTransactions() {
             if (!currentUser) return;
             
@@ -790,28 +798,41 @@
             allTransactions = [];
             
             try {
-                // 1. TRANSACTIONS COLLECTION (main)
-                await loadFromCollection('transactions', 'userId', 'transactions');
+                // 1. TRANSACTIONS COLLECTION - Simple query without ordering
+                await loadCollectionSimple('transactions', 'user_id');
+                await loadCollectionSimple('transactions', 'userId');
                 
-                // 2. WALLET_TRANSACTIONS COLLECTION
-                await loadFromCollection('wallet_transactions', 'userId', 'wallet_transactions');
+                // 2. WALLET_TRANSACTIONS
+                await loadCollectionSimple('wallet_transactions', 'user_id');
+                await loadCollectionSimple('wallet_transactions', 'userId');
                 
-                // 3. USER_ACTIVITIES COLLECTION
-                await loadFromCollection('user_activities', 'userId', 'activities');
+                // 3. USER_ACTIVITIES
+                await loadCollectionSimple('user_activities', 'user_id');
+                await loadCollectionSimple('user_activities', 'userId');
                 
-                // 4. BETS COLLECTION (with user_id)
-                await loadBets();
+                // 4. BETS
+                await loadCollectionSimple('bets', 'user_id');
+                await loadCollectionSimple('bets', 'userId');
                 
-                // 5. SLOT_HISTORY COLLECTION
-                await loadFromCollection('slot_history', 'userId', 'slot');
+                // 5. SLOT_HISTORY
+                await loadCollectionSimple('slot_history', 'user_id');
+                await loadCollectionSimple('slot_history', 'userId');
                 
-                // 6. TRADES COLLECTION
-                await loadFromCollection('trades', 'userId', 'trade');
+                // 6. TRADES
+                await loadCollectionSimple('trades', 'user_id');
+                await loadCollectionSimple('trades', 'userId');
                 
-                // 7. SHADOW_HISTORY COLLECTION
-                await loadFromCollection('shadow_history', 'userId', 'shadow');
+                // 7. SHADOW_HISTORY
+                await loadCollectionSimple('shadow_history', 'user_id');
+                await loadCollectionSimple('shadow_history', 'userId');
                 
-                // Sort all transactions by date (newest first)
+                // 8. WALLETS (for balance)
+                await loadWalletBalance();
+                
+                // 9. Also try to get transactions from wallet subcollection
+                await loadWalletSubcollection();
+                
+                // Sort all transactions by date (newest first) - in JavaScript
                 allTransactions.sort((a, b) => {
                     const timeA = getTimestamp(a);
                     const timeB = getTimestamp(b);
@@ -821,9 +842,12 @@
                 // Update UI
                 renderTransactions();
                 updateStats();
-                updateBalance();
                 
-                console.log(`✅ Loaded ${allTransactions.length} total transactions from all collections`);
+                console.log(`✅ Loaded ${allTransactions.length} total transactions`);
+                
+                if (allTransactions.length === 0) {
+                    console.log('⚠️ No transactions found. Check if user has data in any collection.');
+                }
                 
             } catch (error) {
                 console.error('Error loading transactions:', error);
@@ -833,194 +857,161 @@
             }
         }
 
-        // ----- Generic Collection Loader -----
-        async function loadFromCollection(collectionName, userIdField, sourceType) {
+        // ----- Simple Collection Loader (NO INDEX REQUIRED) -----
+        async function loadCollectionSimple(collectionName, userIdField) {
             try {
-                // Try with userId field
-                let snapshot = await db.collection(collectionName)
+                const snapshot = await db.collection(collectionName)
                     .where(userIdField, '==', currentUser.uid)
-                    .orderBy('timestamp', 'desc')
-                    .limit(1000)
+                    .limit(2000)
                     .get();
                 
-                // If no results, try with user_id field
-                if (snapshot.empty && userIdField === 'userId') {
-                    snapshot = await db.collection(collectionName)
-                        .where('user_id', '==', currentUser.uid)
-                        .orderBy('timestamp', 'desc')
-                        .limit(1000)
-                        .get();
-                }
+                if (snapshot.empty) return;
                 
-                // If still empty, try with createdBy field
-                if (snapshot.empty) {
-                    snapshot = await db.collection(collectionName)
-                        .where('createdBy', '==', currentUser.uid)
-                        .orderBy('timestamp', 'desc')
-                        .limit(1000)
-                        .get();
-                }
-                
-                // If still empty, try without ordering (for collections without timestamp index)
-                if (snapshot.empty) {
-                    snapshot = await db.collection(collectionName)
-                        .where(userIdField, '==', currentUser.uid)
-                        .limit(1000)
-                        .get();
-                }
-                
+                let count = 0;
                 snapshot.forEach(doc => {
                     const data = doc.data();
-                    // Determine transaction type from collection
-                    let type = sourceType;
                     
-                    // Override type based on data
-                    if (data.type) {
-                        type = data.type;
-                    } else if (data.action) {
-                        type = data.action;
-                    } else if (data.bet_type) {
-                        type = 'bet_place';
-                    } else if (data.result === 'win') {
-                        type = 'bet_win';
-                    } else if (data.result === 'loss') {
-                        type = 'bet_lost';
+                    // Skip if already loaded (prevent duplicates)
+                    if (allTransactions.some(t => t.id === doc.id && t.collection === collectionName)) {
+                        return;
                     }
                     
-                    // Determine amount (positive or negative)
-                    let amount = data.amount || data.balance_change || 0;
-                    if (data.type === 'withdraw' || data.type === 'bet_place' || data.type === 'send') {
-                        amount = -Math.abs(amount);
-                    }
-                    if (data.action === 'withdraw' || data.action === 'bet_placed') {
+                    // Determine type
+                    let type = data.type || data.action || collectionName;
+                    
+                    // Map common types
+                    if (type === 'bet_placed') type = 'bet_place';
+                    else if (type === 'bet_won' || type === 'win') type = 'bet_win';
+                    else if (type === 'bet_lost' || type === 'loss') type = 'bet_lost';
+                    
+                    // Determine amount
+                    let amount = data.amount || data.balance_change || data.value || 0;
+                    
+                    // For bet_place, amount is negative (money going out)
+                    if (type === 'bet_place' || type === 'bet' || type === 'bet_placed') {
                         amount = -Math.abs(amount);
                     }
                     
-                    // Check for duplicate
-                    const docId = doc.id;
-                    if (!allTransactions.some(t => t.id === docId && t.sourceType === sourceType)) {
-                        allTransactions.push({
-                            id: docId,
-                            type: type,
-                            amount: amount,
-                            description: data.description || data.notes || data.action || type,
-                            status: data.status || data.result || 'completed',
-                            createdAt: data.timestamp || data.createdAt || data.placed_at || data.time || new Date(),
-                            source: 'firebase',
-                            sourceType: sourceType,
-                            collection: collectionName,
-                            balance_before: data.balance_before || data.balanceBefore || 0,
-                            balance_after: data.balance_after || data.balanceAfter || 0,
-                            rawData: data
-                        });
+                    // For withdraw, amount is negative
+                    if (type === 'withdraw' || type === 'withdrawal') {
+                        amount = -Math.abs(amount);
                     }
+                    
+                    // For win, amount is positive
+                    if (type === 'bet_win' || type === 'win') {
+                        amount = Math.abs(amount);
+                    }
+                    
+                    // For loss, amount is negative
+                    if (type === 'bet_lost' || type === 'loss') {
+                        amount = -Math.abs(amount);
+                    }
+                    
+                    // Get timestamp
+                    let timestamp = data.timestamp || data.createdAt || data.placed_at || data.time || data.date || new Date();
+                    
+                    allTransactions.push({
+                        id: doc.id,
+                        type: type,
+                        amount: amount,
+                        description: data.description || data.notes || data.action || data.type || collectionName,
+                        status: data.status || data.result || 'completed',
+                        createdAt: timestamp,
+                        source: 'firebase',
+                        collection: collectionName,
+                        balance_before: data.balance_before || data.balanceBefore || data.previous_balance || 0,
+                        balance_after: data.balance_after || data.balanceAfter || data.new_balance || 0,
+                        rawData: data
+                    });
+                    count++;
                 });
                 
-                console.log(`📊 ${collectionName}: ${snapshot.size} transactions`);
+                console.log(`📊 ${collectionName} (${userIdField}): ${count} transactions`);
                 
             } catch (error) {
-                console.log(`⚠️ Could not load from ${collectionName}:`, error.message);
+                // Silently fail - some collections might not exist or have different field names
+                console.log(`⚠️ Could not load from ${collectionName} with ${userIdField}:`, error.message);
             }
         }
 
-        // ----- Special: Bets Collection -----
-        async function loadBets() {
+        // ----- Wallet Subcollection -----
+        async function loadWalletSubcollection() {
             try {
-                let snapshot = await db.collection('bets')
-                    .where('user_id', '==', currentUser.uid)
-                    .orderBy('placed_at', 'desc')
-                    .limit(1000)
+                const walletRef = db.collection('wallets').doc(currentUser.uid);
+                const snapshot = await walletRef.collection('transactions')
+                    .limit(2000)
                     .get();
-                
-                if (snapshot.empty) {
-                    snapshot = await db.collection('bets')
-                        .where('userId', '==', currentUser.uid)
-                        .orderBy('placed_at', 'desc')
-                        .limit(1000)
-                        .get();
-                }
                 
                 snapshot.forEach(doc => {
                     const data = doc.data();
-                    const amount = data.amount || 0;
-                    const status = data.status || 'pending';
-                    const isWin = status === 'win' || status === 'won' || status === 'completed';
-                    const isLoss = status === 'loss' || status === 'lost' || status === 'failed';
                     
-                    let type = 'bet_place';
-                    let displayAmount = -amount;
-                    
-                    if (isWin && data.potential_win) {
-                        type = 'bet_win';
-                        displayAmount = data.potential_win || amount * 2;
-                    } else if (isWin) {
-                        type = 'bet_win';
-                        displayAmount = amount * 1.5;
-                    } else if (isLoss) {
-                        type = 'bet_lost';
-                        displayAmount = -amount;
+                    if (allTransactions.some(t => t.id === doc.id && t.collection === 'wallet_sub')) {
+                        return;
                     }
                     
-                    if (!allTransactions.some(t => t.id === doc.id && t.sourceType === 'bet')) {
-                        allTransactions.push({
-                            id: doc.id,
-                            type: type,
-                            amount: displayAmount,
-                            description: data.bet_name || `${data.bet_type || 'Bet'} on match`,
-                            status: status,
-                            createdAt: data.placed_at || data.createdAt || new Date(),
-                            source: 'firebase',
-                            sourceType: 'bet',
-                            collection: 'bets',
-                            betDetails: data,
-                            fixture_id: data.fixture_id || '',
-                            bet_type: data.bet_type || '',
-                            odds: data.odds || 0,
-                            potential_win: data.potential_win || 0
-                        });
+                    let type = data.type || 'transaction';
+                    let amount = data.amount || 0;
+                    
+                    if (type === 'withdraw' || type === 'bet' || type === 'bet_place') {
+                        amount = -Math.abs(amount);
                     }
+                    
+                    allTransactions.push({
+                        id: doc.id,
+                        type: type,
+                        amount: amount,
+                        description: data.description || data.notes || 'Wallet transaction',
+                        status: data.status || 'completed',
+                        createdAt: data.createdAt || data.timestamp || new Date(),
+                        source: 'firebase',
+                        collection: 'wallet_sub',
+                        balance_before: data.balance_before || data.previousBalance || 0,
+                        balance_after: data.balance_after || data.newBalance || 0,
+                        rawData: data
+                    });
                 });
                 
-                console.log(`📊 bets: ${snapshot.size} transactions`);
+                console.log(`📊 wallet_sub: ${snapshot.size} transactions`);
                 
             } catch (error) {
-                console.log('⚠️ Could not load bets:', error.message);
+                console.log('⚠️ Could not load from wallet subcollection:', error.message);
+            }
+        }
+
+        // ----- Wallet Balance -----
+        async function loadWalletBalance() {
+            try {
+                const doc = await db.collection('wallets').doc(currentUser.uid).get();
+                if (doc.exists) {
+                    const balance = doc.data().balance || 0;
+                    const formatted = formatCurrency(balance);
+                    headerBalance.textContent = formatted;
+                    totalBalance.textContent = formatted;
+                }
+            } catch (error) {
+                console.log('⚠️ Could not load wallet balance:', error.message);
             }
         }
 
         function getTimestamp(tx) {
-            if (tx.createdAt) {
-                if (tx.createdAt.toDate) return tx.createdAt.toDate().getTime();
-                if (tx.createdAt.seconds) return tx.createdAt.seconds * 1000;
-                if (typeof tx.createdAt === 'string') return new Date(tx.createdAt).getTime();
-                if (tx.createdAt instanceof Date) return tx.createdAt.getTime();
-                return new Date(tx.createdAt).getTime();
+            if (!tx) return 0;
+            
+            // Try various timestamp fields
+            const fields = ['createdAt', 'timestamp', 'placed_at', 'time', 'date', 'updatedAt'];
+            
+            for (const field of fields) {
+                const val = tx[field];
+                if (val) {
+                    if (val.toDate) return val.toDate().getTime();
+                    if (val.seconds) return val.seconds * 1000;
+                    if (typeof val === 'string') return new Date(val).getTime();
+                    if (val instanceof Date) return val.getTime();
+                    if (typeof val === 'number') return val;
+                }
             }
-            if (tx.timestamp) {
-                if (tx.timestamp.toDate) return tx.timestamp.toDate().getTime();
-                if (tx.timestamp.seconds) return tx.timestamp.seconds * 1000;
-                return new Date(tx.timestamp).getTime();
-            }
-            if (tx.time) {
-                return new Date(tx.time).getTime();
-            }
-            if (tx.placed_at) {
-                return new Date(tx.placed_at).getTime();
-            }
+            
+            // If no timestamp found, use current time
             return Date.now();
-        }
-
-        // ===== UPDATE BALANCE =====
-        async function updateBalance() {
-            try {
-                const walletDoc = await db.collection('wallets').doc(currentUser.uid).get();
-                const balance = walletDoc.exists ? (walletDoc.data().balance || 0) : 0;
-                const formatted = formatCurrency(balance);
-                headerBalance.textContent = formatted;
-                totalBalance.textContent = formatted;
-            } catch (error) {
-                console.error('Error updating balance:', error);
-            }
         }
 
         // ===== RENDER =====
@@ -1032,7 +1023,7 @@
                     <div class="empty-state">
                         <i class="fas fa-receipt"></i>
                         <h3>No Transactions Found</h3>
-                        <p>${allTransactions.length === 0 ? 'No transactions found. Start playing or make a deposit!' : 'Try adjusting your filters.'}</p>
+                        <p>${allTransactions.length === 0 ? 'No transactions found. Start playing or make a deposit!' : 'Try adjusting your filters or search.'}</p>
                     </div>
                 `;
                 transactionCount.textContent = '0 transactions';
@@ -1041,7 +1032,10 @@
             
             let html = '<div class="transactions-list">';
             
-            filteredTransactions.forEach((tx, index) => {
+            // Show first 200 transactions for performance
+            const displayTransactions = filteredTransactions.slice(0, 200);
+            
+            displayTransactions.forEach((tx, index) => {
                 const amount = tx.amount || 0;
                 const isPositive = amount >= 0;
                 const iconClass = getTransactionIconClass(tx.type);
@@ -1051,11 +1045,11 @@
                 const status = tx.status || 'completed';
                 const time = formatDate(tx.createdAt);
                 const txId = tx.id || `tx_${index}`;
-                const sourceLabel = tx.collection || tx.sourceType || 'unknown';
+                const sourceLabel = tx.collection || 'unknown';
                 
                 // Show balance before/after if available
                 let balanceInfo = '';
-                if (tx.balance_before !== undefined || tx.balance_after !== undefined) {
+                if (tx.balance_before !== undefined && tx.balance_before !== 0 && tx.balance_after !== undefined && tx.balance_after !== 0) {
                     const before = tx.balance_before || 0;
                     const after = tx.balance_after || 0;
                     balanceInfo = `<span class="transaction-balance">${formatCurrency(before)} → ${formatCurrency(after)}</span>`;
@@ -1071,7 +1065,6 @@
                             <div class="transaction-description">${description || tx.type || 'Transaction'}</div>
                             <div class="transaction-meta">
                                 <span class="transaction-tag ${getStatusClass(status)}">${(status || 'completed').toUpperCase()}</span>
-                                ${tx.bet_type ? `<span style="font-size:10px;color:#6b7280;">${tx.bet_type}</span>` : ''}
                                 <span style="font-size:9px;color:#6b7280;">${sourceLabel}</span>
                             </div>
                         </div>
@@ -1083,6 +1076,15 @@
                     </div>
                 `;
             });
+            
+            // Show "load more" if there are more transactions
+            if (filteredTransactions.length > 200) {
+                html += `
+                    <div style="text-align:center;padding:15px;color:#6b7280;font-size:12px;">
+                        Showing 200 of ${filteredTransactions.length} transactions. Refine your search to see more.
+                    </div>
+                `;
+            }
             
             html += '</div>';
             container.innerHTML = html;
@@ -1146,15 +1148,11 @@
                     const type = (tx.type || '').toLowerCase();
                     const notes = (tx.notes || '').toLowerCase();
                     const id = (tx.id || '').toLowerCase();
-                    const betName = (tx.bet_name || '').toLowerCase();
-                    const source = (tx.sourceType || '').toLowerCase();
                     const collection = (tx.collection || '').toLowerCase();
                     return description.includes(query) || 
                            type.includes(query) || 
                            notes.includes(query) || 
                            id.includes(query) ||
-                           betName.includes(query) ||
-                           source.includes(query) ||
                            collection.includes(query);
                 });
             }
@@ -1221,7 +1219,7 @@
             const isPositive = amount >= 0;
             const type = getTransactionTitle(tx);
             const status = tx.status || 'completed';
-            const time = tx.createdAt?.toDate?.() || new Date(tx.createdAt || tx.placed_at || Date.now());
+            const time = new Date(getTimestamp(tx));
             
             let details = [
                 `📊 Transaction Details`,
@@ -1229,28 +1227,18 @@
                 `Type: ${type}`,
                 `Amount: ${isPositive ? '+' : '-'}$${Math.abs(amount).toFixed(2)}`,
                 `Status: ${status.toUpperCase()}`,
-                `Source: ${tx.collection || tx.sourceType || 'Unknown'}`,
+                `Source: ${tx.collection || 'Unknown'}`,
                 `Date: ${time instanceof Date && !isNaN(time) ? time.toLocaleString() : 'N/A'}`,
                 `Description: ${tx.description || tx.notes || 'N/A'}`,
                 `ID: ${tx.id || 'N/A'}`
             ];
             
             // Add balance info
-            if (tx.balance_before !== undefined || tx.balance_after !== undefined) {
+            if (tx.balance_before !== undefined && tx.balance_before !== 0) {
                 details.push(``);
                 details.push(`--- Balance Info ---`);
                 if (tx.balance_before !== undefined) details.push(`Before: $${tx.balance_before.toFixed(2)}`);
                 if (tx.balance_after !== undefined) details.push(`After: $${tx.balance_after.toFixed(2)}`);
-            }
-            
-            // Add bet details if available
-            if (tx.betDetails) {
-                details.push(``);
-                details.push(`--- Bet Details ---`);
-                if (tx.betDetails.bet_type) details.push(`Bet Type: ${tx.betDetails.bet_type}`);
-                if (tx.betDetails.fixture_id) details.push(`Match ID: ${tx.betDetails.fixture_id}`);
-                if (tx.betDetails.odds) details.push(`Odds: ${tx.betDetails.odds}`);
-                if (tx.betDetails.potential_win) details.push(`Potential Win: $${tx.betDetails.potential_win.toFixed(2)}`);
             }
             
             alert(details.join('\n'));
@@ -1264,7 +1252,7 @@
         }, 60000);
 
         console.log('💳 Wallet page loaded successfully!');
-        console.log('   📊 Reading from: transactions, wallet_transactions, user_activities, bets, slot_history, trades');
+        console.log('   📊 Reading from all collections without indexes');
         console.log('   🔍 Search and filter your history');
         console.log('   📈 Tracking: deposits, withdrawals, bets, wins, losses, bonuses, slots, trades');
     </script>
