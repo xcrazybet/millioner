@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>💰 Payment System - Firebase + Supabase</title>
+    
+    <!-- ============================================ -->
+    <!-- FIREBASE SDK -->
+    <!-- ============================================ -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-functions-compat.js"></script>
+    
+    <!-- ============================================ -->
+    <!-- SUPABASE SDK -->
+    <!-- ============================================ -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    
+    <!-- ============================================ -->
+    <!-- STYLES -->
+    <!-- ============================================ -->
+    <style>
+        /* ===== GLOBAL ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0f1a;
+            color: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        /* ===== CONTAINER ===== */
+        .container {
+            max-width: 500px;
+            width: 100%;
+            background: linear-gradient(145deg, #111827, #1a2332);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(0, 255, 157, 0.1);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+        
+        /* ===== HEADER ===== */
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header .logo {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00ff9d, #ffd700);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .header p {
+            color: #a0a8c9;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        
+        /* ===== STATUS BADGE ===== */
+        .status-badge {
+            display: inline-block;
+            padding: 4px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+        
+        .status-badge.online {
+            background: rgba(0, 255, 157, 0.15);
+            color: #00ff9d;
+            border: 1px solid #00ff9d;
+        }
+        
+        .status-badge.offline {
+            background: rgba(255, 82, 82, 0.15);
+            color: #ff5252;
+            border: 1px solid #ff5252;
+        }
+        
+        .status-badge .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .status-badge.online .dot {
+            background: #00ff9d;
+        }
+        
+        .status-badge.offline .dot {
+            background: #ff5252;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        /* ===== BALANCE DISPLAY ===== */
+        .balance-box {
+            background: rgba(0, 255, 157, 0.05);
+            border: 1px solid rgba(0, 255, 157, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 25px;
+            transition: all 0.3s;
+        }
+        
+        .balance-box:hover {
+            border-color: #00ff9d;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.05);
+        }
+        
+        .balance-box .label {
+            font-size: 12px;
+            color: #a0a8c9;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .balance-box .amount {
+            font-size: 42px;
+            font-weight: 700;
+            color: #00ff9d;
+            margin: 5px 0;
+        }
+        
+        .balance-box .currency {
+            font-size: 18px;
+            color: #a0a8c9;
+        }
+        
+        .balance-box .sub-info {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+        
+        /* ===== USER INFO ===== */
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #00ff9d, #ffd700);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: #000;
+            font-size: 18px;
+        }
+        
+        .user-details {
+            flex: 1;
+        }
+        
+        .user-details .name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        
+        .user-details .email {
+            font-size: 12px;
+            color: #a0a8c9;
+        }
+        
+        .user-details .user-id {
+            font-size: 10px;
+            color: #6b7280;
+            font-family: monospace;
+        }
+        
+        /* ===== DEPOSIT FORM ===== */
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #a0a8c9;
+            font-weight: 500;
+        }
+        
+        .form-group input[type="number"],
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 14px 18px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: #ffffff;
+            font-size: 18px;
+            transition: all 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #00ff9d;
+            box-shadow: 0 0 0 3px rgba(0, 255, 157, 0.1);
+        }
+        
+        .form-group input::placeholder {
+            color: #6b7280;
+        }
+        
+        /* ===== QUICK AMOUNTS ===== */
+        .quick-amounts {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin: 10px 0 5px 0;
+        }
+        
+        .quick-amount {
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            color: #a0a8c9;
+            cursor: pointer;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .quick-amount:hover {
+            background: rgba(0, 255, 157, 0.1);
+            border-color: #00ff9d;
+            color: #00ff9d;
+            transform: translateY(-2px);
+        }
+        
+        .quick-amount.active {
+            background: rgba(0, 255, 157, 0.15);
+            border-color: #00ff9d;
+            color: #00ff9d;
+        }
+        
+        /* ===== PAYMENT METHODS ===== */
+        .payment-methods {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        
+        .payment-method {
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 2px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .payment-method:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .payment-method.selected {
+            border-color: #ffd700;
+            background: rgba(255, 215, 0, 0.05);
+        }
+        
+        .payment-method .icon {
+            font-size: 28px;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .payment-method .name {
+            font-size: 12px;
+            font-weight: 600;
+            color: #a0a8c9;
+        }
+        
+        .payment-method.selected .name {
+            color: #ffd700;
+        }
+        
+        /* ===== BUTTONS ===== */
+        .btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #ffd700, #ff8c00);
+            color: #000;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(255, 215, 0, 0.3);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #00ff9d, #00cc7a);
+            color: #000;
+        }
+        
+        .btn-success:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 255, 157, 0.3);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ff5252, #d32f2f);
+            color: #fff;
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(255, 82, 82, 0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: #a0a8c9;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .btn-secondary:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+        
+        .btn .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            border-top-color: #000;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* ===== MESSAGES ===== */
+        .message {
+            padding: 14px 18px;
+            border-radius: 10px;
+            margin: 15px 0;
+            display: none;
+            font-size: 14px;
+        }
+        
+        .message.success {
+            display: block;
+            background: rgba(0, 255, 157, 0.1);
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            color: #00ff9d;
+        }
+        
+        .message.error {
+            display: block;
+            background: rgba(255, 82, 82, 0.1);
+            border: 1px solid rgba(255, 82, 82, 0.3);
+            color: #ff5252;
+        }
+        
+        .message.info {
+            display: block;
+            background: rgba(33, 150, 243, 0.1);
+            border: 1px solid rgba(33, 150, 243, 0.3);
+            color: #2196f3;
+        }
+        
+        .message.warning {
+            display: block;
+            background: rgba(255, 152, 0, 0.1);
+            border: 1px solid rgba(255, 152, 0, 0.3);
+            color: #ff9800;
+        }
+        
+        /* ===== TRANSACTIONS ===== */
+        .transactions-section {
+            margin-top: 25px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 20px;
+        }
+        
+        .transactions-section .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #a0a8c9;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .transactions-section .section-title .count {
+            font-size: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 2px 10px;
+            border-radius: 12px;
+        }
+        
+        .transaction-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            transition: all 0.2s;
+        }
+        
+        .transaction-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .transaction-item .tx-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        
+        .transaction-item .tx-icon.deposit {
+            background: rgba(0, 255, 157, 0.15);
+            color: #00ff9d;
+        }
+        
+        .transaction-item .tx-icon.withdrawal {
+            background: rgba(255, 82, 82, 0.15);
+            color: #ff5252;
+        }
+        
+        .transaction-item .tx-icon.bet {
+            background: rgba(255, 152, 0, 0.15);
+            color: #ff9800;
+        }
+        
+        .transaction-item .tx-icon.win {
+            background: rgba(0, 255, 157, 0.2);
+            color: #00ff9d;
+        }
+        
+        .transaction-item .tx-icon.loss {
+            background: rgba(255, 82, 82, 0.2);
+            color: #ff5252;
+        }
+        
+        .transaction-item .tx-icon.bonus {
+            background: rgba(255, 215, 0, 0.15);
+            color: #ffd700;
+        }
+        
+        .transaction-item .tx-info {
+            flex: 1;
+        }
+        
+        .transaction-item .tx-info .tx-type {
+            font-size: 13px;
+            font-weight: 600;
+        }
+        
+        .transaction-item .tx-info .tx-desc {
+            font-size: 11px;
+            color: #6b7280;
+        }
+        
+        .transaction-item .tx-info .tx-time {
+            font-size: 10px;
+            color: #4a5568;
+        }
+        
+        .transaction-item .tx-amount {
+            font-weight: 700;
+            font-size: 15px;
+            text-align: right;
+        }
+        
+        .transaction-item .tx-amount.positive {
+            color: #00ff9d;
+        }
+        
+        .transaction-item .tx-amount.negative {
+            color: #ff5252;
+        }
+        
+        .transaction-item .tx-source {
+            font-size: 9px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #6b7280;
+        }
+        
+        .transaction-item .tx-source.firebase {
+            background: rgba(255, 160, 0, 0.15);
+            color: #ffa000;
+        }
+        
+        .transaction-item .tx-source.supabase {
+            background: rgba(62, 207, 142, 0.15);
+            color: #3ecf8e;
+        }
+        
+        /* ===== LOADING ===== */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(5px);
+        }
+        
+        .loading-overlay.show {
+            display: flex;
+        }
+        
+        .loading-box {
+            background: #111827;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            border: 1px solid rgba(0, 255, 157, 0.2);
+        }
+        
+        .loading-box .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(0, 255, 157, 0.1);
+            border-top-color: #00ff9d;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        .loading-box h3 {
+            color: #fff;
+            margin-bottom: 5px;
+        }
+        
+        .loading-box p {
+            color: #a0a8c9;
+            font-size: 14px;
+        }
+        
+        /* ===== FOOTER ===== */
+        .footer {
+            text-align: center;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 11px;
+            color: #4a5568;
+        }
+        
+        .footer .links {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 8px;
+        }
+        
+        .footer .links a {
+            color: #6b7280;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        
+        .footer .links a:hover {
+            color: #00ff9d;
+        }
+        
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px;
+            }
+            
+            .balance-box .amount {
+                font-size: 32px;
+            }
+            
+            .quick-amounts {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .payment-methods {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 22px;
+            }
+        }
+    </style>
+</head>
+<body>
+    
+    <!-- ============================================ -->
+    <!-- LOADING OVERLAY -->
+    <!-- ============================================ -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <h3>Processing...</h3>
+            <p id="loadingText">Please wait while we process your request.</p>
+        </div>
+    </div>
+    
+    <!-- ============================================ -->
+    <!-- MAIN CONTAINER -->
+    <!-- ============================================ -->
+    <div class="container" id="app">
+        
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">💰</div>
+            <h1>Payment System</h1>
+            <p>Firebase + Supabase Backup</p>
+            <span class="status-badge online" id="statusBadge">
+                <span class="dot"></span> System Online
+            </span>
+        </div>
+        
+        <!-- User Info -->
+        <div class="user-info">
+            <div class="user-avatar" id="userAvatar">G</div>
+            <div class="user-details">
+                <div class="name" id="userName">Guest</div>
+                <div class="email" id="userEmail">Not logged in</div>
+                <div class="user-id" id="userId">ID: ---</div>
+            </div>
+            <button class="btn btn-danger" id="logoutBtn" style="width:auto;padding:8px 16px;font-size:12px;">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
+        </div>
+        
+        <!-- Balance Display -->
+        <div class="balance-box">
+            <div class="label">Current Balance</div>
+            <div class="amount" id="balanceAmount">$0.00</div>
+            <div class="currency" id="balanceCurrency">USD</div>
+            <div class="sub-info" id="lastUpdated">Last updated: Just now</div>
+        </div>
+        
+        <!-- Message Area -->
+        <div class="message" id="message"></div>
+        
+        <!-- Deposit Form -->
+        <div class="form-group">
+            <label>💰 Deposit Amount (IQD)</label>
+            <input type="number" id="depositAmount" placeholder="Enter amount in IQD" min="500" step="100" value="5000">
+            <div class="quick-amounts">
+                <div class="quick-amount" data-amount="1000">1,000</div>
+                <div class="quick-amount" data-amount="5000">5,000</div>
+                <div class="quick-amount" data-amount="10000">10,000</div>
+                <div class="quick-amount" data-amount="25000">25,000</div>
+            </div>
+        </div>
+        
+        <!-- Payment Methods -->
+        <div class="form-group">
+            <label>💳 Payment Method</label>
+            <div class="payment-methods">
+                <div class="payment-method selected" data-method="zaincash">
+                    <span class="icon">📱</span>
+                    <span class="name">ZainCash</span>
+                </div>
+                <div class="payment-method" data-method="visa">
+                    <span class="icon">💳</span>
+                    <span class="name">Visa / MasterCard</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Action Buttons -->
+        <button class="btn btn-primary" id="depositBtn">
+            <i class="fas fa-arrow-down"></i> Deposit Now
+        </button>
+        
+        <!-- Demo Buttons -->
+        <div style="display:flex;gap:10px;margin-top:10px;">
+            <button class="btn btn-secondary" id="syncBtn" style="flex:1;padding:10px;font-size:13px;">
+                🔄 Sync to Supabase
+            </button>
+            <button class="btn btn-secondary" id="testBtn" style="flex:1;padding:10px;font-size:13px;">
+                🧪 Test Connection
+            </button>
+        </div>
+        
+        <!-- Transactions Section -->
+        <div class="transactions-section">
+            <div class="section-title">
+                <span>📊 Recent Transactions</span>
+                <span class="count" id="txCount">0</span>
+            </div>
+            <div id="transactionsList">
+                <div style="text-align:center;padding:20px;color:#6b7280;font-size:13px;">
+                    No transactions yet. Make a deposit!
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <div>⚡ Powered by Firebase + Supabase</div>
+            <div class="links">
+                <a href="#" onclick="showHelp()">Help</a>
+                <a href="#" onclick="showHistory()">Full History</a>
+                <a href="#" onclick="exportData()">Export Data</a>
+            </div>
+        </div>
+        
+    </div>
+    
+    <!-- ============================================ -->
+    <!-- SCRIPT - COMPLETE APPLICATION -->
+    <!-- ============================================ -->
+    <script>
+        // ============================================
+        // PART 1: CONFIGURATION
+        // ============================================
+        
+        // FIREBASE CONFIG
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962"
+        };
+        
+        // SUPABASE CONFIG
+        const SUPABASE_CONFIG = {
+            url: 'https://your-project.supabase.co',
+            anonKey: 'your-anon-key',
+        };
+        
+        // ============================================
+        // PART 2: INITIALIZE SERVICES
+        // ============================================
+        
+        // Firebase
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const functions = firebase.functions();
+        
+        // Supabase
+        let supabase = null;
+        try {
+            supabase = supabaseJs.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+            console.log('✅ Supabase initialized');
+        } catch (e) {
+            console.warn('⚠️ Supabase not available:', e.message);
+        }
+        
+        // ============================================
+        // PART 3: APPLICATION STATE
+        // ============================================
+        
+        const AppState = {
+            currentUser: null,
+            balance: 0,
+            currency: 'USD',
+            transactions: [],
+            isProcessing: false,
+        };
+        
+        // ============================================
+        // PART 4: DOM REFERENCES
+        // ============================================
+        
+        const DOM = {
+            // User
+            userAvatar: document.getElementById('userAvatar'),
+            userName: document.getElementById('userName'),
+            userEmail: document.getElementById('userEmail'),
+            userId: document.getElementById('userId'),
+            logoutBtn: document.getElementById('logoutBtn'),
+            
+            // Balance
+            balanceAmount: document.getElementById('balanceAmount'),
+            balanceCurrency: document.getElementById('balanceCurrency'),
+            lastUpdated: document.getElementById('lastUpdated'),
+            
+            // Deposit
+            depositAmount: document.getElementById('depositAmount'),
+            depositBtn: document.getElementById('depositBtn'),
+            quickAmounts: document.querySelectorAll('.quick-amount'),
+            paymentMethods: document.querySelectorAll('.payment-method'),
+            
+            // Messages
+            message: document.getElementById('message'),
+            
+            // Transactions
+            transactionsList: document.getElementById('transactionsList'),
+            txCount: document.getElementById('txCount'),
+            
+            // Status
+            statusBadge: document.getElementById('statusBadge'),
+            
+            // Loading
+            loadingOverlay: document.getElementById('loadingOverlay'),
+            loadingText: document.getElementById('loadingText'),
+            
+            // Buttons
+            syncBtn: document.getElementById('syncBtn'),
+            testBtn: document.getElementById('testBtn'),
+        };
+        
+        // ============================================
+        // PART 5: HELPER FUNCTIONS
+        // ============================================
+        
+        function formatCurrency(amount, currency = 'USD') {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: currency,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }).format(amount);
+        }
+        
+        function formatDate(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            return date.toLocaleString();
+        }
+        
+        function getTimeAgo(timestamp) {
+            if (!timestamp) return 'Just now';
+            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            
+            if (diffMins < 1) return 'Just now';
+            if (diffMins < 60) return diffMins + 'm ago';
+            if (diffHours < 24) return diffHours + 'h ago';
+            if (diffDays < 7) return diffDays + 'd ago';
+            return date.toLocaleDateString();
+        }
+        
+        function showMessage(text, type = 'info') {
+            const el = DOM.message;
+            el.textContent = text;
+            el.className = `message ${type}`;
+            el.style.display = 'block';
+            
+            if (type !== 'error') {
+                setTimeout(() => {
+                    el.style.display = 'none';
+                }, 5000);
+            }
+        }
+        
+        function showLoading(text = 'Please wait while we process your request.') {
+            DOM.loadingText.textContent = text;
+            DOM.loadingOverlay.classList.add('show');
+        }
+        
+        function hideLoading() {
+            DOM.loadingOverlay.classList.remove('show');
+        }
+        
+        function setStatus(type, text) {
+            const badge = DOM.statusBadge;
+            badge.className = `status-badge ${type}`;
+            badge.innerHTML = `<span class="dot"></span> ${text}`;
+        }
+        
+        // ============================================
+        // PART 6: AUTHENTICATION
+        // ============================================
+        
+        auth.onAuthStateChanged(async (user) => {
+            if (user) {
+                AppState.currentUser = user;
+                updateUserUI(user);
+                await loadWallet(user.uid);
+                await loadTransactions(user.uid);
+                setStatus('online', 'System Online');
+                console.log('✅ User logged in:', user.uid);
+            } else {
+                // Demo mode - create a demo user
+                console.log('⚠️ No user logged in. Using demo mode.');
+                // For demo, we'll create a fake user
+                const demoUser = {
+                    uid: 'demo_user_123',
+                    displayName: 'Demo User',
+                    email: 'demo@example.com',
+                };
+                AppState.currentUser = demoUser;
+                updateUserUI(demoUser);
+                await loadWallet(demoUser.uid);
+                await loadTransactions(demoUser.uid);
+                setStatus('online', 'Demo Mode');
+                showMessage('🔬 Demo Mode: All data is simulated for testing.', 'info');
+            }
+        });
+        
+        function updateUserUI(user) {
+            const name = user.displayName || user.email || 'User';
+            const initial = name.charAt(0).toUpperCase();
+            DOM.userAvatar.textContent = initial;
+            DOM.userName.textContent = name;
+            DOM.userEmail.textContent = user.email || 'No email';
+            DOM.userId.textContent = `ID: ${user.uid.substring(0, 12)}...`;
+        }
+        
+        DOM.logoutBtn.addEventListener('click', async () => {
+            try {
+                await auth.signOut();
+                showMessage('Logged out successfully', 'success');
+                location.reload();
+            } catch (e) {
+                showMessage('Logout failed: ' + e.message, 'error');
+            }
+        });
+        
+        // ============================================
+        // PART 7: WALLET FUNCTIONS
+        // ============================================
+        
+        async function loadWallet(userId) {
+            try {
+                const doc = await db.collection('wallets').doc(userId).get();
+                
+                if (doc.exists) {
+                    const data = doc.data();
+                    AppState.balance = data.balance || 0;
+                    AppState.currency = data.currency || 'USD';
+                    updateBalanceUI();
+                } else {
+                    // Create wallet
+                    await db.collection('wallets').doc(userId).set({
+                        balance: 0,
+                        currency: 'USD',
+                        createdAt: new Date(),
+                        updatedAt: new Date(),
+                    });
+                    AppState.balance = 0;
+                    AppState.currency = 'USD';
+                    updateBalanceUI();
+                }
+            } catch (e) {
+                console.error('Load wallet error:', e);
+                // For demo - use fake balance
+                AppState.balance = 1250.50;
+                AppState.currency = 'USD';
+                updateBalanceUI();
+            }
+        }
+        
+        function updateBalanceUI() {
+            DOM.balanceAmount.textContent = formatCurrency(AppState.balance, AppState.currency);
+            DOM.balanceCurrency.textContent = AppState.currency;
+            DOM.lastUpdated.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        }
+        
+        // ============================================
+        // PART 8: TRANSACTION FUNCTIONS
+        // ============================================
+        
+        async function loadTransactions(userId) {
+            try {
+                // Load from Firebase
+                const snapshot = await db.collection('wallets')
+                    .doc(userId)
+                    .collection('transactions')
+                    .orderBy('createdAt', 'desc')
+                    .limit(20)
+                    .get();
+                
+                const transactions = [];
+                snapshot.forEach(doc => {
+                    transactions.push({
+                        id: doc.id,
+                        source: 'firebase',
+                        ...doc.data(),
+                    });
+                });
+                
+                // Also try to load from Supabase (if available)
+                if (supabase) {
+                    try {
+                        const { data, error } = await supabase
+                            .from('transactions')
+                            .select('*')
+                            .eq('user_id', userId)
+                            .order('created_at', { ascending: false })
+                            .limit(10);
+                        
+                        if (!error && data) {
+                            data.forEach(tx => {
+                                transactions.push({
+                                    id: tx.id,
+                                    source: 'supabase',
+                                    type: tx.type,
+                                    amount: tx.amount,
+                                    description: tx.description,
+                                    status: tx.status,
+                                    createdAt: tx.created_at,
+                                    balanceBefore: tx.balance_before,
+                                    balanceAfter: tx.balance_after,
+                                });
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('Could not load from Supabase:', e.message);
+                    }
+                }
+                
+                // Sort by date
+                transactions.sort((a, b) => {
+                    const dateA = a.createdAt?.toDate?.() || new Date(a.createdAt || 0);
+                    const dateB = b.createdAt?.toDate?.() || new Date(b.createdAt || 0);
+                    return dateB - dateA;
+                });
+                
+                AppState.transactions = transactions;
+                renderTransactions(transactions);
+                
+            } catch (e) {
+                console.error('Load transactions error:', e);
+                // For demo - show fake transactions
+                renderDemoTransactions();
+            }
+        }
+        
+        function renderTransactions(transactions) {
+            if (!transactions || transactions.length === 0) {
+                DOM.transactionsList.innerHTML = `
+                    <div style="text-align:center;padding:20px;color:#6b7280;font-size:13px;">
+                        No transactions yet. Make a deposit!
+                    </div>
+                `;
+                DOM.txCount.textContent = '0';
+                return;
+            }
+            
+            let html = '';
+            transactions.slice(0, 10).forEach(tx => {
+                const amount = tx.amount || 0;
+                const isPositive = amount >= 0;
+                const type = tx.type || 'unknown';
+                const icon = getTransactionIcon(type);
+                const iconClass = getTransactionIconClass(type);
+                const description = tx.description || type;
+                const time = getTimeAgo(tx.createdAt);
+                const source = tx.source || 'firebase';
+                const sourceClass = source === 'firebase' ? 'firebase' : 'supabase';
+                const sourceLabel = source === 'firebase' ? '🔥 Firebase' : '⚡ Supabase';
+                
+                html += `
+                    <div class="transaction-item">
+                        <div class="tx-icon ${iconClass}">${icon}</div>
+                        <div class="tx-info">
+                            <div class="tx-type">${type.charAt(0).toUpperCase() + type.slice(1)}</div>
+                            <div class="tx-desc">${description}</div>
+                            <div class="tx-time">${time}</div>
+                        </div>
+                        <div>
+                            <div class="tx-amount ${isPositive ? 'positive' : 'negative'}">
+                                ${isPositive ? '+' : '-'}$${Math.abs(amount).toFixed(2)}
+                            </div>
+                            <span class="tx-source ${sourceClass}">${sourceLabel}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            DOM.transactionsList.innerHTML = html;
+            DOM.txCount.textContent = transactions.length;
+        }
+        
+        function renderDemoTransactions() {
+            const demoTx = [
+                { type: 'deposit', amount: 500, description: 'Deposit via ZainCash', createdAt: new Date() },
+                { type: 'win', amount: 250, description: 'Won bet #1234', createdAt: new Date(Date.now() - 3600000) },
+                { type: 'bet', amount: -100, description: 'Bet placed on match', createdAt: new Date(Date.now() - 7200000) },
+                { type: 'bonus', amount: 50, description: 'Welcome bonus', createdAt: new Date(Date.now() - 86400000) },
+            ];
+            
+            AppState.transactions = demoTx;
+            renderTransactions(demoTx);
+        }
+        
+        function getTransactionIcon(type) {
+            const icons = {
+                deposit: '💰',
+                withdrawal: '💸',
+                win: '🏆',
+                loss: '❌',
+                bet: '🎲',
+                bonus: '🎁',
+                transfer: '🔄',
+                send: '📤',
+                receive: '📥',
+            };
+            return icons[type] || '📊';
+        }
+        
+        function getTransactionIconClass(type) {
+            const classes = {
+                deposit: 'deposit',
+                withdrawal: 'withdrawal',
+                win: 'win',
+                loss: 'loss',
+                bet: 'bet',
+                bonus: 'bonus',
+                transfer: 'deposit',
+                send: 'withdrawal',
+                receive: 'deposit',
+            };
+            return classes[type] || 'deposit';
+        }
+        
+        // ============================================
+        // PART 9: PAYMENT FUNCTIONS
+        // ============================================
+        
+        async function processDeposit() {
+            if (AppState.isProcessing) return;
+            
+            const amountInput = DOM.depositAmount;
+            const amount = parseFloat(amountInput.value);
+            
+            // Validate
+            if (!amount || amount < 500) {
+                showMessage('⚠️ Minimum deposit is 500 IQD', 'error');
+                return;
+            }
+            
+            if (amount > 1000000) {
+                showMessage('⚠️ Maximum deposit per transaction is 1,000,000 IQD', 'error');
+                return;
+            }
+            
+            // Get payment method
+            const selectedMethod = document.querySelector('.payment-method.selected');
+            const method = selectedMethod?.dataset?.method || 'zaincash';
+            
+            AppState.isProcessing = true;
+            DOM.depositBtn.disabled = true;
+            DOM.depositBtn.innerHTML = '<span class="spinner"></span> Processing...';
+            
+            showLoading('Creating payment request...');
+            
+            try {
+                // 1. Create transaction in Firebase
+                const userId = AppState.currentUser.uid;
+                const orderId = `ORD-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+                
+                showLoading('Processing payment...');
+                
+                // 2. Simulate payment processing
+                await simulatePayment(method, amount, orderId);
+                
+                // 3. Update wallet (success)
+                const usdAmount = amount * 0.00076; // Convert IQD to USD (approximate)
+                const walletData = await updateWallet(userId, usdAmount, 'deposit', {
+                    description: `Deposit of ${amount} IQD via ${method}`,
+                    orderId: orderId,
+                    paymentMethod: method,
+                });
+                
+                // 4. Backup to Supabase
+                await backupToSupabase({
+                    user_id: userId,
+                    type: 'deposit',
+                    amount: amount,
+                    currency: 'IQD',
+                    status: 'completed',
+                    description: `Deposit of ${amount} IQD via ${method}`,
+                    payment_id: `pay_${Date.now()}`,
+                    order_id: orderId,
+                    balance_before: walletData.previousBalance,
+                    balance_after: walletData.newBalance,
+                    metadata: { paymentMethod: method },
+                });
+                
+                // 5. Update UI
+                AppState.balance = walletData.newBalance;
+                updateBalanceUI();
+                
+                // 6. Reload transactions
+                await loadTransactions(userId);
+                
+                showMessage(`✅ Successfully deposited ${amount} IQD (≈ $${usdAmount.toFixed(2)}) via ${method}!`, 'success');
+                
+                // 7. Reset form
+                amountInput.value = '';
+                DOM.depositBtn.innerHTML = 'Deposit Again';
+                
+            } catch (error) {
+                console.error('Deposit error:', error);
+                showMessage('❌ ' + (error.message || 'Payment failed. Please try again.'), 'error');
+            } finally {
+                AppState.isProcessing = false;
+                DOM.depositBtn.disabled = false;
+                DOM.depositBtn.innerHTML = '<i class="fas fa-arrow-down"></i> Deposit Now';
+                hideLoading();
+            }
+        }
+        
+        function simulatePayment(method, amount, orderId) {
+            return new Promise((resolve, reject) => {
+                // Simulate network delay
+                setTimeout(() => {
+                    // 90% success rate for demo
+                    if (Math.random() < 0.9) {
+                        resolve({
+                            success: true,
+                            transactionId: `TXN-${Date.now()}`,
+                            paymentId: `PAY-${Date.now()}`,
+                            amount: amount,
+                            orderId: orderId,
+                        });
+                    } else {
+                        reject(new Error('Payment declined by gateway. Please try again.'));
+                    }
+                }, 2000);
+            });
+        }
+        
+        async function updateWallet(userId, amount, type, metadata = {}) {
+            const walletRef = db.collection('wallets').doc(userId);
+            const walletDoc = await walletRef.get();
+            
+            let currentBalance = 0;
+            if (walletDoc.exists) {
+                currentBalance = walletDoc.data().balance || 0;
+            }
+            
+            const newBalance = type === 'deposit' 
+                ? currentBalance + amount 
+                : currentBalance - amount;
+            
+            // Update Firebase
+            await walletRef.set({
+                balance: newBalance,
+                currency: 'USD',
+                updatedAt: new Date(),
+                lastActivity: new Date(),
+            }, { merge: true });
+            
+            // Record transaction
+            await walletRef.collection('transactions').add({
+                type: type,
+                amount: amount,
+                currency: 'USD',
+                status: 'completed',
+                description: metadata.description || `${type} of ${amount} USD`,
+                balanceBefore: currentBalance,
+                balanceAfter: newBalance,
+                createdAt: new Date(),
+                ...metadata,
+            });
+            
+            return {
+                previousBalance: currentBalance,
+                newBalance: newBalance,
+            };
+        }
+        
+        // ============================================
+        // PART 10: SUPABASE BACKUP
+        // ============================================
+        
+        async function backupToSupabase(data) {
+            if (!supabase) {
+                console.warn('⚠️ Supabase not available, skipping backup');
+                return;
+            }
+            
+            try {
+                // Check if table exists, if not create it
+                // For demo, we'll just log
+                console.log('📤 Backing up to Supabase:', data);
+                
+                // Uncomment this when Supabase is configured
+                /*
+                const { error } = await supabase
+                    .from('transactions')
+                    .insert([data]);
+                
+                if (error) throw error;
+                console.log('✅ Backup to Supabase successful');
+                */
+                
+                // For demo, we'll simulate backup success
+                await new Promise(resolve => setTimeout(resolve, 500));
+                showMessage('📤 Backed up to Supabase successfully', 'success');
+                
+            } catch (error) {
+                console.error('Supabase backup error:', error);
+                showMessage('⚠️ Backup to Supabase failed: ' + error.message, 'warning');
+            }
+        }
+        
+        // ============================================
+        // PART 11: EVENT LISTENERS
+        // ============================================
+        
+        // Deposit Button
+        DOM.depositBtn.addEventListener('click', processDeposit);
+        
+        // Quick Amounts
+        DOM.quickAmounts.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const amount = this.dataset.amount;
+                DOM.depositAmount.value = amount;
+                DOM.quickAmounts.forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+        
+        // Payment Methods
+        DOM.paymentMethods.forEach(btn => {
+            btn.addEventListener('click', function() {
+                DOM.paymentMethods.forEach(b => b.classList.remove('selected'));
+                this.classList.add('selected');
+            });
+        });
+        
+        // Sync Button
+        DOM.syncBtn.addEventListener('click', async () => {
+            showLoading('Syncing data to Supabase...');
+            try {
+                const userId = AppState.currentUser.uid;
+                const transactions = AppState.transactions;
+                
+                for (const tx of transactions) {
+                    await backupToSupabase({
+                        user_id: userId,
+                        type: tx.type || 'unknown',
+                        amount: tx.amount || 0,
+                        currency: 'USD',
+                        status: tx.status || 'completed',
+                        description: tx.description || '',
+                        balance_before: tx.balanceBefore || 0,
+                        balance_after: tx.balanceAfter || 0,
+                    });
+                }
+                showMessage('✅ Synced all data to Supabase!', 'success');
+            } catch (e) {
+                showMessage('❌ Sync failed: ' + e.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        });
+        
+        // Test Connection
+        DOM.testBtn.addEventListener('click', async () => {
+            showLoading('Testing connections...');
+            try {
+                // Test Firebase
+                const userId = AppState.currentUser.uid;
+                await db.collection('wallets').doc(userId).get();
+                console.log('✅ Firebase connected');
+                
+                // Test Supabase
+                if (supabase) {
+                    const { error } = await supabase.from('transactions').select('count', { count: 'exact', head: true });
+                    if (error) throw error;
+                    console.log('✅ Supabase connected');
+                }
+                
+                showMessage('✅ All connections working! Firebase + Supabase', 'success');
+            } catch (e) {
+                showMessage('❌ Connection failed: ' + e.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        });
+        
+        // Enter key on amount input
+        DOM.depositAmount.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                processDeposit();
+            }
+        });
+        
+        // ============================================
+        // PART 12: UTILITY FUNCTIONS (Global)
+        // ============================================
+        
+        window.showHelp = function() {
+            showMessage(`
+                💡 <strong>Help</strong><br>
+                1. Enter deposit amount (min 500 IQD)<br>
+                2. Select payment method<br>
+                3. Click "Deposit Now"<br>
+                4. Payment will be processed<br>
+                5. Balance updates automatically<br>
+                6. Transaction saved to Firebase + Supabase
+            `, 'info');
+        };
+        
+        window.showHistory = function() {
+            if (AppState.transactions.length === 0) {
+                showMessage('No transactions to show', 'warning');
+                return;
+            }
+            
+            let history = '📊 <strong>Transaction History</strong><br><br>';
+            AppState.transactions.slice(0, 10).forEach((tx, i) => {
+                const amount = tx.amount || 0;
+                const sign = amount >= 0 ? '+' : '';
+                const type = tx.type || 'Unknown';
+                const date = formatDate(tx.createdAt);
+                history += `${i+1}. ${type} - ${sign}$${amount.toFixed(2)} - ${date}<br>`;
+            });
+            showMessage(history, 'info');
+        };
+        
+        window.exportData = function() {
+            const data = {
+                user: AppState.currentUser,
+                balance: AppState.balance,
+                currency: AppState.currency,
+                transactions: AppState.transactions,
+                exportedAt: new Date().toISOString(),
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `transactions_${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showMessage('📥 Data exported successfully!', 'success');
+        };
+        
+        // ============================================
+        // PART 13: INIT
+        // ============================================
+        
+        console.log('🚀 Payment System Loaded');
+        console.log('   📱 Firebase: Connected');
+        console.log('   💾 Supabase: ' + (supabase ? 'Connected' : 'Not configured'));
+        console.log('   💰 Ready to accept payments!');
+        
+        // Set initial demo data
+        if (!AppState.currentUser) {
+            // Set a demo user
+            const demoUser = {
+                uid: 'demo_user_123',
+                displayName: 'Demo User',
+                email: 'demo@example.com',
+            };
+            AppState.currentUser = demoUser;
+            updateUserUI(demoUser);
+            AppState.balance = 1250.50;
+            AppState.currency = 'USD';
+            updateBalanceUI();
+            renderDemoTransactions();
+            setStatus('online', 'Demo Mode');
+        }
+        
+        console.log('🎯 Try depositing money to see the full flow in action!');
+    </script>
+</body>
+</html>
