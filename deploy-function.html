@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>X Lodon - Deploy API to Supabase</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        h2 { color: #1a1a1a; }
+        .btn { padding: 15px 40px; font-size: 16px; background: #3ecf8e; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .btn:hover { background: #2ea878; }
+        #result { margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 8px; white-space: pre-wrap; font-family: monospace; font-size: 13px; }
+        .success { color: green; }
+        .error { color: red; }
+        input { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 5px; }
+        a { color: #3ecf8e; }
+    </style>
+</head>
+<body>
+    <h2>🚀 X Lodon - Deploy API Function to Supabase</h2>
+    <p>Your API keys are already configured. Just click deploy!</p>
+    
+    <button class="btn" onclick="deploy()">🚀 Deploy API Function Now</button>
+    
+    <div id="result"></div>
+
+    <script>
+        async function deploy() {
+            const result = document.getElementById('result');
+            result.innerHTML = '⏳ Deploying function to Supabase...';
+
+            // Your Supabase Management Token (for deploying functions)
+            const SUPABASE_TOKEN = "sbp_2e8a62ee18b2a31c6f5c206c2498235b4f08885c";
+            
+            // Your RapidAPI Football Key
+            const RAPIDAPI_KEY = "2396236d9d5cd07468ce280da8390ad5";
+
+            const functionCode = `Deno.serve(async (req) => {
+  const url = new URL(req.url);
+  const endpoint = url.searchParams.get("endpoint") || "health";
+  
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  };
+
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
+  if (endpoint === "health") {
+    return new Response(JSON.stringify({ 
+      status: "ok", 
+      message: "X Lodon API Proxy is running!",
+      time: new Date().toISOString()
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const RAPIDAPI_KEY = "${RAPIDAPI_KEY}";
+  let apiUrl = "";
+
+  if (endpoint === "fixture") {
+    const id = url.searchParams.get("id");
+    if (!id) {
+      return new Response(JSON.stringify({ success: false, error: "Missing fixture ID" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    apiUrl = "https://api-football-v1.p.rapidapi.com/v3/fixtures?id=" + id;
+  } else if (endpoint === "live") {
+    apiUrl = "https://api-football-v1.p.rapidapi.com/v3/fixtures?live=all";
+  } else if (endpoint === "fixtures") {
+    const date = url.searchParams.get("date") || new Date().toISOString().split("T")[0];
+    const league = url.searchParams.get("league");
+    apiUrl = "https://api-football-v1.p.rapidapi.com/v3/fixtures?date=" + date;
+    if (league) apiUrl += "&league=" + league;
+  } else if (endpoint === "leagues") {
+    apiUrl = "https://api-football-v1.p.rapidapi.com/v3/leagues";
+  } else if (endpoint === "odds") {
+    const fixtureId = url.searchParams.get("fixture");
+    if (!fixtureId) {
+      return new Response(JSON.stringify({ success: false, error: "Missing fixture ID" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    apiUrl = "https://api-football-v1.p.rapidapi.com/v3/odds?fixture=" + fixtureId;
+  } else {
+    apiUrl = "https://api-football-v1.p.rapidapi.com/v3/fixtures?date=" + new Date().toISOString().split("T")[0];
+  }
+
+  try {
+    console.log("Fetching: " + apiUrl);
+    const response = await fetch(apiUrl, {
+      headers: {
+        "x-rapidapi-key": RAPIDAPI_KEY,
+        "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error("API returned status " + response.status);
+    }
+
+    const data = await response.json();
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      data: data,
+      endpoint: endpoint,
+      timestamp: new Date().toISOString()
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    console.error("Error:", e.message);
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: e.message,
+      timestamp: new Date().toISOString()
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});`;
+
+            try {
+                const response = await fetch(
+                    "https://api.supabase.com/v1/projects/jnazybaeajyynpyoszmy/functions",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Authorization": "Bearer " + SUPABASE_TOKEN,
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            slug: "api-proxy",
+                            name: "api-proxy",
+                            verify_jwt: false,
+                            body: functionCode
+                        }),
+                    }
+                );
+
+                const data = await response.json();
+                
+                if (data.id) {
+                    result.innerHTML = `
+                        <h3 class="success">✅ Function Deployed Successfully!</h3>
+                        <p><strong>Your API is now LIVE on Supabase!</strong></p>
+                        <hr>
+                        <p><strong>📋 Function URL:</strong></p>
+                        <input type="text" value="https://jnazybaeajyynpyoszmy.supabase.co/functions/v1/api-proxy" readonly onclick="this.select()">
+                        <br><br>
+                        <p><strong>🔗 Test Links (click to open):</strong></p>
+                        <a href="https://jnazybaeajyynpyoszmy.supabase.co/functions/v1/api-proxy?endpoint=health" target="_blank">Health Check</a><br>
+                        <a href="https://jnazybaeajyynpyoszmy.supabase.co/functions/v1/api-proxy?endpoint=fixtures" target="_blank">Today's Fixtures</a><br>
+                        <a href="https://jnazybaeajyynpyoszmy.supabase.co/functions/v1/api-proxy?endpoint=live" target="_blank">Live Matches</a><br>
+                        <hr>
+                        <p><strong>📝 Admin Panel API_BASE:</strong></p>
+                        <input type="text" value="const API_BASE = 'https://jnazybaeajyynpyoszmy.supabase.co/functions/v1/api-proxy';" readonly onclick="this.select()" style="font-size:12px;">
+                    `;
+                } else if (data.message && data.message.includes("already exists")) {
+                    result.innerHTML = `
+                        <h3 class="success">✅ Function already exists! Updating...</h3>
+                        <p>Attempting to update the function...</p>
+                    `;
+                    // Try update
+                    const updateResponse = await fetch(
+                        "https://api.supabase.com/v1/projects/jnazybaeajyynpyoszmy/functions/api-proxy",
+                        {
+                            method: "PATCH",
+                            headers: {
+                                "Authorization": "Bearer " + SUPABASE_TOKEN,
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify({
+                                verify_jwt: false,
+                                body: functionCode
+                            }),
+                        }
+                    );
+                    const updateData = await updateResponse.json();
+                    if (updateData.id) {
+                        result.innerHTML += `
+                            <h3 class="success">✅ Function Updated Successfully!</h3>
+                            <a href="https://jnazybaeajyynpyoszmy.supabase.co/functions/v1/api-proxy?endpoint=health" target="_blank">Test Health Endpoint</a>
+                        `;
+                    } else {
+                        result.innerHTML += '<p class="error">Update failed: ' + JSON.stringify(updateData) + '</p>';
+                    }
+                } else {
+                    result.innerHTML = '<p class="error">❌ Deployment failed: ' + JSON.stringify(data) + '</p>';
+                }
+            } catch (e) {
+                result.innerHTML = '<p class="error">❌ Network Error: ' + e.message + '</p>';
+            }
+        }
+    </script>
+</body>
+</html>
