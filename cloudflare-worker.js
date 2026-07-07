@@ -1,5 +1,6 @@
 // ============================================
 // X Lodon Sports API - COMPLETE ALL ENDPOINTS
+// GitHub Auto-Deploy Version
 // ============================================
 
 const API_KEY = '2396236d9d5cd07468ce280da8390ad5';
@@ -48,12 +49,10 @@ async function handleRequest(request) {
   }
 
   try {
-    // HEALTH
     if (path === '/health') {
       return json({ status: 'ok', timestamp: new Date().toISOString(), api_calls: apiCalls });
     }
 
-    // ROOT
     if (path === '/') {
       return json({
         name: 'X Lodon Sports API', version: '20.0.0', status: 'active',
@@ -72,14 +71,8 @@ async function handleRequest(request) {
       });
     }
 
-    // TEST
-    if (path === '/api/test') {
-      return json({ success: true, message: 'API is working!' });
-    }
+    if (path === '/api/test') return json({ success: true, message: 'API is working!' });
 
-    // ============================================
-    // FIXTURES WEEK
-    // ============================================
     if (path === '/api/fixtures/week') {
       const today = new Date();
       const from = today.toISOString().split('T')[0];
@@ -90,9 +83,6 @@ async function handleRequest(request) {
       return json({ success: true, data: fixtures, count: fixtures.length, date_range: { from, to } });
     }
 
-    // ============================================
-    // FIXTURES BY DATE
-    // ============================================
     if (path.startsWith('/api/fixtures/date/')) {
       const date = path.replace('/api/fixtures/date/', '');
       const data = await fetchAPI(`/fixtures?date=${date}`);
@@ -100,20 +90,13 @@ async function handleRequest(request) {
       return json({ success: true, data: fixtures, count: fixtures.length, date });
     }
 
-    // ============================================
-    // FIXTURES BY RANGE
-    // ============================================
     if (path.startsWith('/api/fixtures/range/')) {
       const parts = path.replace('/api/fixtures/range/', '').split('/');
-      const from = parts[0]; const to = parts[1];
-      const data = await fetchAPI(`/fixtures?from=${from}&to=${to}`);
+      const data = await fetchAPI(`/fixtures?from=${parts[0]}&to=${parts[1]}`);
       const fixtures = (data.response || []).map(formatFixture);
-      return json({ success: true, data: fixtures, count: fixtures.length, date_range: { from, to } });
+      return json({ success: true, data: fixtures, count: fixtures.length, date_range: { from: parts[0], to: parts[1] } });
     }
 
-    // ============================================
-    // LIVE SCORES
-    // ============================================
     if (path === '/api/livescores') {
       const data = await fetchAPI('/fixtures?live=all');
       const liveStatuses = ['1H', '2H', 'HT', 'ET', 'BT', 'LIVE', 'INT', 'P'];
@@ -121,9 +104,6 @@ async function handleRequest(request) {
       return json({ success: true, data: live.map(formatFixture), count: live.length });
     }
 
-    // ============================================
-    // HEAD TO HEAD
-    // ============================================
     if (path.startsWith('/api/fixtures/head2head/')) {
       const parts = path.replace('/api/fixtures/head2head/', '').split('/');
       const data = await fetchAPI(`/fixtures/headtohead?h2h=${parts[0]}-${parts[1]}`);
@@ -138,36 +118,24 @@ async function handleRequest(request) {
       return json({ success: true, data: matches, stats: { total, home_wins: hw, away_wins: aw, draws: total - hw - aw } });
     }
 
-    // ============================================
-    // PREDICTIONS
-    // ============================================
     if (path.startsWith('/api/predictions/')) {
       const id = path.replace('/api/predictions/', '');
       const data = await fetchAPI(`/predictions?fixture=${id}`);
       return json({ success: true, data: data.response?.[0] || null });
     }
 
-    // ============================================
-    // MATCH EVENTS
-    // ============================================
     if (path.startsWith('/api/fixtures/events/')) {
       const id = path.replace('/api/fixtures/events/', '');
       const data = await fetchAPI(`/fixtures/events?fixture=${id}`);
       return json({ success: true, data: data.response || [] });
     }
 
-    // ============================================
-    // MATCH STATISTICS
-    // ============================================
     if (path.startsWith('/api/fixtures/statistics/')) {
       const id = path.replace('/api/fixtures/statistics/', '');
       const data = await fetchAPI(`/fixtures/statistics?fixture=${id}`);
       return json({ success: true, data: data.response || [] });
     }
 
-    // ============================================
-    // SINGLE FIXTURE
-    // ============================================
     if (path.startsWith('/api/fixture/')) {
       const id = path.replace('/api/fixture/', '');
       const [fixData, evData, stData, odData] = await Promise.all([
@@ -182,30 +150,18 @@ async function handleRequest(request) {
       return json({ success: false, error: 'Fixture not found' }, 404);
     }
 
-    // ============================================
-    // LEAGUES
-    // ============================================
     if (path === '/api/leagues') {
       const data = await fetchAPI('/leagues');
-      const leagues = (data.response || []).map(l => ({
-        id: l.league.id, name: l.league.name, logo: l.league.logo, type: l.league.type,
-        country: l.country.name, flag: l.country.flag
-      }));
+      const leagues = (data.response || []).map(l => ({ id: l.league.id, name: l.league.name, logo: l.league.logo, type: l.league.type, country: l.country.name, flag: l.country.flag }));
       return json({ success: true, data: leagues, count: leagues.length });
     }
 
-    // ============================================
-    // STANDINGS
-    // ============================================
     if (path.startsWith('/api/standings/')) {
       const parts = path.replace('/api/standings/', '').split('/');
       const data = await fetchAPI(`/standings?league=${parts[0]}&season=${parts[1]}`);
       return json({ success: true, data: data.response || [], league: parts[0], season: parts[1] });
     }
 
-    // ============================================
-    // TEAM
-    // ============================================
     if (path.startsWith('/api/team/')) {
       const id = path.replace('/api/team/', '');
       const data = await fetchAPI(`/teams?id=${id}`);
@@ -216,9 +172,6 @@ async function handleRequest(request) {
       return json({ success: false, error: 'Team not found' }, 404);
     }
 
-    // ============================================
-    // TOP SCORERS
-    // ============================================
     if (path.startsWith('/api/topscorers/')) {
       const parts = path.replace('/api/topscorers/', '').split('/');
       const data = await fetchAPI(`/players/topscorers?league=${parts[0]}&season=${parts[1]}`);
@@ -231,44 +184,26 @@ async function handleRequest(request) {
       return json({ success: true, data: scorers, count: scorers.length, league: parts[0], season: parts[1] });
     }
 
-    // ============================================
-    // COUNTRIES
-    // ============================================
     if (path === '/api/countries') {
       const data = await fetchAPI('/countries');
       return json({ success: true, data: data.response || [], count: (data.response || []).length });
     }
 
-    // ============================================
-    // VENUES
-    // ============================================
     if (path.startsWith('/api/venues/')) {
-      const id = path.replace('/api/venues/', '');
-      const data = await fetchAPI(`/venues?id=${id}`);
+      const data = await fetchAPI(`/venues?id=${path.replace('/api/venues/', '')}`);
       return json({ success: true, data: data.response || [] });
     }
 
-    // ============================================
-    // COACHES
-    // ============================================
     if (path.startsWith('/api/coaches/')) {
-      const id = path.replace('/api/coaches/', '');
-      const data = await fetchAPI(`/coachs?team=${id}`);
+      const data = await fetchAPI(`/coachs?team=${path.replace('/api/coaches/', '')}`);
       return json({ success: true, data: data.response || [] });
     }
 
-    // ============================================
-    // SQUAD
-    // ============================================
     if (path.startsWith('/api/squad/')) {
-      const id = path.replace('/api/squad/', '');
-      const data = await fetchAPI(`/players/squads?team=${id}`);
+      const data = await fetchAPI(`/players/squads?team=${path.replace('/api/squad/', '')}`);
       return json({ success: true, data: data.response || [] });
     }
 
-    // ============================================
-    // INJURIES
-    // ============================================
     if (path === '/api/injuries') {
       const league = url.searchParams.get('league') || '39';
       const season = url.searchParams.get('season') || '2024';
@@ -276,9 +211,6 @@ async function handleRequest(request) {
       return json({ success: true, data: data.response || [], league, season });
     }
 
-    // ============================================
-    // ROUNDS
-    // ============================================
     if (path === '/api/rounds') {
       const league = url.searchParams.get('league') || '39';
       const season = url.searchParams.get('season') || '2024';
@@ -286,25 +218,12 @@ async function handleRequest(request) {
       return json({ success: true, data: data.response || [], league, season });
     }
 
-    // ============================================
-    // DEBUG
-    // ============================================
     if (path === '/api/debug') {
       const today = new Date().toISOString().split('T')[0];
-      const [fixtures, live] = await Promise.all([
-        fetchAPI(`/fixtures?date=${today}`),
-        fetchAPI('/fixtures?live=all')
-      ]);
-      return json({
-        success: true, current_date: today,
-        fixtures_today: (fixtures.response || []).length,
-        live_matches: (live.response || []).length,
-        api_calls: apiCalls,
-        sample: (fixtures.response || []).slice(0, 2).map(formatFixture)
-      });
+      const [fixtures, live] = await Promise.all([fetchAPI(`/fixtures?date=${today}`), fetchAPI('/fixtures?live=all')]);
+      return json({ success: true, current_date: today, fixtures_today: (fixtures.response||[]).length, live_matches: (live.response||[]).length, api_calls: apiCalls, sample: (fixtures.response||[]).slice(0,2).map(formatFixture) });
     }
 
-    // 404
     return json({ success: false, error: `Endpoint not found: ${path}`, tip: 'Visit / for all endpoints' }, 404);
 
   } catch (error) {
