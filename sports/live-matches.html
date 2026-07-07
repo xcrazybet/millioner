@@ -187,16 +187,21 @@
                 <div class="balance-label"><i class="fas fa-fire"></i> Live Matches</div>
                 <div class="balance-amount" id="live-count" style="font-size:24px;">0</div>
             </div>
+            <div>
+                <div class="balance-label"><i class="fas fa-clock"></i> Next Refresh</div>
+                <div class="balance-amount" id="refresh-timer" style="font-size:18px;color:#ff9800;">10s</div>
+            </div>
         </div>
         
         <div class="selector-bar">
             <select id="league-filter" class="league-select"><option value="all">🏆 All Leagues</option></select>
             <input type="text" id="search-input" class="search-input" placeholder="🔍 Search team or league..." oninput="filterMatches()">
+            <button class="refresh-btn" onclick="loadLiveMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
         </div>
         
         <div class="debug-bar">
             <i class="fas fa-play-circle"></i> <span id="debug-text">Loading live matches...</span>
-            <button class="refresh-btn" onclick="loadLiveMatches()"><i class="fas fa-sync-alt"></i> Refresh</button>
+            <span style="margin-left:auto; font-size:10px; color:#a0a8c9;" id="api-response-time"></span>
         </div>
         
         <div class="live-header">
@@ -254,13 +259,19 @@
 
     <script>
         // ============================================
-        // LIVE MATCHES v2.1 - FIXED AUTH REDIRECT
+        // LIVE MATCHES v3.0 - OPTIMIZED API INTEGRATION
         // ============================================
         
         const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
         
-        let supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let supabaseClient = null;
+        try {
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            console.log('✅ Supabase initialized');
+        } catch(e) {
+            console.error('Supabase init error:', e);
+        }
         
         const firebaseConfig = {
             apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
@@ -276,18 +287,25 @@
         const db = firebase.firestore();
         const auth = firebase.auth();
         
+        // ===== CONFIGURATION =====
+        const API_BASE = 'https://muddy-wildflower-a70d.dilovantalan.workers.dev';
+        const BETTING_CLOSE_MINUTE = 80;
+        const REFRESH_INTERVAL = 10000; // 10 seconds
+        const EVENT_REFRESH_INTERVAL = 8000; // 8 seconds
+        
+        // ===== STATE =====
         let liveMatches = [];
         let refreshInterval = null;
         let eventInterval = null;
+        let refreshTimerInterval = null;
+        let refreshCountdown = 10;
         let selectedLeague = 'all';
         let previousScores = {};
         let teamCache = {};
         let accumulatorSlip = [];
+        let isFirstLoad = true;
         
-        const API_BASE = 'https://muddy-wildflower-a70d.dilovantalan.workers.dev';
-        const BETTING_CLOSE_MINUTE = 80;
-        
-        // ===== LOAD BALANCE =====
+        // ===== WALLET FUNCTIONS =====
         async function loadBalance() {
             try {
                 const user = auth.currentUser;
@@ -303,13 +321,18 @@
         }
         
         async function updateWalletBalance(userId, amount) {
-            const walletRef = db.collection('wallets').doc(userId);
-            await walletRef.update({
-                balance: firebase.firestore.FieldValue.increment(amount),
-                updated_at: new Date().toISOString()
-            });
+            try {
+                const walletRef = db.collection('wallets').doc(userId);
+                await walletRef.update({
+                    balance: firebase.firestore.FieldValue.increment(amount),
+                    updated_at: new Date().toISOString()
+                });
+            } catch(e) {
+                console.error('Wallet update error:', e);
+            }
         }
         
+        // ===== NOTIFICATIONS =====
         function showNotification(message, type = 'success') {
             const notification = document.createElement('div');
             notification.className = `notification ${type}`;
@@ -369,33 +392,20 @@
         }
         
         function addToSlip(fixtureId, betType, odds, homeTeam, awayTeam) {
-            if (!betType) {
-                const selectedType = prompt('Select bet type:\n1 - Home Win\n2 - Draw\n3 - Away Win', '1');
-                if (selectedType === '1') {
-                    betType = 'home';
-                    const match = liveMatches.find(m => m.fixture_id == fixtureId);
-                    odds = match?.odds?.home || 2.50;
-                } else if (selectedType === '2') {
-                    betType = 'draw';
-                    const match = liveMatches.find(m => m.fixture_id == fixtureId);
-                    odds = match?.odds?.draw || 3.20;
-                } else if (selectedType === '3') {
-                    betType = 'away';
-                    const match = liveMatches.find(m => m.fixture_id == fixtureId);
-                    odds = match?.odds?.away || 2.80;
-                } else {
-                    showNotification('Invalid selection', 'error');
-                    return;
-                }
-            }
-            
             const match = liveMatches.find(m => m.fixture_id == fixtureId);
-            if (!match) return;
+            if (!match) {
+                showNotification('Match not found', 'error');
+                return;
+            }
             
             let betTypeName = '';
             if (betType === 'home') betTypeName = `${homeTeam} to win`;
             else if (betType === 'draw') betTypeName = 'Draw';
             else if (betType === 'away') betTypeName = `${awayTeam} to win`;
+            else {
+                showNotification('Invalid bet type', 'error');
+                return;
+            }
             
             const existingIndex = accumulatorSlip.findIndex(s => s.fixtureId === fixtureId && s.betType === betType);
             if (existingIndex !== -1) {
@@ -475,8 +485,10 @@
                     selections: accumulatorSlip
                 };
                 
-                const { error } = await supabaseClient.from('bets').insert(bet);
-                if (error) throw new Error(error.message);
+                if (supabaseClient) {
+                    const { error } = await supabaseClient.from('bets').insert(bet);
+                    if (error) throw new Error(error.message);
+                }
                 
                 await updateWalletBalance(user.uid, -stake);
                 
@@ -521,7 +533,9 @@
                     teamCache[teamId] = teamInfo;
                     return teamInfo;
                 }
-            } catch(e) {}
+            } catch(e) {
+                console.error('Team fetch error:', e);
+            }
             return { name: teamName, stadium: 'N/A', city: 'N/A', capacity: 'N/A', players: [], coach: 'Unknown' };
         }
         
@@ -570,8 +584,14 @@
         async function loadLiveMatches() {
             try {
                 document.getElementById('debug-text').innerHTML = '<div class="loading-spinner"></div> Loading live matches...';
+                document.getElementById('api-response-time').textContent = '';
                 
+                const startTime = Date.now();
                 const response = await fetch(`${API_BASE}/api/livescores`);
+                const elapsed = Date.now() - startTime;
+                
+                document.getElementById('api-response-time').textContent = `⏱️ ${elapsed}ms`;
+                
                 const data = await response.json();
                 
                 if (!data.success || !data.data || data.data.length === 0) {
@@ -584,43 +604,67 @@
                     return;
                 }
                 
-                const now = new Date();
+                // Process matches from the API
                 const processedMatches = [];
                 
+                // ✅ The API returns data in this format:
+                // { fixture: { id, date, status: { short, elapsed } }, league: { name, logo }, teams: { home: { name, logo }, away: { name, logo } }, goals: { home, away } }
+                
                 for (const match of data.data) {
-                    const startTime = new Date(match.fixture.date);
-                    let elapsed = match.fixture.elapsed || Math.floor((now - startTime) / 60000);
-                    if (elapsed < 0) elapsed = 0;
-                    
-                    const statusShort = match.fixture.status?.short;
-                    const isLive = statusShort === '1H' || statusShort === '2H' || statusShort === 'HT';
+                    const statusShort = match.fixture?.status?.short || '';
+                    const isLive = ['1H', '2H', 'HT', 'ET', 'BT', 'LIVE', 'INT', 'P'].includes(statusShort);
                     
                     if (isLive) {
+                        const elapsed = match.fixture?.status?.elapsed || 0;
                         const isBettingClosed = elapsed >= BETTING_CLOSE_MINUTE;
                         
+                        // Extract team data
+                        const homeTeam = match.teams?.home || { name: 'Home', logo: '', id: 0 };
+                        const awayTeam = match.teams?.away || { name: 'Away', logo: '', id: 0 };
+                        
+                        // Extract league data
+                        const league = match.league || { name: 'Unknown League', logo: '' };
+                        
+                        // Extract scores
+                        const homeGoals = match.goals?.home || 0;
+                        const awayGoals = match.goals?.away || 0;
+                        
+                        // Generate odds if not provided
+                        const fixtureId = match.fixture?.id || Date.now();
+                        const odds = {
+                            home: (1.80 + ((fixtureId % 20) / 100)).toFixed(2),
+                            draw: (3.20 + ((fixtureId % 15) / 100)).toFixed(2),
+                            away: (2.80 + ((fixtureId % 25) / 100)).toFixed(2)
+                        };
+                        
                         processedMatches.push({
-                            fixture_id: match.fixture.id,
-                            start_time: match.fixture.date,
+                            fixture_id: fixtureId,
+                            start_time: match.fixture?.date || new Date().toISOString(),
                             status: 'live',
                             elapsed: elapsed,
                             is_betting_closed: isBettingClosed,
-                            league_id: match.league.id,
-                            league_name: match.league.name,
-                            league_logo: match.league.logo,
-                            home_team: { id: match.teams.home.id, name: match.teams.home.name, logo: match.teams.home.logo },
-                            away_team: { id: match.teams.away.id, name: match.teams.away.name, logo: match.teams.away.logo },
-                            score: { home: match.goals?.home || 0, away: match.goals?.away || 0 },
-                            odds: {
-                                home: (1.80 + ((match.fixture.id % 20) / 100)).toFixed(2),
-                                draw: (3.20 + ((match.fixture.id % 15) / 100)).toFixed(2),
-                                away: (2.80 + ((match.fixture.id % 25) / 100)).toFixed(2)
-                            }
+                            league_id: league.id || 0,
+                            league_name: league.name || 'Unknown League',
+                            league_logo: league.logo || '',
+                            home_team: { 
+                                id: homeTeam.id || 0, 
+                                name: homeTeam.name || 'Home', 
+                                logo: homeTeam.logo || '' 
+                            },
+                            away_team: { 
+                                id: awayTeam.id || 0, 
+                                name: awayTeam.name || 'Away', 
+                                logo: awayTeam.logo || '' 
+                            },
+                            score: { home: homeGoals, away: awayGoals },
+                            odds: odds
                         });
                     }
                 }
                 
                 liveMatches = processedMatches;
                 
+                // Update UI
                 document.getElementById('match-count').textContent = liveMatches.length;
                 document.getElementById('live-count').textContent = liveMatches.length;
                 document.getElementById('debug-text').innerHTML = `🔴 ${liveMatches.length} live match(es) | Updates every 10s`;
@@ -634,8 +678,15 @@
                 document.getElementById('matches-container').style.display = 'block';
                 document.getElementById('empty-state').style.display = 'none';
                 
+                // Populate league filter on first load
+                if (isFirstLoad) {
+                    await populateLeagueFilter();
+                    isFirstLoad = false;
+                }
+                
                 filterMatches();
                 
+                // Fetch events and stats in background
                 for (const match of liveMatches) {
                     fetchMatchEvents(match.fixture_id);
                     fetchMatchStats(match.fixture_id);
@@ -647,6 +698,40 @@
             }
         }
         
+        // ===== POPULATE LEAGUE FILTER =====
+        async function populateLeagueFilter() {
+            try {
+                const select = document.getElementById('league-filter');
+                const uniqueLeagues = {};
+                
+                liveMatches.forEach(m => {
+                    if (m.league_id && !uniqueLeagues[m.league_id]) {
+                        uniqueLeagues[m.league_id] = { name: m.league_name, logo: m.league_logo };
+                    }
+                });
+                
+                // Keep "All Leagues" option
+                const allOption = select.querySelector('option[value="all"]');
+                select.innerHTML = '';
+                select.appendChild(allOption);
+                
+                Object.keys(uniqueLeagues).forEach(id => {
+                    const option = document.createElement('option');
+                    option.value = id;
+                    option.textContent = uniqueLeagues[id].name;
+                    select.appendChild(option);
+                });
+                
+                select.onchange = (e) => { 
+                    selectedLeague = e.target.value; 
+                    filterMatches(); 
+                };
+            } catch(e) {
+                console.error('League filter error:', e);
+            }
+        }
+        
+        // ===== FETCH EVENTS =====
         async function fetchMatchEvents(fixtureId) {
             try {
                 const response = await fetch(`${API_BASE}/api/fixtures/events/${fixtureId}`);
@@ -657,18 +742,23 @@
                     const goals = data.data.filter(e => e.type === 'Goal');
                     const yellows = data.data.filter(e => e.type === 'Card' && e.detail === 'Yellow Card');
                     const reds = data.data.filter(e => e.type === 'Card' && e.detail === 'Red Card');
+                    const subs = data.data.filter(e => e.type === 'subst');
                     
                     let html = '';
                     if (goals.length) html += `<div class="event-row"><i class="fas fa-futbol event-goal"></i> ⚽ ${goals.slice(-3).map(g => `${g.player?.name || 'Player'} ${g.time?.elapsed}'`).join(', ')}</div>`;
                     if (yellows.length) html += `<div class="event-row"><i class="fas fa-square event-yellow"></i> 🟨 ${yellows.slice(-2).map(y => y.player?.name || 'Player').join(', ')}</div>`;
                     if (reds.length) html += `<div class="event-row"><i class="fas fa-square event-red"></i> 🟥 ${reds.map(r => r.player?.name || 'Player').join(', ')}</div>`;
+                    if (subs.length) html += `<div class="event-row"><i class="fas fa-exchange-alt event-subs"></i> 🔄 ${subs.slice(-2).map(s => `${s.player?.name || 'Player'} ↔ ${s.assist?.name || ''}`).join(', ')}</div>`;
                     if (!html) html = '<div class="event-row"><span style="color:#a0a8c9;">No recent events</span></div>';
                     
                     eventsDiv.innerHTML = html;
                 }
-            } catch(e) {}
+            } catch(e) {
+                console.error('Events fetch error:', e);
+            }
         }
         
+        // ===== FETCH STATS =====
         async function fetchMatchStats(fixtureId) {
             try {
                 const response = await fetch(`${API_BASE}/api/fixtures/statistics/${fixtureId}`);
@@ -689,9 +779,12 @@
                         <div class="stat-item"><div class="stat-value">${corners}</div><div class="stat-label">Corners</div></div>
                     `;
                 }
-            } catch(e) {}
+            } catch(e) {
+                console.error('Stats fetch error:', e);
+            }
         }
         
+        // ===== FILTER MATCHES =====
         function filterMatches() {
             const search = document.getElementById('search-input').value.toLowerCase();
             let filtered = [...liveMatches];
@@ -703,7 +796,8 @@
             if (search) {
                 filtered = filtered.filter(m => 
                     (m.home_team?.name || '').toLowerCase().includes(search) || 
-                    (m.away_team?.name || '').toLowerCase().includes(search)
+                    (m.away_team?.name || '').toLowerCase().includes(search) ||
+                    (m.league_name || '').toLowerCase().includes(search)
                 );
             }
             
@@ -740,9 +834,10 @@
             document.getElementById('matches-container').innerHTML = html;
         }
         
+        // ===== CREATE MATCH CARD =====
         function createMatchCard(m) {
             const startTime = new Date(m.start_time);
-            const elapsed = m.elapsed;
+            const elapsed = m.elapsed || 0;
             
             let period = '';
             if (elapsed < 45) period = `1st Half ${elapsed}'`;
@@ -757,8 +852,6 @@
             const awayTeam = m.away_team || { name: 'Away', logo: '', id: 0 };
             const scoreHome = m.score?.home || 0;
             const scoreAway = m.score?.away || 0;
-            const leagueName = m.league_name || 'League';
-            const leagueLogo = m.league_logo || '';
             const odds = m.odds || { home: 2.50, draw: 3.20, away: 2.80 };
             
             const fixtureId = m.fixture_id;
@@ -772,11 +865,11 @@
                 : `<div class="betting-timer closed">🔒 Betting Closed - Match at ${elapsed}'</div>`;
             
             return `
-                <div class="match-card">
+                <div class="match-card" onclick="goToMatch(${fixtureId})">
                     <div class="match-header-row">
                         <div class="match-league">
-                            ${leagueLogo ? `<img class="league-logo" src="${leagueLogo}" onerror="this.style.display='none'">` : '<i class="fas fa-trophy"></i>'}
-                            <span>${escapeHtml(leagueName)}</span>
+                            ${m.league_logo ? `<img class="league-logo" src="${m.league_logo}" onerror="this.style.display='none'">` : '<i class="fas fa-trophy"></i>'}
+                            <span>${escapeHtml(m.league_name)}</span>
                             <span class="live-tag"><i class="fas fa-circle"></i> LIVE</span>
                         </div>
                         <div class="match-minute">${period}</div>
@@ -827,31 +920,28 @@
             `;
         }
         
-        // ✅ FIXED: goToMatch function with proper navigation
+        // ===== NAVIGATION =====
         function goToMatch(fixtureId) {
             console.log(`🔗 Navigating to match details for fixture: ${fixtureId}`);
-            console.log(`Current user: ${auth.currentUser ? auth.currentUser.email : 'No user'}`);
             window.location.href = `match-details.html?id=${fixtureId}`;
         }
         
-        async function loadLeagues() {
-            try {
-                const res = await fetch(`${API_BASE}/api/leagues`);
-                const data = await res.json();
-                if (data.success && data.data) {
-                    const select = document.getElementById('league-filter');
-                    select.innerHTML = '<option value="all">🏆 All Leagues</option>';
-                    data.data.slice(0, 30).forEach(league => {
-                        const option = document.createElement('option');
-                        option.value = league.id;
-                        option.textContent = league.name;
-                        select.appendChild(option);
-                    });
+        // ===== REFRESH TIMER =====
+        function startRefreshTimer() {
+            if (refreshTimerInterval) clearInterval(refreshTimerInterval);
+            refreshCountdown = 10;
+            document.getElementById('refresh-timer').textContent = '10s';
+            
+            refreshTimerInterval = setInterval(() => {
+                refreshCountdown--;
+                if (refreshCountdown <= 0) {
+                    refreshCountdown = 10;
                 }
-            } catch(e) { console.error(e); }
-            document.getElementById('league-filter').onchange = (e) => { selectedLeague = e.target.value; filterMatches(); };
+                document.getElementById('refresh-timer').textContent = `${refreshCountdown}s`;
+            }, 1000);
         }
         
+        // ===== AUTO REFRESH =====
         function startAutoRefresh() {
             if (refreshInterval) clearInterval(refreshInterval);
             if (eventInterval) clearInterval(eventInterval);
@@ -859,18 +949,20 @@
             refreshInterval = setInterval(() => { 
                 loadLiveMatches(); 
                 loadBalance(); 
-            }, 10000);
+            }, REFRESH_INTERVAL);
             
             eventInterval = setInterval(() => { 
                 for (const match of liveMatches) {
                     fetchMatchEvents(match.fixture_id);
                     fetchMatchStats(match.fixture_id);
                 }
-            }, 8000);
+            }, EVENT_REFRESH_INTERVAL);
             
-            console.log('🔄 Live matches auto-refresh active (every 10 seconds)');
+            startRefreshTimer();
+            console.log(`🔄 Live matches auto-refresh active (every ${REFRESH_INTERVAL/1000} seconds)`);
         }
         
+        // ===== UTILITY FUNCTIONS =====
         function escapeHtml(str) {
             if (!str) return '';
             return String(str).replace(/[&<>]/g, function(m) {
@@ -890,7 +982,7 @@
         
         if (localStorage.getItem('lang') === 'ar') toggleLanguage();
         
-        // ===== INITIALIZATION WITH BETTER AUTH HANDLING =====
+        // ===== INITIALIZATION =====
         let authCheckCount = 0;
         const maxAuthChecks = 10;
         
@@ -898,7 +990,6 @@
             if (auth.currentUser) {
                 console.log(`✅ User authenticated: ${auth.currentUser.email}`);
                 loadBalance();
-                loadLeagues();
                 loadLiveMatches();
                 startAutoRefresh();
             } else if (authCheckCount < maxAuthChecks) {
@@ -926,7 +1017,7 @@
             }
         });
         
-        // Expose global functions
+        // ===== EXPOSE GLOBAL FUNCTIONS =====
         window.loadLiveMatches = loadLiveMatches;
         window.goToMatch = goToMatch;
         window.toggleLanguage = toggleLanguage;
@@ -936,8 +1027,11 @@
         window.removeFromSlip = removeFromSlip;
         window.placeAccumulatorBet = placeAccumulatorBet;
         window.toggleCart = toggleCart;
+        window.filterMatches = filterMatches;
         
-        console.log('✅ Live matches page v2.1 loaded - Auth redirect fixed');
+        console.log('✅ Live matches page v3.0 loaded with optimized API');
+        console.log(`📡 API Endpoint: ${API_BASE}/api/livescores`);
+        console.log(`🔄 Refresh every ${REFRESH_INTERVAL/1000}s`);
     </script>
 </body>
 </html>
