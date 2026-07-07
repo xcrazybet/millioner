@@ -2,10 +2,11 @@
 // auto-sync.js - Complete Auto-Sync System
 // ✅ Automatically fetches from API and saves to Supabase
 // ✅ Runs every 30 seconds
-// ✅ No manual intervention needed
+// ✅ Cloudflare Worker URL (updated from Render)
 // ============================================
 
-const API_BASE = 'https://millioner.onrender.com';
+// 🔄 CHANGED: Render → Cloudflare Worker
+const API_BASE = 'https://muddy-wildflower-a70d.dilovantalan.workers.dev';
 
 // Main sync function
 async function autoSyncMatches() {
@@ -256,5 +257,5 @@ if (typeof window !== 'undefined') {
     window.stopAutoSync = stopAutoSync;
 }
 
-console.log('🔄 Auto-Sync System v1.0 - Ready');
+console.log('🔄 Auto-Sync System - Cloudflare Worker');
 console.log('   Run: startAutoSync() to begin');
