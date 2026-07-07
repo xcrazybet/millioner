@@ -1,5 +1,5 @@
 // ============================================
-// X Lodon Sports API - COMPLETE ALL ENDPOINTS
+// X Lodon Sports API - GitHub Auto-Deploy v20.0.2
 // ============================================
 
 const API_KEY = '2396236d9d5cd07468ce280da8390ad5';
@@ -49,12 +49,12 @@ async function handleRequest(request) {
 
   try {
     if (path === '/health') {
-      return json({ status: 'ok', timestamp: new Date().toISOString(), api_calls: apiCalls });
+      return json({ status: 'ok', timestamp: new Date().toISOString(), api_calls: apiCalls, version: '20.0.2' });
     }
 
     if (path === '/') {
       return json({
-        name: 'X Lodon Sports API', version: '20.0.0', status: 'active',
+        name: 'X Lodon Sports API', version: '20.0.2', status: 'active',
         endpoints: [
           '/health', '/api/test',
           '/api/fixtures/week', '/api/fixtures/date/:date', '/api/fixtures/range/:from/:to',
@@ -71,7 +71,7 @@ async function handleRequest(request) {
     }
 
     if (path === '/api/test') {
-      return json({ success: true, message: 'API is working!' });
+      return json({ success: true, message: 'API is working!', version: '20.0.2' });
     }
 
     if (path === '/api/fixtures/week') {
@@ -237,6 +237,7 @@ async function handleRequest(request) {
         fixtures_today: (fixtures.response || []).length,
         live_matches: (live.response || []).length,
         api_calls: apiCalls,
+        version: '20.0.2',
         sample: (fixtures.response || []).slice(0, 2).map(formatFixture)
       });
     }
