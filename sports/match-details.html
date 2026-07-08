@@ -1228,6 +1228,25 @@
         .btn-slip:hover:not(:disabled) { transform: scale(1.02); background: #e68900; }
         .btn-added { background: var(--success) !important; color: white !important; }
         
+        /* 🛒 Clear Cart Button */
+        .btn-clear-cart {
+            background: var(--danger);
+            color: white;
+            margin-top: 8px;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            width: 100%;
+            transition: all 0.2s;
+            font-weight: 600;
+        }
+        .btn-clear-cart:hover {
+            background: #ff1744;
+            transform: scale(1.02);
+        }
+        
         .error-msg, .success-msg {
             border-radius: 10px;
             padding: 12px;
@@ -1299,6 +1318,7 @@
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         @keyframes fadeOut { to { opacity: 0; visibility: hidden; } }
         
+        /* 🛒 Cart Styles */
         .cart-icon { 
             position: fixed; 
             bottom: 25px; 
@@ -1940,7 +1960,7 @@
             <div class="cart-empty">
                 <i class="fas fa-inbox"></i>
                 No selections added
-                <br><small>Click "Add to Bet Slip" to build accumulator</small>
+                <br><small>Click "Add to Bet Slip" on any match</small>
             </div>
         </div>
         <div class="cart-footer">
@@ -1956,6 +1976,9 @@
             <button class="btn btn-cart" id="cart-place-btn" disabled onclick="placeAccumulatorBet()">
                 <i class="fas fa-layer-group"></i> Place Accumulator (2+ Selections)
             </button>
+            <button class="btn-clear-cart" onclick="clearCart()">
+                <i class="fas fa-trash-alt"></i> Clear All Selections
+            </button>
         </div>
     </div>
 
@@ -1963,7 +1986,7 @@
         // ============================================
         // X LODON MATCH DETAILS - ULTIMATE v6.0
         // 26 Categories | 240+ Bet Types
-        // WITH 20 ENHANCEMENTS - WORKING 100%
+        // WITH 20 ENHANCEMENTS + PERSISTENT CART
         // ============================================
         
         // ===== CONFIGURATION =====
@@ -2018,9 +2041,54 @@
         let playgroundStatsInterval = null;
         let playgroundEventsInterval = null;
         let isDarkTheme = false;
+        let loadAttempts = 0;
+        const MAX_LOAD_ATTEMPTS = 3;
         
         // ============================================
-        // 🔧 FIXED: GET MATCH WITH FALLBACK
+        // 🛒 PERSISTENT CART - localStorage
+        // ============================================
+        
+        const CART_STORAGE_KEY = 'xlodon_bet_slip';
+        
+        function loadCartFromStorage() {
+            try {
+                const saved = localStorage.getItem(CART_STORAGE_KEY);
+                if (saved) {
+                    accumulatorSlip = JSON.parse(saved);
+                    console.log(`🛒 Loaded ${accumulatorSlip.length} items from cart storage`);
+                } else {
+                    accumulatorSlip = [];
+                }
+            } catch(e) {
+                accumulatorSlip = [];
+            }
+            updateCartUI();
+        }
+        
+        function saveCartToStorage() {
+            try {
+                localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(accumulatorSlip));
+                console.log(`🛒 Saved ${accumulatorSlip.length} items to cart storage`);
+            } catch(e) {
+                console.error('Failed to save cart:', e);
+            }
+        }
+        
+        function clearCart() {
+            if (accumulatorSlip.length === 0) {
+                showNotification('Cart is already empty', 'info');
+                return;
+            }
+            if (confirm('Clear all selections from your bet slip?')) {
+                accumulatorSlip = [];
+                saveCartToStorage();
+                updateCartUI();
+                showNotification('🗑️ Bet slip cleared', 'info');
+            }
+        }
+        
+        // ============================================
+        // 🚀 GET MATCH WITH FALLBACK
         // ============================================
         
         async function getMatch(fixtureId) {
@@ -2177,7 +2245,6 @@
                 console.log('🚀 Loading match data...');
                 updateLoadingStatus('Fetching match data...');
                 
-                // Set timeout for API call
                 const timeoutPromise = new Promise((_, reject) => {
                     setTimeout(() => reject(new Error('API timeout after 10 seconds')), 10000);
                 });
@@ -2191,6 +2258,9 @@
                 
                 console.log('✅ Match loaded:', currentMatch);
                 
+                // Load cart from localStorage
+                loadCartFromStorage();
+                
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
                 
@@ -2200,7 +2270,6 @@
                 startTimers();
                 startAutoRefresh();
                 
-                // Fetch additional stats and events
                 fetchStats();
                 fetchEvents();
                 
@@ -2268,7 +2337,7 @@
         }
         
         // ============================================
-        // 🎯 BET CATEGORIES (KEPT FROM ORIGINAL)
+        // 🎯 BET CATEGORIES (COMPLETE)
         // ============================================
         
         const BET_CATEGORIES = {
@@ -2713,7 +2782,6 @@
         // 🎯 ENHANCEMENTS FUNCTIONS
         // ============================================
         
-        // Enhancement 2: Theme Toggle
         function togglePlaygroundTheme() {
             isDarkTheme = !isDarkTheme;
             const container = document.getElementById('playground-container');
@@ -2726,7 +2794,6 @@
             }
         }
         
-        // Enhancement 12: Full Screen
         function toggleFullscreen() {
             const container = document.getElementById('playground-container');
             if (!document.fullscreenElement) {
@@ -2736,7 +2803,6 @@
             }
         }
         
-        // Enhancement 17: Share Match
         function shareMatch() {
             if (!currentMatch) return;
             const home = currentMatch.home_team?.name || 'Home';
@@ -2757,7 +2823,6 @@
             }
         }
         
-        // Enhancement 6: Collapsible Sections
         function toggleSection(sectionId) {
             const content = document.getElementById(sectionId);
             const btn = event.currentTarget;
@@ -2771,7 +2836,6 @@
             }
         }
         
-        // Enhancement 5: Goal Celebration
         function triggerGoalCelebration(team) {
             const container = document.getElementById('playground-container');
             const msg = document.createElement('div');
@@ -2781,7 +2845,6 @@
             setTimeout(() => msg.remove(), 3000);
         }
         
-        // Enhancement 11: Push Notifications
         function sendGoalNotification(team, player, minute) {
             if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification(`⚽ GOAL! ${team}`, {
@@ -2807,7 +2870,6 @@
             
             container.style.display = 'block';
             
-            // Update live dot
             const isLive = currentMatch.status === 'live';
             const dot = document.getElementById('playground-live-dot');
             if (isLive) {
@@ -2849,13 +2911,11 @@
             const scoreText = `${score.home} - ${score.away}`;
             const scoreEl = document.getElementById('pg-score');
             
-            // Goal flash with celebration
             if (previousScore && previousScore !== scoreText) {
                 scoreEl.classList.remove('goal-flash');
                 setTimeout(() => scoreEl.classList.add('goal-flash'), 10);
                 setTimeout(() => scoreEl.classList.remove('goal-flash'), 700);
                 
-                // Determine which team scored
                 const prevParts = previousScore.split(' - ').map(Number);
                 const currParts = scoreText.split(' - ').map(Number);
                 if (currParts[0] > prevParts[0]) {
@@ -2869,7 +2929,6 @@
             previousScore = scoreText;
             scoreEl.textContent = scoreText;
             
-            // Timer
             let period = '1H';
             let displayElapsed = elapsed;
             if (elapsed >= 45 && elapsed < 60) { period = 'HT'; displayElapsed = 0; }
@@ -2918,7 +2977,6 @@
                 if (fillEl) fillEl.style.width = `${pct}%`;
             });
             
-            // xG
             const xgHome = stats.xG?.home !== undefined ? parseFloat(stats.xG.home) : (Math.random() * 2 + 0.5);
             const xgAway = stats.xG?.away !== undefined ? parseFloat(stats.xG.away) : (Math.random() * 2 + 0.5);
             const xgTotal = xgHome + xgAway || 1;
@@ -2949,7 +3007,6 @@
             const countEl = document.getElementById('pg-events-count');
             if (countEl) countEl.textContent = `${recent.length} events`;
             
-            // Check for new events
             const newEventIds = recent.map(e => `${e.type}-${e.time?.elapsed}-${e.player?.name}`).join(',');
             const oldEventIds = lastEvents.join(',');
             const hasNew = newEventIds !== oldEventIds;
@@ -2986,7 +3043,6 @@
             const allEvents = events.all || [];
             const elapsed = currentMatch.elapsed || 0;
             
-            // Update progress
             const progress = Math.min((elapsed / 90) * 100, 100);
             const progressEl = document.getElementById('pg-timeline-progress');
             if (progressEl) progressEl.style.width = `${progress}%`;
@@ -2994,11 +3050,9 @@
             const countEl = document.getElementById('pg-timeline-count');
             if (countEl) countEl.textContent = `${allEvents.length || 0} events`;
             
-            // Add markers
             const bar = document.getElementById('pg-timeline-bar');
             if (!bar) return;
             
-            // Remove old markers (keep progress bar)
             bar.querySelectorAll('.timeline-marker').forEach(el => el.remove());
             
             const recentEvents = allEvents.slice(-5);
@@ -3102,7 +3156,6 @@
             if (nameEl) nameEl.textContent = stadium.name;
             if (capacityEl) capacityEl.textContent = `${stadium.capacity} capacity`;
             
-            // Weather
             const temps = [18, 22, 25, 20, 15, 28, 12];
             const winds = [5, 8, 12, 15, 3, 20, 10];
             const tIdx = (currentMatch.fixture_id || 0) % temps.length;
@@ -3123,7 +3176,6 @@
             const away = currentMatch.away_team?.name || 'Away';
             const odds = currentMatch.odds || { home: 2.00, draw: 3.50, away: 3.80 };
             
-            // Generate tips
             const homeStrength = (currentMatch.home_team?.id % 10) + 5;
             const awayStrength = (currentMatch.away_team?.id % 10) + 5;
             
@@ -3153,10 +3205,6 @@
                 <div class="tip">✅ ${tip.text} <span class="odds">(${tip.odds})</span></div>
             `).join('');
         }
-        
-        // ============================================
-        // 🔄 PLAYGROUND AUTO REFRESH
-        // ============================================
         
         function startPlaygroundAutoRefresh() {
             if (playgroundStatsInterval) clearInterval(playgroundStatsInterval);
@@ -3395,7 +3443,6 @@
                 }
             }
             
-            // Render playground
             renderPlayground();
         }
         
@@ -3538,6 +3585,127 @@
             return bet;
         }
         
+        // ============================================
+        // 🛒 PERSISTENT CART - OVERRIDE FUNCTIONS
+        // ============================================
+        
+        function addToSlipFromMatch(betType, odds, betName) {
+            if (!currentMatch) return;
+            if (checkIfBettingDisabled()) { showError('Betting closed'); return; }
+            
+            const home = currentMatch.home_team?.name || 'Home';
+            const away = currentMatch.away_team?.name || 'Away';
+            const fixtureId = currentMatch.fixture_id;
+            
+            const exists = accumulatorSlip.findIndex(s => s.fixtureId === fixtureId && s.betType === betType);
+            if (exists !== -1) {
+                showNotification('Already in slip!', 'error');
+                return;
+            }
+            
+            accumulatorSlip.push({
+                fixtureId: fixtureId,
+                matchName: `${home} vs ${away}`,
+                betType: betType,
+                betTypeName: betName,
+                odds: parseFloat(odds)
+            });
+            
+            saveCartToStorage();
+            updateCartUI();
+            showNotification(`✅ Added to slip: ${betName} @ ${odds}`);
+            
+            const slipBtn = document.getElementById('add-to-slip-btn');
+            if (slipBtn) {
+                slipBtn.innerHTML = `<i class="fas fa-check"></i> ✓ Added (${accumulatorSlip.length})`;
+                slipBtn.classList.add('btn-added');
+            }
+        }
+        
+        function removeFromSlip(index) {
+            accumulatorSlip.splice(index, 1);
+            saveCartToStorage();
+            updateCartUI();
+            if (accumulatorSlip.length === 0) {
+                const slipBtn = document.getElementById('add-to-slip-btn');
+                if (slipBtn) {
+                    slipBtn.innerHTML = '<i class="fas fa-plus"></i> Add to Bet Slip';
+                    slipBtn.classList.remove('btn-added');
+                }
+            }
+        }
+        
+        function updateCartUI() {
+            const cartItems = document.getElementById('cart-items');
+            const badge = document.getElementById('cart-badge');
+            const totalOddsEl = document.getElementById('cart-total-odds');
+            const placeBtn = document.getElementById('cart-place-btn');
+            const stakeInput = document.getElementById('cart-stake');
+            
+            badge.textContent = accumulatorSlip.length;
+            
+            if (accumulatorSlip.length === 0) {
+                if (cartItems) {
+                    cartItems.innerHTML = `
+                        <div class="cart-empty">
+                            <i class="fas fa-inbox"></i>
+                            No selections added
+                            <br><small>Click "Add to Bet Slip" on any match</small>
+                        </div>
+                    `;
+                }
+                if (totalOddsEl) totalOddsEl.textContent = '1.00';
+                if (placeBtn) placeBtn.disabled = true;
+                document.getElementById('cart-potential').textContent = '$0.00';
+                return;
+            }
+            
+            // Group by match
+            const grouped = {};
+            accumulatorSlip.forEach(item => {
+                const key = item.fixtureId;
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push(item);
+            });
+            
+            let html = '';
+            let totalOdds = 1;
+            let matchCount = Object.keys(grouped).length;
+            
+            html += `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;padding:4px 8px;background:var(--bg-tertiary);border-radius:8px;text-align:center;">
+                📋 ${accumulatorSlip.length} selections from ${matchCount} match${matchCount > 1 ? 'es' : ''}
+            </div>`;
+            
+            Object.keys(grouped).forEach(fixtureId => {
+                const items = grouped[fixtureId];
+                const matchName = items[0].matchName;
+                html += `<div style="font-size:11px;font-weight:600;color:var(--accent);margin:8px 0 4px 0;">${escapeHtml(matchName)}</div>`;
+                
+                items.forEach((item, idx) => {
+                    totalOdds *= item.odds;
+                    const actualIndex = accumulatorSlip.indexOf(item);
+                    html += `
+                        <div class="cart-item">
+                            <div class="cart-item-bet">${escapeHtml(item.betTypeName)}</div>
+                            <div class="cart-item-odds">Odds: ${item.odds.toFixed(2)}</div>
+                            <button class="cart-remove" onclick="removeFromSlip(${actualIndex})"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                    `;
+                });
+            });
+            
+            if (cartItems) cartItems.innerHTML = html;
+            if (totalOddsEl) totalOddsEl.textContent = totalOdds.toFixed(2);
+            
+            const stake = parseFloat(stakeInput?.value) || 0;
+            document.getElementById('cart-potential').textContent = `$${(stake * totalOdds).toFixed(2)}`;
+            
+            if (placeBtn) {
+                placeBtn.disabled = accumulatorSlip.length < 2;
+                placeBtn.textContent = accumulatorSlip.length < 2 ? `Add ${2 - accumulatorSlip.length} more selection(s)` : 'Place Accumulator';
+            }
+        }
+        
         async function placeAccumulatorBet() {
             if (accumulatorSlip.length < 2) {
                 showNotification(`Add at least 2 selections (${accumulatorSlip.length} added)`, 'error');
@@ -3577,10 +3745,16 @@
             try {
                 const betId = Date.now();
                 const bet = {
-                    id: betId, user_id: user.uid, fixture_id: null,
-                    bet_type: 'accumulator', bet_name: `${accumulatorSlip.length}-fold Acca`,
-                    odds: totalOdds, amount: stake, potential_win: potentialWin,
-                    status: 'active', placed_at: new Date().toISOString(),
+                    id: betId, 
+                    user_id: user.uid, 
+                    fixture_id: null,
+                    bet_type: 'accumulator', 
+                    bet_name: `${accumulatorSlip.length}-fold Acca`,
+                    odds: totalOdds, 
+                    amount: stake, 
+                    potential_win: potentialWin,
+                    status: 'active', 
+                    placed_at: new Date().toISOString(),
                     selections: accumulatorSlip
                 };
                 
@@ -3588,7 +3762,10 @@
                 await deductBalance(user.uid, stake, betId);
                 
                 showNotification(`✅ Accumulator placed! Win: $${potentialWin.toFixed(2)}`, 'success');
+                
+                // Clear cart after placing
                 accumulatorSlip = [];
+                saveCartToStorage();
                 updateCartUI();
                 toggleCart();
                 await updateBalanceDisplay();
@@ -3608,90 +3785,23 @@
             document.getElementById('cart-overlay').classList.toggle('show');
         }
         
-        function updateCartUI() {
-            const cartItems = document.getElementById('cart-items');
-            const badge = document.getElementById('cart-badge');
-            const totalOddsEl = document.getElementById('cart-total-odds');
-            const placeBtn = document.getElementById('cart-place-btn');
-            const stakeInput = document.getElementById('cart-stake');
-            
-            badge.textContent = accumulatorSlip.length;
-            
-            if (accumulatorSlip.length === 0) {
-                if (cartItems) cartItems.innerHTML = '<div class="cart-empty"><i class="fas fa-inbox"></i>No selections added<br><small>Click "Add to Bet Slip" to build accumulator</small></div>';
-                if (totalOddsEl) totalOddsEl.textContent = '1.00';
-                if (placeBtn) placeBtn.disabled = true;
-                document.getElementById('cart-potential').textContent = '$0.00';
-                return;
-            }
-            
-            let html = '';
-            let totalOdds = 1;
-            
-            accumulatorSlip.forEach((item, i) => {
-                totalOdds *= item.odds;
-                html += `
-                    <div class="cart-item">
-                        <div class="cart-item-match">${escapeHtml(item.matchName)}</div>
-                        <div class="cart-item-bet">${escapeHtml(item.betTypeName)}</div>
-                        <div class="cart-item-odds">Odds: ${item.odds.toFixed(2)}</div>
-                        <button class="cart-remove" onclick="removeFromSlip(${i})"><i class="fas fa-trash-alt"></i></button>
-                    </div>
-                `;
-            });
-            
-            if (cartItems) cartItems.innerHTML = html;
-            if (totalOddsEl) totalOddsEl.textContent = totalOdds.toFixed(2);
-            
-            const stake = parseFloat(stakeInput?.value) || 0;
-            document.getElementById('cart-potential').textContent = `$${(stake * totalOdds).toFixed(2)}`;
-            
-            if (placeBtn) {
-                placeBtn.disabled = accumulatorSlip.length < 2;
-                placeBtn.textContent = accumulatorSlip.length < 2 ? `Add ${2 - accumulatorSlip.length} more` : 'Place Accumulator';
+        // ============================================
+        // 🚪 NAVIGATION
+        // ============================================
+        
+        function goBack() {
+            if (document.referrer && document.referrer.includes(window.location.hostname)) {
+                window.history.back();
+            } else {
+                window.location.href = 'live-matches.html';
             }
         }
         
-        function addToSlipFromMatch(betType, odds, betName) {
-            if (!currentMatch) return;
-            if (checkIfBettingDisabled()) { showError('Betting closed'); return; }
-            
-            const home = currentMatch.home_team?.name || 'Home';
-            const away = currentMatch.away_team?.name || 'Away';
-            
-            const exists = accumulatorSlip.findIndex(s => s.fixtureId === currentMatch.fixture_id && s.betType === betType);
-            if (exists !== -1) {
-                showNotification('Already in slip!', 'error');
-                return;
-            }
-            
-            accumulatorSlip.push({
-                fixtureId: currentMatch.fixture_id,
-                matchName: `${home} vs ${away}`,
-                betType, betTypeName: betName,
-                odds: parseFloat(odds)
-            });
-            
-            updateCartUI();
-            showNotification(`Added: ${betName} @ ${odds}`);
-            
-            const slipBtn = document.getElementById('add-to-slip-btn');
-            if (slipBtn) {
-                slipBtn.innerHTML = `<i class="fas fa-check"></i> ✓ Added (${accumulatorSlip.length})`;
-                slipBtn.classList.add('btn-added');
-            }
-        }
-        
-        function removeFromSlip(index) {
-            accumulatorSlip.splice(index, 1);
-            updateCartUI();
-            if (accumulatorSlip.length === 0) {
-                const slipBtn = document.getElementById('add-to-slip-btn');
-                if (slipBtn) {
-                    slipBtn.innerHTML = '<i class="fas fa-plus"></i> Add to Bet Slip';
-                    slipBtn.classList.remove('btn-added');
-                }
-            }
+        function toggleLanguage() {
+            const isArabic = document.body.classList.toggle('arabic');
+            localStorage.setItem('lang', isArabic ? 'ar' : 'en');
+            document.documentElement.dir = isArabic ? 'rtl' : 'ltr';
+            document.querySelector('.lang-toggle').textContent = isArabic ? 'English' : 'عربي';
         }
         
         async function placeBetHandler() {
@@ -3757,25 +3867,6 @@
                 btn.disabled = false;
                 btn.innerHTML = orig;
             }
-        }
-        
-        // ============================================
-        // 🚪 NAVIGATION
-        // ============================================
-        
-        function goBack() {
-            if (document.referrer && document.referrer.includes(window.location.hostname)) {
-                window.history.back();
-            } else {
-                window.location.href = 'live-matches.html';
-            }
-        }
-        
-        function toggleLanguage() {
-            const isArabic = document.body.classList.toggle('arabic');
-            localStorage.setItem('lang', isArabic ? 'ar' : 'en');
-            document.documentElement.dir = isArabic ? 'rtl' : 'ltr';
-            document.querySelector('.lang-toggle').textContent = isArabic ? 'English' : 'عربي';
         }
         
         // ============================================
@@ -3896,6 +3987,8 @@
         window.toggleFullscreen = toggleFullscreen;
         window.shareMatch = shareMatch;
         window.toggleSection = toggleSection;
+        window.clearCart = clearCart;
+        window.addToSlipFromMatch = addToSlipFromMatch;
         
         // Apply saved language
         if (localStorage.getItem('lang') === 'ar') toggleLanguage();
@@ -3903,6 +3996,7 @@
         console.log('✅ X Lodon Match Details v6.0 Ready - 100% Working!');
         console.log('   📋 26 Categories | 240+ Bet Types');
         console.log('   🎯 20 Enhancements Applied');
+        console.log('   🛒 Persistent Cart Across Matches');
         console.log('   🔗 API:', API_BASE);
         console.log('   🎯 Fixture ID:', fixtureId);
     </script>
