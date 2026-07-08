@@ -57,6 +57,7 @@
         .bet-type-tag.single{background:rgba(0,255,157,0.15);color:var(--green)}
         .bet-type-tag.accumulator{background:rgba(255,152,0,0.15);color:var(--orange)}
         .bet-ticket-num{font-size:10px;color:var(--text2);font-family:monospace;background:rgba(0,0,0,0.3);padding:2px 8px;border-radius:8px}
+        .live-bet-badge{display:inline-flex;align-items:center;gap:3px;background:rgba(255,82,82,0.2);color:var(--red);padding:2px 8px;border-radius:10px;font-size:8px;font-weight:bold;margin-left:5px;animation:pulse 2s infinite}
         .bet-status-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:bold}
         .bet-status-badge.won{background:rgba(76,175,80,0.2);color:#4caf50}
         .bet-status-badge.lost{background:rgba(255,82,82,0.2);color:var(--red)}
@@ -99,6 +100,7 @@
         .cashout-btn.losing{background:rgba(255,82,82,0.2);color:var(--red);border-color:var(--red)}
         .cashout-btn.losing:hover{background:var(--red);color:white}
         .action-info{font-size:10px;color:var(--text2);display:flex;align-items:center;gap:4px}
+        .action-info.locked{color:var(--orange)}
         .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.95);z-index:1000;display:none;align-items:center;justify-content:center;padding:15px}
         .modal-overlay.show{display:flex}
         .modal-content{background:var(--bg2);border-radius:20px;padding:25px;max-width:550px;width:100%;max-height:85vh;overflow-y:auto;border:2px solid var(--green)}
@@ -175,9 +177,8 @@
 
 <script>
 // ============================================
-// MY BETS v8.0 - REAL CASHOUT ALGORITHM
-// Win Probability Based | Profit OR Loss
-// Cancel: Single ONLY, Before Match Start
+// MY BETS v9.0 - ANTI-FRAUD CASHOUT
+// Real Win/Loss | Live Bet Lock | Pre-Match Only
 // ============================================
 const SUPABASE_URL='https://jnazybaeajyynpyoszmy.supabase.co';
 const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
@@ -204,164 +205,45 @@ async function getMatchDetails(fid){if(!fid)return null;try{const{data,error}=aw
 // 🔥 REAL CASHOUT ALGORITHM
 // ============================================
 function calculateRealCashout(bet,match){
-    const stake=parseFloat(bet.amount||0);
-    const odds=parseFloat(bet.odds||2);
-    const potentialWin=stake*odds;
-    const elapsed=match.elapsed||0;
-    const homeGoals=match.goals_home||0;
-    const awayGoals=match.goals_away||0;
-    const totalGoals=homeGoals+awayGoals;
-    const betType=bet.bet_type;
-    
-    // Step 1: Win Probability
-    const winProb=calculateWinProbability(betType,homeGoals,awayGoals,totalGoals,elapsed);
-    
-    // Step 2: Time Decay
+    const stake=parseFloat(bet.amount||0);const odds=parseFloat(bet.odds||2);const potentialWin=stake*odds;
+    const elapsed=match.elapsed||0;const hg=match.goals_home||0;const ag=match.goals_away||0;
+    const tg=hg+ag;const bt=bet.bet_type;
+    const winProb=calculateWinProbability(bt,hg,ag,tg,elapsed);
     const timeDecay=getTimeDecay(elapsed);
-    
-    // Step 3: Raw cashout
-    let cashoutValue=potentialWin*winProb*timeDecay;
-    
-    // Step 4: If losing heavily, return partial stake only
-    if(winProb<0.25){cashoutValue=stake*(winProb*0.4);}
-    else if(winProb<0.40){cashoutValue=Math.max(cashoutValue,stake*winProb*0.5);}
-    
-    // Step 5: Platform fee (3%)
-    const fee=cashoutValue*0.03;
-    cashoutValue-=fee;
-    
-    // Step 6: Minimum cashout
-    cashoutValue=Math.max(cashoutValue,stake*0.01);
-    cashoutValue=Math.min(cashoutValue,potentialWin*0.92);
-    
-    const profit=cashoutValue-stake;
-    const isWinning=winProb>=0.50;
-    const isLosing=winProb<0.30;
-    
-    return{
-        value:parseFloat(cashoutValue.toFixed(2)),
-        profit:parseFloat(profit.toFixed(2)),
-        winProbability:parseFloat((winProb*100).toFixed(1)),
-        timeDecay:parseFloat((timeDecay*100).toFixed(0)),
-        isWinning,isLosing,fee:parseFloat(fee.toFixed(2)),
-        status:isWinning?'WINNING':(isLosing?'LOSING':'NEUTRAL')
-    };
+    let cv=potentialWin*winProb*timeDecay;
+    if(winProb<0.25)cv=stake*(winProb*0.4);else if(winProb<0.40)cv=Math.max(cv,stake*winProb*0.5);
+    const fee=cv*0.03;cv-=fee;cv=Math.max(cv,stake*0.01);cv=Math.min(cv,potentialWin*0.92);
+    const profit=cv-stake;const isW=winProb>=0.50;const isL=winProb<0.30;
+    return{value:parseFloat(cv.toFixed(2)),profit:parseFloat(profit.toFixed(2)),winProbability:parseFloat((winProb*100).toFixed(1)),timeDecay:parseFloat((timeDecay*100).toFixed(0)),isWinning:isW,isLosing:isL,fee:parseFloat(fee.toFixed(2)),status:isW?'WINNING':(isL?'LOSING':'NEUTRAL')};
 }
 
-function calculateWinProbability(bt,hg,ag,tg,elapsed){
-    const remainingMin=Math.max(1,90-elapsed);
-    const gpm=tg/Math.max(elapsed,1);
-    
-    switch(bt){
-        case'home':return calcHomeWinProb(hg,ag,elapsed,remainingMin);
-        case'draw':return calcDrawProb(hg,ag,elapsed,remainingMin);
-        case'away':return calcAwayWinProb(hg,ag,elapsed,remainingMin);
-        case'1X':return Math.max(calcHomeWinProb(hg,ag,elapsed,remainingMin),calcDrawProb(hg,ag,elapsed,remainingMin));
-        case'12':return 1-calcDrawProb(hg,ag,elapsed,remainingMin);
-        case'X2':return Math.max(calcDrawProb(hg,ag,elapsed,remainingMin),calcAwayWinProb(hg,ag,elapsed,remainingMin));
-        case'home_dnb':return calcHomeWinProb(hg,ag,elapsed,remainingMin);
-        case'away_dnb':return calcAwayWinProb(hg,ag,elapsed,remainingMin);
-        case'over05':return tg>=1?1:calcOverProb(tg,0.5,remainingMin,gpm);
-        case'under05':return 1-(tg>=1?1:calcOverProb(tg,0.5,remainingMin,gpm));
-        case'over15':return tg>=2?1:calcOverProb(tg,1.5,remainingMin,gpm);
-        case'under15':return 1-(tg>=2?1:calcOverProb(tg,1.5,remainingMin,gpm));
-        case'over25':return tg>=3?1:calcOverProb(tg,2.5,remainingMin,gpm);
-        case'under25':return 1-(tg>=3?1:calcOverProb(tg,2.5,remainingMin,gpm));
-        case'over35':return tg>=4?1:calcOverProb(tg,3.5,remainingMin,gpm);
-        case'under35':return 1-(tg>=4?1:calcOverProb(tg,3.5,remainingMin,gpm));
-        case'over45':return tg>=5?1:calcOverProb(tg,4.5,remainingMin,gpm);
-        case'under45':return 1-(tg>=5?1:calcOverProb(tg,4.5,remainingMin,gpm));
-        case'btts_yes':return calcBTTSYesProb(hg,ag,remainingMin,gpm);
-        case'btts_no':return 1-calcBTTSYesProb(hg,ag,remainingMin,gpm);
-        default:
-            if(bt.startsWith('over')){const th=parseFloat(bt.replace('over','').replace('_','.'));return tg>th?1:calcOverProb(tg,th,remainingMin,gpm);}
-            if(bt.startsWith('under')){const th=parseFloat(bt.replace('under','').replace('_','.'));return 1-(tg>th?1:calcOverProb(tg,th,remainingMin,gpm));}
-            return 0.50;
-    }
+function calculateWinProbability(bt,hg,ag,tg,elapsed){const rm=Math.max(1,90-elapsed);const gpm=tg/Math.max(elapsed,1);
+    switch(bt){case'home':return calcHomeWinProb(hg,ag,elapsed,rm);case'draw':return calcDrawProb(hg,ag,elapsed,rm);case'away':return calcAwayWinProb(hg,ag,elapsed,rm);
+    case'1X':return Math.max(calcHomeWinProb(hg,ag,elapsed,rm),calcDrawProb(hg,ag,elapsed,rm));case'12':return 1-calcDrawProb(hg,ag,elapsed,rm);case'X2':return Math.max(calcDrawProb(hg,ag,elapsed,rm),calcAwayWinProb(hg,ag,elapsed,rm));
+    case'home_dnb':return calcHomeWinProb(hg,ag,elapsed,rm);case'away_dnb':return calcAwayWinProb(hg,ag,elapsed,rm);
+    case'over05':return tg>=1?1:calcOverProb(tg,0.5,rm,gpm);case'under05':return 1-(tg>=1?1:calcOverProb(tg,0.5,rm,gpm));
+    case'over15':return tg>=2?1:calcOverProb(tg,1.5,rm,gpm);case'under15':return 1-(tg>=2?1:calcOverProb(tg,1.5,rm,gpm));
+    case'over25':return tg>=3?1:calcOverProb(tg,2.5,rm,gpm);case'under25':return 1-(tg>=3?1:calcOverProb(tg,2.5,rm,gpm));
+    case'over35':return tg>=4?1:calcOverProb(tg,3.5,rm,gpm);case'under35':return 1-(tg>=4?1:calcOverProb(tg,3.5,rm,gpm));
+    case'over45':return tg>=5?1:calcOverProb(tg,4.5,rm,gpm);case'under45':return 1-(tg>=5?1:calcOverProb(tg,4.5,rm,gpm));
+    case'btts_yes':return calcBTTSYesProb(hg,ag,rm,gpm);case'btts_no':return 1-calcBTTSYesProb(hg,ag,rm,gpm);
+    default:if(bt.startsWith('over')){const th=parseFloat(bt.replace('over','').replace('_','.'));return tg>th?1:calcOverProb(tg,th,rm,gpm);}if(bt.startsWith('under')){const th=parseFloat(bt.replace('under','').replace('_','.'));return 1-(tg>th?1:calcOverProb(tg,th,rm,gpm));}return 0.50;}
 }
 
-function calcHomeWinProb(hg,ag,elapsed,remaining){
-    const gd=hg-ag;
-    const remRatio=remaining/90;
-    if(gd>=3)return 0.98;
-    if(gd===2)return 0.92-(remRatio*0.04);
-    if(gd===1)return 0.78-(remRatio*0.18);
-    if(gd===0)return 0.42-(remRatio*0.06);
-    if(gd===-1)return 0.18-(remRatio*0.06);
-    if(gd===-2)return 0.05;
-    return 0.02;
-}
+function calcHomeWinProb(hg,ag,elapsed,rm){const gd=hg-ag;const rr=rm/90;if(gd>=3)return 0.98;if(gd===2)return 0.92-(rr*0.04);if(gd===1)return 0.78-(rr*0.18);if(gd===0)return 0.42-(rr*0.06);if(gd===-1)return 0.18-(rr*0.06);if(gd===-2)return 0.05;return 0.02;}
+function calcDrawProb(hg,ag,elapsed,rm){const gd=Math.abs(hg-ag);if(gd===0){if(elapsed>75)return 0.70;if(elapsed>60)return 0.55;if(elapsed>30)return 0.35;return 0.28;}if(gd===1){if(elapsed>80)return 0.08;if(elapsed>60)return 0.15;if(elapsed>30)return 0.22;return 0.25;}if(gd===2)return elapsed>70?0.03:0.08;return 0.02;}
+function calcAwayWinProb(hg,ag,elapsed,rm){return calcHomeWinProb(ag,hg,elapsed,rm);}
+function calcOverProb(c,t,rm,gpm){if(c>t)return 1;const n=t-c;const e=c+(gpm*rm);if(e>=t+0.5)return 0.85;if(e>=t)return 0.65;if(e>=t-0.5)return 0.40;if(rm<10)return n<=0.5?0.08:0.02;if(rm<20)return n<=0.5?0.18:(n<=1?0.10:0.04);if(rm<35)return n<=0.5?0.35:(n<=1?0.22:0.10);return n<=0.5?0.55:(n<=1?0.35:0.18);}
+function calcBTTSYesProb(hg,ag,rm,gpm){if(hg>0&&ag>0)return 1;const bn=hg===0&&ag===0;const on=(hg===0&&ag>0)||(hg>0&&ag===0);if(bn){if(rm<10)return 0.04;if(rm<20)return 0.12;if(rm<35)return 0.25;return 0.40;}if(on){if(rm<5)return 0.06;if(rm<15)return 0.15;if(rm<30)return 0.28;return 0.45;}return 0.50;}
+function getTimeDecay(elapsed){if(elapsed<=15)return 0.95;if(elapsed<=30)return 0.88;if(elapsed<=45)return 0.78;if(elapsed<=50)return 0.72;if(elapsed<=60)return 0.65;if(elapsed<=75)return 0.52;if(elapsed<=85)return 0.38;return 0.20;}
 
-function calcDrawProb(hg,ag,elapsed,remaining){
-    const gd=Math.abs(hg-ag);
-    const remRatio=remaining/90;
-    if(gd===0){
-        if(elapsed>75)return 0.70;
-        if(elapsed>60)return 0.55;
-        if(elapsed>30)return 0.35;
-        return 0.28;
-    }
-    if(gd===1){
-        if(elapsed>80)return 0.08;
-        if(elapsed>60)return 0.15;
-        if(elapsed>30)return 0.22;
-        return 0.25;
-    }
-    if(gd===2)return elapsed>70?0.03:0.08;
-    return 0.02;
-}
-
-function calcAwayWinProb(hg,ag,elapsed,remaining){
-    return calcHomeWinProb(ag,hg,elapsed,remaining);
-}
-
-function calcOverProb(current,target,remaining,gpm){
-    if(current>target)return 1;
-    const needed=target-current;
-    const expected=current+(gpm*remaining);
-    if(expected>=target+0.5)return 0.85;
-    if(expected>=target)return 0.65;
-    if(expected>=target-0.5)return 0.40;
-    if(remaining<10)return needed<=0.5?0.08:0.02;
-    if(remaining<20)return needed<=0.5?0.18:(needed<=1?0.10:0.04);
-    if(remaining<35)return needed<=0.5?0.35:(needed<=1?0.22:0.10);
-    return needed<=0.5?0.55:(needed<=1?0.35:0.18);
-}
-
-function calcBTTSYesProb(hg,ag,remaining,gpm){
-    if(hg>0&&ag>0)return 1;
-    const bothNeedGoal=hg===0&&ag===0;
-    const oneNeedsGoal=(hg===0&&ag>0)||(hg>0&&ag===0);
-    if(bothNeedGoal){
-        if(remaining<10)return 0.04;
-        if(remaining<20)return 0.12;
-        if(remaining<35)return 0.25;
-        return 0.40;
-    }
-    if(oneNeedsGoal){
-        if(remaining<5)return 0.06;
-        if(remaining<15)return 0.15;
-        if(remaining<30)return 0.28;
-        return 0.45;
-    }
-    return 0.50;
-}
-
-function getTimeDecay(elapsed){
-    if(elapsed<=15)return 0.95;
-    if(elapsed<=30)return 0.88;
-    if(elapsed<=45)return 0.78;
-    if(elapsed<=50)return 0.72;
-    if(elapsed<=60)return 0.65;
-    if(elapsed<=75)return 0.52;
-    if(elapsed<=85)return 0.38;
-    return 0.20;
-}
+// 🔥 ANTI-FRAUD: Check if bet was placed before kickoff
+function isBetPlacedBeforeKickoff(bet,match){if(!bet.placed_at||!match||!match.start_time)return true;const bp=new Date(bet.placed_at);const mk=new Date(match.start_time);return bp<mk;}
 
 // ============================================
 // AUTO-SETTLE
 // ============================================
-function determineBetResult(bet,match){if(!match||!bet)return null;const g={home:match.goals_home||0,away:match.goals_away||0},hg={home:match.ht_home||0,away:match.ht_away||0},tg=g.home+g.away;const bt=bet.bet_type;let w=false,rs='';const rules={'home':()=>{w=g.home>g.away;rs=`${g.home}-${g.away}`;},'draw':()=>{w=g.home===g.away;rs=`${g.home}-${g.away}`;},'away':()=>{w=g.away>g.home;rs=`${g.home}-${g.away}`;},'1X':()=>{w=g.home>=g.away;rs=`${g.home}-${g.away}`;},'12':()=>{w=g.home!==g.away;rs=`${g.home}-${g.away}`;},'X2':()=>{w=g.away>=g.home;rs=`${g.home}-${g.away}`;},'over05':()=>{w=tg>0.5;rs=`${tg}g`;},'under05':()=>{w=tg<0.5;rs=`${tg}g`;},'over15':()=>{w=tg>1.5;rs=`${tg}g`;},'under15':()=>{w=tg<1.5;rs=`${tg}g`;},'over25':()=>{w=tg>2.5;rs=`${tg}g`;},'under25':()=>{w=tg<2.5;rs=`${tg}g`;},'over35':()=>{w=tg>3.5;rs=`${tg}g`;},'under35':()=>{w=tg<3.5;rs=`${tg}g`;},'btts_yes':()=>{w=g.home>0&&g.away>0;rs=`BTTS ${w?'Yes':'No'}`;},'btts_no':()=>{w=!(g.home>0&&g.away>0);rs=`BTTS ${w?'No':'Yes'}`;}};if(rules[bt]){rules[bt]();return{won:w,reason:rs};}if(bt.startsWith('over')){const th=parseFloat(bt.replace('over','').replace('_','.'));w=tg>th;return{won:w,reason:`${tg}g O${th}`};}if(bt.startsWith('under')){const th=parseFloat(bt.replace('under','').replace('_','.'));w=tg<th;return{won:w,reason:`${tg}g U${th}`};}return null;}
+function determineBetResult(bet,match){if(!match||!bet)return null;const g={home:match.goals_home||0,away:match.goals_away||0},tg=g.home+g.away;const bt=bet.bet_type;let w=false,rs='';const rules={'home':()=>{w=g.home>g.away;rs=`${g.home}-${g.away}`;},'draw':()=>{w=g.home===g.away;rs=`${g.home}-${g.away}`;},'away':()=>{w=g.away>g.home;rs=`${g.home}-${g.away}`;},'1X':()=>{w=g.home>=g.away;rs=`${g.home}-${g.away}`;},'12':()=>{w=g.home!==g.away;rs=`${g.home}-${g.away}`;},'X2':()=>{w=g.away>=g.home;rs=`${g.home}-${g.away}`;},'over05':()=>{w=tg>0.5;rs=`${tg}g`;},'under05':()=>{w=tg<0.5;rs=`${tg}g`;},'over15':()=>{w=tg>1.5;rs=`${tg}g`;},'under15':()=>{w=tg<1.5;rs=`${tg}g`;},'over25':()=>{w=tg>2.5;rs=`${tg}g`;},'under25':()=>{w=tg<2.5;rs=`${tg}g`;},'over35':()=>{w=tg>3.5;rs=`${tg}g`;},'under35':()=>{w=tg<3.5;rs=`${tg}g`;},'btts_yes':()=>{w=g.home>0&&g.away>0;rs=`BTTS ${w?'Yes':'No'}`;},'btts_no':()=>{w=!(g.home>0&&g.away>0);rs=`BTTS ${w?'No':'Yes'}`;}};if(rules[bt]){rules[bt]();return{won:w,reason:rs};}if(bt.startsWith('over')){const th=parseFloat(bt.replace('over','').replace('_','.'));w=tg>th;return{won:w,reason:`${tg}g O${th}`};}if(bt.startsWith('under')){const th=parseFloat(bt.replace('under','').replace('_','.'));w=tg<th;return{won:w,reason:`${tg}g U${th}`};}return null;}
 
 async function autoSettleBets(){const ab=allBets.filter(b=>b.status==='active'&&!settledBets.has(b.id));if(!ab.length)return;for(const bet of ab){if(!bet.fixture_id)continue;try{const m=await getMatchDetails(bet.fixture_id);if(!m||m.status!=='finished')continue;let result;if(bet.bet_type==='accumulator'&&bet.selections){let aw=true,sr=[];for(const s of bet.selections){const sm=await getMatchDetails(s.fixtureId);if(sm&&sm.status==='finished'){const sr2=determineBetResult({bet_type:s.betType},sm);if(sr2){sr.push({...s,won:sr2.won,reason:sr2.reason});if(!sr2.won)aw=false;}else{aw=false;}}else{aw=false;break;}}if(sr.length===bet.selections.length)result={won:aw,reason:`Acca: ${aw?'ALL WON':'Lost'}`};}else{result=determineBetResult(bet,m);}if(result){await settleBet(bet,result);settledBets.add(bet.id);}}catch(e){}}}
 
@@ -370,44 +252,32 @@ async function settleBet(bet,result){const ns=result.won?'won':'lost',pay=result
 // ===== CANCEL - SINGLE ONLY, BEFORE MATCH =====
 async function cancelBet(betId){const bet=allBets.find(b=>b.id===betId);if(!bet||bet.status!=='active'){showNotification('❌ Cannot cancel','error');return;}if(bet.bet_type==='accumulator'){showNotification('❌ Accumulators cannot be cancelled','error');return;}if(settledBets.has(betId)){showNotification('❌ Already processed','error');return;}let ms=false;if(bet.fixture_id){const m=await getMatchDetails(bet.fixture_id);if(m){const n=new Date(),ko=new Date(m.start_time);const msl=(m.status||'').toLowerCase();ms=msl==='live'||msl==='1h'||msl==='2h'||msl==='ht'||msl==='finished'||msl==='ft'||ko<n;}}if(ms){showNotification('❌ Match started - Cancel unavailable','error');return;}const fp=5,ra=bet.amount*(1-fp/100),fee=bet.amount-ra;if(!confirm(`Cancel?\n\nStake: $${bet.amount.toFixed(2)}\nRefund: $${ra.toFixed(2)}\nFee (${fp}%): $${fee.toFixed(2)}`))return;try{await supabaseClient.from('bets').update({status:'cancelled',cancellation_fee:fee,refund_amount:ra,cancelled_at:new Date().toISOString(),settlement_reason:`Cancelled - ${fp}% fee`,updated_at:new Date().toISOString()}).eq('id',betId).eq('status','active');settledBets.add(betId);await updateWalletBalance(bet.user_id,ra);bet.status='cancelled';showNotification(`✅ Refunded: $${ra.toFixed(2)}`,'success');await loadBalance();updateStats();updateCounts();filterBets(currentFilter);}catch(e){showNotification(`Error: ${e.message}`,'error');}}
 
-// ===== 🔥 REAL CASHOUT - WITH WIN/LOSS CALCULATION =====
+// ===== 🔥 CASHOUT - ANTI-FRAUD LOCKED FOR LIVE BETS =====
 async function cashoutBet(betId){const bet=allBets.find(b=>b.id===betId);if(!bet||bet.status!=='active'){showNotification('❌ Cannot cash out','error');return;}if(settledBets.has(betId)){showNotification('❌ Already processed','error');return;}
 const isAcc=bet.bet_type==='accumulator';
-if(isAcc){
-    // Accumulator cashout - simplified for multi-leg
-    let lc=0,tl=bet.selections?.length||0;let totalWinProb=0;
-    if(bet.selections)for(const s of bet.selections){
-        const m=await getMatchDetails(s.fixtureId||s.fixture_id);
-        if(m){const ms=(m.status||'').toLowerCase();if(ms==='live'||ms==='1h'||ms==='2h'||ms==='ht'){lc++;
-            const wp=calculateWinProbability(s.betType||s.bet_type,m.goals_home||0,m.goals_away||0,(m.goals_home||0)+(m.goals_away||0),m.elapsed||0);
-            totalWinProb+=wp;}
-        }
-    }
-    if(lc===0){showNotification('❌ Cash Out only during live matches','error');return;}
-    const avgProb=totalWinProb/Math.max(lc,1);
-    let to=1;bet.selections.forEach(s=>to*=parseFloat(s.odds||1));
-    const td=getTimeDecay(bet._elapsed||30);
-    let cv=bet.amount*to*avgProb*td;
-    if(avgProb<0.25)cv=bet.amount*(avgProb*0.3);
-    const fee2=cv*0.03;cv-=fee2;cv=Math.max(cv,bet.amount*0.01);cv=Math.min(cv,bet.amount*to*0.90);
-    const isWinning=avgProb>=0.50,isLosing=avgProb<0.30;
-    if(!confirm(`Cash Out Accumulator?\n\nStake: $${bet.amount.toFixed(2)}\nOdds: ${to.toFixed(2)}\nWin Probability: ${(avgProb*100).toFixed(0)}%\nStatus: ${isWinning?'✅ WINNING':isLosing?'⚠️ LOSING':'➖ NEUTRAL'}\nCash Out: $${cv.toFixed(2)}\n${cv>=bet.amount?'Profit: +$'+(cv-bet.amount).toFixed(2):'Loss: -$'+(bet.amount-cv).toFixed(2)}\nLive Legs: ${lc}/${tl}`))return;
-    try{await supabaseClient.from('bets').update({status:'cashed-out',cashout_amount:cv,cashout_fee:fee2,cashed_out_at:new Date().toISOString(),settlement_reason:`Cashed out - ${(avgProb*100).toFixed(0)}% prob - ${lc}/${tl} live`,updated_at:new Date().toISOString()}).eq('id',betId).eq('status','active');settledBets.add(betId);await updateWalletBalance(bet.user_id,cv);bet.status='cashed-out';showNotification(`${cv>=bet.amount?'✅':'⚠️'} Cashed Out: $${cv.toFixed(2)} ${cv>=bet.amount?'(Profit)' : '(Loss)'}`,'info');await loadBalance();updateStats();updateCounts();filterBets(currentFilter);}catch(e){showNotification(`Error: ${e.message}`,'error');}return;
-}
-// SINGLE BET CASHOUT
-let ml=false,el=0;if(bet.fixture_id){const m=await getMatchDetails(bet.fixture_id);if(m){const ms=(m.status||'').toLowerCase();ml=ms==='live'||ms==='1h'||ms==='2h'||ms==='ht';el=m.elapsed||0;
-    if(ml){
-        const co=calculateRealCashout(bet,m);
-        const profitText=co.profit>=0?`+$${co.profit.toFixed(2)} PROFIT`:`-$${Math.abs(co.profit).toFixed(2)} LOSS`;
-        const statusIcon=co.isWinning?'✅':(co.isLosing?'⚠️':'➖');
-        const statusText=co.isWinning?'WINNING':(co.isLosing?'LOSING':'NEUTRAL');
-        if(!confirm(`Cash Out?\n\nStake: $${bet.amount.toFixed(2)} @${bet.odds}\nWin Probability: ${co.winProbability}%\nStatus: ${statusIcon} ${statusText}\nTime Decay: ${co.timeDecay}%\nCash Out Value: $${co.value.toFixed(2)}\nFee: $${co.fee.toFixed(2)}\nResult: ${profitText}\nMatch: ${el}' ${m.goals_home||0}-${m.goals_away||0}`))return;
-        try{await supabaseClient.from('bets').update({status:'cashed-out',cashout_amount:co.value,cashout_fee:co.fee,cashed_out_at:new Date().toISOString(),settlement_reason:`Cashed out ${el}' ${m.goals_home||0}-${m.goals_away||0} - ${co.winProbability}% prob`,updated_at:new Date().toISOString()}).eq('id',betId).eq('status','active');settledBets.add(betId);await updateWalletBalance(bet.user_id,co.value);bet.status='cashed-out';showNotification(`${co.profit>=0?'✅':'⚠️'} Cashed Out: $${co.value.toFixed(2)} (${profitText})`,'info');await loadBalance();updateStats();updateCounts();filterBets(currentFilter);}catch(e){showNotification(`Error: ${e.message}`,'error');}
-    }
-}}
-if(!ml){showNotification('❌ Cash Out only during live matches','error');return;}}
 
-async function loadBets(){const u=auth.currentUser;if(!u)return;try{const{data,error}=await supabaseClient.from('bets').select('*').eq('user_id',u.uid).order('placed_at',{ascending:false});if(error)throw error;allBets=data||[];const mc={};for(let b of allBets){if(b.fixture_id){if(!mc[b.fixture_id])mc[b.fixture_id]=await getMatchDetails(b.fixture_id);const m=mc[b.fixture_id];if(m){b._match=m;b.match_name=`${m.home_team?.name||'Home'} vs ${m.away_team?.name||'Away'}`;b._homeTeam=m.home_team;b._awayTeam=m.away_team;b._league=m.league_name;b._kickoff=m.start_time;b._matchStatus=m.status;b._elapsed=m.elapsed;b._score={home:m.goals_home||0,away:m.goals_away||0};}}if(!b.match_name)b.match_name=`Match #${b.fixture_id||'N/A'}`;}updateStats();updateCounts();filterBets(currentFilter);startSettlementTimers();await autoSettleBets();}catch(e){document.getElementById('bet-list-container').innerHTML=`<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error</p><small>${escapeHtml(e.message)}</small></div>`;}}
+// 🔥 ANTI-FRAUD: Check accumulator legs
+if(isAcc){if(bet.placed_at&&bet.selections){for(const s of bet.selections){const lm=await getMatchDetails(s.fixtureId||s.fixture_id);if(lm&&lm.start_time){const bp=new Date(bet.placed_at);const lk=new Date(lm.start_time);if(bp>=lk){showNotification('🔒 Cash Out locked - Accumulator includes live bet selections','error');return;}}}}
+    let lc=0,tl=bet.selections?.length||0;let totalWinProb=0;
+    if(bet.selections)for(const s of bet.selections){const m=await getMatchDetails(s.fixtureId||s.fixture_id);if(m){const ms=(m.status||'').toLowerCase();if(ms==='live'||ms==='1h'||ms==='2h'||ms==='ht'){lc++;const wp=calculateWinProbability(s.betType||s.bet_type,m.goals_home||0,m.goals_away||0,(m.goals_home||0)+(m.goals_away||0),m.elapsed||0);totalWinProb+=wp;}}}
+    if(lc===0){showNotification('❌ Cash Out only during live matches','error');return;}
+    const avgProb=totalWinProb/Math.max(lc,1);let to=1;bet.selections.forEach(s=>to*=parseFloat(s.odds||1));
+    const td=getTimeDecay(bet._elapsed||30);let cv=bet.amount*to*avgProb*td;if(avgProb<0.25)cv=bet.amount*(avgProb*0.3);
+    const fee2=cv*0.03;cv-=fee2;cv=Math.max(cv,bet.amount*0.01);cv=Math.min(cv,bet.amount*to*0.90);
+    const isW=avgProb>=0.50,isL=avgProb<0.30;
+    if(!confirm(`Cash Out Acca?\n\nStake: $${bet.amount.toFixed(2)}\nOdds: ${to.toFixed(2)}\nWin Prob: ${(avgProb*100).toFixed(0)}%\nStatus: ${isW?'✅ WINNING':isL?'⚠️ LOSING':'➖ NEUTRAL'}\nCash Out: $${cv.toFixed(2)}\n${cv>=bet.amount?'Profit: +$'+(cv-bet.amount).toFixed(2):'Loss: -$'+(bet.amount-cv).toFixed(2)}\nLive: ${lc}/${tl}`))return;
+    try{await supabaseClient.from('bets').update({status:'cashed-out',cashout_amount:cv,cashout_fee:fee2,cashed_out_at:new Date().toISOString(),settlement_reason:`Cashed out - ${(avgProb*100).toFixed(0)}% prob - ${lc}/${tl} live`,updated_at:new Date().toISOString()}).eq('id',betId).eq('status','active');settledBets.add(betId);await updateWalletBalance(bet.user_id,cv);bet.status='cashed-out';showNotification(`${cv>=bet.amount?'✅':'⚠️'} Cashed Out: $${cv.toFixed(2)}`,'info');await loadBalance();updateStats();updateCounts();filterBets(currentFilter);}catch(e){showNotification(`Error: ${e.message}`,'error');}return;}
+
+// SINGLE BET CASHOUT
+let ml=false,el=0;if(bet.fixture_id){const m=await getMatchDetails(bet.fixture_id);if(m){
+    // 🔥 ANTI-FRAUD: Block cashout for live bets
+    if(!isBetPlacedBeforeKickoff(bet,m)){showNotification('🔒 Cash Out locked - This bet was placed during live match. Only pre-match bets can cash out.','warning');return;}
+    const ms=(m.status||'').toLowerCase();ml=ms==='live'||ms==='1h'||ms==='2h'||ms==='ht';el=m.elapsed||0;
+    if(ml){const co=calculateRealCashout(bet,m);const pt=co.profit>=0?`+$${co.profit.toFixed(2)} PROFIT`:`-$${Math.abs(co.profit).toFixed(2)} LOSS`;const si=co.isWinning?'✅':(co.isLosing?'⚠️':'➖');const st=co.isWinning?'WINNING':(co.isLosing?'LOSING':'NEUTRAL');
+        if(!confirm(`Cash Out?\n\nStake: $${bet.amount.toFixed(2)} @${bet.odds}\nWin Probability: ${co.winProbability}%\nStatus: ${si} ${st}\nTime Decay: ${co.timeDecay}%\nCash Out: $${co.value.toFixed(2)}\nFee: $${co.fee.toFixed(2)}\nResult: ${pt}\nMatch: ${el}' ${m.goals_home||0}-${m.goals_away||0}`))return;
+        try{await supabaseClient.from('bets').update({status:'cashed-out',cashout_amount:co.value,cashout_fee:co.fee,cashed_out_at:new Date().toISOString(),settlement_reason:`Cashed out ${el}' ${m.goals_home||0}-${m.goals_away||0} - ${co.winProbability}% prob`,updated_at:new Date().toISOString()}).eq('id',betId).eq('status','active');settledBets.add(betId);await updateWalletBalance(bet.user_id,co.value);bet.status='cashed-out';showNotification(`${co.profit>=0?'✅':'⚠️'} Cashed Out: $${co.value.toFixed(2)} (${pt})`,'info');await loadBalance();updateStats();updateCounts();filterBets(currentFilter);}catch(e){showNotification(`Error: ${e.message}`,'error');}}}}if(!ml){showNotification('❌ Cash Out only during live matches','error');return;}}
+
+async function loadBets(){const u=auth.currentUser;if(!u)return;try{const{data,error}=await supabaseClient.from('bets').select('*').eq('user_id',u.uid).order('placed_at',{ascending:false});if(error)throw error;allBets=data||[];const mc={};for(let b of allBets){if(b.fixture_id){if(!mc[b.fixture_id])mc[b.fixture_id]=await getMatchDetails(b.fixture_id);const m=mc[b.fixture_id];if(m){b._match=m;b.match_name=`${m.home_team?.name||'Home'} vs ${m.away_team?.name||'Away'}`;b._homeTeam=m.home_team;b._awayTeam=m.away_team;b._league=m.league_name;b._kickoff=m.start_time;b._matchStatus=m.status;b._elapsed=m.elapsed;b._score={home:m.goals_home||0,away:m.goals_away||0};b._isPreMatch=isBetPlacedBeforeKickoff(b,m);}}if(!b.match_name)b.match_name=`Match #${b.fixture_id||'N/A'}`;}updateStats();updateCounts();filterBets(currentFilter);startSettlementTimers();await autoSettleBets();}catch(e){document.getElementById('bet-list-container').innerHTML=`<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error</p><small>${escapeHtml(e.message)}</small></div>`;}}
 
 function startSettlementTimers(){settlementTimers.forEach(clearInterval);settlementTimers=[];allBets.filter(b=>b.status==='active').forEach(bet=>{const el=document.getElementById(`timer-${bet.id}`);if(!el)return;const u=()=>{const ko=bet._kickoff?new Date(bet._kickoff):null;if(!ko){el.textContent='TBD';return;}const ee=new Date(ko.getTime()+115*60000),n=new Date(),d=ee-n;if(d<=0){el.innerHTML='<span style="color:#4caf50;">Settling...</span>';}else{const h=Math.floor(d/3600000),m=Math.floor((d%3600000)/60000);el.textContent=h>0?`${h}h ${m}m`:`${m}m`;if(m<10&&h===0)el.classList.add('urgent');}};u();settlementTimers.push(setInterval(u,60000));});}
 
@@ -417,12 +287,30 @@ function updateStats(){const t=allBets.length,w=allBets.filter(b=>b.status==='wo
 function updateCounts(){const c={all:allBets.length,active:allBets.filter(b=>b.status==='active').length,won:allBets.filter(b=>b.status==='won').length,lost:allBets.filter(b=>b.status==='lost').length,cancelled:allBets.filter(b=>b.status==='cancelled').length,'cashed-out':allBets.filter(b=>b.status==='cashed-out').length};for(const[k,v]of Object.entries(c)){const e=document.getElementById(`cnt-${k}`);if(e)e.textContent=v;}}
 function filterBets(f){currentFilter=f;let fl=allBets;if(f!=='all')fl=allBets.filter(b=>b.status===f);const c=document.getElementById('bet-list-container');if(!fl.length){c.innerHTML=`<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>No ${f==='all'?'':f} bets</p></div>`;return;}c.innerHTML=fl.map(b=>createBetCard(b)).join('');startSettlementTimers();}
 
-function createBetCard(bet){const isAcc=bet.bet_type==='accumulator',amt=parseFloat(bet.amount||0),odds=parseFloat(bet.odds||2),pay=parseFloat(bet.payout||bet.potential_win||0),pr=bet.status==='won'?pay-amt:(bet.status==='lost'?-amt:(bet.status==='cashed-out'?(parseFloat(bet.cashout_amount||0)-amt):0)),tk='XL'+(bet.id?.toString().slice(-8)||'00000000').toUpperCase(),placed=bet.placed_at?new Date(bet.placed_at):new Date(),isActive=bet.status==='active';const ms=(bet._matchStatus||'').toLowerCase(),isLive=ms==='live'||ms==='1h'||ms==='2h'||ms==='ht',matchStarted=isLive||ms==='finished'||ms==='ft'||(bet._kickoff&&new Date(bet._kickoff)<new Date());const canCancel=isActive&&!isAcc&&!matchStarted&&!settledBets.has(bet.id);const canCashout=isActive&&!settledBets.has(bet.id)&&(isLive||(isAcc&&matchStarted));
-// Calculate live cashout preview
-let cashoutPreview='';if(canCashout&&!isAcc&&bet._match){const co=calculateRealCashout(bet,bet._match);const probClass=co.isWinning?'winning':(co.isLosing?'losing':'neutral');cashoutPreview=`<div class="cashout-preview"><span>Win Prob: <span class="prob ${probClass}">${co.winProbability}%</span></span><span>Cash Out: <span style="color:${co.profit>=0?'#4caf50':'var(--red)'};font-weight:bold;">$${co.value.toFixed(2)}</span></span><span style="color:${co.profit>=0?'#4caf50':'var(--red)'};">${co.profit>=0?'+':''}$${co.profit.toFixed(2)}</span></div>`;}
-const ht=bet._homeTeam||{name:'Home',logo:''},at=bet._awayTeam||{name:'Away',logo:''},hl=ht.logo||`https://ui-avatars.com/api/?name=${encodeURIComponent(ht.name?.substring(0,2)||'H')}&size=32&background=1a2332&color=00ff9d`,al=at.logo||`https://ui-avatars.com/api/?name=${encodeURIComponent(at.name?.substring(0,2)||'A')}&size=32&background=1a2332&color=ff9800`;let sh='';if(isAcc&&bet.selections?.length>0){sh=`<div class="selections-container"><div style="font-size:10px;color:var(--text2);margin-bottom:5px;">📋 ${bet.selections.length} Selections</div>${bet.selections.map(s=>`<div class="selection-item"><span class="selection-match">${escapeHtml(s.matchName||`#${s.fixtureId}`)}</span><span class="selection-pick">${escapeHtml(s.betTypeName||'')}</span><span class="selection-odds">@${s.odds}</span></div>`).join('')}</div>`;}const sd=bet._score?`<span class="bet-score-display${isLive?' live':''}">${bet._score.home} - ${bet._score.away}</span>`:'';const kickoffDisplay=bet._kickoff?formatFullDate(bet._kickoff):'TBD';const settlementEnd=bet._kickoff?formatFullDate(new Date(new Date(bet._kickoff).getTime()+115*60000)):'TBD';let ah='';if(isActive){ah='<div class="bet-actions">';if(canCancel)ah+=`<button class="cancel-btn" onclick="event.stopPropagation();cancelBet('${bet.id}')"><i class="fas fa-ban"></i> Cancel</button>`;else if(isAcc&&isActive&&!matchStarted)ah+=`<span class="action-info"><i class="fas fa-info-circle"></i> Accas cannot be cancelled</span>`;else if(!isAcc&&isActive&&matchStarted&&!isLive)ah+=`<span class="action-info"><i class="fas fa-clock"></i> Match started</span>`;if(canCashout){const co2=!isAcc&&bet._match?calculateRealCashout(bet,bet._match):null;const btnClass=co2&&co2.isLosing?'cashout-btn losing':'cashout-btn';ah+=`<button class="${btnClass}" onclick="event.stopPropagation();cashoutBet('${bet.id}')"><i class="fas fa-money-bill-wave"></i> Cash Out${co2?` ($${co2.value.toFixed(2)})`:''}</button>`;}else if(isActive&&!matchStarted)ah+=`<span class="action-info"><i class="fas fa-hourglass-start"></i> Cash out when live</span>`;else if(isActive&&matchStarted&&!isLive)ah+=`<span class="action-info"><i class="fas fa-flag-checkered"></i> Awaiting settlement</span>`;ah+='</div>';}return`<div class="bet-card ${bet.status}" onclick="showDetails('${bet.id}')"><div class="bet-top"><div><span class="bet-type-tag ${isAcc?'accumulator':'single'}">${isAcc?'ACCUMULATOR':'SINGLE'}</span><span class="bet-ticket-num">#${tk}</span></div><span class="bet-status-badge ${bet.status}">${bet.status==='won'?'🏆 WON':bet.status==='lost'?'❌ LOST':bet.status==='cancelled'?'⛔ CANCELLED':bet.status==='cashed-out'?'💰 CASHED OUT':'⏳ ACTIVE'}</span></div><div class="bet-body"><div class="bet-match-row"><img class="team-logo-small" src="${hl}" onerror="this.style.display='none'" alt=""><div class="bet-match-name">${escapeHtml(ht.name||'Home')} <span style="color:var(--text2);">vs</span> ${escapeHtml(at.name||'Away')}${sd}</div><img class="team-logo-small" src="${al}" onerror="this.style.display='none'" alt=""></div><div class="bet-league">${escapeHtml(bet._league||'')}${bet._elapsed?` | ${bet._elapsed}'`:''} | ${ms.toUpperCase()}</div><div class="bet-pick">${escapeHtml(formatBetTypeName(bet.bet_type))} <span class="bet-odds">@${odds.toFixed(2)}</span></div></div>${sh}<div class="bet-meta-row"><span><i class="fas fa-calendar-plus"></i> Placed: ${formatFullDate(bet.placed_at)}</span><span><i class="fas fa-clock"></i> Kickoff: ${kickoffDisplay}</span>${isActive?`<span><i class="fas fa-hourglass-end"></i> Settle by: ${settlementEnd}</span>`:''}</div>${cashoutPreview}<div class="bet-details-grid"><div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amt.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">${isActive?'Potential':'Payout'}</div><div class="val" style="color:${bet.status==='won'?'#4caf50':bet.status==='lost'?'var(--red)':'#fff'}">$${pay.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${pr>=0?'#4caf50':'var(--red)'}">${pr>=0?'+':''}$${Math.abs(pr).toFixed(2)}</div></div>${isActive?`<div class="bet-detail"><div class="lbl">Est. Settlement</div><div class="val"><span class="settlement-timer" id="timer-${bet.id}">...</span></div></div>`:''}</div>${bet.settlement_reason?`<div class="bet-result-row ${bet.status}"><i class="fas fa-gavel"></i> ${escapeHtml(bet.settlement_reason)}</div>`:''}${ah}</div>`;}
+// ===== CREATE BET CARD - v9.0 ANTI-FRAUD =====
+function createBetCard(bet){const isAcc=bet.bet_type==='accumulator',amt=parseFloat(bet.amount||0),odds=parseFloat(bet.odds||2),pay=parseFloat(bet.payout||bet.potential_win||0),pr=bet.status==='won'?pay-amt:(bet.status==='lost'?-amt:(bet.status==='cashed-out'?(parseFloat(bet.cashout_amount||0)-amt):0)),tk='XL'+(bet.id?.toString().slice(-8)||'00000000').toUpperCase(),isActive=bet.status==='active';const ms=(bet._matchStatus||'').toLowerCase(),isLive=ms==='live'||ms==='1h'||ms==='2h'||ms==='ht',matchStarted=isLive||ms==='finished'||ms==='ft'||(bet._kickoff&&new Date(bet._kickoff)<new Date());
+// 🔥 ANTI-FRAUD CHECKS
+const isPreMatch=bet._isPreMatch!==undefined?bet._isPreMatch:(bet.placed_at&&bet._kickoff?new Date(bet.placed_at)<new Date(bet._kickoff):true);
+const canCancel=isActive&&!isAcc&&!matchStarted&&!settledBets.has(bet.id);
+// 🔥 Cashout: active + not settled + match live + bet placed BEFORE kickoff
+const canCashout=isActive&&!settledBets.has(bet.id)&&isLive&&isPreMatch&&!isAcc;
+// Acca cashout (pre-match only)
+const canAccaCashout=isActive&&!settledBets.has(bet.id)&&isAcc&&matchStarted&&isPreMatch;
+let cashoutPreview='';if(canCashout&&bet._match){const co=calculateRealCashout(bet,bet._match);const pc=co.isWinning?'winning':(co.isLosing?'losing':'neutral');cashoutPreview=`<div class="cashout-preview"><span>Win Prob: <span class="prob ${pc}">${co.winProbability}%</span></span><span>Cash Out: <span style="color:${co.profit>=0?'#4caf50':'var(--red)'};font-weight:bold;">$${co.value.toFixed(2)}</span></span><span style="color:${co.profit>=0?'#4caf50':'var(--red)'};">${co.profit>=0?'+':''}$${co.profit.toFixed(2)}</span></div>`;}
+const ht=bet._homeTeam||{name:'Home',logo:''},at=bet._awayTeam||{name:'Away',logo:''},hl=ht.logo||`https://ui-avatars.com/api/?name=${encodeURIComponent(ht.name?.substring(0,2)||'H')}&size=32&background=1a2332&color=00ff9d`,al=at.logo||`https://ui-avatars.com/api/?name=${encodeURIComponent(at.name?.substring(0,2)||'A')}&size=32&background=1a2332&color=ff9800`;let sh='';if(isAcc&&bet.selections?.length>0){sh=`<div class="selections-container"><div style="font-size:10px;color:var(--text2);margin-bottom:5px;">📋 ${bet.selections.length} Selections</div>${bet.selections.map(s=>`<div class="selection-item"><span class="selection-match">${escapeHtml(s.matchName||`#${s.fixtureId}`)}</span><span class="selection-pick">${escapeHtml(s.betTypeName||'')}</span><span class="selection-odds">@${s.odds}</span></div>`).join('')}</div>`;}const sd=bet._score?`<span class="bet-score-display${isLive?' live':''}">${bet._score.home} - ${bet._score.away}</span>`:'';const kd=bet._kickoff?formatFullDate(bet._kickoff):'TBD';const se=bet._kickoff?formatFullDate(new Date(new Date(bet._kickoff).getTime()+115*60000)):'TBD';
+let ah='';if(isActive){ah='<div class="bet-actions">';
+if(canCancel)ah+=`<button class="cancel-btn" onclick="event.stopPropagation();cancelBet('${bet.id}')"><i class="fas fa-ban"></i> Cancel</button>`;
+else if(isAcc&&isActive&&!matchStarted)ah+=`<span class="action-info"><i class="fas fa-info-circle"></i> Accas cannot be cancelled</span>`;
+else if(!isAcc&&isActive&&matchStarted&&!isLive)ah+=`<span class="action-info"><i class="fas fa-clock"></i> Match started</span>`;
+if(canCashout){const co2=bet._match?calculateRealCashout(bet,bet._match):null;const bc=co2&&co2.isLosing?'cashout-btn losing':'cashout-btn';ah+=`<button class="${bc}" onclick="event.stopPropagation();cashoutBet('${bet.id}')"><i class="fas fa-money-bill-wave"></i> Cash Out${co2?` ($${co2.value.toFixed(2)})`:''}</button>`;}
+else if(canAccaCashout)ah+=`<button class="cashout-btn" onclick="event.stopPropagation();cashoutBet('${bet.id}')"><i class="fas fa-money-bill-wave"></i> Cash Out Acca</button>`;
+else if(isActive&&!matchStarted)ah+=`<span class="action-info"><i class="fas fa-hourglass-start"></i> Cash out when live</span>`;
+else if(isActive&&isLive&&!isPreMatch)ah+=`<span class="action-info locked"><i class="fas fa-shield-alt"></i> Live bet - Cash out locked</span>`;
+else if(isActive&&matchStarted&&!isLive)ah+=`<span class="action-info"><i class="fas fa-flag-checkered"></i> Awaiting settlement</span>`;
+ah+='</div>';}
+return`<div class="bet-card ${bet.status}" onclick="showDetails('${bet.id}')"><div class="bet-top"><div><span class="bet-type-tag ${isAcc?'accumulator':'single'}">${isAcc?'ACCUMULATOR':'SINGLE'}</span><span class="bet-ticket-num">#${tk}</span>${!isPreMatch&&isActive?`<span class="live-bet-badge"><i class="fas fa-bolt"></i> LIVE BET</span>`:''}</div><span class="bet-status-badge ${bet.status}">${bet.status==='won'?'🏆 WON':bet.status==='lost'?'❌ LOST':bet.status==='cancelled'?'⛔ CANCELLED':bet.status==='cashed-out'?'💰 CASHED OUT':'⏳ ACTIVE'}</span></div><div class="bet-body"><div class="bet-match-row"><img class="team-logo-small" src="${hl}" onerror="this.style.display='none'" alt=""><div class="bet-match-name">${escapeHtml(ht.name||'Home')} <span style="color:var(--text2);">vs</span> ${escapeHtml(at.name||'Away')}${sd}</div><img class="team-logo-small" src="${al}" onerror="this.style.display='none'" alt=""></div><div class="bet-league">${escapeHtml(bet._league||'')}${bet._elapsed?` | ${bet._elapsed}'`:''} | ${ms.toUpperCase()}</div><div class="bet-pick">${escapeHtml(formatBetTypeName(bet.bet_type))} <span class="bet-odds">@${odds.toFixed(2)}</span></div></div>${sh}<div class="bet-meta-row"><span><i class="fas fa-calendar-plus"></i> Placed: ${formatFullDate(bet.placed_at)}</span><span><i class="fas fa-clock"></i> Kickoff: ${kd}</span>${isActive?`<span><i class="fas fa-hourglass-end"></i> Settle by: ${se}</span>`:''}</div>${cashoutPreview}<div class="bet-details-grid"><div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amt.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">${isActive?'Potential':'Payout'}</div><div class="val" style="color:${bet.status==='won'?'#4caf50':bet.status==='lost'?'var(--red)':'#fff'}">$${pay.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${pr>=0?'#4caf50':'var(--red)'}">${pr>=0?'+':''}$${Math.abs(pr).toFixed(2)}</div></div>${isActive?`<div class="bet-detail"><div class="lbl">Est. Settlement</div><div class="val"><span class="settlement-timer" id="timer-${bet.id}">...</span></div></div>`:''}</div>${bet.settlement_reason?`<div class="bet-result-row ${bet.status}"><i class="fas fa-gavel"></i> ${escapeHtml(bet.settlement_reason)}</div>`:''}${ah}</div>`;}
 
-function showDetails(betId){const bet=allBets.find(b=>b.id===betId);if(!bet)return;const m=document.getElementById('bet-modal'),bdy=document.getElementById('modal-body'),amt=parseFloat(bet.amount||0),pay=parseFloat(bet.payout||bet.potential_win||0),pr=bet.status==='won'?pay-amt:(bet.status==='lost'?-amt:(bet.status==='cashed-out'?(parseFloat(bet.cashout_amount||0)-amt):0)),tk='XL'+(bet.id?.toString().slice(-8)||'00000000').toUpperCase(),placed=bet.placed_at?new Date(bet.placed_at):new Date(),ht=bet._homeTeam||{name:'Home',logo:''},at=bet._awayTeam||{name:'Away',logo:''};let sh='';if(bet.bet_type==='accumulator'&&bet.selections?.length>0){sh=`<div class="modal-section"><h4><i class="fas fa-layer-group"></i> Selections (${bet.selections.length})</h4>${bet.selections.map((s,i)=>`<div class="modal-row"><span class="lbl">#${i+1}</span><span>${escapeHtml(s.matchName)} - ${escapeHtml(s.betTypeName)} @${s.odds}</span></div>`).join('')}</div>`;}bdy.innerHTML=`<div class="modal-section"><h4><i class="fas fa-ticket-alt"></i> Ticket #${tk}</h4><div class="modal-row"><span class="lbl">Type</span><span>${bet.bet_type==='accumulator'?'Accumulator':'Single'}</span></div><div class="modal-row"><span class="lbl">Status</span><span>${bet.status?.toUpperCase()}</span></div><div class="modal-row"><span class="lbl">Match</span><span>${escapeHtml(ht.name)} vs ${escapeHtml(at.name)}</span></div><div class="modal-row"><span class="lbl">League</span><span>${escapeHtml(bet._league||'N/A')}</span></div><div class="modal-row"><span class="lbl">Score</span><span style="font-family:monospace;color:var(--orange);">${bet._score?`${bet._score.home}-${bet._score.away}`:'N/A'}</span></div></div><div class="modal-section"><h4><i class="fas fa-calendar-alt"></i> Timeline</h4><div class="modal-row"><span class="lbl">Placed</span><span>${placed.toLocaleString()}</span></div><div class="modal-row"><span class="lbl">Kickoff</span><span>${bet._kickoff?new Date(bet._kickoff).toLocaleString():'TBD'}</span></div><div class="modal-row"><span class="lbl">Est. Settlement</span><span>${bet._kickoff?new Date(new Date(bet._kickoff).getTime()+115*60000).toLocaleString():'TBD'}</span></div>${bet.settled_at?`<div class="modal-row"><span class="lbl">Settled</span><span>${new Date(bet.settled_at).toLocaleString()}</span></div>`:''}</div><div class="modal-section"><h4><i class="fas fa-info-circle"></i> Bet Details</h4><div class="modal-row"><span class="lbl">Pick</span><span>${escapeHtml(formatBetTypeName(bet.bet_type))}</span></div><div class="modal-row"><span class="lbl">Odds</span><span>${parseFloat(bet.odds||2).toFixed(2)}</span></div></div>${sh}<div class="modal-section"><h4><i class="fas fa-chart-line"></i> Financial</h4><div class="modal-row"><span class="lbl">Stake</span><span>$${amt.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Potential</span><span>$${parseFloat(bet.potential_win||0).toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Payout</span><span>$${pay.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">P/L</span><span style="color:${pr>=0?'#4caf50':'var(--red)'}">${pr>=0?'+':''}$${pr.toFixed(2)}</span></div></div>${bet.settlement_reason?`<div class="modal-section"><h4><i class="fas fa-gavel"></i> Settlement</h4><div class="modal-row"><span class="lbl">Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div></div>`:''}<div class="modal-section"><h4><i class="fas fa-headset"></i> Support</h4><div class="modal-row"><span class="lbl">Ticket</span><span><strong>${tk}</strong></span></div></div>`;m.classList.add('show');}
+function showDetails(betId){const bet=allBets.find(b=>b.id===betId);if(!bet)return;const m=document.getElementById('bet-modal'),bdy=document.getElementById('modal-body'),amt=parseFloat(bet.amount||0),pay=parseFloat(bet.payout||bet.potential_win||0),pr=bet.status==='won'?pay-amt:(bet.status==='lost'?-amt:(bet.status==='cashed-out'?(parseFloat(bet.cashout_amount||0)-amt):0)),tk='XL'+(bet.id?.toString().slice(-8)||'00000000').toUpperCase(),placed=bet.placed_at?new Date(bet.placed_at):new Date(),ht=bet._homeTeam||{name:'Home',logo:''},at=bet._awayTeam||{name:'Away',logo:''};const isPreMatch=bet._isPreMatch!==undefined?bet._isPreMatch:(bet.placed_at&&bet._kickoff?new Date(bet.placed_at)<new Date(bet._kickoff):true);let sh='';if(bet.bet_type==='accumulator'&&bet.selections?.length>0){sh=`<div class="modal-section"><h4><i class="fas fa-layer-group"></i> Selections (${bet.selections.length})</h4>${bet.selections.map((s,i)=>`<div class="modal-row"><span class="lbl">#${i+1}</span><span>${escapeHtml(s.matchName)} - ${escapeHtml(s.betTypeName)} @${s.odds}</span></div>`).join('')}</div>`;}bdy.innerHTML=`<div class="modal-section"><h4><i class="fas fa-ticket-alt"></i> Ticket #${tk}</h4><div class="modal-row"><span class="lbl">Type</span><span>${bet.bet_type==='accumulator'?'Accumulator':'Single'}${!isPreMatch?' <span style="color:var(--red);font-size:10px;">(LIVE BET)</span>':''}</span></div><div class="modal-row"><span class="lbl">Status</span><span>${bet.status?.toUpperCase()}</span></div><div class="modal-row"><span class="lbl">Match</span><span>${escapeHtml(ht.name)} vs ${escapeHtml(at.name)}</span></div><div class="modal-row"><span class="lbl">League</span><span>${escapeHtml(bet._league||'N/A')}</span></div><div class="modal-row"><span class="lbl">Score</span><span style="font-family:monospace;color:var(--orange);">${bet._score?`${bet._score.home}-${bet._score.away}`:'N/A'}</span></div></div><div class="modal-section"><h4><i class="fas fa-calendar-alt"></i> Timeline</h4><div class="modal-row"><span class="lbl">Placed</span><span>${placed.toLocaleString()}</span></div><div class="modal-row"><span class="lbl">Kickoff</span><span>${bet._kickoff?new Date(bet._kickoff).toLocaleString():'TBD'}</span></div><div class="modal-row"><span class="lbl">Est. Settlement</span><span>${bet._kickoff?new Date(new Date(bet._kickoff).getTime()+115*60000).toLocaleString():'TBD'}</span></div>${bet.settled_at?`<div class="modal-row"><span class="lbl">Settled</span><span>${new Date(bet.settled_at).toLocaleString()}</span></div>`:''}</div><div class="modal-section"><h4><i class="fas fa-info-circle"></i> Bet Details</h4><div class="modal-row"><span class="lbl">Pick</span><span>${escapeHtml(formatBetTypeName(bet.bet_type))}</span></div><div class="modal-row"><span class="lbl">Odds</span><span>${parseFloat(bet.odds||2).toFixed(2)}</span></div>${!isPreMatch?`<div class="modal-row"><span class="lbl">Cash Out</span><span style="color:var(--orange);">🔒 Locked (Live Bet)</span></div>`:''}</div>${sh}<div class="modal-section"><h4><i class="fas fa-chart-line"></i> Financial</h4><div class="modal-row"><span class="lbl">Stake</span><span>$${amt.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Potential</span><span>$${parseFloat(bet.potential_win||0).toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Payout</span><span>$${pay.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">P/L</span><span style="color:${pr>=0?'#4caf50':'var(--red)'}">${pr>=0?'+':''}$${pr.toFixed(2)}</span></div></div>${bet.settlement_reason?`<div class="modal-section"><h4><i class="fas fa-gavel"></i> Settlement</h4><div class="modal-row"><span class="lbl">Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div></div>`:''}<div class="modal-section"><h4><i class="fas fa-headset"></i> Support</h4><div class="modal-row"><span class="lbl">Ticket</span><span><strong>${tk}</strong></span></div></div>`;m.classList.add('show');}
 function closeModal(e){if(!e||e.target===document.getElementById('bet-modal'))document.getElementById('bet-modal').classList.remove('show');}
 function exportBetsToCSV(){if(!allBets.length){alert('No bets');return;}const h=['Ticket','Date','Type','Match','Pick','Odds','Stake','Payout','P/L','Status'];const r=allBets.map(b=>{const a=parseFloat(b.amount||0),p=parseFloat(b.payout||b.potential_win||0),pr=b.status==='won'?p-a:(b.status==='lost'?-a:0);return['XL'+(b.id?.toString().slice(-8)||'00000000').toUpperCase(),new Date(b.placed_at).toLocaleDateString(),b.bet_type==='accumulator'?'Acca':'Single',b.match_name||'',formatBetTypeName(b.bet_type),parseFloat(b.odds||2).toFixed(2),a.toFixed(2),p.toFixed(2),(pr>=0?'+':'')+pr.toFixed(2),b.status];});const csv=h.join(',')+'\n'+r.map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');const bl=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download=`xlodon-bets-${new Date().toISOString().split('T')[0]}.csv`;a.click();}
 
@@ -431,7 +319,7 @@ document.querySelectorAll('.filter-chip').forEach(c=>{c.addEventListener('click'
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 window.addEventListener('beforeunload',()=>{if(refreshInterval)clearInterval(refreshInterval);if(settleInterval)clearInterval(settleInterval);settlementTimers.forEach(clearInterval);});
 window.toggleLanguage=toggleLanguage;window.closeModal=closeModal;window.cancelBet=cancelBet;window.cashoutBet=cashoutBet;window.showDetails=showDetails;window.exportBetsToCSV=exportBetsToCSV;
-console.log('✅ My Bets v8.0 - REAL CASHOUT | WIN or LOSE based on match state');
+console.log('✅ My Bets v9.0 - ANTI-FRAUD | Live Bet Lock | Real Cashout');
 </script>
 </body>
 </html>
