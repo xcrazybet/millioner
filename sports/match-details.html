@@ -240,10 +240,7 @@
         .timer-box.warning .timer-value { color: var(--accent2); }
         .timer-box.danger .timer-value { color: var(--danger); animation: pulse 1s infinite; }
         
-        /* ============================================ */
-        /* 🎯 ENHANCED PLAYGROUND - ALL 20 ENHANCEMENTS */
-        /* ============================================ */
-        
+        /* Playground CSS Rules */
         #playground-container {
             display: none;
             background: linear-gradient(145deg, var(--bg-secondary), var(--bg-tertiary));
@@ -971,41 +968,7 @@
             background: rgba(0,255,157,0.1);
         }
         
-        /* Playground Responsive */
-        @media (max-width: 768px) {
-            #playground-container { padding: 15px; }
-            .playground-scoreboard { flex-direction: column; gap: 10px; padding: 12px; }
-            .playground-team { width: 100%; justify-content: center !important; }
-            .playground-team-logo { width: 35px; height: 35px; }
-            .playground-team-name { font-size: 12px; max-width: 80px; }
-            .playground-score { font-size: 28px; }
-            .playground-timer { font-size: 12px; }
-            .playground-stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-            .playground-stat { padding: 8px 10px; }
-            .stat-home, .stat-away { font-size: 12px; }
-            .playground-title { font-size: 12px; }
-            .playground-possession { padding: 5px; }
-            .possession-label { font-size: 11px; min-width: 35px; }
-            .playground-metrics { grid-template-columns: repeat(3, 1fr); }
-            .metric span:last-child { font-size: 15px; }
-            .goal-celebration { font-size: 20px; }
-            .comparison-grid { gap: 4px; }
-        }
-        
-        @media (max-width: 400px) {
-            #playground-container { padding: 10px; }
-            .playground-stats-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
-            .playground-score { font-size: 24px; }
-            .playground-team-logo { width: 28px; height: 28px; }
-            .playground-team-name { font-size: 10px; max-width: 60px; }
-            .stat-label { font-size: 8px; }
-            .event-item { font-size: 10px; padding: 3px 6px; }
-            .playground-scoreboard { padding: 8px; }
-            .playground-metrics { grid-template-columns: repeat(2, 1fr); }
-            .comparison-item { font-size: 10px; }
-            .comparison-item span:first-child { min-width: 50px; }
-        }
-        
+        /* Category Tabs */
         .category-tabs-wrapper {
             position: relative;
             margin-bottom: 15px;
@@ -1065,6 +1028,7 @@
         .tab-nav-arrow.left { left: -10px; }
         .tab-nav-arrow.right { right: -10px; }
         
+        /* Betting Box Rules */
         .bet-section { 
             background: var(--bg-secondary); 
             border-radius: 20px; 
@@ -1228,7 +1192,7 @@
         .btn-slip:hover:not(:disabled) { transform: scale(1.02); background: #e68900; }
         .btn-added { background: var(--success) !important; color: white !important; }
         
-        /* 🛒 Clear Cart Button */
+        /* Cart CSS */
         .btn-clear-cart {
             background: var(--danger);
             color: white;
@@ -1318,7 +1282,6 @@
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         @keyframes fadeOut { to { opacity: 0; visibility: hidden; } }
         
-        /* 🛒 Cart Styles */
         .cart-icon { 
             position: fixed; 
             bottom: 25px; 
@@ -1498,9 +1461,7 @@
             <!-- Match Hero -->
             <div class="match-hero" id="match-hero"></div>
             
-            <!-- ============================================ -->
-            <!-- 🎯 ENHANCED PLAYGROUND - ALL 20 ENHANCEMENTS  -->
-            <!-- ============================================ -->
+            <!-- Live Match Playground -->
             <div id="playground-container" style="display:none;">
                 <div class="playground-header">
                     <div class="playground-title">
@@ -1871,9 +1832,6 @@
                     </div>
                 </div>
             </div>
-            <!-- ============================================ -->
-            <!-- END ENHANCED PLAYGROUND                      -->
-            <!-- ============================================ -->
             
             <!-- Match Stats -->
             <div id="match-stats-container" style="margin-bottom:15px;"></div>
@@ -1984,9 +1942,9 @@
 
     <script>
         // ============================================
-        // X LODON MATCH DETAILS - ULTIMATE v6.0
+        // X LODON MATCH DETAILS - ULTIMATE v6.1 (FAST)
         // 26 Categories | 240+ Bet Types
-        // WITH 20 ENHANCEMENTS + PERSISTENT CART
+        // WITH CONCURRENT RACING & STALE-WHILE-REVALIDATE CACHE
         // ============================================
         
         // ===== CONFIGURATION =====
@@ -2041,13 +1999,10 @@
         let playgroundStatsInterval = null;
         let playgroundEventsInterval = null;
         let isDarkTheme = false;
-        let loadAttempts = 0;
-        const MAX_LOAD_ATTEMPTS = 3;
         
         // ============================================
         // 🛒 PERSISTENT CART - localStorage
         // ============================================
-        
         const CART_STORAGE_KEY = 'xlodon_bet_slip';
         
         function loadCartFromStorage() {
@@ -2088,91 +2043,125 @@
         }
         
         // ============================================
-        // 🚀 GET MATCH WITH FALLBACK
+        // 🛡️ DATA NORMALIZER (PREVENTS "HOME / AWAY" LOSS)
         // ============================================
-        
+        function normalizeMatchData(raw, existing = null) {
+            if (!raw) return null;
+            
+            const safeParse = (val) => {
+                if (typeof val === 'string') {
+                    try { return JSON.parse(val); } catch(e) { return null; }
+                }
+                return val;
+            };
+
+            let home = null;
+            let away = null;
+            let score = null;
+            let odds = null;
+            let elapsed = 0;
+            let status = 'upcoming';
+            let leagueName = '';
+            let leagueLogo = '';
+
+            // Map standard nested API payloads vs flat Supabase/Cache shapes
+            if (raw.fixture && raw.teams) {
+                home = raw.teams.home;
+                away = raw.teams.away;
+                score = { home: raw.goals?.home || 0, away: raw.goals?.away || 0 };
+                odds = raw.odds || { home: '1.80', draw: '3.20', away: '2.80' };
+                elapsed = raw.fixture.status?.elapsed || 0;
+                const s = raw.fixture.status?.short || 'NS';
+                status = ['1H','2H','HT','ET','BT','LIVE','INT','P'].includes(s) ? 'live' : 
+                         ['FT','AET','PEN'].includes(s) ? 'finished' : 'upcoming';
+                leagueName = raw.league?.name || '';
+                leagueLogo = raw.league?.logo || '';
+            } else {
+                home = safeParse(raw.home_team);
+                away = safeParse(raw.away_team);
+                score = safeParse(raw.score);
+                odds = safeParse(raw.odds);
+                elapsed = raw.elapsed || 0;
+                status = raw.status || 'upcoming';
+                leagueName = raw.league_name || '';
+                leagueLogo = raw.league_logo || '';
+            }
+
+            // Protect against lost team names: only overwrite if fresh values are explicitly populated
+            const cleanHomeName = (home?.name && home.name.trim() !== '') ? home.name :
+                                  (raw.home_name && raw.home_name.trim() !== '') ? raw.home_name :
+                                  (existing?.home_team?.name) ? existing.home_team.name : 'Home Team';
+
+            const cleanAwayName = (away?.name && away.name.trim() !== '') ? away.name :
+                                  (raw.away_name && raw.away_name.trim() !== '') ? raw.away_name :
+                                  (existing?.away_team?.name) ? existing.away_team.name : 'Away Team';
+
+            return {
+                fixture_id: raw.fixture_id || raw.fixture?.id || parseInt(fixtureId) || 0,
+                status: status,
+                league_name: leagueName || existing?.league_name || 'Unknown League',
+                league_logo: leagueLogo || existing?.league_logo || '',
+                home_team: {
+                    id: home?.id || raw.home_id || existing?.home_team?.id || 0,
+                    name: cleanHomeName,
+                    logo: home?.logo || raw.home_logo || existing?.home_team?.logo || ''
+                },
+                away_team: {
+                    id: away?.id || raw.away_id || existing?.away_team?.id || 0,
+                    name: cleanAwayName,
+                    logo: away?.logo || raw.away_logo || existing?.away_team?.logo || ''
+                },
+                start_time: raw.start_time || raw.fixture?.date || existing?.start_time || new Date().toISOString(),
+                score: {
+                    home: score?.home !== undefined ? score.home : (existing?.score?.home !== undefined ? existing.score.home : 0),
+                    away: score?.away !== undefined ? score.away : (existing?.score?.away !== undefined ? existing.score.away : 0)
+                },
+                elapsed: elapsed,
+                odds: {
+                    home: odds?.home || raw.odds_home || existing?.odds?.home || '1.80',
+                    draw: odds?.draw || raw.odds_draw || existing?.odds?.draw || '3.20',
+                    away: odds?.away || raw.odds_away || existing?.odds?.away || '2.80'
+                },
+                statistics: safeParse(raw.statistics) || existing?.statistics || {},
+                events: safeParse(raw.events) || existing?.events || { all: [], goals: [], yellowCards: [], redCards: [], substitutions: [] },
+                bets_closed: raw.bets_closed !== undefined ? raw.bets_closed : (existing?.bets_closed || false)
+            };
+        }
+
+        // ============================================
+        // 🚀 RACED CONCURRENT QUERIES
+        // ============================================
         async function getMatch(fixtureId) {
-            console.log(`🔍 Getting match ${fixtureId}...`);
-            updateLoadingStatus('Loading match data...');
-            
-            // Try API first
-            try {
+            console.log(`🔍 Querying sources for fixture ${fixtureId}...`);
+            updateLoadingStatus('Querying live datastores concurrently...');
+
+            const fetchFromSupabase = async () => {
+                if (!supabaseClient) throw new Error('Supabase Client Off');
+                const { data, error } = await supabaseClient
+                    .from('sports_matches')
+                    .select('*')
+                    .eq('fixture_id', parseInt(fixtureId))
+                    .maybeSingle();
+                if (error || !data) throw new Error('Query mismatch on Supabase');
+                return normalizeMatchData(data, currentMatch);
+            };
+
+            const fetchFromAPI = async () => {
                 const response = await fetch(`${API_BASE}/api/fixture/${fixtureId}`);
-                console.log(`📡 API Response status: ${response.status}`);
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('📦 API Response:', data);
-                    
-                    if (data.success && data.fixture) {
-                        const f = data.fixture;
-                        return {
-                            fixture_id: f.fixture?.id || parseInt(fixtureId),
-                            status: f.fixture?.status?.short ? 
-                                    (['1H','2H','HT','ET','BT','LIVE','INT','P'].includes(f.fixture.status.short) ? 'live' : 
-                                     ['FT','AET','PEN'].includes(f.fixture.status.short) ? 'finished' : 'upcoming') : 'upcoming',
-                            league_name: f.league?.name || 'Unknown League',
-                            league_logo: f.league?.logo || '',
-                            home_team: {
-                                id: f.teams?.home?.id || 0,
-                                name: f.teams?.home?.name || 'Home Team',
-                                logo: f.teams?.home?.logo || ''
-                            },
-                            away_team: {
-                                id: f.teams?.away?.id || 0,
-                                name: f.teams?.away?.name || 'Away Team',
-                                logo: f.teams?.away?.logo || ''
-                            },
-                            start_time: f.fixture?.date || new Date().toISOString(),
-                            score: { home: f.goals?.home || 0, away: f.goals?.away || 0 },
-                            elapsed: f.fixture?.status?.elapsed || 0,
-                            odds: {
-                                home: (1.80 + ((f.fixture?.id || 0) % 20) / 100).toFixed(2),
-                                draw: (3.20 + ((f.fixture?.id || 0) % 15) / 100).toFixed(2),
-                                away: (2.80 + ((f.fixture?.id || 0) % 25) / 100).toFixed(2)
-                            },
-                            statistics: {},
-                            events: { all: [], goals: [], yellowCards: [], redCards: [], substitutions: [] }
-                        };
-                    }
-                }
-            } catch(e) {
-                console.log('API fetch error:', e.message);
+                if (!response.ok) throw new Error(`Worker status: ${response.status}`);
+                const data = await response.json();
+                if (!data.success || !data.fixture) throw new Error('Payload format mismatch');
+                return normalizeMatchData(data.fixture, currentMatch);
+            };
+
+            try {
+                // Racing both calls to display data as fast as the quickest query responds
+                return await Promise.any([fetchFromSupabase(), fetchFromAPI()]);
+            } catch (e) {
+                console.warn('⚡ Network requests failed. Using in-memory state or generating fallbacks.', e);
+                if (currentMatch) return currentMatch;
+                return createDemoMatch(fixtureId);
             }
-            
-            // Try Supabase
-            if (supabaseClient) {
-                try {
-                    const { data, error } = await supabaseClient
-                        .from('sports_matches')
-                        .select('*')
-                        .eq('fixture_id', parseInt(fixtureId))
-                        .maybeSingle();
-                    
-                    if (!error && data) {
-                        console.log('✅ Match found in Supabase:', data);
-                        if (typeof data.home_team === 'string') {
-                            try { data.home_team = JSON.parse(data.home_team); } catch(e) {}
-                        }
-                        if (typeof data.away_team === 'string') {
-                            try { data.away_team = JSON.parse(data.away_team); } catch(e) {}
-                        }
-                        if (typeof data.odds === 'string') {
-                            try { data.odds = JSON.parse(data.odds); } catch(e) {}
-                        }
-                        if (typeof data.score === 'string') {
-                            try { data.score = JSON.parse(data.score); } catch(e) {}
-                        }
-                        return data;
-                    }
-                } catch(e) { 
-                    console.log('Supabase query error:', e.message); 
-                }
-            }
-            
-            // ===== FALLBACK: CREATE DEMO MATCH =====
-            console.log('⚠️ Creating demo match as fallback');
-            return createDemoMatch(fixtureId);
         }
         
         function createDemoMatch(id) {
@@ -2237,33 +2226,56 @@
         }
         
         // ============================================
-        // 🚀 LOAD MATCH DATA WITH TIMEOUT
+        // 🚀 LOAD MATCH DATA (STALE-WHILE-REVALIDATE)
         // ============================================
-        
         async function loadMatchData() {
             try {
-                console.log('🚀 Loading match data...');
-                updateLoadingStatus('Fetching match data...');
+                console.log('🚀 Loading match data sequence initiated...');
+                updateLoadingStatus('Preparing content...');
                 
+                const cacheKey = `xl_match_cache_${fixtureId}`;
+                const cachedData = sessionStorage.getItem(cacheKey);
+                
+                // 1. Immediately paint UI from Cache (Delays eliminated)
+                if (cachedData) {
+                    try {
+                        const parsed = JSON.parse(cachedData);
+                        currentMatch = normalizeMatchData(parsed);
+                        console.log('📦 Instant Cache hit populated.');
+                        
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('content').style.display = 'block';
+                        
+                        renderMatchDetails();
+                        renderCategoryTabs();
+                        renderBetOptions();
+                        startTimers();
+                        
+                        fetchStats();
+                        fetchEvents();
+                    } catch (cacheErr) {
+                        console.error('Session cache parse error:', cacheErr);
+                    }
+                }
+                
+                // 2. Refresh concurrently in background
                 const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('API timeout after 10 seconds')), 10000);
+                    setTimeout(() => reject(new Error('Network response limit exceeded')), 10000);
                 });
                 
                 const matchPromise = getMatch(fixtureId);
-                currentMatch = await Promise.race([matchPromise, timeoutPromise]);
+                const freshMatch = await Promise.race([matchPromise, timeoutPromise]);
                 
-                if (!currentMatch) {
-                    throw new Error('No match data received');
+                if (freshMatch) {
+                    currentMatch = freshMatch;
+                    sessionStorage.setItem(cacheKey, JSON.stringify(freshMatch));
                 }
                 
-                console.log('✅ Match loaded:', currentMatch);
-                
-                // Load cart from localStorage
-                loadCartFromStorage();
-                
+                // 3. Remove loader and perform final clean paint
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
                 
+                loadCartFromStorage();
                 renderMatchDetails();
                 renderCategoryTabs();
                 renderBetOptions();
@@ -2273,29 +2285,30 @@
                 fetchStats();
                 fetchEvents();
                 
-                console.log('✅ Page fully initialized');
+                console.log('✅ Final UI state synchronized with database.');
                 
             } catch(e) {
-                console.error('❌ Load error:', e);
-                document.getElementById('loading').innerHTML = `
-                    <div class="no-data">
-                        <i class="fas fa-exclamation-triangle" style="font-size:40px;display:block;margin-bottom:10px;"></i>
-                        Error loading match<br>
-                        <small style="color:var(--text-secondary);">${escapeHtml(e.message)}</small><br><br>
-                        <button onclick="location.reload()" style="background:var(--accent);color:black;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;margin:5px;">
-                            <i class="fas fa-redo"></i> Retry
-                        </button>
-                        <br><br>
-                        <a href="live-matches.html" style="color:var(--accent);">⬅ Back to Live Matches</a>
-                    </div>
-                `;
+                console.error('❌ Loading thread aborted:', e);
+                if (!currentMatch) {
+                    document.getElementById('loading').innerHTML = `
+                        <div class="no-data">
+                            <i class="fas fa-exclamation-triangle" style="font-size:40px;display:block;margin-bottom:10px;"></i>
+                            Error loading match details<br>
+                            <small style="color:var(--text-secondary);">${escapeHtml(e.message)}</small><br><br>
+                            <button onclick="location.reload()" style="background:var(--accent);color:black;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;margin:5px;">
+                                <i class="fas fa-redo"></i> Retry
+                            </button>
+                            <br><br>
+                            <a href="live-matches.html" style="color:var(--accent);">⬅ Back to Live Matches</a>
+                        </div>
+                    `;
+                }
             }
         }
         
         // ============================================
         // 📡 FETCH STATS & EVENTS
         // ============================================
-        
         async function fetchStats() {
             if (!currentMatch || currentMatch.status === 'finished') return;
             try {
@@ -2339,7 +2352,6 @@
         // ============================================
         // 🎯 BET CATEGORIES (COMPLETE)
         // ============================================
-        
         const BET_CATEGORIES = {
             'match_winner': {
                 name: '🏆 Match Winner',
@@ -2529,7 +2541,7 @@
                     { type: 'free_kicks_over35', name: 'Over 3.5', icon: '⬆️', defaultOdds: 1.80 },
                     { type: 'free_kicks_under35', name: 'Under 3.5', icon: '⬇️', defaultOdds: 1.90 },
                     { type: 'free_kicks_over45', name: 'Over 4.5', icon: '⬆️', defaultOdds: 2.00 },
-                    { type: 'free_kicks_under45', name: 'Under 4.5', icon: '⬇️', defaultOdds: 1.70 },
+                    { type: 'free_kicks_under45', name: 'Under 4.5', icon: '7.70', defaultOdds: 1.70 },
                     { type: 'free_kicks_over55', name: 'Over 5.5', icon: '⬆️', defaultOdds: 2.50 },
                     { type: 'free_kicks_under55', name: 'Under 5.5', icon: '⬇️', defaultOdds: 1.50 },
                     { type: 'first_free_kick_home', name: '1st FK Home', icon: '🏠', defaultOdds: 2.00 },
@@ -2696,7 +2708,6 @@
         // ============================================
         // 🛠️ UTILITY FUNCTIONS
         // ============================================
-        
         function getOdds(baseOdds) {
             const variation = (Math.random() - 0.5) * 0.1 * baseOdds;
             return Math.max(1.01, (baseOdds + variation)).toFixed(2);
@@ -2737,7 +2748,6 @@
         // ============================================
         // 💰 WALLET FUNCTIONS
         // ============================================
-        
         async function getWalletBalance(userId) {
             try {
                 const doc = await db.collection('wallets').doc(userId).get();
@@ -2779,9 +2789,8 @@
         }
         
         // ============================================
-        // 🎯 ENHANCEMENTS FUNCTIONS
+        // 🎯 PLAYGROUND LAYOUT UTILITIES
         // ============================================
-        
         function togglePlaygroundTheme() {
             isDarkTheme = !isDarkTheme;
             const container = document.getElementById('playground-container');
@@ -2859,9 +2868,8 @@
         }
         
         // ============================================
-        // 🎯 PLAYGROUND RENDER FUNCTIONS
+        // 🎯 PLAYGROUND RENDERING ENGINE
         // ============================================
-        
         function renderPlayground() {
             if (!currentMatch) return;
             
@@ -3222,9 +3230,8 @@
         }
         
         // ============================================
-        // 🏗️ RENDER FUNCTIONS
+        // 🏗️ CATEGORY & OPTIONS RENDER SCRIPT
         // ============================================
-        
         function renderCategoryTabs() {
             const tabsContainer = document.getElementById('category-tabs');
             if (!tabsContainer) return;
@@ -3361,16 +3368,8 @@
             const isUpcoming = currentMatch.status === 'upcoming';
             const isFinished = currentMatch.status === 'finished';
             
-            let homeTeam = currentMatch.home_team || { name: 'Home Team', logo: '' };
-            let awayTeam = currentMatch.away_team || { name: 'Away Team', logo: '' };
-            
-            if (typeof homeTeam === 'string') {
-                try { homeTeam = JSON.parse(homeTeam); } catch(e) { homeTeam = { name: homeTeam || 'Home Team', logo: '' }; }
-            }
-            if (typeof awayTeam === 'string') {
-                try { awayTeam = JSON.parse(awayTeam); } catch(e) { awayTeam = { name: awayTeam || 'Away Team', logo: '' }; }
-            }
-            
+            const homeTeam = currentMatch.home_team;
+            const awayTeam = currentMatch.away_team;
             const score = currentMatch.score || { home: 0, away: 0 };
             
             let statusHtml = '';
@@ -3449,7 +3448,6 @@
         // ============================================
         // ⏱️ TIMERS
         // ============================================
-        
         function startTimers() {
             timerIntervals.forEach(clearInterval);
             timerIntervals = [];
@@ -3517,9 +3515,8 @@
         }
         
         // ============================================
-        // 🔄 AUTO REFRESH
+        // 🔄 AUTO REFRESH (WITH STATE PRESERVATION)
         // ============================================
-        
         function startAutoRefresh() {
             if (refreshInterval) clearInterval(refreshInterval);
             if (currentMatch?.status === 'live') {
@@ -3527,21 +3524,21 @@
                     try {
                         const fresh = await getMatch(fixtureId);
                         if (fresh) {
-                            currentMatch = fresh;
+                            // Merge and protect from team names disappearing 
+                            currentMatch = normalizeMatchData(fresh, currentMatch);
                             lastRefreshTime = Date.now();
                             renderMatchDetails();
                             renderBetOptions();
                             await updateBalanceDisplay();
                         }
-                    } catch(e) { console.error('Refresh error:', e); }
+                    } catch(e) { console.error('Refresh thread error:', e); }
                 }, 15000);
             }
         }
         
         // ============================================
-        // 💰 BET FUNCTIONS
+        // 💰 BET SLIP SUBMISSIONS
         // ============================================
-        
         async function placeBet(betData) {
             const user = auth.currentUser;
             if (!user) throw new Error('Not authenticated');
@@ -3586,9 +3583,8 @@
         }
         
         // ============================================
-        // 🛒 PERSISTENT CART - OVERRIDE FUNCTIONS
+        // 🛒 PERSISTENT CART OPERATIONS
         // ============================================
-        
         function addToSlipFromMatch(betType, odds, betName) {
             if (!currentMatch) return;
             if (checkIfBettingDisabled()) { showError('Betting closed'); return; }
@@ -3660,7 +3656,6 @@
                 return;
             }
             
-            // Group by match
             const grouped = {};
             accumulatorSlip.forEach(item => {
                 const key = item.fixtureId;
@@ -3681,7 +3676,7 @@
                 const matchName = items[0].matchName;
                 html += `<div style="font-size:11px;font-weight:600;color:var(--accent);margin:8px 0 4px 0;">${escapeHtml(matchName)}</div>`;
                 
-                items.forEach((item, idx) => {
+                items.forEach((item) => {
                     totalOdds *= item.odds;
                     const actualIndex = accumulatorSlip.indexOf(item);
                     html += `
@@ -3761,9 +3756,8 @@
                 if (supabaseClient) await supabaseClient.from('bets').insert(bet);
                 await deductBalance(user.uid, stake, betId);
                 
-                showNotification(`✅ Accumulator placed! Win: $${potentialWin.toFixed(2)}`, 'success');
+                showNotification(`%c✅ Accumulator placed! Win: $${potentialWin.toFixed(2)}`, 'success');
                 
-                // Clear cart after placing
                 accumulatorSlip = [];
                 saveCartToStorage();
                 updateCartUI();
@@ -3786,9 +3780,8 @@
         }
         
         // ============================================
-        // 🚪 NAVIGATION
+        // 🚪 WINDOW ROUTING
         // ============================================
-        
         function goBack() {
             if (document.referrer && document.referrer.includes(window.location.hostname)) {
                 window.history.back();
@@ -3870,9 +3863,8 @@
         }
         
         // ============================================
-        // 🚀 INITIALIZATION
+        // 🚀 ROUTING CHECKS
         // ============================================
-        
         async function init() {
             if (!fixtureId) {
                 document.getElementById('loading').innerHTML = `
@@ -3886,14 +3878,12 @@
                 `;
                 return;
             }
-            
             await loadMatchData();
         }
         
         // ============================================
-        // 📡 EVENT LISTENERS
+        // 📡 EVENT HANDLERS
         // ============================================
-        
         document.addEventListener('DOMContentLoaded', () => {
             const placeBtn = document.getElementById('place-bet-btn');
             if (placeBtn) placeBtn.addEventListener('click', placeBetHandler);
@@ -3929,7 +3919,6 @@
             if (searchInput) searchInput.addEventListener('input', () => renderBetOptions());
         });
         
-        // Auth state listener
         auth.onAuthStateChanged(async (user) => {
             if (user) {
                 console.log('✅ User authenticated:', user.email);
@@ -3963,7 +3952,6 @@
             }
         });
         
-        // Cleanup on unload
         window.addEventListener('beforeunload', () => {
             if (refreshInterval) clearInterval(refreshInterval);
             timerIntervals.forEach(clearInterval);
@@ -3971,10 +3959,7 @@
             if (playgroundEventsInterval) clearInterval(playgroundEventsInterval);
         });
         
-        // ============================================
-        // 🌐 EXPOSE GLOBAL FUNCTIONS
-        // ============================================
-        
+        // ===== EXPOSURE UTILITIES =====
         window.goBack = goBack;
         window.toggleLanguage = toggleLanguage;
         window.toggleCart = toggleCart;
@@ -3990,15 +3975,7 @@
         window.clearCart = clearCart;
         window.addToSlipFromMatch = addToSlipFromMatch;
         
-        // Apply saved language
         if (localStorage.getItem('lang') === 'ar') toggleLanguage();
-        
-        console.log('✅ X Lodon Match Details v6.0 Ready - 100% Working!');
-        console.log('   📋 26 Categories | 240+ Bet Types');
-        console.log('   🎯 20 Enhancements Applied');
-        console.log('   🛒 Persistent Cart Across Matches');
-        console.log('   🔗 API:', API_BASE);
-        console.log('   🎯 Fixture ID:', fixtureId);
     </script>
 </body>
 </html>
