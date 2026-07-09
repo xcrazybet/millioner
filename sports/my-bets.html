@@ -177,7 +177,7 @@
 
 <script>
 // ============================================
-// MY BETS v9.5 - PARALLEL FETCH & STATE CACHE
+// MY BETS v9.0 - ANTI-FRAUD CASHOUT
 // Real Win/Loss | Live Bet Lock | Pre-Match Only
 // ============================================
 const SUPABASE_URL='https://jnazybaeajyynpyoszmy.supabase.co';
@@ -187,7 +187,6 @@ let supabaseClient=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 const firebaseConfig={apiKey:"AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",authDomain:"x-bet-prod-jd.firebaseapp.com",projectId:"x-bet-prod-jd",storageBucket:"x-bet-prod-jd.firebasestorage.app",messagingSenderId:"499334334535",appId:"1:499334334535:web:bebc1bf817e24d9e3c4962"};
 if(!firebase.apps.length)firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore(),auth=firebase.auth();
-
 let allBets=[],currentFilter='all',refreshInterval=null,settleInterval=null,settlementTimers=[],settledBets=new Set();
 
 function toggleLanguage(){const ia=document.body.classList.toggle('arabic');localStorage.setItem('lang',ia?'ar':'en');document.documentElement.dir=ia?'rtl':'ltr';document.querySelectorAll('.en').forEach(e=>e.style.display=ia?'none':'');document.querySelectorAll('.ar').forEach(e=>e.style.display=ia?'':'');}
@@ -200,81 +199,7 @@ async function loadBalance(){try{const u=auth.currentUser;if(!u)return 0;const d
 async function updateWalletBalance(uid,amt){const wr=db.collection('wallets').doc(uid);await db.runTransaction(async t=>{const d=await t.get(wr);const c=d.exists?(d.data().balance||0):0;t.update(wr,{balance:c+amt,updated_at:new Date().toISOString()});const tr=db.collection('transactions').doc();t.set(tr,{user_id:uid,amount:amt,type:amt>0?'credit':'debit',balance_before:c,balance_after:c+amt,timestamp:new Date().toISOString()});});}
 
 async function fetchMatchFromAPI(fid){try{const r=await fetch(`${API_BASE}/api/fixture/${fid}`);if(!r.ok)return null;const d=await r.json();if(d.success&&d.fixture){const f=d.fixture,g=f.goals||{home:0,away:0},sc=f.score||{fulltime:{home:0,away:0},halftime:{home:0,away:0}};return{fixture_id:f.fixture?.id||fid,status:f.fixture?.status?.short||'NS',elapsed:f.fixture?.status?.elapsed||0,home_team:{name:f.teams?.home?.name||'Home',logo:f.teams?.home?.logo||''},away_team:{name:f.teams?.away?.name||'Away',logo:f.teams?.away?.logo||''},league_name:f.league?.name||'',start_time:f.fixture?.date||'',goals_home:g.home||sc.fulltime?.home||0,goals_away:g.away||sc.fulltime?.away||0,ht_home:sc.halftime?.home||0,ht_away:sc.halftime?.away||0};}return null;}catch(e){return null;}}
-
-// ============================================
-// 🔥 OPTIMIZED BATCH MATCHER ENGINE (0 DELAY)
-// ============================================
-async function fetchMatchesBatch(fids, existingDataMap = {}) {
-    if (!fids || !fids.length) return {};
-    const batchResult = {};
-
-    try {
-        // Query Supabase for all match rows simultaneously
-        const { data, error } = await supabaseClient
-            .from('sports_matches')
-            .select('*')
-            .in('fixture_id', fids);
-
-        if (!error && data) {
-            data.forEach(row => {
-                let ht = row.home_team;
-                let at = row.away_team;
-                if (typeof ht === 'string') { try { ht = JSON.parse(ht); } catch(e){} }
-                if (typeof at === 'string') { try { at = JSON.parse(at); } catch(e){} }
-                let score = row.score;
-                if (typeof score === 'string') { try { score = JSON.parse(score); } catch(e){} }
-
-                // Safe Fallbacks protecting against reverting names
-                const previousHome = existingDataMap[row.fixture_id]?.home_team?.name || 'Home';
-                const previousAway = existingDataMap[row.fixture_id]?.away_team?.name || 'Away';
-                
-                const cleanHomeName = (ht?.name && ht.name !== 'Home') ? ht.name : previousHome;
-                const cleanAwayName = (at?.name && at.name !== 'Away') ? at.name : previousAway;
-
-                batchResult[row.fixture_id] = {
-                    fixture_id: row.fixture_id,
-                    status: row.status,
-                    elapsed: row.elapsed || 0,
-                    home_team: { name: cleanHomeName, logo: ht?.logo || '' },
-                    away_team: { name: cleanAwayName, logo: at?.logo || '' },
-                    league_name: row.league_name || '',
-                    start_time: row.start_time || '',
-                    goals_home: score?.home !== undefined ? score.home : 0,
-                    goals_away: score?.away !== undefined ? score.away : 0,
-                    ht_home: score?.halftime?.home !== undefined ? score.halftime.home : 0,
-                    ht_away: score?.halftime?.away !== undefined ? score.halftime.away : 0
-                };
-            });
-        }
-    } catch(e) {
-        console.warn('Batch database fetch error, attempting fallback parallel loops', e);
-    }
-
-    // Determine missing records not covered in Supabase and pull from live Worker concurrently
-    const missingFids = fids.filter(fid => !batchResult[fid]);
-    if (missingFids.length > 0) {
-        const liveFetches = await Promise.all(missingFids.map(async (fid) => {
-            const apiMatch = await fetchMatchFromAPI(fid);
-            return { fid, data: apiMatch };
-        }));
-
-        liveFetches.forEach(res => {
-            if (res.data) {
-                const previousHome = existingDataMap[res.fid]?.home_team?.name || 'Home';
-                const previousAway = existingDataMap[res.fid]?.away_team?.name || 'Away';
-                
-                const cleanHome = (res.data.home_team?.name && res.data.home_team.name !== 'Home') ? res.data.home_team.name : previousHome;
-                const cleanAway = (res.data.away_team?.name && res.data.away_team.name !== 'Away') ? res.data.away_team.name : previousAway;
-                
-                res.data.home_team.name = cleanHome;
-                res.data.away_team.name = cleanAway;
-                batchResult[res.fid] = res.data;
-            }
-        });
-    }
-
-    return batchResult;
-}
+async function getMatchDetails(fid){if(!fid)return null;try{const{data,error}=await supabaseClient.from('sports_matches').select('*').eq('fixture_id',parseInt(fid)).maybeSingle();if(!error&&data){let ht=data.home_team,at=data.away_team;if(typeof ht==='string')try{ht=JSON.parse(ht)}catch(e){}if(typeof at==='string')try{at=JSON.parse(at)}catch(e){}return{fixture_id:data.fixture_id,status:data.status,elapsed:data.elapsed||0,home_team:ht||{name:'Home',logo:''},away_team:at||{name:'Away',logo:''},league_name:data.league_name||'',start_time:data.start_time||'',goals_home:data.score?.home||0,goals_away:data.score?.away||0,ht_home:data.score?.halftime?.home||0,ht_away:data.score?.halftime?.away||0};}}catch(e){}return await fetchMatchFromAPI(fid);}
 
 // ============================================
 // 🔥 REAL CASHOUT ALGORITHM
@@ -312,18 +237,15 @@ function calcOverProb(c,t,rm,gpm){if(c>t)return 1;const n=t-c;const e=c+(gpm*rm)
 function calcBTTSYesProb(hg,ag,rm,gpm){if(hg>0&&ag>0)return 1;const bn=hg===0&&ag===0;const on=(hg===0&&ag>0)||(hg>0&&ag===0);if(bn){if(rm<10)return 0.04;if(rm<20)return 0.12;if(rm<35)return 0.25;return 0.40;}if(on){if(rm<5)return 0.06;if(rm<15)return 0.15;if(rm<30)return 0.28;return 0.45;}return 0.50;}
 function getTimeDecay(elapsed){if(elapsed<=15)return 0.95;if(elapsed<=30)return 0.88;if(elapsed<=45)return 0.78;if(elapsed<=50)return 0.72;if(elapsed<=60)return 0.65;if(elapsed<=75)return 0.52;if(elapsed<=85)return 0.38;return 0.20;}
 
+// 🔥 ANTI-FRAUD: Check if bet was placed before kickoff
 function isBetPlacedBeforeKickoff(bet,match){if(!bet.placed_at||!match||!match.start_time)return true;const bp=new Date(bet.placed_at);const mk=new Date(match.start_time);return bp<mk;}
 
 // ============================================
-// AUTO-SETTLE (CORRECTED & ACCURATE VERIFICATION)
+// AUTO-SETTLE
 // ============================================
 function determineBetResult(bet,match){if(!match||!bet)return null;const g={home:match.goals_home||0,away:match.goals_away||0},tg=g.home+g.away;const bt=bet.bet_type;let w=false,rs='';const rules={'home':()=>{w=g.home>g.away;rs=`${g.home}-${g.away}`;},'draw':()=>{w=g.home===g.away;rs=`${g.home}-${g.away}`;},'away':()=>{w=g.away>g.home;rs=`${g.home}-${g.away}`;},'1X':()=>{w=g.home>=g.away;rs=`${g.home}-${g.away}`;},'12':()=>{w=g.home!==g.away;rs=`${g.home}-${g.away}`;},'X2':()=>{w=g.away>=g.home;rs=`${g.home}-${g.away}`;},'over05':()=>{w=tg>0.5;rs=`${tg}g`;},'under05':()=>{w=tg<0.5;rs=`${tg}g`;},'over15':()=>{w=tg>1.5;rs=`${tg}g`;},'under15':()=>{w=tg<1.5;rs=`${tg}g`;},'over25':()=>{w=tg>2.5;rs=`${tg}g`;},'under25':()=>{w=tg<2.5;rs=`${tg}g`;},'over35':()=>{w=tg>3.5;rs=`${tg}g`;},'under35':()=>{w=tg<3.5;rs=`${tg}g`;},'btts_yes':()=>{w=g.home>0&&g.away>0;rs=`BTTS ${w?'Yes':'No'}`;},'btts_no':()=>{w=!(g.home>0&&g.away>0);rs=`BTTS ${w?'No':'Yes'}`;}};if(rules[bt]){rules[bt]();return{won:w,reason:rs};}if(bt.startsWith('over')){const th=parseFloat(bt.replace('over','').replace('_','.'));w=tg>th;return{won:w,reason:`${tg}g O${th}`};}if(bt.startsWith('under')){const th=parseFloat(bt.replace('under','').replace('_','.'));w=tg<th;return{won:w,reason:`${tg}g U${th}`};}return null;}
 
-async function autoSettleBets(){const ab=allBets.filter(b=>b.status==='active'&&!settledBets.has(b.id));if(!ab.length)return;
-    const uniqueFids = [...new Set(ab.map(b => b.fixture_id).filter(Boolean))];
-    const matchMap = await fetchMatchesBatch(uniqueFids);
-
-    for(const bet of ab){if(!bet.fixture_id)continue;try{const m=matchMap[bet.fixture_id];if(!m||(m.status!=='finished'&&m.status!=='FT'&&m.status!=='AET'&&m.status!=='PEN'))continue;let result;if(bet.bet_type==='accumulator'&&bet.selections){let aw=true,sr=[];for(const s of bet.selections){const sm=matchMap[s.fixtureId||s.fixture_id];if(sm&&(sm.status==='finished'||sm.status==='FT')){const sr2=determineBetResult({bet_type:s.betType||s.bet_type},sm);if(sr2){sr.push({...s,won:sr2.won,reason:sr2.reason});if(!sr2.won)aw=false;}else{aw=false;}}else{aw=false;break;}}if(sr.length===bet.selections.length)result={won:aw,reason:`Acca: ${aw?'ALL WON':'Lost'}`};}else{result=determineBetResult(bet,m);}if(result){await settleBet(bet,result);settledBets.add(bet.id);}}catch(e){console.warn('Auto settlement cycle exception', e);}}}
+async function autoSettleBets(){const ab=allBets.filter(b=>b.status==='active'&&!settledBets.has(b.id));if(!ab.length)return;for(const bet of ab){if(!bet.fixture_id)continue;try{const m=await getMatchDetails(bet.fixture_id);if(!m||m.status!=='finished')continue;let result;if(bet.bet_type==='accumulator'&&bet.selections){let aw=true,sr=[];for(const s of bet.selections){const sm=await getMatchDetails(s.fixtureId);if(sm&&sm.status==='finished'){const sr2=determineBetResult({bet_type:s.betType},sm);if(sr2){sr.push({...s,won:sr2.won,reason:sr2.reason});if(!sr2.won)aw=false;}else{aw=false;}}else{aw=false;break;}}if(sr.length===bet.selections.length)result={won:aw,reason:`Acca: ${aw?'ALL WON':'Lost'}`};}else{result=determineBetResult(bet,m);}if(result){await settleBet(bet,result);settledBets.add(bet.id);}}catch(e){}}}
 
 async function settleBet(bet,result){const ns=result.won?'won':'lost',pay=result.won?(bet.amount*bet.odds):0,pr=result.won?(pay-bet.amount):-bet.amount;try{await supabaseClient.from('bets').update({status:ns,payout:pay,settlement_reason:result.reason,settled_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',bet.id).eq('status','active');if(result.won&&pay>0)await updateWalletBalance(bet.user_id,pay);bet.status=ns;bet.payout=pay;bet.settlement_reason=result.reason;bet.settled_at=new Date().toISOString();showNotification(`${result.won?'🏆':'❌'} ${result.won?'WON':'LOST'}: ${escapeHtml(bet.match_name||'Match')} - ${result.won?'+':'-'}$${Math.abs(pr).toFixed(2)}`,result.won?'success':'error');await loadBalance();updateStats();updateCounts();filterBets(currentFilter);}catch(e){}}
 
@@ -355,93 +277,7 @@ let ml=false,el=0;if(bet.fixture_id){const m=await getMatchDetails(bet.fixture_i
         if(!confirm(`Cash Out?\n\nStake: $${bet.amount.toFixed(2)} @${bet.odds}\nWin Probability: ${co.winProbability}%\nStatus: ${si} ${st}\nTime Decay: ${co.timeDecay}%\nCash Out: $${co.value.toFixed(2)}\nFee: $${co.fee.toFixed(2)}\nResult: ${pt}\nMatch: ${el}' ${m.goals_home||0}-${m.goals_away||0}`))return;
         try{await supabaseClient.from('bets').update({status:'cashed-out',cashout_amount:co.value,cashout_fee:co.fee,cashed_out_at:new Date().toISOString(),settlement_reason:`Cashed out ${el}' ${m.goals_home||0}-${m.goals_away||0} - ${co.winProbability}% prob`,updated_at:new Date().toISOString()}).eq('id',betId).eq('status','active');settledBets.add(betId);await updateWalletBalance(bet.user_id,co.value);bet.status='cashed-out';showNotification(`${co.profit>=0?'✅':'⚠️'} Cashed Out: $${co.value.toFixed(2)} (${pt})`,'info');await loadBalance();updateStats();updateCounts();filterBets(currentFilter);}catch(e){showNotification(`Error: ${e.message}`,'error');}}}}if(!ml){showNotification('❌ Cash Out only during live matches','error');return;}}
 
-async function getMatchDetails(fid){if(!fid)return null;try{const{data,error}=await supabaseClient.from('sports_matches').select('*').eq('fixture_id',parseInt(fid)).maybeSingle();if(!error&&data){let ht=data.home_team,at=data.away_team;if(typeof ht==='string')try{ht=JSON.parse(ht)}catch(e){}if(typeof at==='string')try{at=JSON.parse(at)}catch(e){}return{fixture_id:data.fixture_id,status:data.status,elapsed:data.elapsed||0,home_team:ht||{name:'Home',logo:''},away_team:at||{name:'Away',logo:''},league_name:data.league_name||'',start_time:data.start_time||'',goals_home:data.score?.home||0,goals_away:data.score?.away||0,ht_home:data.score?.halftime?.home||0,ht_away:data.score?.halftime?.away||0};}}catch(e){}return await fetchMatchFromAPI(fid);}
-
-// ============================================
-// 🔥 STALE-WHILE-REVALIDATE LOAD PATTERN (0 SEC DELAY)
-// ============================================
-async function loadBets(){
-    const u=auth.currentUser;
-    if(!u)return;
-
-    const cacheKey = `xl_bets_state_cache_${u.uid}`;
-    const cachedBets = localStorage.getItem(cacheKey);
-
-    // Phase 1: Draw locally cached data instantly if present (under 50ms)
-    if(cachedBets){
-        try {
-            allBets = JSON.parse(cachedBets);
-            console.log("⚡ Instant local UI load complete from cache.");
-            updateStats();
-            updateCounts();
-            filterBets(currentFilter);
-            startSettlementTimers();
-        } catch(e) {
-            console.warn('Cache corrupted, waiting for network live pull', e);
-        }
-    }
-
-    try{
-        const{data,error}=await supabaseClient.from('bets').select('*').eq('user_id',u.uid).order('placed_at',{ascending:false});
-        if(error)throw error;
-        const liveBets = data || [];
-
-        // Batch pull all relevant matches in parallel
-        const uniqueFids = [...new Set(liveBets.map(b => b.fixture_id).filter(Boolean))];
-        
-        // Match details cache map for mapping step
-        const existingDataMap = {};
-        allBets.forEach(b => {
-            if(b.fixture_id && b._match) {
-                existingDataMap[b.fixture_id] = b._match;
-            }
-        });
-
-        const matchMap = await fetchMatchesBatch(uniqueFids, existingDataMap);
-
-        for(let b of liveBets){
-            if(b.fixture_id){
-                const m=matchMap[b.fixture_id];
-                if(m){
-                    b._match=m;
-                    // Protect from team names disappearing
-                    const defaultHome = b.match_name ? b.match_name.split(' vs ')[0] : 'Home Team';
-                    const defaultAway = b.match_name ? b.match_name.split(' vs ')[1] : 'Away Team';
-                    
-                    const cleanHome = m.home_team?.name && m.home_team.name !== 'Home' ? m.home_team.name : defaultHome;
-                    const cleanAway = m.away_team?.name && m.away_team.name !== 'Away' ? m.away_team.name : defaultAway;
-
-                    b.match_name=`${cleanHome} vs ${cleanAway}`;
-                    b._homeTeam={ ...m.home_team, name: cleanHome };
-                    b._awayTeam={ ...m.away_team, name: cleanAway };
-                    b._league=m.league_name;
-                    b._kickoff=m.start_time;
-                    b._matchStatus=m.status;
-                    b._elapsed=m.elapsed;
-                    b._score={home:m.goals_home||0,away:m.goals_away||0};
-                    b._isPreMatch=isBetPlacedBeforeKickoff(b,m);
-                }
-            }
-            if(!b.match_name) b.match_name=`Match #${b.fixture_id||'N/A'}`;
-        }
-
-        allBets = liveBets;
-        // Save back fresh data to browser state local cache
-        localStorage.setItem(cacheKey, JSON.stringify(allBets));
-
-        updateStats();
-        updateCounts();
-        filterBets(currentFilter);
-        startSettlementTimers();
-        await autoSettleBets();
-
-    }catch(e){
-        console.error("Revalidation loop failed", e);
-        if(!allBets.length){
-            document.getElementById('bet-list-container').innerHTML=`<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error</p><small>${escapeHtml(e.message)}</small></div>`;
-        }
-    }
-}
+async function loadBets(){const u=auth.currentUser;if(!u)return;try{const{data,error}=await supabaseClient.from('bets').select('*').eq('user_id',u.uid).order('placed_at',{ascending:false});if(error)throw error;allBets=data||[];const mc={};for(let b of allBets){if(b.fixture_id){if(!mc[b.fixture_id])mc[b.fixture_id]=await getMatchDetails(b.fixture_id);const m=mc[b.fixture_id];if(m){b._match=m;b.match_name=`${m.home_team?.name||'Home'} vs ${m.away_team?.name||'Away'}`;b._homeTeam=m.home_team;b._awayTeam=m.away_team;b._league=m.league_name;b._kickoff=m.start_time;b._matchStatus=m.status;b._elapsed=m.elapsed;b._score={home:m.goals_home||0,away:m.goals_away||0};b._isPreMatch=isBetPlacedBeforeKickoff(b,m);}}if(!b.match_name)b.match_name=`Match #${b.fixture_id||'N/A'}`;}updateStats();updateCounts();filterBets(currentFilter);startSettlementTimers();await autoSettleBets();}catch(e){document.getElementById('bet-list-container').innerHTML=`<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error</p><small>${escapeHtml(e.message)}</small></div>`;}}
 
 function startSettlementTimers(){settlementTimers.forEach(clearInterval);settlementTimers=[];allBets.filter(b=>b.status==='active').forEach(bet=>{const el=document.getElementById(`timer-${bet.id}`);if(!el)return;const u=()=>{const ko=bet._kickoff?new Date(bet._kickoff):null;if(!ko){el.textContent='TBD';return;}const ee=new Date(ko.getTime()+115*60000),n=new Date(),d=ee-n;if(d<=0){el.innerHTML='<span style="color:#4caf50;">Settling...</span>';}else{const h=Math.floor(d/3600000),m=Math.floor((d%3600000)/60000);el.textContent=h>0?`${h}h ${m}m`:`${m}m`;if(m<10&&h===0)el.classList.add('urgent');}};u();settlementTimers.push(setInterval(u,60000));});}
 
@@ -451,7 +287,7 @@ function updateStats(){const t=allBets.length,w=allBets.filter(b=>b.status==='wo
 function updateCounts(){const c={all:allBets.length,active:allBets.filter(b=>b.status==='active').length,won:allBets.filter(b=>b.status==='won').length,lost:allBets.filter(b=>b.status==='lost').length,cancelled:allBets.filter(b=>b.status==='cancelled').length,'cashed-out':allBets.filter(b=>b.status==='cashed-out').length};for(const[k,v]of Object.entries(c)){const e=document.getElementById(`cnt-${k}`);if(e)e.textContent=v;}}
 function filterBets(f){currentFilter=f;let fl=allBets;if(f!=='all')fl=allBets.filter(b=>b.status===f);const c=document.getElementById('bet-list-container');if(!fl.length){c.innerHTML=`<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>No ${f==='all'?'':f} bets</p></div>`;return;}c.innerHTML=fl.map(b=>createBetCard(b)).join('');startSettlementTimers();}
 
-// ===== CREATE BET CARD - v9.5 ANTI-FRAUD =====
+// ===== CREATE BET CARD - v9.0 ANTI-FRAUD =====
 function createBetCard(bet){const isAcc=bet.bet_type==='accumulator',amt=parseFloat(bet.amount||0),odds=parseFloat(bet.odds||2),pay=parseFloat(bet.payout||bet.potential_win||0),pr=bet.status==='won'?pay-amt:(bet.status==='lost'?-amt:(bet.status==='cashed-out'?(parseFloat(bet.cashout_amount||0)-amt):0)),tk='XL'+(bet.id?.toString().slice(-8)||'00000000').toUpperCase(),isActive=bet.status==='active';const ms=(bet._matchStatus||'').toLowerCase(),isLive=ms==='live'||ms==='1h'||ms==='2h'||ms==='ht',matchStarted=isLive||ms==='finished'||ms==='ft'||(bet._kickoff&&new Date(bet._kickoff)<new Date());
 // 🔥 ANTI-FRAUD CHECKS
 const isPreMatch=bet._isPreMatch!==undefined?bet._isPreMatch:(bet.placed_at&&bet._kickoff?new Date(bet.placed_at)<new Date(bet._kickoff):true);
@@ -483,7 +319,7 @@ document.querySelectorAll('.filter-chip').forEach(c=>{c.addEventListener('click'
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 window.addEventListener('beforeunload',()=>{if(refreshInterval)clearInterval(refreshInterval);if(settleInterval)clearInterval(settleInterval);settlementTimers.forEach(clearInterval);});
 window.toggleLanguage=toggleLanguage;window.closeModal=closeModal;window.cancelBet=cancelBet;window.cashoutBet=cashoutBet;window.showDetails=showDetails;window.exportBetsToCSV=exportBetsToCSV;
-console.log('✅ My Bets v9.5 - ANTI-FRAUD | Live Bet Lock | Real Cashout');
+console.log('✅ My Bets v9.0 - ANTI-FRAUD | Live Bet Lock | Real Cashout');
 </script>
 </body>
 </html>
