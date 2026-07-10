@@ -22,8 +22,13 @@
             --accent2: #ff9800;
             --danger: #ff5252;
             --success: #4caf50;
+            --orange: #ff9800;
+            --red: #ff5252;
+            --purple: #9c27b0;
+            --blue: #00bcd4;
             --text-primary: #ffffff;
             --text-secondary: #a0a8c9;
+            --text2: #a0a8c9;
             --border: rgba(255,255,255,0.1);
         }
         
@@ -232,6 +237,10 @@
                 </div>
             </div>
 
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 5px;">
+                <span>Win Rate</span>
+                <span id="win-rate-display">0%</span>
+            </div>
             <div class="win-rate-bar">
                 <div class="win-rate-fill" id="win-rate-fill" style="width:0%"></div>
             </div>
@@ -258,7 +267,7 @@
 
 <script>
 // ============================================
-// MY BETS v9.6 - REPAIR AND DATA INTEGRATION
+// MY BETS v9.7 - REPAIR AND DATA INTEGRATION
 // Real Win/Loss | Live Bet Lock | Pre-Match Only
 // ============================================
 const SUPABASE_URL='https://jnazybaeajyynpyoszmy.supabase.co';
@@ -277,7 +286,7 @@ function escapeHtml(s){if(!s)return'';return String(s).replace(/[&<>]/g,m=>({'&'
 function showNotification(m,t='info'){const n=document.createElement('div');n.className=`notification ${t}`;n.innerHTML=m;document.body.appendChild(n);setTimeout(()=>n.remove(),3500);}
 function formatFullDate(d){if(!d)return'-';return new Date(d).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
 
-async function loadBalance(){try{const u=auth.currentUser;if(!u)return 0;const d=await db.collection('wallets').doc(u.uid).get();const b=d.exists?(d.data().balance||0):1000;document.getElementById('balance-display').textContent=`$${b.toFixed(2)}`;return b;}catch(e){return 0;}}
+async function loadBalance(){try{const u=auth.currentUser;if(!u)return 0;const d=await db.collection('wallets').doc(u.uid).get();const b=d.exists?(d.data().balance||0):1000;const el=document.getElementById('balance-display');if(el)el.textContent=`$${b.toFixed(2)}`;return b;}catch(e){return 0;}}
 async function updateWalletBalance(uid,amt){const wr=db.collection('wallets').doc(uid);await db.runTransaction(async t=>{const d=await t.get(wr);const c=d.exists?(d.data().balance||0):0;t.update(wr,{balance:c+amt,updated_at:new Date().toISOString()});const tr=db.collection('transactions').doc();t.set(tr,{user_id:uid,amount:amt,type:amt>0?'credit':'debit',balance_before:c,balance_after:c+amt,timestamp:new Date().toISOString()});});}
 
 function updateLoadingStatus(text) {
@@ -480,7 +489,7 @@ const isAcc=bet.bet_type==='accumulator';
 
 if(isAcc){if(bet.placed_at&&bet.selections){for(const s of bet.selections){const lm=await getMatchDetails(s.fixtureId||s.fixture_id);if(lm&&lm.start_time){const bp=new Date(bet.placed_at);const lk=new Date(lm.start_time);if(bp>=lk){showNotification('🔒 Cash Out locked - Accumulator includes live bet selections','error');return;}}}}
     let lc=0,tl=bet.selections?.length||0;let totalWinProb=0;
-    if(bet.selections)for(const s of bet.selections){const m=await getMatchDetails(s.fixtureId||s.fixture_id);if(m){const ms=(m.status||'').toLowerCase();if(ms==='live'||ms==='1h'||ms==='2h'||ms==='ht'){pointerEvents:none;lc++;const wp=calculateWinProbability(s.betType||s.bet_type,m.goals_home||0,m.goals_away||0,(m.goals_home||0)+(m.goals_away||0),m.elapsed||0);totalWinProb+=wp;}}}
+    if(bet.selections)for(const s of bet.selections){const m=await getMatchDetails(s.fixtureId||s.fixture_id);if(m){const ms=(m.status||'').toLowerCase();if(ms==='live'||ms==='1h'||ms==='2h'||ms==='ht'){lc++;const wp=calculateWinProbability(s.betType||s.bet_type,m.goals_home||0,m.goals_away||0,(m.goals_home||0)+(m.goals_away||0),m.elapsed||0);totalWinProb+=wp;}}}
     if(lc===0){showNotification('❌ Cash Out only during live matches','error');return;}
     const avgProb=totalWinProb/Math.max(lc,1);let to=1;bet.selections.forEach(s=>to*=parseFloat(s.odds||1));
     const td=getTimeDecay(bet._elapsed||30);let cv=bet.amount*to*avgProb*td;if(avgProb<0.25)cv=bet.amount*(avgProb*0.3);
@@ -542,8 +551,15 @@ async function loadBets(){
             updateCounts();
             filterBets(currentFilter);
             startSettlementTimers();
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('content').style.display = 'block';
+            
+            const elLoading = document.getElementById('loading');
+            if (elLoading) elLoading.style.display = 'none';
+            
+            const elContent = document.getElementById('content');
+            if (elContent) elContent.style.display = 'block';
+
+            // Background quick settlement checks
+            autoSettleBets();
         } catch(e) {
             console.warn('Cache read bypass, querying database directly', e);
         }
@@ -605,8 +621,11 @@ async function loadBets(){
         allBets = liveBets;
         localStorage.setItem(cacheKey, JSON.stringify(allBets));
 
-        document.getElementById('loading').style.display = 'none';
-        document.getElementById('content').style.display = 'block';
+        const elLoading = document.getElementById('loading');
+        if (elLoading) elLoading.style.display = 'none';
+        
+        const elContent = document.getElementById('content');
+        if (elContent) elContent.style.display = 'block';
 
         updateStats();
         updateCounts();
@@ -617,7 +636,10 @@ async function loadBets(){
     }catch(e){
         console.error("Revalidation loop failed", e);
         if(!allBets.length){
-            document.getElementById('bet-list-container').innerHTML=`<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error</p><small>${escapeHtml(e.message)}</small></div>`;
+            const elContainer = document.getElementById('bet-list-container');
+            if (elContainer) {
+                elContainer.innerHTML=`<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error</p><small>${escapeHtml(e.message)}</small></div>`;
+            }
         }
     }
 }
@@ -626,9 +648,86 @@ function startSettlementTimers(){settlementTimers.forEach(clearInterval);settlem
 
 function formatBetTypeName(bt){const n={'home':'🏠 Home Win','draw':'🤝 Draw','away':'✈️ Away Win','1X':'Home/Draw','12':'Home/Away','X2':'Draw/Away','home_dnb':'Home DNB','away_dnb':'Away DNB','over25':'Over 2.5','under25':'Under 2.5','over15':'Over 1.5','under15':'Under 1.5','over35':'Over 3.5','under35':'Under 3.5','btts_yes':'BTTS Yes','btts_no':'BTTS No','accumulator':'Accumulator'};return n[bt]||bt.replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase());}
 
-function updateStats(){const t=allBets.length,w=allBets.filter(b=>b.status==='won'),l=allBets.filter(b=>b.status==='lost'),a=allBets.filter(b=>b.status==='active');let wa=0,la=0,np=0;w.forEach(b=>{wa+=parseFloat(b.payout||b.potential_win||0);np+=parseFloat(b.payout||b.potential_win||0)-parseFloat(b.amount||0);});l.forEach(b=>{la+=parseFloat(b.amount||0);np-=parseFloat(b.amount||0);});allBets.filter(b=>b.status==='cashed-out').forEach(b=>{np+=parseFloat(b.cashout_amount||0)-parseFloat(b.amount||0);});const wr=(w.length+l.length)>0?((w.length/(w.length+l.length))*100).toFixed(1):0;document.getElementById('total-bets').textContent=t;document.getElementById('total-won').textContent=w.length;document.getElementById('total-lost').textContent=l.length;document.getElementById('total-active').textContent=a.length;document.getElementById('won-amount').textContent=`$${wa.toFixed(2)}`;document.getElementById('lost-amount').textContent=`$${la.toFixed(2)}`;document.getElementById('win-rate-display').textContent=`${wr}%`;document.getElementById('win-rate-fill').style.width=`${wr}%`;const pe=document.getElementById('total-pl');pe.textContent=(np>=0?'+':'')+'$'+np.toFixed(2);pe.style.color=np>=0?'#4caf50':'var(--red)';}
-function updateCounts(){const c={all:allBets.length,active:allBets.filter(b=>b.status==='active').length,won:allBets.filter(b=>b.status==='won').length,lost:allBets.filter(b=>b.status==='lost').length,cancelled:allBets.filter(b=>b.status==='cancelled').length,'cashed-out':allBets.filter(b=>b.status==='cashed-out').length};for(const[k,v]of Object.entries(c)){const e=document.getElementById(`cnt-${k}`);if(e)e.textContent=v;}}
-function filterBets(f){currentFilter=f;let fl=allBets;if(f!=='all')fl=allBets.filter(b=>b.status===f);const c=document.getElementById('bet-list-container');if(!fl.length){c.innerHTML=`<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>No ${f==='all'?'':f} bets</p></div>`;return;}c.innerHTML=fl.map(b=>createBetCard(b)).join('');startSettlementTimers();}
+function updateStats(){
+    const t=allBets.length,
+          w=allBets.filter(b=>b.status==='won'),
+          l=allBets.filter(b=>b.status==='lost'),
+          a=allBets.filter(b=>b.status==='active');
+    let wa=0,la=0,np=0;
+    w.forEach(b=>{
+        wa+=parseFloat(b.payout||b.potential_win||0);
+        np+=parseFloat(b.payout||b.potential_win||0)-parseFloat(b.amount||0);
+    });
+    l.forEach(b=>{
+        la+=parseFloat(b.amount||0);
+        np-=parseFloat(b.amount||0);
+    });
+    allBets.filter(b=>b.status==='cashed-out').forEach(b=>{
+        np+=parseFloat(b.cashout_amount||0)-parseFloat(b.amount||0);
+    });
+    const wr=(w.length+l.length)>0?((w.length/(w.length+l.length))*100).toFixed(1):0;
+    
+    const elBets = document.getElementById('total-bets');
+    if (elBets) elBets.textContent = t;
+    
+    const elWon = document.getElementById('total-won');
+    if (elWon) elWon.textContent = w.length;
+    
+    const elLost = document.getElementById('total-lost');
+    if (elLost) elLost.textContent = l.length;
+    
+    const elActive = document.getElementById('total-active');
+    if (elActive) elActive.textContent = a.length;
+    
+    const elWonAmt = document.getElementById('won-amount');
+    if (elWonAmt) elWonAmt.textContent = `$${wa.toFixed(2)}`;
+    
+    const elLostAmt = document.getElementById('lost-amount');
+    if (elLostAmt) elLostAmt.textContent = `$${la.toFixed(2)}`;
+    
+    const elWrDisp = document.getElementById('win-rate-display');
+    if (elWrDisp) elWrDisp.textContent = `${wr}%`;
+    
+    const elWrFill = document.getElementById('win-rate-fill');
+    if (elWrFill) elWrFill.style.width = `${wr}%`;
+    
+    const pe = document.getElementById('total-pl');
+    if (pe) {
+        pe.textContent = (np >= 0 ? '+' : '') + '$' + np.toFixed(2);
+        pe.style.color = np >= 0 ? '#4caf50' : 'var(--danger)';
+    }
+}
+
+function updateCounts(){
+    const c={
+        all:allBets.length,
+        active:allBets.filter(b=>b.status==='active').length,
+        won:allBets.filter(b=>b.status==='won').length,
+        lost:allBets.filter(b=>b.status==='lost').length,
+        cancelled:allBets.filter(b=>b.status==='cancelled').length,
+        'cashed-out':allBets.filter(b=>b.status==='cashed-out').length
+    };
+    for(const[k,v]of Object.entries(c)){
+        const e=document.getElementById(`cnt-${k}`);
+        if(e)e.textContent=v;
+    }
+}
+
+function filterBets(f){
+    currentFilter=f;
+    let fl=allBets;
+    if(f!=='all') fl=allBets.filter(b=>b.status===f);
+    
+    const c=document.getElementById('bet-list-container');
+    if(c){
+        if(!fl.length){
+            c.innerHTML=`<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>No ${f==='all'?'':f} bets</p></div>`;
+            return;
+        }
+        c.innerHTML=fl.map(b=>createBetCard(b)).join('');
+    }
+    startSettlementTimers();
+}
 
 // ===== CREATE BET CARD =====
 function createBetCard(bet){const isAcc=bet.bet_type==='accumulator',amt=parseFloat(bet.amount||0),odds=parseFloat(bet.odds||2),pay=parseFloat(bet.payout||bet.potential_win||0),pr=bet.status==='won'?pay-amt:(bet.status==='lost'?-amt:(bet.status==='cashed-out'?(parseFloat(bet.cashout_amount||0)-amt):0)),tk='XL'+(bet.id?.toString().slice(-8)||'00000000').toUpperCase(),isActive=bet.status==='active';const ms=(bet._matchStatus||'').toLowerCase(),isLive=ms==='live'||ms==='1h'||ms==='2h'||ms==='ht',matchStarted=isLive||ms==='finished'||ms==='ft'||(bet._kickoff&&new Date(bet._kickoff)<new Date());
@@ -638,7 +737,7 @@ const canCancel=isActive&&!isAcc&&!matchStarted&&!settledBets.has(bet.id);
 const canCashout=isActive&&!settledBets.has(bet.id)&&isLive&&isPreMatch&&!isAcc;
 const canAccaCashout=isActive&&!settledBets.has(bet.id)&&isAcc&&matchStarted&&isPreMatch;
 
-let cashoutPreview='';if(canCashout&&bet._match){const co=calculateRealCashout(bet,bet._match);const pc=co.isWinning?'winning':(co.isLosing?'losing':'neutral');cashoutPreview=`<div class="cashout-preview"><span>Win Prob: <span class="prob ${pc}">${co.winProbability}%</span></span><span>Cash Out: <span style="color:${co.value.toFixed(2)>=amt?'#4caf50':'var(--red)'};font-weight:bold;">$${co.value.toFixed(2)}</span></span><span style="color:${co.profit>=0?'#4caf50':'var(--red)'};">${co.profit>=0?'+':''}$${co.profit.toFixed(2)}</span></div>`;}
+let cashoutPreview='';if(canCashout&&bet._match){const co=calculateRealCashout(bet,bet._match);const pc=co.isWinning?'winning':(co.isLosing?'losing':'neutral');cashoutPreview=`<div class="cashout-preview"><span>Win Prob: <span class="prob ${pc}">${co.winProbability}%</span></span><span>Cash Out: <span style="color:${co.value.toFixed(2)>=amt?'#4caf50':'var(--danger)'};font-weight:bold;">$${co.value.toFixed(2)}</span></span><span style="color:${co.profit>=0?'#4caf50':'var(--danger)'};">${co.profit>=0?'+':''}$${co.profit.toFixed(2)}</span></div>`;}
 const ht=bet._homeTeam||{name:'Home',logo:''},at=bet._awayTeam||{name:'Away',logo:''},hl=ht.logo||`https://ui-avatars.com/api/?name=${encodeURIComponent(ht.name?.substring(0,2)||'H')}&size=32&background=1a2332&color=00ff9d`,al=at.logo||`https://ui-avatars.com/api/?name=${encodeURIComponent(at.name?.substring(0,2)||'A')}&size=32&background=1a2332&color=ff9800`;let sh='';if(isAcc&&bet.selections?.length>0){sh=`<div class="selections-container"><div style="font-size:10px;color:var(--text2);margin-bottom:5px;">📋 ${bet.selections.length} Selections</div>${bet.selections.map(s=>`<div class="selection-item"><span class="selection-match">${escapeHtml(s.matchName||`#${s.fixtureId}`)}</span><span class="selection-pick">${escapeHtml(s.betTypeName||'')}</span><span class="selection-odds">@${s.odds}</span></div>`).join('')}</div>`;}const sd=bet._score?`<span class="bet-score-display${isLive?' live':''}">${bet._score.home} - ${bet._score.away}</span>`:'';const kd=bet._kickoff?formatFullDate(bet._kickoff):'TBD';const se=bet._kickoff?formatFullDate(new Date(new Date(bet._kickoff).getTime()+115*60000)):'TBD';
 let ah='';if(isActive){ah='<div class="bet-actions">';
 if(canCancel)ah+=`<button class="cancel-btn" onclick="event.stopPropagation();cancelBet('${bet.id}')"><i class="fas fa-ban"></i> Cancel</button>`;
@@ -650,9 +749,9 @@ else if(isActive&&!matchStarted)ah+=`<span class="action-info"><i class="fas fa-
 else if(isActive&&isLive&&!isPreMatch)ah+=`<span class="action-info locked"><i class="fas fa-shield-alt"></i> Live bet - Cash out locked</span>`;
 else if(isActive&&matchStarted&&!isLive)ah+=`<span class="action-info"><i class="fas fa-flag-checkered"></i> Awaiting settlement</span>`;
 ah+='</div>';}
-return`<div class="bet-card ${bet.status}" onclick="showDetails('${bet.id}')"><div class="bet-top"><div><span class="bet-type-tag ${isAcc?'accumulator':'single'}">${isAcc?'ACCUMULATOR':'SINGLE'}</span><span class="bet-ticket-num">#${tk}</span>${!isPreMatch&&isActive?`<span class="live-bet-badge"><i class="fas fa-bolt"></i> LIVE BET</span>`:''}</div><span class="bet-status-badge ${bet.status}">${bet.status==='won'?'🏆 WON':bet.status==='lost'?'❌ LOST':bet.status==='cancelled'?'⛔ CANCELLED':bet.status==='cashed-out'?'💰 CASHED OUT':'⏳ ACTIVE'}</span></div><div class="bet-body"><div class="bet-match-row"><img class="team-logo-small" src="${hl}" onerror="this.style.display='none'" alt=""><div class="bet-match-name">${escapeHtml(ht.name||'Home')} <span style="color:var(--text2);">vs</span> ${escapeHtml(at.name||'Away')}${sd}</div><img class="team-logo-small" src="${al}" onerror="this.style.display='none'" alt=""></div><div class="bet-league">${escapeHtml(bet._league||'')}${bet._elapsed?` | ${bet._elapsed}'`:''} | ${ms.toUpperCase()}</div><div class="bet-pick">${escapeHtml(formatBetTypeName(bet.bet_type))} <span class="bet-odds">@${odds.toFixed(2)}</span></div></div>${sh}<div class="bet-meta-row"><span><i class="fas fa-calendar-plus"></i> Placed: ${formatFullDate(bet.placed_at)}</span><span><i class="fas fa-clock"></i> Kickoff: ${kd}</span>${isActive?`<span><i class="fas fa-hourglass-end"></i> Settle by: ${se}</span>`:''}</div>${cashoutPreview}<div class="bet-details-grid"><div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amt.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">${isActive?'Potential':'Payout'}</div><div class="val" style="color:${bet.status==='won'?'#4caf50':bet.status==='lost'?'var(--red)':'#fff'}">$${pay.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${pr>=0?'#4caf50':'var(--red)'}">${pr>=0?'+':''}$${Math.abs(pr).toFixed(2)}</div></div>${isActive?`<div class="bet-detail"><div class="lbl">Est. Settlement</div><div class="val"><span class="settlement-timer" id="timer-${bet.id}">...</span></div></div>`:''}</div>${bet.settlement_reason?`<div class="bet-result-row ${bet.status}"><i class="fas fa-gavel"></i> ${escapeHtml(bet.settlement_reason)}</div>`:''}${ah}</div>`;}
+return`<div class="bet-card ${bet.status}" onclick="showDetails('${bet.id}')"><div class="bet-top"><div><span class="bet-type-tag ${isAcc?'accumulator':'single'}">${isAcc?'ACCUMULATOR':'SINGLE'}</span><span class="bet-ticket-num">#${tk}</span>${!isPreMatch&&isActive?`<span class="live-bet-badge"><i class="fas fa-bolt"></i> LIVE BET</span>`:''}</div><span class="bet-status-badge ${bet.status}">${bet.status==='won'?'🏆 WON':bet.status==='lost'?'❌ LOST':bet.status==='cancelled'?'⛔ CANCELLED':bet.status==='cashed-out'?'💰 CASHED OUT':'⏳ ACTIVE'}</span></div><div class="bet-body"><div class="bet-match-row"><img class="team-logo-small" src="${hl}" onerror="this.style.display='none'" alt=""><div class="bet-match-name">${escapeHtml(ht.name||'Home')} <span style="color:var(--text2);">vs</span> ${escapeHtml(at.name||'Away')}${sd}</div><img class="team-logo-small" src="${al}" onerror="this.style.display='none'" alt=""></div><div class="bet-league">${escapeHtml(bet._league||'')}${bet._elapsed?` | ${bet._elapsed}'`:''} | ${ms.toUpperCase()}</div><div class="bet-pick">${escapeHtml(formatBetTypeName(bet.bet_type))} <span class="bet-odds">@${odds.toFixed(2)}</span></div></div>${sh}<div class="bet-meta-row"><span><i class="fas fa-calendar-plus"></i> Placed: ${formatFullDate(bet.placed_at)}</span><span><i class="fas fa-clock"></i> Kickoff: ${kd}</span>${isActive?`<span><i class="fas fa-hourglass-end"></i> Settle by: ${se}</span>`:''}</div>${cashoutPreview}<div class="bet-details-grid"><div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amt.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">${isActive?'Potential':'Payout'}</div><div class="val" style="color:${bet.status==='won'?'#4caf50':bet.status==='lost'?'var(--danger)':'#fff'}">$${pay.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${pr>=0?'#4caf50':'var(--danger)'}">${pr>=0?'+':''}$${Math.abs(pr).toFixed(2)}</div></div>${isActive?`<div class="bet-detail"><div class="lbl">Est. Settlement</div><div class="val"><span class="settlement-timer" id="timer-${bet.id}">...</span></div></div>`:''}</div>${bet.settlement_reason?`<div class="bet-result-row ${bet.status}"><i class="fas fa-gavel"></i> ${escapeHtml(bet.settlement_reason)}</div>`:''}${ah}</div>`;}
 
-function showDetails(betId){const bet=allBets.find(b=>b.id===betId);if(!bet)return;const m=document.getElementById('bet-modal'),bdy=document.getElementById('modal-body'),amt=parseFloat(bet.amount||0),pay=parseFloat(bet.payout||bet.potential_win||0),pr=bet.status==='won'?pay-amt:(bet.status==='lost'?-amt:(bet.status==='cashed-out'?(parseFloat(bet.cashout_amount||0)-amt):0)),tk='XL'+(bet.id?.toString().slice(-8)||'00000000').toUpperCase(),placed=bet.placed_at?new Date(bet.placed_at):new Date(),ht=bet._homeTeam||{name:'Home',logo:''},at=bet._awayTeam||{name:'Away',logo:''};const isPreMatch=bet._isPreMatch!==undefined?bet._isPreMatch:(bet.placed_at&&bet._kickoff?new Date(bet.placed_at)<new Date(bet._kickoff):true);let sh='';if(bet.bet_type==='accumulator'&&bet.selections?.length>0){sh=`<div class="modal-section"><h4><i class="fas fa-layer-group"></i> Selections (${bet.selections.length})</h4>${bet.selections.map((s,i)=>`<div class="modal-row"><span class="lbl">#${i+1}</span><span>${escapeHtml(s.matchName)} - ${escapeHtml(s.betTypeName)} @${s.odds}</span></div>`).join('')}</div>`;}bdy.innerHTML=`<div class="modal-section"><h4><i class="fas fa-ticket-alt"></i> Ticket #${tk}</h4><div class="modal-row"><span class="lbl">Type</span><span>${bet.bet_type==='accumulator'?'Accumulator':'Single'}${!isPreMatch?' <span style="color:var(--red);font-size:10px;">(LIVE BET)</span>':''}</span></div><div class="modal-row"><span class="lbl">Status</span><span>${bet.status?.toUpperCase()}</span></div><div class="modal-row"><span class="lbl">Match</span><span>${escapeHtml(ht.name)} vs ${escapeHtml(at.name)}</span></div><div class="modal-row"><span class="lbl">League</span><span>${escapeHtml(bet._league||'N/A')}</span></div><div class="modal-row"><span class="lbl">Score</span><span style="font-family:monospace;color:var(--orange);">${bet._score?`${bet._score.home}-${bet._score.away}`:'N/A'}</span></div></div><div class="modal-section"><h4><i class="fas fa-calendar-alt"></i> Timeline</h4><div class="modal-row"><span class="lbl">Placed</span><span>${placed.toLocaleString()}</span></div><div class="modal-row"><span class="lbl">Kickoff</span><span>${bet._kickoff?new Date(bet._kickoff).toLocaleString():'TBD'}</span></div><div class="modal-row"><span class="lbl">Est. Settlement</span><span>${bet._kickoff?new Date(new Date(bet._kickoff).getTime()+115*60000).toLocaleString():'TBD'}</span></div>${bet.settled_at?`<div class="modal-row"><span class="lbl">Settled</span><span>${new Date(bet.settled_at).toLocaleString()}</span></div>`:''}</div><div class="modal-section"><h4><i class="fas fa-info-circle"></i> Bet Details</h4><div class="modal-row"><span class="lbl">Pick</span><span>${escapeHtml(formatBetTypeName(bet.bet_type))}</span></div><div class="modal-row"><span class="lbl">Odds</span><span>${parseFloat(bet.odds||2).toFixed(2)}</span></div>${!isPreMatch?`<div class="modal-row"><span class="lbl">Cash Out</span><span style="color:var(--orange);">🔒 Locked (Live Bet)</span></div>`:''}</div>${sh}<div class="modal-section"><h4><i class="fas fa-chart-line"></i> Financial</h4><div class="modal-row"><span class="lbl">Stake</span><span>$${amt.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Potential</span><span>$${parseFloat(bet.potential_win||0).toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Payout</span><span>$${pay.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">P/L</span><span style="color:${pr>=0?'#4caf50':'var(--red)'}">${pr>=0?'+':''}$${pr.toFixed(2)}</span></div></div>${bet.settlement_reason?`<div class="modal-section"><h4><i class="fas fa-gavel"></i> Settlement</h4><div class="modal-row"><span class="lbl">Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div></div>`:''}<div class="modal-section"><h4><i class="fas fa-headset"></i> Support</h4><div class="modal-row"><span class="lbl">Ticket</span><span><strong>${tk}</strong></span></div></div>`;m.classList.add('show');}
+function showDetails(betId){const bet=allBets.find(b=>b.id===betId);if(!bet)return;const m=document.getElementById('bet-modal'),bdy=document.getElementById('modal-body'),amt=parseFloat(bet.amount||0),pay=parseFloat(bet.payout||bet.potential_win||0),pr=bet.status==='won'?pay-amt:(bet.status==='lost'?-amt:(bet.status==='cashed-out'?(parseFloat(bet.cashout_amount||0)-amt):0)),tk='XL'+(bet.id?.toString().slice(-8)||'00000000').toUpperCase(),placed=bet.placed_at?new Date(bet.placed_at):new Date(),ht=bet._homeTeam||{name:'Home',logo:''},at=bet._awayTeam||{name:'Away',logo:''};const isPreMatch=bet._isPreMatch!==undefined?bet._isPreMatch:(bet.placed_at&&bet._kickoff?new Date(bet.placed_at)<new Date(bet._kickoff):true);let sh='';if(bet.bet_type==='accumulator'&&bet.selections?.length>0){sh=`<div class="modal-section"><h4><i class="fas fa-layer-group"></i> Selections (${bet.selections.length})</h4>${bet.selections.map((s,i)=>`<div class="modal-row"><span class="lbl">#${i+1}</span><span>${escapeHtml(s.matchName)} - ${escapeHtml(s.betTypeName)} @${s.odds}</span></div>`).join('')}</div>`;}bdy.innerHTML=`<div class="modal-section"><h4><i class="fas fa-ticket-alt"></i> Ticket #${tk}</h4><div class="modal-row"><span class="lbl">Type</span><span>${bet.bet_type==='accumulator'?'Accumulator':'Single'}${!isPreMatch?' <span style="color:var(--danger);font-size:10px;">(LIVE BET)</span>':''}</span></div><div class="modal-row"><span class="lbl">Status</span><span>${bet.status?.toUpperCase()}</span></div><div class="modal-row"><span class="lbl">Match</span><span>${escapeHtml(ht.name)} vs ${escapeHtml(at.name)}</span></div><div class="modal-row"><span class="lbl">League</span><span>${escapeHtml(bet._league||'N/A')}</span></div><div class="modal-row"><span class="lbl">Score</span><span style="font-family:monospace;color:var(--orange);">${bet._score?`${bet._score.home}-${bet._score.away}`:'N/A'}</span></div></div><div class="modal-section"><h4><i class="fas fa-calendar-alt"></i> Timeline</h4><div class="modal-row"><span class="lbl">Placed</span><span>${placed.toLocaleString()}</span></div><div class="modal-row"><span class="lbl">Kickoff</span><span>${bet._kickoff?new Date(bet._kickoff).toLocaleString():'TBD'}</span></div><div class="modal-row"><span class="lbl">Est. Settlement</span><span>${bet._kickoff?new Date(new Date(bet._kickoff).getTime()+115*60000).toLocaleString():'TBD'}</span></div>${bet.settled_at?`<div class="modal-row"><span class="lbl">Settled</span><span>${new Date(bet.settled_at).toLocaleString()}</span></div>`:''}</div><div class="modal-section"><h4><i class="fas fa-info-circle"></i> Bet Details</h4><div class="modal-row"><span class="lbl">Pick</span><span>${escapeHtml(formatBetTypeName(bet.bet_type))}</span></div><div class="modal-row"><span class="lbl">Odds</span><span>${parseFloat(bet.odds||2).toFixed(2)}</span></div>${!isPreMatch?`<div class="modal-row"><span class="lbl">Cash Out</span><span style="color:var(--orange);">🔒 Locked (Live Bet)</span></div>`:''}</div>${sh}<div class="modal-section"><h4><i class="fas fa-chart-line"></i> Financial</h4><div class="modal-row"><span class="lbl">Stake</span><span>$${amt.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Potential</span><span>$${parseFloat(bet.potential_win||0).toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Payout</span><span>$${pay.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">P/L</span><span style="color:${pr>=0?'#4caf50':'var(--danger)'}">${pr>=0?'+':''}$${pr.toFixed(2)}</span></div></div>${bet.settlement_reason?`<div class="modal-section"><h4><i class="fas fa-gavel"></i> Settlement</h4><div class="modal-row"><span class="lbl">Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div></div>`:''}<div class="modal-section"><h4><i class="fas fa-headset"></i> Support</h4><div class="modal-row"><span class="lbl">Ticket</span><span><strong>${tk}</strong></span></div></div>`;m.classList.add('show');}
 function closeModal(e){if(!e||e.target===document.getElementById('bet-modal'))document.getElementById('bet-modal').classList.remove('show');}
 function exportBetsToCSV(){if(!allBets.length){alert('No bets');return;}const h=['Ticket','Date','Type','Match','Pick','Odds','Stake','Payout','P/L','Status'];const r=allBets.map(b=>{const a=parseFloat(b.amount||0),p=parseFloat(b.payout||b.potential_win||0),pr=b.status==='won'?p-a:(b.status==='lost'?-a:0);return['XL'+(b.id?.toString().slice(-8)||'00000000').toUpperCase(),new Date(b.placed_at).toLocaleDateString(),b.bet_type==='accumulator'?'Acca':'Single',b.match_name||'',formatBetTypeName(b.bet_type),parseFloat(b.odds||2).toFixed(2),a.toFixed(2),p.toFixed(2),(pr>=0?'+':'')+pr.toFixed(2),b.status];});const csv=h.join(',')+'\n'+r.map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');const bl=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download=`xlodon-bets-${new Date().toISOString().split('T')[0]}.csv`;a.click();}
 
@@ -661,7 +760,7 @@ document.querySelectorAll('.filter-chip').forEach(c=>{c.addEventListener('click'
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 window.addEventListener('beforeunload',()=>{if(refreshInterval)clearInterval(refreshInterval);if(settleInterval)clearInterval(settleInterval);settlementTimers.forEach(clearInterval);});
 window.toggleLanguage=toggleLanguage;window.closeModal=closeModal;window.cancelBet=cancelBet;window.cashoutBet=cashoutBet;window.showDetails=showDetails;window.exportBetsToCSV=exportBetsToCSV;
-console.log('✅ My Bets v9.6 - ANTI-FRAUD | Live Bet Lock | Real Cashout');
+console.log('✅ My Bets v9.7 - ANTI-FRAUD | Live Bet Lock | Real Cashout');
 </script>
 </body>
 </html>
