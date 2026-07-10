@@ -105,7 +105,6 @@
         .win-rate-bar { height: 4px; background: var(--bg-tertiary); border-radius: 2px; margin-bottom: 15px; overflow: hidden; }
         .win-rate-fill { height: 100%; background: linear-gradient(90deg,var(--accent),var(--success)); border-radius: 2px; transition: width 0.5s ease; }
         
-        /* Analytics Block */
         .analytics-section {
             background: var(--bg-secondary);
             border-radius: 16px;
@@ -169,7 +168,7 @@
         .bet-pick span { color: var(--accent2); font-weight: bold; margin-left: 5px; }
         
         .selections-container { margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: 8px; }
-        .selection-item { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 11px; }
+        .selection-item { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); font-size: 11px; }
         .selection-item:last-child { border-bottom: none; }
         .selection-match { flex: 1; font-weight: 500; }
         .selection-pick { color: var(--accent); }
@@ -199,7 +198,8 @@
         .bet-result-row.won { background: rgba(76,175,80,0.1); color: var(--success); border: 1px solid rgba(76,175,80,0.2); }
         .bet-result-row.lost { background: rgba(255,82,82,0.1); color: var(--danger); border: 1px solid rgba(255,82,82,0.2); }
         
-        .bet-actions { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05); }
+        .bet-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05); }
+        .bet-action-row-buttons { display: flex; gap: 8px; width: 100%; }
         .bet-actions button { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .cancel-btn { background: rgba(255,82,82,0.15); color: var(--danger); border: 1px solid rgba(255,82,82,0.3); }
         .cancel-btn:hover { background: var(--danger); color: white; }
@@ -251,8 +251,16 @@
         <div class="analytics-section">
             <h3 style="font-size:14px;text-transform:uppercase;color:var(--accent);"><i class="fas fa-chart-pie"></i> Performance Analytics</h3>
             <div class="charts-container">
-                <div><canvas id="balanceChart" style="max-height:180px;"></canvas></div>
-                <div><canvas id="roiChart" style="max-height:180px;"></canvas></div>
+                <div style="height:180px;"><canvas id="balanceChart"></canvas></div>
+                <div style="height:180px;"><canvas id="roiChart"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Search Bar Block -->
+        <div style="margin-bottom: 15px; display: flex; gap: 10px;">
+            <div style="position: relative; flex: 1;">
+                <i class="fas fa-search" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-secondary);"></i>
+                <input type="text" id="bet-search-input" oninput="filterBets(currentFilter)" placeholder="Search by team, league, or ticket #..." style="width: 100%; padding: 10px 12px 10px 35px; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.2s;">
             </div>
         </div>
         
@@ -337,7 +345,7 @@
 
 <script>
 // ============================================
-// MY BETS v9.9 - SECURE ARCHITECTURE PREPARATION
+// MY BETS v10.0 - PRODUCTION STABILITY UPDATE
 // Real Win/Loss | Live Bet Lock | Pre-Match Only
 // ============================================
 const SUPABASE_URL='https://jnazybaeajyynpyoszmy.supabase.co';
@@ -361,7 +369,7 @@ function formatFullDate(d){if(!d)return'-';return new Date(d).toLocaleString('en
 function toggleTheme() {
     document.body.classList.toggle('light-theme');
     localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
-    renderAnalyticsCharts(); // Re-render to adapt chart colors
+    renderAnalyticsCharts();
 }
 if(localStorage.getItem('theme') === 'light') document.body.classList.add('light-theme');
 
@@ -374,9 +382,9 @@ function saveRGLimits(){
     showNotification('Responsible gambling limits applied.', 'success');
     closeRG();
 }
-// Session Reality Check (Anti-Addiction timer alert every 1 hour)
+// Non-blocking Toast Alerts for Reality Check [5]
 setInterval(() => {
-    alert("Reality Check: You have been active on the platform for 1 hour. Please take a healthy break.");
+    showNotification('<i class="fas fa-clock"></i> <strong>Reality Check:</strong> You have been active for 1 hour. Please consider taking a short break.', 'warning');
 }, 3600000);
 
 async function loadBalance(){try{const u=auth.currentUser;if(!u)return 0;const d=await db.collection('wallets').doc(u.uid).get();const b=d.exists?(d.data().balance||0):1000;const el=document.getElementById('balance-display');if(el)el.textContent=`$${b.toFixed(2)}`;return b;}catch(e){return 0;}}
@@ -773,14 +781,104 @@ async function cancelBet(betId){
 }
 
 // ===== 🔥 CASHOUT - ANTI-FRAUD LOCKED FOR LIVE BETS =====
-async function cashoutBet(betId, partialPct = 100){
+async function cashoutBet(betId, partialPct = 100, isAutoTrigger = false){
     const bet=allBets.find(b=>b.id===betId);
     if(!bet||bet.status!=='active'){showNotification('❌ Cannot cash out','error');return;}
     if(settledBets.has(betId)){showNotification('❌ Already processed','error');return;}
     
     const isAcc=bet.bet_type==='accumulator';
+    const baseStake = parseFloat(bet.amount || 0);
+    const partialAmt = baseStake * (partialPct / 100);
+    const remainingStake = baseStake - partialAmt;
+
+    // Validation: Enforce Minimum Stake of $1.00 [3]
+    if (partialPct < 100 && remainingStake < 1.00) {
+        showNotification('❌ Remaining stake cannot fall below $1.00. Please cash out a smaller percentage or perform a Full Cash Out.', 'error');
+        return;
+    }
+
+    // 🟢 Dynamic Accumulator Cashout Engine with leg-by-leg calculation logic [8]
     if(isAcc){
-        showNotification('🔒 Multi-selection Cash Out currently locked.','warning');
+        if(bet.placed_at && bet.selections){
+            for(const s of bet.selections){
+                const lm=await getMatchDetails(s.fixtureId||s.fixture_id);
+                if(lm && lm.start_time){
+                    const bp=new Date(bet.placed_at);
+                    const lk=new Date(lm.start_time);
+                    if(bp>=lk){
+                        showNotification('🔒 Cash Out locked - Accumulator contains live-placed legs','error');
+                        return;
+                    }
+                }
+            }
+        }
+        let lc=0,tl=bet.selections?.length||0;
+        let combinedProb=1.0;
+        let combinedOdds=1.0;
+        let brokenLeg=false;
+
+        if(bet.selections) {
+            for(const s of bet.selections){
+                const m=await getMatchDetails(s.fixtureId||s.fixture_id);
+                combinedOdds *= parseFloat(s.odds || 1);
+                if(m){
+                    const ms=(m.status||'').toLowerCase();
+                    const isFinished = ms==='finished'||ms==='ft';
+                    if (isFinished) {
+                        const legResult = determineBetResult({bet_type: s.betType||s.bet_type}, m);
+                        if(legResult && !legResult.won) {
+                            brokenLeg=true; // If any single selection has lost, cashout drops to zero
+                        }
+                    } else if(ms==='live'||ms==='1h'||ms==='2h'||ms==='ht'){
+                        lc++;
+                        const wp=calculateWinProbability(s.betType||s.bet_type,m.goals_home||0,m.goals_away||0,(m.goals_home||0)+(m.goals_away||0),m.elapsed||0);
+                        combinedProb *= wp;
+                    } else {
+                        combinedProb *= 0.5; // Leg not started fallback
+                    }
+                } else {
+                    combinedProb *= 0.5;
+                }
+            }
+        }
+        if (brokenLeg) {
+            showNotification('❌ Cash out unavailable. One of your Accumulator leg selections has lost.', 'error');
+            return;
+        }
+
+        const td=getTimeDecay(bet._elapsed||45);
+        let cv=partialAmt*combinedOdds*combinedProb*td;
+        cv=Math.max(cv, partialAmt*0.01);
+        cv=Math.min(cv, partialAmt*combinedOdds*0.90);
+
+        const isW=combinedProb>=0.50,isL=combinedProb<0.30;
+        if(!isAutoTrigger && !confirm(`Confirm Acca Cash Out (${partialPct}%)?\n\nReceived: $${cv.toFixed(2)}\nLive Legs: ${lc}/${tl}`))return;
+        
+        try{
+            if (partialPct === 100) {
+                await supabaseClient.from('bets').update({
+                    status:'cashed-out', cashout_amount:cv, cashed_out_at:new Date().toISOString(), settlement_reason:`Cashed out Acca 100%`, updated_at:new Date().toISOString()
+                }).eq('id',betId).eq('status','active');
+                settledBets.add(betId);
+                bet.status='cashed-out';
+            } else {
+                // Persistent ledger tracking for auditing partial transactions [2]
+                let p_hist = bet.partial_history || [];
+                p_hist.push({ timestamp: new Date().toISOString(), percentage: partialPct, cashed_out_val: cv, stake_before: baseStake, stake_after: remainingStake });
+                await supabaseClient.from('bets').update({
+                    amount: remainingStake, partial_history: p_hist, updated_at:new Date().toISOString()
+                }).eq('id',betId);
+                bet.amount = remainingStake;
+                bet.partial_history = p_hist;
+                showNotification(`Partial cashout complete. Remaining stake: $${remainingStake.toFixed(2)}`, 'success');
+            }
+
+            await updateWalletBalance(bet.user_id, cv);
+            await loadBalance();
+            updateStats();
+            updateCounts();
+            filterBets(currentFilter);
+        }catch(e){showNotification(`Error: ${e.message}`,'error');}
         return;
     }
 
@@ -789,7 +887,7 @@ async function cashoutBet(betId, partialPct = 100){
         const m=await getMatchDetails(bet.fixture_id);
         if(m){
             if(!isBetPlacedBeforeKickoff(bet,m)){
-                showNotification('🔒 Cash Out locked - This bet was placed during live match.','warning');
+                showNotification('🔒 Cash Out locked - This bet was placed during live match. Only pre-match bets can cash out.','warning');
                 return;
             }
             const ms=(m.status||'').toLowerCase();
@@ -797,14 +895,14 @@ async function cashoutBet(betId, partialPct = 100){
             el=m.elapsed||0;
             
             if (ms === 'ht' || el >= 80) {
-                showNotification('🔒 Cash Out locked - Blocked during Halftime or late match (80\'+).','warning');
+                showNotification('🔒 Cash Out locked - Blocked during Halftime or late match (80\'+) to prevent latency exploits.','warning');
                 return;
             }
 
             if(ml){
                 const co=calculateRealCashout(bet,m, partialPct);
                 const pt=co.profit>=0?`+$${co.profit.toFixed(2)} PROFIT`:`-$${Math.abs(co.profit).toFixed(2)} LOSS`;
-                if(!confirm(`Confirm Cash Out (${partialPct}%)?\n\nReceived: $${co.value.toFixed(2)}\nProfit/Loss: ${pt}`))return;
+                if(!isAutoTrigger && !confirm(`Confirm Cash Out (${partialPct}%)?\n\nReceived: $${co.value.toFixed(2)}\nProfit/Loss: ${pt}`))return;
                 try{
                     if (partialPct === 100) {
                         await supabaseClient.from('bets').update({
@@ -813,13 +911,15 @@ async function cashoutBet(betId, partialPct = 100){
                         settledBets.add(betId);
                         bet.status='cashed-out';
                     } else {
-                        // Partial Stake Reduction Block
-                        const activeRemaining = parseFloat(bet.amount) - (parseFloat(bet.amount) * (partialPct/100));
+                        // Persistent ledger tracking for auditing partial transactions [2]
+                        let p_hist = bet.partial_history || [];
+                        p_hist.push({ timestamp: new Date().toISOString(), percentage: partialPct, cashed_out_val: co.value, stake_before: baseStake, stake_after: remainingStake });
                         await supabaseClient.from('bets').update({
-                            amount: activeRemaining, updated_at:new Date().toISOString()
+                            amount: remainingStake, partial_history: p_hist, updated_at:new Date().toISOString()
                         }).eq('id',betId);
-                        bet.amount = activeRemaining;
-                        showNotification(`Partial cashout complete. Remaining stake: $${activeRemaining.toFixed(2)}`, 'success');
+                        bet.amount = remainingStake;
+                        bet.partial_history = p_hist;
+                        showNotification(`Partial cashout complete. Remaining stake: $${remainingStake.toFixed(2)}`, 'success');
                     }
 
                     await updateWalletBalance(bet.user_id, co.value);
@@ -834,37 +934,67 @@ async function cashoutBet(betId, partialPct = 100){
     if(!ml){showNotification('❌ Cash Out only during live matches','error');return;}
 }
 
+// Handle Auto Cash-Out thresholds [6]
+async function updateAutoCashoutThreshold(betId, val) {
+    const threshold = parseFloat(val);
+    if (isNaN(threshold) || threshold <= 0) {
+        try {
+            await supabaseClient.from('bets').update({ auto_cashout_threshold: null }).eq('id', betId);
+            const b = allBets.find(x => x.id === betId);
+            if (b) b.auto_cashout_threshold = null;
+            showNotification('Auto cashout threshold cleared.', 'info');
+        } catch(e) {}
+        return;
+    }
+    try {
+        await supabaseClient.from('bets').update({ auto_cashout_threshold: threshold }).eq('id', betId);
+        const b = allBets.find(x => x.id === betId);
+        if (b) b.auto_cashout_threshold = threshold;
+        showNotification(`🤖 Auto cashout set for value >= $${threshold.toFixed(2)}`, 'success');
+    } catch(e) { showNotification('Failed to configure auto cashout rule.', 'error'); }
+}
+
 // Handle slider updates in DOM
 function updatePartialCashoutLabel(betId, val) {
     const label = document.getElementById(`pct-val-${betId}`);
     if (label) label.textContent = `${val}%`;
 }
 
-async function getMatchDetails(fid){
-    if(!fid)return null;
-    try{
-        const{data,error}=await supabaseClient.from('sports_matches').select('*').eq('fixture_id',parseInt(fid)).maybeSingle();
-        if(!error&&data){
-            let ht = extractTeamDetails(data.home_team, 'Home');
-            let at = extractTeamDetails(data.away_team, 'Away');
-            let score = data.score;
-            if (typeof score === 'string') { try { score = JSON.parse(score); } catch(e){} }
-            return {
-                fixture_id: data.fixture_id,
-                status: data.status,
-                elapsed: data.elapsed||0,
-                home_team: ht,
-                away_team: at,
-                league_name: data.league_name||'',
-                start_time: data.start_time||'',
-                goals_home: score?.home !== undefined ? score.home : 0,
-                goals_away: score?.away !== undefined ? score.away : 0,
-                ht_home: score?.halftime?.home !== undefined ? score.halftime.home : 0,
-                ht_away: score?.halftime?.away !== undefined ? score.halftime.away : 0
-            };
-        }
-    }catch(e){}
-    return await fetchMatchFromAPI(fid);
+// 🖨️ PDF & Receipt Generation [7]
+function printBetReceipt(betId) {
+    const bet = allBets.find(b => b.id === betId);
+    if (!bet) return;
+    const tk = 'XL' + (bet.id?.toString().slice(-8) || '00000000').toUpperCase();
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <html>
+        <head>
+            <title>Bet Slip Receipt - ${tk}</title>
+            <style>
+                body { font-family: 'Segoe UI', sans-serif; padding: 40px; color: #111827; background: #ffffff; }
+                .receipt-container { max-width: 480px; margin: 0 auto; border: 2px solid #111827; padding: 25px; border-radius: 12px; }
+                h2 { text-align: center; border-bottom: 2px solid #111827; padding-bottom: 12px; margin-top: 0; }
+                .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed #d1d5db; font-size: 14px; }
+                .footer { margin-top: 25px; text-align: center; font-size: 12px; color: #6b7280; font-style: italic; }
+            </style>
+        </head>
+        <body onload="window.print(); window.close();">
+            <div class="receipt-container">
+                <h2>X LODON BET RECEIPTS</h2>
+                <div class="row"><strong>Receipt Slip:</strong> <span>#${tk}</span></div>
+                <div class="row"><strong>Match Name:</strong> <span>${bet.match_name}</span></div>
+                <div class="row"><strong>Selection Market:</strong> <span>${formatBetTypeName(bet.bet_type)}</span></div>
+                <div class="row"><strong>Odds:</strong> <span>@${parseFloat(bet.odds).toFixed(2)}</span></div>
+                <div class="row"><strong>Active Stake:</strong> <span>$${parseFloat(bet.amount).toFixed(2)}</span></div>
+                <div class="row"><strong>Potential Payout:</strong> <span>$${parseFloat(bet.potential_win || bet.payout || 0).toFixed(2)}</span></div>
+                <div class="row"><strong>Placement Date:</strong> <span>${new Date(bet.placed_at).toLocaleString()}</span></div>
+                <div class="row"><strong>Ticket Status:</strong> <span>${bet.status.toUpperCase()}</span></div>
+                <div class="footer">Thank you for playing responsibly with X Lodon Sports.</div>
+            </div>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
 }
 
 async function loadBets(){
@@ -938,6 +1068,23 @@ async function loadBets(){
             } else if (!b.match_name) {
                 b.match_name=`${bHomeFallback} vs ${bAwayFallback}`;
             }
+
+            // leg scores mapping inside selectors Leg-Data [10]
+            if (b.bet_type === 'accumulator' && b.selections) {
+                b.selections.forEach(s => {
+                    const sm = matchMap[s.fixtureId || s.fixture_id];
+                    if (sm) s._match = sm;
+                });
+            }
+
+            // 🤖 Auto Cash-Out Rule Evaluation Engine [6]
+            if (b.status === 'active' && b.auto_cashout_threshold && b._match) {
+                const liveCoVal = calculateRealCashout(b, b._match, 100);
+                if (liveCoVal.value >= parseFloat(b.auto_cashout_threshold)) {
+                    console.log(`🤖 Auto Cashout Triggered for Ticket XL${b.id.slice(-8)}`);
+                    cashoutBet(b.id, 100, true);
+                }
+            }
         }
 
         allBets = liveBets;
@@ -966,7 +1113,7 @@ async function loadBets(){
     }
 }
 
-// 📈 Interactive Chart Generation via Chart.js
+// 📈 Safe Chart Generation with Overlap Prevention [4]
 function renderAnalyticsCharts() {
     const isLight = document.body.classList.contains('light-theme');
     const labelColor = isLight ? '#111827' : '#ffffff';
@@ -977,7 +1124,6 @@ function renderAnalyticsCharts() {
     const chartLabels = [];
     const chartData = [];
 
-    // Chronological Sort
     const historicalBets = [...allBets].reverse();
     historicalBets.forEach((b, idx) => {
         const amt = parseFloat(b.amount || 0);
@@ -992,53 +1138,68 @@ function renderAnalyticsCharts() {
         chartData.push(cumulativePL);
     });
 
-    if (chartsInstance.balance) chartsInstance.balance.destroy();
-    if (chartsInstance.roi) chartsInstance.roi.destroy();
+    // 🔒 Safe chart cleanup to prevent overlaps on toggle spamming [4]
+    if (chartsInstance.balance && typeof chartsInstance.balance.destroy === 'function') {
+        chartsInstance.balance.destroy();
+        chartsInstance.balance = null;
+    }
+    if (chartsInstance.roi && typeof chartsInstance.roi.destroy === 'function') {
+        chartsInstance.roi.destroy();
+        chartsInstance.roi = null;
+    }
 
-    const ctxBalance = document.getElementById('balanceChart').getContext('2d');
-    chartsInstance.balance = new Chart(ctxBalance, {
-        type: 'line',
-        data: {
-            labels: chartLabels.slice(-10), // Last 10 operations
-            datasets: [{
-                label: 'Cumulative profit ($)',
-                data: chartData.slice(-10),
-                borderColor: '#00ff9d',
-                backgroundColor: 'rgba(0, 255, 157, 0.1)',
-                fill: true,
-                tension: 0.3
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                x: { ticks: { color: labelColor }, grid: { color: gridColor } },
-                y: { ticks: { color: labelColor }, grid: { color: gridColor } }
+    const elBal = document.getElementById('balanceChart');
+    if (elBal && chartLabels.length > 0) {
+        const ctxBalance = elBal.getContext('2d');
+        chartsInstance.balance = new Chart(ctxBalance, {
+            type: 'line',
+            data: {
+                labels: chartLabels.slice(-10),
+                datasets: [{
+                    label: 'Cumulative profit ($)',
+                    data: chartData.slice(-10),
+                    borderColor: '#00ff9d',
+                    backgroundColor: 'rgba(0, 255, 157, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
             },
-            plugins: { legend: { labels: { color: labelColor } } }
-        }
-    });
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { ticks: { color: labelColor }, grid: { color: gridColor } },
+                    y: { ticks: { color: labelColor }, grid: { color: gridColor } }
+                },
+                plugins: { legend: { labels: { color: labelColor } } }
+            }
+        });
+    }
 
     const wonCount = allBets.filter(b=>b.status==='won').length;
     const lostCount = allBets.filter(b=>b.status==='lost').length;
     const otherCount = allBets.length - wonCount - lostCount;
 
-    const ctxRoi = document.getElementById('roiChart').getContext('2d');
-    chartsInstance.roi = new Chart(ctxRoi, {
-        type: 'doughnut',
-        data: {
-            labels: ['Won', 'Lost', 'Other'],
-            datasets: [{
-                data: [wonCount, lostCount, otherCount],
-                backgroundColor: ['#4caf50', '#ff5252', '#a0a8c9'],
-                borderWidth: 0
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: { legend: { position: 'right', labels: { color: labelColor } } }
-        }
-    });
+    const elRoi = document.getElementById('roiChart');
+    if (elRoi) {
+        const ctxRoi = elRoi.getContext('2d');
+        chartsInstance.roi = new Chart(ctxRoi, {
+            type: 'doughnut',
+            data: {
+                labels: ['Won', 'Lost', 'Other'],
+                datasets: [{
+                    data: [wonCount, lostCount, otherCount],
+                    backgroundColor: ['#4caf50', '#ff5252', '#a0a8c9'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'right', labels: { color: labelColor } } }
+            }
+        });
+    }
 }
 
 function sortBets(bets) {
@@ -1158,15 +1319,27 @@ function updateCounts(){
     }
 }
 
+// 🔍 Search and filter by Team, League, Ticket Hash or Market [6]
 function filterBets(f){
     currentFilter=f;
     let fl=sortBets(allBets);
     if(f!=='all') fl=fl.filter(b=>b.status===f);
+
+    const sVal = document.getElementById('bet-search-input')?.value.toLowerCase().trim();
+    if (sVal) {
+        fl = fl.filter(b => {
+            const matchName = (b.match_name || '').toLowerCase();
+            const league = (b._league || '').toLowerCase();
+            const ticket = ('XL' + (b.id?.toString().slice(-8) || '').toUpperCase()).toLowerCase();
+            const pick = (b.bet_type || '').toLowerCase();
+            return matchName.includes(sVal) || league.includes(sVal) || ticket.includes(sVal) || pick.includes(sVal);
+        });
+    }
     
     const c=document.getElementById('bet-list-container');
     if(c){
         if(!fl.length){
-            c.innerHTML=`<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>No ${f==='all'?'':f} bets</p></div>`;
+            c.innerHTML=`<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>No matches found</p></div>`;
             return;
         }
         c.innerHTML=fl.map(b=>createBetCard(b)).join('');
@@ -1180,19 +1353,28 @@ function createBetCard(bet){
 
     const isPreMatch=bet._isPreMatch!==undefined?bet._isPreMatch:(bet.placed_at&&bet._kickoff?new Date(bet.placed_at)<new Date(bet._kickoff):true);
     const canCancel=isActive&&!isAcc&&!matchStarted&&!settledBets.has(bet.id);
-    const canCashout=isActive&&!settledBets.has(bet.id)&&isLive&&isPreMatch&&!isAcc;
-    const canAccaCashout=isActive&&!settledBets.has(bet.id)&&isAcc&&matchStarted&&isPreMatch;
+    const canCashout=isActive&&!settledBets.has(bet.id) && (isLive || isAcc) && isPreMatch; // Acca legs cashout enabled
 
     let cashoutPreview='';
-    if(canCashout&&bet._match){
-        const co=calculateRealCashout(bet,bet._match);const pc=co.isWinning?'winning':(co.isLosing?'losing':'neutral');
+    if(canCashout){
+        let displaysCoValue = amt * odds * 0.45; // Default fallback
+        let displayProb = 45;
+        let pcStatus = 'neutral';
+
+        if (!isAcc && bet._match) {
+            const co=calculateRealCashout(bet, bet._match, 100);
+            displaysCoValue = co.value;
+            displayProb = co.winProbability;
+            pcStatus = co.isWinning ? 'winning' : (co.isLosing ? 'losing' : 'neutral');
+        }
+
         cashoutPreview=`
         <div class="cashout-preview">
             <div class="cashout-metrics">
-                <span>Win Prob: <span class="prob ${pc}">${co.winProbability}%</span></span>
-                <span>Max Cash Out: <span style="color:${co.value>=amt?'#4caf50':'var(--danger)'};font-weight:bold;">$${co.value.toFixed(2)}</span></span>
+                <span>Win Prob: <span class="prob ${pcStatus}">${displayProb}%</span></span>
+                <span>Max Cash Out: <span style="color:${displaysCoValue>=amt?'#4caf50':'var(--danger)'};font-weight:bold;">$${displaysCoValue.toFixed(2)}</span></span>
             </div>
-            <!-- Partial Cash-Out Slider -->
+            <!-- Partial Cash-Out Slider [3] -->
             <div class="partial-cashout-box">
                 <span style="font-size:10px;">Slice: <strong id="pct-val-${bet.id}">100%</strong></span>
                 <input type="range" class="partial-slider" min="10" max="100" step="10" value="100" 
@@ -1207,25 +1389,64 @@ function createBetCard(bet){
     }
     const ht=bet._homeTeam||{name:'Home',logo:''},at=bet._awayTeam||{name:'Away',logo:''},hl=ht.logo||`https://ui-avatars.com/api/?name=${encodeURIComponent(ht.name?.substring(0,2)||'H')}&size=32&background=1a2332&color=00ff9d`,al=at.logo||`https://ui-avatars.com/api/?name=${encodeURIComponent(at.name?.substring(0,2)||'A')}&size=32&background=1a2332&color=ff9800`;
     let sh='';
+    
+    // Rich Live Data selection legs mapping for Accumulators [10]
     if(isAcc&&bet.selections?.length>0){
-        sh=`<div class="selections-container"><div style="font-size:10px;color:var(--text2);margin-bottom:5px;">📋 ${bet.selections.length} Selections</div>${bet.selections.map(s=>`<div class="selection-item"><span class="selection-match">${escapeHtml(s.matchName||`#${s.fixtureId}`)}</span><span class="selection-pick">${escapeHtml(s.betTypeName||'')}</span><span class="selection-odds">@${s.odds}</span></div>`).join('')}</div>`;
+        sh=`<div class="selections-container">
+            <div style="font-size:10px;color:var(--text2);margin-bottom:5px;">📋 ${bet.selections.length} Selections</div>
+            ${bet.selections.map(s=>{
+                const m = s._match;
+                const scoreStr = m ? `(${m.goals_home} - ${m.goals_away})` : '';
+                const elapsedStr = m && m.elapsed ? ` | ${m.elapsed}'` : '';
+                const statusStr = m ? ` [${m.status}]` : '';
+                return `
+                <div class="selection-item" style="padding: 8px 0;">
+                    <span class="selection-match" style="font-weight: 600;">
+                        ${escapeHtml(s.matchName || `Match #${s.fixtureId}`)} 
+                        <span style="color:var(--accent); font-size:11px;">${scoreStr}${elapsedStr}${statusStr}</span>
+                    </span>
+                    <span class="selection-pick">${escapeHtml(s.betTypeName || '')} <span class="selection-odds" style="color:var(--accent2);">@${parseFloat(s.odds || 1).toFixed(2)}</span></span>
+                </div>`;
+            }).join('')}
+        </div>`;
     }
     const sd=bet._score?`<span class="bet-score-display${isLive?' live':''}">${bet._score.home} - ${bet._score.away}</span>`:'';const kd=bet._kickoff?formatFullDate(bet._kickoff):'TBD';const se=bet._kickoff?formatFullDate(new Date(new Date(bet._kickoff).getTime()+115*60000)):'TBD';
     let ah='';
     if(isActive){
         ah='<div class="bet-actions">';
+        
+        // 🤖 Auto Cashout Settings Row [6]
+        ah+=`
+        <div class="auto-cashout-settings" style="margin-top: 10px; background: rgba(255,152,0,0.05); border: 1px dashed var(--orange); padding: 8px; border-radius: 8px; font-size: 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px;" onclick="event.stopPropagation();">
+            <span><i class="fas fa-robot"></i> Auto Cash Out Threshold ($):</span>
+            <input type="number" id="auto-co-input-${bet.id}" value="${bet.auto_cashout_threshold || ''}" placeholder="None" onchange="updateAutoCashoutThreshold('${bet.id}', this.value)" style="width: 75px; padding: 4px; background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px; font-size: 11px; text-align: center;">
+        </div>`;
+
+        ah+=`<div class="bet-action-row-buttons" style="margin-top:5px;">`;
         if(canCancel)ah+=`<button class="cancel-btn" onclick="event.stopPropagation();cancelBet('${bet.id}')"><i class="fas fa-ban"></i> Cancel</button>`;
-        else if(isAcc&&isActive&&!matchStarted)ah+=`<span class="action-info"><i class="fas fa-info-circle"></i> Accas cannot be cancelled</span>`;
-        else if(!isAcc&&isActive&&matchStarted&&!isLive)ah+=`<span class="action-info"><i class="fas fa-clock"></i> Match started</span>`;
+        else if(isAcc && isActive && !matchStarted)ah+=`<span class="action-info"><i class="fas fa-info-circle"></i> Accas cannot be cancelled</span>`;
+        else if(!isAcc && isActive && matchStarted && !isLive)ah+=`<span class="action-info"><i class="fas fa-clock"></i> Match started</span>`;
         
         if(canCashout){
-            const co2=bet._match?calculateRealCashout(bet,bet._match):null;const bc=co2&&co2.isLosing?'cashout-btn losing':'cashout-btn';
-            ah+=`<button class="${bc}" onclick="event.stopPropagation();cashoutBet('${bet.id}', 100)"><i class="fas fa-money-bill-wave"></i> Cash Out Full${co2?` ($${co2.value.toFixed(2)})`:''}</button>`;
+            let displaysCoValue = amt * odds * 0.45;
+            if (!isAcc && bet._match) {
+                const co2 = calculateRealCashout(bet, bet._match, 100);
+                displaysCoValue = co2.value;
+            }
+            ah+=`<button class="cashout-btn" onclick="event.stopPropagation();cashoutBet('${bet.id}', 100)"><i class="fas fa-money-bill-wave"></i> Cash Out Full ($${displaysCoValue.toFixed(2)})</button>`;
         }
-        else if(canAccaCashout)ah+=`<button class="cashout-btn" onclick="event.stopPropagation();cashoutBet('${bet.id}', 100)"><i class="fas fa-money-bill-wave"></i> Cash Out Acca</button>`;
         else if(isActive&&!matchStarted)ah+=`<span class="action-info"><i class="fas fa-hourglass-start"></i> Cash out when live</span>`;
         else if(isActive&&isLive&&!isPreMatch)ah+=`<span class="action-info locked"><i class="fas fa-shield-alt"></i> Live bet - Cash out locked</span>`;
         else if(isActive&&matchStarted&&!isLive)ah+=`<span class="action-info"><i class="fas fa-flag-checkered"></i> Awaiting settlement</span>`;
+        ah+='</div>';
+
+        // Receipt download button [7]
+        ah+=`<button class="btn-action-tool" onclick="event.stopPropagation(); printBetReceipt('${bet.id}')" style="margin-top: 5px; width: 100%; justify-content: center; font-size: 11px; background: var(--bg-tertiary);"><i class="fas fa-file-pdf"></i> Download Slip Receipt</button>`;
+        ah+='</div>';
+    } else {
+        // Receipt button on historical settled cards
+        ah='<div class="bet-actions">';
+        ah+=`<button class="btn-action-tool" onclick="event.stopPropagation(); printBetReceipt('${bet.id}')" style="width: 100%; justify-content: center; font-size: 11px; background: var(--bg-tertiary);"><i class="fas fa-file-pdf"></i> Download Slip Receipt</button>`;
         ah+='</div>';
     }
     return`<div class="bet-card ${bet.status}" onclick="showDetails('${bet.id}')"><div class="bet-top"><div><span class="bet-type-tag ${isAcc?'accumulator':'single'}">${isAcc?'ACCUMULATOR':'SINGLE'}</span><span class="bet-ticket-num">#${tk}</span>${!isPreMatch&&isActive?`<span class="live-bet-badge"><i class="fas fa-bolt"></i> LIVE BET</span>`:''}</div><span class="bet-status-badge ${bet.status}">${bet.status==='won'?'🏆 WON':bet.status==='lost'?'❌ LOST':bet.status==='cancelled'?'⛔ CANCELLED':bet.status==='cashed-out'?'💰 CASHED OUT':'⏳ ACTIVE'}</span></div><div class="bet-body"><div class="bet-match-row"><img class="team-logo-small" src="${hl}" onerror="this.style.display='none'" alt=""><div class="bet-match-name">${escapeHtml(ht.name||'Home')} <span style="color:var(--text2);">vs</span> ${escapeHtml(at.name||'Away')}${sd}</div><img class="team-logo-small" src="${al}" onerror="this.style.display='none'" alt=""></div><div class="bet-league">${escapeHtml(bet._league||'')}${bet._elapsed?` | ${bet._elapsed}'`:''} | ${ms.toUpperCase()}</div><div class="bet-pick">${escapeHtml(formatBetTypeName(bet.bet_type))} <span>@${odds.toFixed(2)}</span></div></div>${sh}<div class="bet-meta-row"><span><i class="fas fa-calendar-plus"></i> Placed: ${formatFullDate(bet.placed_at)}</span><span><i class="fas fa-clock"></i> Kickoff: ${kd}</span>${isActive?`<span><i class="fas fa-hourglass-end"></i> Settle by: ${se}</span>`:''}</div>${cashoutPreview}<div class="bet-details-grid"><div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amt.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">${isActive?'Potential':'Payout'}</div><div class="val" style="color:${bet.status==='won'?'#4caf50':bet.status==='lost'?'var(--danger)':'#fff'}">$${pay.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${pr>=0?'#4caf50':'var(--danger)'}">${pr>=0?'+':''}$${Math.abs(pr).toFixed(2)}</div></div>${isActive?`<div class="bet-detail"><div class="lbl">Est. Settlement</div><div class="val"><span class="settlement-timer" id="timer-${bet.id}">...</span></div></div>`:''}</div>${bet.settlement_reason?`<div class="bet-result-row ${bet.status}"><i class="fas fa-gavel"></i> ${escapeHtml(bet.settlement_reason)}</div>`:''}${ah}</div>`;
@@ -1251,7 +1472,8 @@ window.addEventListener('beforeunload',()=>{if(refreshInterval)clearInterval(ref
 
 window.toggleLanguage=toggleLanguage;window.closeModal=closeModal;window.cancelBet=cancelBet;window.cashoutBet=cashoutBet;window.showDetails=showDetails;window.exportBetsToCSV=exportBetsToCSV;
 window.toggleTheme=toggleTheme;window.closeRG=closeRG;window.openResponsibleGambling=openResponsibleGambling;window.saveRGLimits=saveRGLimits;window.updatePartialCashoutLabel=updatePartialCashoutLabel;
-console.log('✅ My Bets v9.9 - ANTI-FRAUD | Live Bet Lock | Real Cashout');
+window.printBetReceipt=printBetReceipt;window.updateAutoCashoutThreshold=updateAutoCashoutThreshold;
+console.log('✅ My Bets v10.0 - ANTI-FRAUD | Live Bet Lock | Real Cashout');
 </script>
 </body>
 </html>
