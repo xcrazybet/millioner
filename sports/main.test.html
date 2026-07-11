@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+final_html = """<!DOCTYPE html>
 <html lang="en" dir="ltr">
 <head>
     <meta charset="UTF-8">
@@ -340,6 +340,12 @@
         .sport-icon-btn span { font-size: 11px; font-weight: 500; }
 
         /* Competitions Section Styling */
+        .competitions-section {
+            display: none !important; /* Force hidden by default */
+        }
+        body.show-competitions .competitions-section {
+            display: block !important;
+        }
         .competition-card {
             background: var(--panel-dark);
             border: 1px solid var(--border-color);
@@ -569,7 +575,7 @@
         .odds-box.suspended { background: #151c27 !important; border-color: #212c3d !important; cursor: not-allowed; pointer-events: none; }
         .odds-box.suspended .odds-val { display: none; }
         .odds-box.suspended::after {
-            content: '\f023';
+            content: '\\f023';
             font-family: 'Font Awesome 5 Free';
             font-weight: 900;
             font-size: 10px;
@@ -691,8 +697,47 @@
 
         @media (max-width: 1024px) {
             .main-layout { grid-template-columns: 1fr; }
-            .sidebar-left, .sidebar-right { display: none; }
+            .sidebar-right { display: none; }
             .mobile-cart-trigger, .mobile-cart-drawer { display: flex; }
+            .center-content { padding-bottom: 80px; }
+            
+            .sidebar-left { 
+                display: flex !important; /* Ensure it is flex */
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 70px;
+                background: var(--header-bg);
+                border-top: 1px solid var(--border-color);
+                padding: 8px 10px;
+                z-index: 100;
+                overflow-y: visible;
+                align-items: center;
+                justify-content: space-around;
+            }
+            
+            .sidebar-left .toggle-pill-container { display: none; }
+            
+            .sidebar-left .side-nav-list {
+                display: flex;
+                flex-direction: row;
+                gap: 0;
+                width: 100%;
+                justify-content: space-around;
+            }
+            
+            .sidebar-left .side-nav-item a {
+                flex-direction: column;
+                gap: 2px;
+                padding: 6px 8px;
+                font-size: 10px;
+                text-align: center;
+            }
+            
+            .sidebar-left .side-nav-item a i {
+                font-size: 18px;
+            }
             
             /* MOBILE SCREEN SIZE CORRECTIONS */
             .mobile-market-switcher { display: flex; }
@@ -752,6 +797,11 @@
                 <button class="nav-link-btn" onclick="location.href='upcoming-matches.html'">
                     <i class="fas fa-calendar-alt"></i>
                     <span>Upcoming</span>
+                </button>
+                <!-- ✅ ADD THIS FOR MOBILE MY BETS ACCESS -->
+                <button class="nav-link-btn" onclick="location.href='my-bets.html'">
+                    <i class="fas fa-ticket-alt"></i>
+                    <span>My Bets</span>
                 </button>
             </div>
         </div>
@@ -1260,53 +1310,118 @@
 
         // Dynamically constructs 3 Quick Bets from high-profile upcoming/live events
         function generateQuickBets() {
-            const majorLeagues = ["Premier League", "La Liga", "Serie A", "Champions League", "World Cup", "Bundesliga", "Ligue 1", "Euro"];
-            let sourceMatches = allMatches.filter(m => 
-                majorLeagues.some(league => m.league_name.toLowerCase().includes(league.toLowerCase()))
+            // ✅ SMART EVENT PRIORITIZATION - Get the most important events
+            const priorityLeagues = [
+                'Premier League', 'Champions League', 'La Liga', 'Serie A', 
+                'Bundesliga', 'Ligue 1', 'Europa League', 'World Cup',
+                'Euro', 'Copa América', 'Africa Cup of Nations',
+                'FA Cup', 'Coppa Italia', 'DFB-Pokal', 'Copa del Rey'
+            ];
+            
+            // Get today's matches
+            const today = new Date().toISOString().split('T')[0];
+            
+            // First, prioritize LIVE matches
+            let liveMatches = allMatches.filter(m => m.status === 'live');
+            
+            // Then get upcoming matches from priority leagues
+            let priorityMatches = allMatches.filter(m => 
+                m.status === 'upcoming' && 
+                priorityLeagues.some(league => m.league_name?.toLowerCase().includes(league.toLowerCase())) &&
+                new Date(m.start_time).toISOString().split('T')[0] === today
             );
             
-            if (sourceMatches.length < 3) {
-                sourceMatches = [...allMatches];
+            // If not enough priority matches, expand to all upcoming today
+            if (priorityMatches.length < 3) {
+                const todayMatches = allMatches.filter(m => 
+                    m.status === 'upcoming' && 
+                    new Date(m.start_time).toISOString().split('T')[0] === today
+                );
+                // Sort by league priority
+                todayMatches.sort((a, b) => {
+                    const aPriority = priorityLeagues.findIndex(l => a.league_name?.toLowerCase().includes(l.toLowerCase()));
+                    const bPriority = priorityLeagues.findIndex(l => b.league_name?.toLowerCase().includes(l.toLowerCase()));
+                    return (aPriority === -1 ? 999 : aPriority) - (bPriority === -1 ? 999 : bPriority);
+                });
+                priorityMatches = todayMatches.slice(0, 5);
             }
-
-            const selectedMatches = sourceMatches.slice(0, 3);
             
-            // Guarantee there are always exactly 3 cards using structured fallbacks if pool is empty
-            while (selectedMatches.length < 3) {
-                selectedMatches.push({
-                    fixture_id: 999100 + selectedMatches.length,
+            // Use LIVE matches first, then priority matches
+            let sourceMatches = [...liveMatches, ...priorityMatches];
+            
+            // If still not enough, add some from tomorrow
+            if (sourceMatches.length < 3) {
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                const tomorrowStr = tomorrow.toISOString().split('T')[0];
+                const tomorrowMatches = allMatches.filter(m => 
+                    m.status === 'upcoming' && 
+                    new Date(m.start_time).toISOString().split('T')[0] === tomorrowStr
+                );
+                sourceMatches = [...sourceMatches, ...tomorrowMatches.slice(0, 3)];
+            }
+            
+            // Ensure we have at least 3 matches
+            while (sourceMatches.length < 3) {
+                sourceMatches.push({
+                    fixture_id: 999100 + sourceMatches.length,
                     home_team: { name: 'Manchester United' },
                     away_team: { name: 'Chelsea' },
                     league_name: 'Premier League',
                     start_time: new Date().toISOString(),
-                    odds: { home: '2.10', draw: '3.40', away: '2.80', over25: '1.75' }
+                    odds: { home: '2.10', draw: '3.40', away: '2.80', over25: '1.75', bttsYes: '1.70', bttsNo: '2.05' },
+                    status: 'upcoming'
                 });
             }
-
-            return selectedMatches.map((m) => {
-                const favTeam = parseFloat(m.odds.home) <= parseFloat(m.odds.away) ? m.home_team.name : m.away_team.name;
+            
+            // ✅ Generate different types of Quick Bets for variety
+            return sourceMatches.slice(0, 3).map((m, index) => {
+                const homeName = m.home_team?.name || m.home_team || 'Home';
+                const awayName = m.away_team?.name || m.away_team || 'Away';
+                const favTeam = parseFloat(m.odds.home) <= parseFloat(m.odds.away) ? homeName : awayName;
                 const favType = parseFloat(m.odds.home) <= parseFloat(m.odds.away) ? 'home' : 'away';
                 const star = getStarPlayer(favTeam);
                 
-                const baseOdds = (parseFloat(m.odds[favType]) * parseFloat(m.odds.over25) * 1.3).toFixed(2);
-                const boostedOdds = (parseFloat(baseOdds) * 1.25).toFixed(2);
+                // ✅ Create different bet types for variety
+                const betTypes = [
+                    {
+                        name: `${favTeam} Win + Over 2.5 + ${star} Goal`,
+                        selections: [`${favTeam} to Win`, `Over 2.5 Total Goals`, `${star} to Score Anytime`],
+                        baseOdds: parseFloat(m.odds[favType]) * parseFloat(m.odds.over25) * 1.3
+                    },
+                    {
+                        name: `Both Teams to Score (Yes) + ${favTeam} Win`,
+                        selections: [`Both Teams to Score (Yes)`, `${favTeam} to Win`],
+                        baseOdds: parseFloat(m.odds.bttsYes) * parseFloat(m.odds[favType])
+                    },
+                    {
+                        name: `${favTeam} Win + Clean Sheet`,
+                        selections: [`${favTeam} to Win`, `${favTeam} to Keep Clean Sheet`],
+                        baseOdds: parseFloat(m.odds[favType]) * 2.5
+                    }
+                ];
                 
-                const fractWas = getFractionalOdds(baseOdds);
+                // Choose based on index for variety
+                const selectedBet = betTypes[index % betTypes.length];
+                const boostedOdds = selectedBet.baseOdds * 1.25;
+                const fractWas = getFractionalOdds(selectedBet.baseOdds);
                 const fractNow = getFractionalOdds(boostedOdds);
-
+                
                 return {
-                    id: `qb_auto_${m.fixture_id}`,
-                    matchName: `${m.home_team.name} vs ${m.away_team.name}`,
-                    subtext: new Date(m.start_time).toLocaleDateString() + ' • ' + m.league_name,
-                    selections: [
-                        `${favTeam} to Win`,
-                        `Over 2.5 Total Goals`,
-                        `${star} to Score Anytime`
-                    ],
-                    betTypeName: `${favTeam} Win + Over 2.5 + ${star} Goal`,
-                    odds: parseFloat(boostedOdds),
+                    id: m.fixture_id,
+                    matchName: `${homeName} vs ${awayName}`,
+                    subtext: new Date(m.start_time).toLocaleDateString() + ' • ' + m.league_name + (m.status === 'live' ? ' 🔴 LIVE' : ''),
+                    selections: selectedBet.selections,
+                    betTypeName: selectedBet.name,
+                    odds: parseFloat(boostedOdds.toFixed(2)),
                     wasOdds: fractWas,
-                    nowOdds: fractNow
+                    nowOdds: fractNow,
+                    homeTeam: homeName,
+                    awayTeam: awayName,
+                    leagueName: m.league_name,
+                    startTime: m.start_time,
+                    matchStatus: m.status || 'upcoming',
+                    isLive: m.status === 'live'
                 };
             });
         }
@@ -1317,18 +1432,22 @@
             const sportsIconWrapper = document.getElementById('sports-icon-wrapper-div');
             const competitionsWrapper = document.getElementById('competitions-wrapper');
             
+            // ✅ Toggle competitions visibility based on the active tab
+            if (activeFilter === 'competitions' || activeFilter === 'quick_bets') {
+                document.body.classList.add('show-competitions');
+            } else {
+                document.body.classList.remove('show-competitions');
+            }
+            
             // Apply preservation of active mobile market switcher styles
             container.className = 'show-market-' + activeMobileMarket;
             
             // Manage dynamic visibility of layout containers based on the active tab
             if (activeFilter === 'live' || activeFilter === 'upcoming') {
-                if (competitionsWrapper) competitionsWrapper.style.display = 'none';
                 if (sportsIconWrapper) sportsIconWrapper.style.display = 'flex';
             } else if (activeFilter === 'highlights') {
-                if (competitionsWrapper) competitionsWrapper.style.display = 'block';
                 if (sportsIconWrapper) sportsIconWrapper.style.display = 'flex';
             } else if (activeFilter === 'competitions') {
-                if (competitionsWrapper) competitionsWrapper.style.display = 'block';
                 if (sportsIconWrapper) sportsIconWrapper.style.display = 'none';
                 
                 container.innerHTML = `
@@ -1339,7 +1458,6 @@
                 `;
                 return;
             } else if (activeFilter === 'quick_bets') {
-                if (competitionsWrapper) competitionsWrapper.style.display = 'none';
                 if (sportsIconWrapper) sportsIconWrapper.style.display = 'none';
                 renderQuickBetsDeck();
                 return;
@@ -1435,15 +1553,15 @@
                                     <!-- Winner 1X2 Group -->
                                     <div class="odds-block-group group-1x2">
                                         <div class="odds-box ${isMatchSuspended ? 'suspended' : ''} ${isBetSelected(m.fixture_id, 'home') ? 'selected' : ''}" 
-                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'home', '🏠 Home Win', ${m.odds.home})">
+                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'home', 'Home Win', ${m.odds.home})">
                                             <span class="odds-val">${m.odds.home}</span>
                                         </div>
                                         <div class="odds-box ${isMatchSuspended ? 'suspended' : ''} ${isBetSelected(m.fixture_id, 'draw') ? 'selected' : ''}" 
-                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'draw', '🤝 Draw Match', ${m.odds.draw})">
+                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'draw', 'Draw', ${m.odds.draw})">
                                             <span class="odds-val">${m.odds.draw}</span>
                                         </div>
                                         <div class="odds-box ${isMatchSuspended ? 'suspended' : ''} ${isBetSelected(m.fixture_id, 'away') ? 'selected' : ''}" 
-                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'away', '✈️ Away Win', ${m.odds.away})">
+                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'away', 'Away Win', ${m.odds.away})">
                                             <span class="odds-val">${m.odds.away}</span>
                                         </div>
                                     </div>
@@ -1451,11 +1569,11 @@
                                     <!-- Total Over/Under Group -->
                                     <div class="odds-block-group group-overunder">
                                         <div class="odds-box ${isMatchSuspended ? 'suspended' : ''} ${isBetSelected(m.fixture_id, 'over25') ? 'selected' : ''}" 
-                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'over25', '📈 Over 2.5 Goals', ${m.odds.over25})">
+                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'over25', 'Over 2.5 Goals', ${m.odds.over25})">
                                             <span class="odds-val">${m.odds.over25}</span>
                                         </div>
                                         <div class="odds-box ${isMatchSuspended ? 'suspended' : ''} ${isBetSelected(m.fixture_id, 'under25') ? 'selected' : ''}" 
-                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'under25', '📉 Under 2.5 Goals', ${m.odds.under25})">
+                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'under25', 'Under 2.5 Goals', ${m.odds.under25})">
                                             <span class="odds-val">${m.odds.under25}</span>
                                         </div>
                                     </div>
@@ -1463,11 +1581,11 @@
                                     <!-- BTTS Group -->
                                     <div class="odds-block-group group-btts">
                                         <div class="odds-box ${isMatchSuspended || isBttsSuspended ? 'suspended' : ''} ${isBetSelected(m.fixture_id, 'btts_yes') ? 'selected' : ''}" 
-                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'btts_yes', '🥅 BTTS (Yes)', ${m.odds.bttsYes})">
+                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'btts_yes', 'Both Teams to Score (Yes)', ${m.odds.bttsYes})">
                                             <span class="odds-val">${m.odds.bttsYes}</span>
                                         </div>
                                         <div class="odds-box ${isMatchSuspended || isBttsSuspended ? 'suspended' : ''} ${isBetSelected(m.fixture_id, 'btts_no') ? 'selected' : ''}" 
-                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'btts_no', '🥅 BTTS (No)', ${m.odds.bttsNo})">
+                                             onclick="addBet(${m.fixture_id}, '${escapeQuote(m.home_team.name)} vs ${escapeQuote(m.away_team.name)}', 'btts_no', 'Both Teams to Score (No)', ${m.odds.bttsNo})">
                                             <span class="odds-val">${m.odds.bttsNo}</span>
                                         </div>
                                     </div>
@@ -1497,20 +1615,22 @@
             const container = document.getElementById('hierarchical-odds-grid');
             const quickBetsData = generateQuickBets();
 
-            // Build Quick Bet Card elements
             const qbCardsHtml = quickBetsData.map(qb => `
-                <div class="quick-bet-card" style="margin-bottom: 15px;">
+                <div class="quick-bet-card" style="margin-bottom: 15px; ${qb.isLive ? 'border: 2px solid #ff4444;' : ''}">
                     <div>
                         <div class="quick-bet-card-header">
-                            <i class="fas fa-futbol" style="color:var(--xlodon-blue);"></i> ${qb.matchName}
+                            <i class="fas fa-futbol" style="color:${qb.isLive ? '#ff4444' : 'var(--xlodon-blue)'};"></i> 
+                            ${qb.matchName}
+                            ${qb.isLive ? '<span style="color:#ff4444; font-size:10px; margin-left:8px;">🔴 LIVE</span>' : ''}
                         </div>
                         <div class="quick-bet-card-sub">${qb.subtext}</div>
                         <ul class="quick-bets-list">
                             ${qb.selections.map(sel => `<li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> ${sel}</li>`).join('')}
                         </ul>
                     </div>
-                    <button class="quick-bet-odds-btn boosted" onclick="addBet('${qb.id}', '${escapeQuote(qb.matchName)}', 'Quick Bets Spec', '${escapeQuote(qb.betTypeName)}', ${qb.odds})">
-                        <span style="font-size:10px; text-decoration:line-through; color:var(--text-grey); margin-right:5px;">Was ${qb.wasOdds}</span> Boost ${qb.nowOdds} (${qb.odds})
+                    <button class="quick-bet-odds-btn boosted" onclick="handleQuickBetClick('${qb.id}', '${escapeQuote(qb.matchName)}', '${escapeQuote(qb.betTypeName)}', ${qb.odds})">
+                        <span style="font-size:10px; text-decoration:line-through; color:var(--text-grey); margin-right:5px;">Was ${qb.wasOdds}</span> 
+                        Boost ${qb.nowOdds} (${qb.odds})
                     </button>
                 </div>
             `).join('');
@@ -1541,6 +1661,21 @@
             `;
         }
 
+        function handleQuickBetClick(fixtureId, matchName, betTypeName, odds) {
+            // Find the match data
+            const matchData = allMatches.find(m => m.fixture_id == fixtureId);
+            
+            // Get match status
+            let matchStatus = 'upcoming';
+            if (matchData) {
+                if (matchData.status === 'live') matchStatus = 'live';
+                else if (matchData.status === 'finished') matchStatus = 'finished';
+            }
+            
+            // Use the addBet function with the complete data
+            addBet(fixtureId, matchName, 'quick_bet', betTypeName, odds);
+        }
+
         // Helpers
         function escapeQuote(str) { return str.replace(/'/g, "\\'"); }
         function isBetSelected(matchId, betType) {
@@ -1557,14 +1692,40 @@
                 const conflicts = betSlip.findIndex(b => b.fixtureId == fixtureId);
                 if (conflicts > -1) betSlip.splice(conflicts, 1);
                 
-                // Pushes selection with properties structured exactly to match your system specs
+                // ✅ Find the match data to extract full details
+                const matchData = allMatches.find(m => m.fixture_id == fixtureId);
+                
+                // ✅ Get match status
+                let matchStatus = 'upcoming';
+                if (matchData) {
+                    if (matchData.status === 'live') matchStatus = 'live';
+                    else if (matchData.status === 'finished') matchStatus = 'finished';
+                }
+                
+                // ✅ Pushes selection with complete structure for my-bets.html
                 betSlip.push({
                     fixtureId: fixtureId,
                     matchName: matchName,
                     betType: betType,          // 'home', 'over25', 'btts_yes'
-                    betTypeName: betTypeName,   // '🏠 Home Win', etc.
+                    betTypeName: betTypeName,   // 'Home Win', etc.
                     odds: parseFloat(odds),
-                    stake: 10.0 // Default single stake
+                    stake: 10.0, // Default single stake
+                    // ✅ CRITICAL FIELDS FOR my-bets.html COMPATIBILITY
+                    matchDetails: matchData ? {
+                        home_team: matchData.home_team?.name || matchData.home_team || 'Home',
+                        away_team: matchData.away_team?.name || matchData.away_team || 'Away',
+                        league_name: matchData.league_name || '',
+                        start_time: matchData.start_time || new Date().toISOString()
+                    } : {
+                        home_team: matchName.split(' vs ')[0] || 'Home',
+                        away_team: matchName.split(' vs ')[1] || 'Away',
+                        league_name: '',
+                        start_time: new Date().toISOString()
+                    },
+                    match_status_at_bet: matchStatus,
+                    home_team: matchData ? (matchData.home_team?.name || matchData.home_team || 'Home') : (matchName.split(' vs ')[0] || 'Home'),
+                    away_team: matchData ? (matchData.away_team?.name || matchData.away_team || 'Away') : (matchName.split(' vs ')[1] || 'Away'),
+                    league_name: matchData ? (matchData.league_name || '') : ''
                 });
             }
             saveBetSlipToLocalStorage();
@@ -1726,9 +1887,11 @@
 
             const activeBtnId = window.innerWidth <= 1024 ? 'mobile-btn-submit-bets' : 'desktop-btn-submit-bets';
             const btn = document.getElementById(activeBtnId);
-            const originalText = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Submitting...`;
+            const originalText = btn ? btn.innerHTML : 'Place Bet';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Submitting...`;
+            }
 
             try {
                 // Pull active wallet parameters
@@ -1747,26 +1910,39 @@
 
                 if (currentBalance < totalDeduction) {
                     alert("Insufficient balance to place these bets.");
-                    btn.disabled = false;
-                    btn.innerHTML = originalText;
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                    }
                     return;
                 }
 
-                // Batch insert logic inside Supabase (Bets table)
+                // Batch insert wagers inside Supabase (Bets table)
                 if (activeBetSlipTab === 'single') {
                     for (const b of betSlip) {
                         const betId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                        
+                        // ✅ BUILD COMPLETE BET OBJECT FOR my-bets.html
                         const bet = {
                             id: betId,
                             user_id: currentUser.uid,
-                            fixture_id: isNaN(b.fixtureId) ? null : parseInt(b.fixtureId),
+                            fixture_id: !isNaN(parseInt(b.fixtureId)) ? parseInt(b.fixtureId) : null,
                             bet_type: b.betType,
                             bet_name: b.betTypeName,
                             odds: b.odds,
                             amount: b.stake,
                             potential_win: b.stake * b.odds,
                             status: 'active',
-                            placed_at: new Date().toISOString()
+                            placed_at: new Date().toISOString(),
+                            // ✅ CRITICAL FIELDS FOR my-bets.html
+                            match_name: b.matchName,
+                            home_team: b.home_team || 'Home',
+                            away_team: b.away_team || 'Away',
+                            league_name: b.league_name || '',
+                            match_status_at_bet: b.match_status_at_bet || 'upcoming',
+                            match_details: b.matchDetails ? JSON.stringify(b.matchDetails) : null,
+                            // Store the bet type category for filtering
+                            bet_category: getBetCategory(b.betType)
                         };
 
                         const { error } = await supabaseClient
@@ -1777,10 +1953,12 @@
                 } else {
                     // Place Accumulator/System combination transaction
                     const betId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    
+                    // ✅ BUILD COMPLETE ACCUMULATOR BET
                     const bet = {
                         id: betId,
                         user_id: currentUser.uid,
-                        fixture_id: null, // Null for accumulator wagers
+                        fixture_id: null,
                         bet_type: 'accumulator',
                         bet_name: `${betSlip.length}-fold Accumulator`,
                         odds: calculatedOdds,
@@ -1788,7 +1966,19 @@
                         potential_win: totalDeduction * calculatedOdds,
                         status: 'active',
                         placed_at: new Date().toISOString(),
-                        selections: betSlip // Saved natively as JSONB parameters inside Supabase
+                        selections: betSlip.map(b => ({
+                            ...b,
+                            match_details: b.matchDetails ? JSON.stringify(b.matchDetails) : null,
+                            match_name: b.matchName,
+                            home_team: b.home_team,
+                            away_team: b.away_team,
+                            league_name: b.league_name,
+                            match_status_at_bet: b.match_status_at_bet || 'upcoming'
+                        })),
+                        match_status_at_bet: 'upcoming',
+                        // Store summary for display
+                        match_names: betSlip.map(b => b.matchName).join(' + '),
+                        total_selections: betSlip.length
                     };
 
                     const { error } = await supabaseClient
@@ -1820,9 +2010,20 @@
             } catch(err) {
                 console.error("Wager placing failed:", err);
                 alert("Error placing bets. Please try again.");
-                btn.disabled = false;
-                btn.innerHTML = originalText;
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
             }
+        }
+
+        // ✅ Helper function to categorize bet types
+        function getBetCategory(betType) {
+            if (['home', 'draw', 'away'].includes(betType)) return '1x2';
+            if (['over25', 'under25'].includes(betType)) return 'total_goals';
+            if (['btts_yes', 'btts_no'].includes(betType)) return 'btts';
+            if (betType === 'quick_bet') return 'quick_bet';
+            return 'other';
         }
 
         function switchFilter(mode, element) {
