@@ -1,190 +1,928 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Live Match Center - X Lodon</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Match Center - Animated Pitch</title>
     <style>
-        /* Modern dark theme like Bet365 */
         :root {
             --bg: #0a0f1a;
             --card: #111827;
             --accent: #00ff9d;
             --danger: #ff4444;
+            --warning: #ff9800;
+            --pitch-green: #1a472a;
+            --pitch-dark: #0d2818;
         }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         
-        .match-center {
+        body {
+            background: var(--bg);
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .match-container {
             display: grid;
-            grid-template-columns: 1fr 300px;
+            grid-template-columns: 1fr 350px;
             gap: 15px;
             padding: 15px;
-            max-width: 1400px;
+            max-width: 1600px;
             margin: 0 auto;
+            height: 100vh;
         }
-        
-        .main-panel {
+
+        /* ===== PITCH PANEL ===== */
+        .pitch-panel {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 20px;
             display: flex;
             flex-direction: column;
             gap: 15px;
+            border: 1px solid rgba(255,255,255,0.1);
         }
-        
-        .score-hero {
-            background: var(--card);
-            border-radius: 16px;
-            padding: 30px;
+
+        .score-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+        }
+
+        .team {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+        }
+
+        .team.home { justify-content: flex-end; text-align: right; }
+        .team.away { justify-content: flex-start; text-align: left; }
+
+        .team-logo {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.1);
+            object-fit: contain;
+            padding: 5px;
+        }
+
+        .team-name {
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .score-display {
+            font-size: 48px;
+            font-weight: bold;
+            font-family: monospace;
+            color: var(--danger);
+            text-shadow: 0 0 20px rgba(255,68,68,0.5);
+            min-width: 120px;
             text-align: center;
-            border: 2px solid var(--danger);
+            letter-spacing: 5px;
         }
-        
-        .commentary-timeline {
-            background: var(--card);
-            border-radius: 16px;
-            padding: 20px;
-            max-height: 500px;
+
+        .match-time {
+            text-align: center;
+            font-size: 14px;
+            color: var(--warning);
+            font-family: monospace;
+        }
+
+        .pitch-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/10;
+            background: linear-gradient(180deg, var(--pitch-green) 0%, var(--pitch-dark) 100%);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid rgba(255,255,255,0.2);
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .pitch-overlay {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: var(--accent);
+        }
+
+        /* ===== SIDEBAR ===== */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
             overflow-y: auto;
         }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-        }
-        
-        .odds-panel {
+
+        .panel {
             background: var(--card);
             border-radius: 16px;
-            padding: 20px;
-            position: sticky;
-            top: 15px;
+            padding: 15px;
+            border: 1px solid rgba(255,255,255,0.1);
         }
-        
-        .goal-animation {
-            animation: goalFlash 0.5s ease;
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        
-        @keyframes goalFlash {
-            0% { color: #ff9800; text-shadow: 0 0 20px #ff9800; transform: scale(1.2); }
-            100% { color: white; transform: scale(1); }
+
+        .event-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border-radius: 8px;
+            margin-bottom: 5px;
+            animation: slideIn 0.3s ease;
+            background: rgba(255,255,255,0.03);
         }
-        
-        .odds-flash {
-            animation: oddsChange 0.3s ease;
+
+        .event-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
         }
-        
-        @keyframes oddsChange {
-            0% { background: rgba(0,255,157,0.3); }
-            100% { background: transparent; }
+
+        .event-goal { background: rgba(255,152,0,0.2); color: var(--warning); }
+        .event-card-yellow { background: rgba(255,193,7,0.2); color: #ffc107; }
+        .event-card-red { background: rgba(255,68,68,0.2); color: var(--danger); }
+        .event-sub { background: rgba(0,255,157,0.2); color: var(--accent); }
+
+        .event-time {
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--text-secondary);
+            min-width: 35px;
+        }
+
+        .event-detail {
+            font-size: 12px;
+            flex: 1;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .stat-bar {
+            flex: 1;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            margin: 0 10px;
+            overflow: hidden;
+        }
+
+        .stat-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+
+        .odds-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .odd-box {
+            text-align: center;
+            padding: 12px 8px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .odd-box:hover {
+            background: rgba(0,255,157,0.1);
+            border-color: var(--accent);
+            transform: scale(1.05);
+        }
+
+        .odd-box.flash {
+            animation: oddsFlash 0.5s ease;
+        }
+
+        @keyframes oddsFlash {
+            0% { background: rgba(0,255,157,0.3); border-color: var(--accent); }
+            100% { background: rgba(0,0,0,0.3); border-color: rgba(255,255,255,0.1); }
+        }
+
+        .odd-label { font-size: 10px; color: #888; }
+        .odd-value { font-size: 18px; font-weight: bold; color: var(--accent); }
+
+        /* ===== GOAL ALERT ===== */
+        .goal-alert {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, var(--warning), #ff6d00);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-weight: bold;
+            font-size: 18px;
+            z-index: 1000;
+            animation: goalPopIn 0.5s ease, goalPopOut 0.5s ease 4s forwards;
+            box-shadow: 0 10px 40px rgba(255,152,0,0.4);
+        }
+
+        @keyframes goalPopIn {
+            0% { transform: translateX(-50%) scale(0); opacity: 0; }
+            70% { transform: translateX(-50%) scale(1.1); }
+            100% { transform: translateX(-50%) scale(1); opacity: 1; }
+        }
+
+        @keyframes goalPopOut {
+            0% { opacity: 1; }
+            100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 1024px) {
+            .match-container {
+                grid-template-columns: 1fr;
+            }
+            .score-display {
+                font-size: 36px;
+            }
+            .team-name {
+                font-size: 14px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="match-center">
-        <!-- Main Content -->
-        <div class="main-panel">
-            <!-- Score Hero -->
-            <div class="score-hero" id="score-hero">
-                <!-- Dynamic score display -->
+
+    <div class="match-container">
+        <!-- PITCH PANEL -->
+        <div class="pitch-panel">
+            <!-- Score Header -->
+            <div class="score-header">
+                <div class="team home">
+                    <span class="team-name" id="home-name">Home</span>
+                    <img class="team-logo" id="home-logo" src="" alt="">
+                </div>
+                <div style="text-align:center;">
+                    <div class="score-display" id="score-display">0-0</div>
+                    <div class="match-time" id="match-time">00:00</div>
+                </div>
+                <div class="team away">
+                    <img class="team-logo" id="away-logo" src="" alt="">
+                    <span class="team-name" id="away-name">Away</span>
+                </div>
             </div>
-            
-            <!-- Tabs: Commentary | Stats | Lineups | H2H -->
-            <div class="tabs">
-                <button onclick="showTab('commentary')">Live Commentary</button>
-                <button onclick="showTab('stats')">Statistics</button>
-                <button onclick="showTab('lineups')">Lineups</button>
-                <button onclick="showTab('h2h')">H2H</button>
-            </div>
-            
-            <!-- Commentary Timeline -->
-            <div class="commentary-timeline" id="commentary-timeline">
-                <!-- Events appear here -->
-            </div>
-            
-            <!-- Statistics -->
-            <div class="stats-grid" id="stats-panel" style="display:none;">
-                <!-- Stats visualization -->
+
+            <!-- Animated Pitch -->
+            <div class="pitch-wrapper" id="pitch-wrapper">
+                <canvas id="pitch-canvas"></canvas>
+                <div class="pitch-overlay" id="pitch-overlay">
+                    🔴 LIVE - Possession: <span id="possession-text">50% - 50%</span>
+                </div>
             </div>
         </div>
-        
-        <!-- Odds Sidebar -->
-        <div class="odds-panel" id="odds-panel">
-            <!-- Live betting odds -->
+
+        <!-- SIDEBAR -->
+        <div class="sidebar">
+            <!-- Events Panel -->
+            <div class="panel">
+                <div class="panel-title">📝 Live Commentary</div>
+                <div id="events-list" style="max-height: 300px; overflow-y: auto;">
+                    <div style="text-align:center;color:#888;padding:20px;">Waiting for events...</div>
+                </div>
+            </div>
+
+            <!-- Stats Panel -->
+            <div class="panel">
+                <div class="panel-title">📊 Match Statistics</div>
+                <div id="stats-container">
+                    <div style="text-align:center;color:#888;padding:20px;">Loading stats...</div>
+                </div>
+            </div>
+
+            <!-- Live Odds Panel -->
+            <div class="panel">
+                <div class="panel-title">💰 Live Odds</div>
+                <div class="odds-grid" id="odds-grid">
+                    <div class="odd-box" id="odd-home">
+                        <div class="odd-label">1</div>
+                        <div class="odd-value">-</div>
+                    </div>
+                    <div class="odd-box" id="odd-draw">
+                        <div class="odd-label">X</div>
+                        <div class="odd-value">-</div>
+                    </div>
+                    <div class="odd-box" id="odd-away">
+                        <div class="odd-label">2</div>
+                        <div class="odd-value">-</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
-    
+
     <script>
-        const MATCH_ID = new URLSearchParams(window.location.search).get('id');
+        // ============================================
+        // LIVE ANIMATED PITCH ENGINE v1.0
+        // Like Bet365 Match Tracker
+        // ============================================
+
+        const MATCH_ID = new URLSearchParams(window.location.search).get('id') || '710816';
         const API_BASE = 'https://api.xlodon.co.uk';
-        
-        // ===== FETCH ALL MATCH DATA =====
-        async function loadMatchCenter() {
+
+        // ===== CANVAS SETUP =====
+        const canvas = document.getElementById('pitch-canvas');
+        const ctx = canvas.getContext('2d');
+        let pitchWidth, pitchHeight;
+
+        // ===== GAME STATE =====
+        const gameState = {
+            ball: { x: 0.5, y: 0.5, vx: 0, vy: 0, targetX: 0.5, targetY: 0.5 },
+            homePlayers: [],
+            awayPlayers: [],
+            possession: 50,
+            score: { home: 0, away: 0 },
+            minute: 0,
+            events: [],
+            lastEventCount: 0,
+            previousOdds: { home: 0, draw: 0, away: 0 }
+        };
+
+        // ===== RESIZE CANVAS =====
+        function resizeCanvas() {
+            const wrapper = document.getElementById('pitch-wrapper');
+            canvas.width = wrapper.clientWidth;
+            canvas.height = wrapper.clientHeight;
+            pitchWidth = canvas.width;
+            pitchHeight = canvas.height;
+            drawPitch();
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        // ===== DRAW PITCH =====
+        function drawPitch() {
+            const w = pitchWidth;
+            const h = pitchHeight;
+            const margin = w * 0.05;
+            const pw = w - margin * 2;
+            const ph = h - margin * 2;
+
+            // Grass pattern
+            ctx.fillStyle = '#1a472a';
+            ctx.fillRect(0, 0, w, h);
+            
+            // Grass stripes
+            for (let i = 0; i < w; i += 40) {
+                ctx.fillStyle = (i % 80 === 0) ? '#1d5030' : '#174525';
+                ctx.fillRect(i, 0, 40, h);
+            }
+
+            // Pitch outline
+            ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(margin, margin, pw, ph);
+
+            // Center line
+            ctx.beginPath();
+            ctx.moveTo(w / 2, margin);
+            ctx.lineTo(w / 2, h - margin);
+            ctx.stroke();
+
+            // Center circle
+            ctx.beginPath();
+            ctx.arc(w / 2, h / 2, ph * 0.15, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Center spot
+            ctx.beginPath();
+            ctx.arc(w / 2, h / 2, 3, 0, Math.PI * 2);
+            ctx.fillStyle = 'white';
+            ctx.fill();
+
+            // Penalty areas
+            const paWidth = pw * 0.17;
+            const paHeight = ph * 0.44;
+            
+            // Left penalty area
+            ctx.strokeRect(margin, h / 2 - paHeight / 2, paWidth, paHeight);
+            // Right penalty area
+            ctx.strokeRect(w - margin - paWidth, h / 2 - paHeight / 2, paWidth, paHeight);
+
+            // Goal areas
+            const gaWidth = pw * 0.06;
+            const gaHeight = ph * 0.22;
+            ctx.strokeRect(margin, h / 2 - gaHeight / 2, gaWidth, gaHeight);
+            ctx.strokeRect(w - margin - gaWidth, h / 2 - gaHeight / 2, gaWidth, gaHeight);
+
+            // Goals
+            ctx.fillStyle = 'rgba(255,255,255,0.1)';
+            ctx.fillRect(margin - 5, h / 2 - gaHeight / 3, 5, gaHeight * 0.66);
+            ctx.fillRect(w - margin, h / 2 - gaHeight / 3, 5, gaHeight * 0.66);
+
+            // Corner arcs
+            const cornerR = 15;
+            [
+                [margin, margin],
+                [w - margin, margin],
+                [margin, h - margin],
+                [w - margin, h - margin]
+            ].forEach(([cx, cy]) => {
+                const startAngle = cx === margin ? 0 : Math.PI / 2;
+                ctx.beginPath();
+                ctx.arc(cx, cy, cornerR, startAngle, startAngle + Math.PI / 2);
+                ctx.stroke();
+            });
+        }
+
+        // ===== INITIALIZE PLAYERS =====
+        function initializePlayers(lineups) {
+            gameState.homePlayers = [];
+            gameState.awayPlayers = [];
+
+            // Home team positions (4-4-2 default)
+            const homeFormation = [
+                { x: 0.08, y: 0.5 },   // GK
+                { x: 0.2, y: 0.2 },    // LB
+                { x: 0.2, y: 0.4 },    // CB
+                { x: 0.2, y: 0.6 },    // CB
+                { x: 0.2, y: 0.8 },    // RB
+                { x: 0.35, y: 0.15 },  // LM
+                { x: 0.35, y: 0.38 },  // CM
+                { x: 0.35, y: 0.62 },  // CM
+                { x: 0.35, y: 0.85 },  // RM
+                { x: 0.5, y: 0.35 },   // ST
+                { x: 0.5, y: 0.65 }    // ST
+            ];
+
+            // Away team positions (4-4-2 default)
+            const awayFormation = [
+                { x: 0.92, y: 0.5 },   // GK
+                { x: 0.8, y: 0.2 },
+                { x: 0.8, y: 0.4 },
+                { x: 0.8, y: 0.6 },
+                { x: 0.8, y: 0.8 },
+                { x: 0.65, y: 0.15 },
+                { x: 0.65, y: 0.38 },
+                { x: 0.65, y: 0.62 },
+                { x: 0.65, y: 0.85 },
+                { x: 0.5, y: 0.35 },
+                { x: 0.5, y: 0.65 }
+            ];
+
+            homeFormation.forEach((pos, i) => {
+                gameState.homePlayers.push({
+                    x: pos.x,
+                    y: pos.y,
+                    targetX: pos.x,
+                    targetY: pos.y,
+                    number: i === 0 ? 1 : i + 1,
+                    isGoalkeeper: i === 0
+                });
+            });
+
+            awayFormation.forEach((pos, i) => {
+                gameState.awayPlayers.push({
+                    x: pos.x,
+                    y: pos.y,
+                    targetX: pos.x,
+                    targetY: pos.y,
+                    number: i === 0 ? 1 : i + 11,
+                    isGoalkeeper: i === 0
+                });
+            });
+        }
+
+        // ===== MOVE BALL BASED ON EVENTS =====
+        function moveBallToEvent(event) {
+            const isHomeEvent = event.team?.id === gameState.homeTeamId;
+            
+            if (event.type === 'Goal') {
+                // Ball goes to goal
+                gameState.ball.targetX = isHomeEvent ? 0.95 : 0.05;
+                gameState.ball.targetY = 0.5;
+                // Celebration - ball back to center after delay
+                setTimeout(() => {
+                    gameState.ball.targetX = 0.5;
+                    gameState.ball.targetY = 0.5;
+                }, 3000);
+            } else if (event.type === 'Card') {
+                // Ball near incident
+                gameState.ball.targetX = Math.random() * 0.3 + (isHomeEvent ? 0.35 : 0.35);
+                gameState.ball.targetY = Math.random() * 0.6 + 0.2;
+            } else {
+                // Random movement in attacking third
+                gameState.ball.targetX = isHomeEvent ? 
+                    Math.random() * 0.3 + 0.5 : 
+                    Math.random() * 0.3 + 0.2;
+                gameState.ball.targetY = Math.random() * 0.6 + 0.2;
+            }
+        }
+
+        // ===== UPDATE PLAYER POSITIONS =====
+        function updatePlayerPositions() {
+            // Slight random movement for all players
+            [...gameState.homePlayers, ...gameState.awayPlayers].forEach(player => {
+                if (!player.isGoalkeeper) {
+                    player.targetX += (Math.random() - 0.5) * 0.02;
+                    player.targetY += (Math.random() - 0.5) * 0.02;
+                    // Keep in bounds
+                    player.targetX = Math.max(0.05, Math.min(0.95, player.targetX));
+                    player.targetY = Math.max(0.05, Math.min(0.95, player.targetY));
+                }
+            });
+
+            // Attackers follow ball
+            const attackingTeam = gameState.possession > 50 ? 
+                gameState.homePlayers : gameState.awayPlayers;
+            
+            attackingTeam.slice(-4).forEach(player => {
+                player.targetX = gameState.ball.targetX + (Math.random() - 0.5) * 0.1;
+                player.targetY = gameState.ball.targetY + (Math.random() - 0.5) * 0.1;
+            });
+        }
+
+        // ===== ANIMATION LOOP =====
+        function animate() {
+            // Smooth ball movement
+            const ball = gameState.ball;
+            ball.vx += (ball.targetX - ball.x) * 0.05;
+            ball.vy += (ball.targetY - ball.y) * 0.05;
+            ball.vx *= 0.9; // Damping
+            ball.vy *= 0.9;
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // Smooth player movement
+            [...gameState.homePlayers, ...gameState.awayPlayers].forEach(player => {
+                player.x += (player.targetX - player.x) * 0.08;
+                player.y += (player.targetY - player.y) * 0.08;
+            });
+
+            // Random ball micro-movements
+            if (Math.random() < 0.02) {
+                ball.targetX += (Math.random() - 0.5) * 0.1;
+                ball.targetY += (Math.random() - 0.5) * 0.1;
+                ball.targetX = Math.max(0.05, Math.min(0.95, ball.targetX));
+                ball.targetY = Math.max(0.05, Math.min(0.95, ball.targetY));
+            }
+
+            // Draw everything
+            drawPitch();
+            drawPlayers();
+            drawBall();
+
+            requestAnimationFrame(animate);
+        }
+
+        // ===== DRAW PLAYERS =====
+        function drawPlayers() {
+            const w = pitchWidth;
+            const h = pitchHeight;
+            const margin = w * 0.05;
+            const pw = w - margin * 2;
+            const ph = h - margin * 2;
+
+            // Draw home players (red)
+            gameState.homePlayers.forEach(player => {
+                const px = margin + player.x * pw;
+                const py = margin + player.y * ph;
+                
+                // Player circle
+                ctx.beginPath();
+                ctx.arc(px, py, 10, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff4444';
+                ctx.fill();
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                // Player number
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 9px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(player.number, px, py);
+            });
+
+            // Draw away players (blue)
+            gameState.awayPlayers.forEach(player => {
+                const px = margin + player.x * pw;
+                const py = margin + player.y * ph;
+                
+                ctx.beginPath();
+                ctx.arc(px, py, 10, 0, Math.PI * 2);
+                ctx.fillStyle = '#4488ff';
+                ctx.fill();
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 9px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(player.number, px, py);
+            });
+        }
+
+        // ===== DRAW BALL =====
+        function drawBall() {
+            const w = pitchWidth;
+            const h = pitchHeight;
+            const margin = w * 0.05;
+            const pw = w - margin * 2;
+            const ph = h - margin * 2;
+
+            const bx = margin + gameState.ball.x * pw;
+            const by = margin + gameState.ball.y * ph;
+
+            // Ball shadow
+            ctx.beginPath();
+            ctx.arc(bx + 2, by + 2, 6, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fill();
+
+            // Ball
+            ctx.beginPath();
+            ctx.arc(bx, by, 6, 0, Math.PI * 2);
+            ctx.fillStyle = 'white';
+            ctx.fill();
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Ball pattern
+            ctx.beginPath();
+            ctx.arc(bx, by, 3, 0, Math.PI * 2);
+            ctx.fillStyle = '#333';
+            ctx.fill();
+        }
+
+        // ===== FETCH MATCH DATA =====
+        async function loadMatchData() {
             try {
-                // ONE CALL to get everything
                 const response = await fetch(`${API_BASE}/api/fixture/master/${MATCH_ID}`);
                 const data = await response.json();
-                
-                if (data.success) {
-                    updateScoreHero(data.data);
-                    updateCommentary(data.data.events);
-                    updateStats(data.data.statistics);
-                    updateLineups(data.data.lineups);
+
+                if (data.success && data.data) {
+                    const match = data.data;
+                    
+                    // Update score
+                    if (match.goals) {
+                        const newHome = match.goals.home || 0;
+                        const newAway = match.goals.away || 0;
+                        
+                        if (newHome !== gameState.score.home || newAway !== gameState.score.away) {
+                            if (newHome > gameState.score.home) showGoalAlert(match.teams?.home?.name || 'Home');
+                            if (newAway > gameState.score.away) showGoalAlert(match.teams?.away?.name || 'Away');
+                            animateScore();
+                        }
+                        
+                        gameState.score = { home: newHome, away: newAway };
+                    }
+                    
+                    gameState.minute = match.fixture?.status?.elapsed || 0;
+                    gameState.homeTeamId = match.teams?.home?.id;
+                    
+                    updateScoreDisplay();
+                    updateMatchTime();
                 }
             } catch(e) {
-                console.error('Load error:', e);
+                console.error('Match data error:', e);
             }
         }
-        
-        // ===== POLL FOR LIVE UPDATES =====
-        function startPolling() {
-            // Poll master data every 15 seconds
-            setInterval(loadMatchCenter, 15000);
-            
-            // Poll live odds every 10 seconds
-            setInterval(loadLiveOdds, 10000);
-            
-            // Poll events every 15 seconds for new goals
-            setInterval(checkNewEvents, 15000);
-        }
-        
-        // ===== DETECT GOAL SCORED =====
-        let lastEventCount = 0;
-        async function checkNewEvents() {
-            const response = await fetch(`${API_BASE}/api/fixtures/events/${MATCH_ID}`);
-            const data = await response.json();
-            
-            if (data.success && data.data.length > lastEventCount) {
-                const newEvents = data.data.slice(lastEventCount);
-                newEvents.forEach(event => {
-                    if (event.type === 'Goal') {
-                        showGoalAlert(event);
-                        animateScore();
+
+        // ===== FETCH EVENTS =====
+        async function loadEvents() {
+            try {
+                const response = await fetch(`${API_BASE}/api/fixtures/events/${MATCH_ID}`);
+                const data = await response.json();
+
+                if (data.success && data.data) {
+                    const events = data.data;
+                    
+                    if (events.length > gameState.lastEventCount) {
+                        const newEvents = events.slice(gameState.lastEventCount);
+                        newEvents.forEach(event => {
+                            addEventToTimeline(event);
+                            moveBallToEvent(event);
+                        });
+                        gameState.lastEventCount = events.length;
                     }
-                });
-                lastEventCount = data.data.length;
+
+                    // Update possession based on events
+                    if (events.length > 0) {
+                        const lastEvent = events[events.length - 1];
+                        gameState.possession = lastEvent.team?.id === gameState.homeTeamId ? 55 : 45;
+                        document.getElementById('possession-text').textContent = 
+                            `${gameState.possession}% - ${100 - gameState.possession}%`;
+                    }
+                }
+            } catch(e) {
+                console.error('Events error:', e);
             }
         }
-        
-        // ===== GOAL ALERT ANIMATION =====
-        function showGoalAlert(event) {
+
+        // ===== ADD EVENT TO TIMELINE =====
+        function addEventToTimeline(event) {
+            const list = document.getElementById('events-list');
+            
+            let iconClass = 'event-sub';
+            let icon = '🔄';
+            
+            if (event.type === 'Goal') {
+                iconClass = 'event-goal';
+                icon = '⚽';
+            } else if (event.detail === 'Yellow Card') {
+                iconClass = 'event-card-yellow';
+                icon = '🟨';
+            } else if (event.detail === 'Red Card') {
+                iconClass = 'event-card-red';
+                icon = '🟥';
+            }
+
+            const item = document.createElement('div');
+            item.className = 'event-item';
+            item.innerHTML = `
+                <span class="event-time">${event.time?.elapsed || 0}'</span>
+                <span class="event-icon ${iconClass}">${icon}</span>
+                <span class="event-detail">
+                    <strong>${event.player?.name || 'Player'}</strong>
+                    ${event.type === 'Goal' ? ' scored!' : 
+                      event.type === 'Card' ? ` (${event.detail})` : 
+                      ' substituted'}
+                    ${event.assist?.name ? `<br><small>Assist: ${event.assist.name}</small>` : ''}
+                </span>
+            `;
+            
+            list.insertBefore(item, list.firstChild);
+            
+            // Keep only last 20 events
+            while (list.children.length > 20) {
+                list.removeChild(list.lastChild);
+            }
+
+            // Remove "Waiting" message
+            const waiting = list.querySelector('div[style]');
+            if (waiting) waiting.remove();
+        }
+
+        // ===== FETCH ODDS =====
+        async function loadOdds() {
+            try {
+                const response = await fetch(`${API_BASE}/api/odds/live/${MATCH_ID}`);
+                const data = await response.json();
+
+                if (data.success && data.data && data.data[0]) {
+                    const odds = data.data[0];
+                    const homeOdd = parseFloat(odds.odds?.home || 2.0);
+                    const drawOdd = parseFloat(odds.odds?.draw || 3.0);
+                    const awayOdd = parseFloat(odds.odds?.away || 4.0);
+
+                    updateOddsDisplay('odd-home', homeOdd, 'home');
+                    updateOddsDisplay('odd-draw', drawOdd, 'draw');
+                    updateOddsDisplay('odd-away', awayOdd, 'away');
+                }
+            } catch(e) {
+                console.error('Odds error:', e);
+            }
+        }
+
+        function updateOddsDisplay(elementId, newValue, type) {
+            const el = document.getElementById(elementId);
+            const valueEl = el.querySelector('.odd-value');
+            const oldValue = parseFloat(valueEl.textContent) || 0;
+
+            valueEl.textContent = newValue.toFixed(2);
+
+            if (oldValue !== newValue && oldValue !== 0) {
+                el.classList.add('flash');
+                setTimeout(() => el.classList.remove('flash'), 500);
+                
+                const arrow = newValue > oldValue ? ' ↑' : ' ↓';
+                valueEl.textContent = newValue.toFixed(2) + arrow;
+            }
+        }
+
+        // ===== UPDATE DISPLAYS =====
+        function updateScoreDisplay() {
+            document.getElementById('score-display').textContent = 
+                `${gameState.score.home} - ${gameState.score.away}`;
+        }
+
+        function updateMatchTime() {
+            const min = gameState.minute;
+            if (min <= 45) {
+                document.getElementById('match-time').textContent = `1H ${min}'`;
+            } else if (min <= 60) {
+                document.getElementById('match-time').textContent = 'HT';
+            } else {
+                document.getElementById('match-time').textContent = `2H ${min}'`;
+            }
+        }
+
+        function animateScore() {
+            const scoreEl = document.getElementById('score-display');
+            scoreEl.style.animation = 'none';
+            scoreEl.offsetHeight; // Trigger reflow
+            scoreEl.style.animation = 'goalFlash 0.5s ease';
+        }
+
+        // ===== GOAL ALERT =====
+        function showGoalAlert(teamName) {
             const alert = document.createElement('div');
             alert.className = 'goal-alert';
-            alert.innerHTML = `
-                ⚽ GOAL! ${event.player.name} (${event.time.elapsed}')
-            `;
+            alert.innerHTML = `⚽ GOAL! <strong>${teamName}</strong>`;
             document.body.appendChild(alert);
-            setTimeout(() => alert.remove(), 5000);
-        }
-        
-        // ===== LIVE ODDS UPDATES =====
-        async function loadLiveOdds() {
-            const response = await fetch(`${API_BASE}/api/odds/live/${MATCH_ID}`);
-            const data = await response.json();
+            setTimeout(() => alert.remove(), 4500);
+
+            // Ball animation to goal
+            gameState.ball.targetX = gameState.ball.x < 0.5 ? 0.95 : 0.05;
+            gameState.ball.targetY = 0.5;
             
-            if (data.success) {
-                updateOddsPanel(data.data);
-            }
+            setTimeout(() => {
+                gameState.ball.targetX = 0.5;
+                gameState.ball.targetY = 0.5;
+            }, 3000);
         }
-        
+
+        // ===== INITIALIZATION =====
+        function init() {
+            resizeCanvas();
+            initializePlayers();
+            animate();
+            
+            // Initial data load
+            loadMatchData();
+            loadEvents();
+            loadOdds();
+            
+            // Polling intervals
+            setInterval(loadMatchData, 15000);  // Match data every 15s
+            setInterval(loadEvents, 10000);     // Events every 10s
+            setInterval(loadOdds, 10000);       // Odds every 10s
+            setInterval(updatePlayerPositions, 2000); // Player movement every 2s
+            
+            // Random ball movement
+            setInterval(() => {
+                if (Math.random() < 0.3) {
+                    gameState.ball.targetX = Math.random() * 0.6 + 0.2;
+                    gameState.ball.targetY = Math.random() * 0.6 + 0.2;
+                }
+            }, 5000);
+        }
+
         // Start everything
-        loadMatchCenter();
-        startPolling();
+        init();
+        console.log('⚽ Live Animated Pitch Engine Started');
+        console.log(`📡 Match ID: ${MATCH_ID}`);
+        console.log(`🔄 Polling every 10-15 seconds`);
     </script>
 </body>
 </html>
