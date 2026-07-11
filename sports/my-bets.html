@@ -345,7 +345,7 @@
 
 <script>
 // ============================================
-// MY BETS v10.3 - SECURE CASHOUT ENGINE
+// MY BETS v10.2 - SECURE ARCHITECTURE PREPARATION
 // Real Win/Loss | Live Bet Lock | Pre-Match Only
 // ============================================
 const SUPABASE_URL='https://jnazybaeajyynpyoszmy.supabase.co';
@@ -359,27 +359,6 @@ const db=firebase.firestore(),auth=firebase.auth();
 let allBets=[],currentFilter='all',refreshInterval=null,settleInterval=null,settlementTimers=[],settledBets=new Set();
 let chartsInstance = { balance: null, roi: null };
 let localProcessingBets = new Set(); // 🔒 Settlement race condition prevention lock
-
-// 🛡️ API rate limiter protect block [10]
-class RateLimiter {
-    constructor() { this.limits = new Map(); }
-    async checkLimit(userId, action, limit = 10, window = 60000) {
-        const key = `${userId}:${action}`;
-        const now = Date.now();
-        const userLimits = this.limits.get(key) || [];
-        const recent = userLimits.filter(t => now - t < window);
-        if (recent.length >= limit) {
-            return {
-                allowed: false,
-                message: `Exceeded rate limit. Please wait ${Math.ceil((window - (now - recent[0])) / 1000)} seconds.`
-            };
-        }
-        recent.push(now);
-        this.limits.set(key, recent);
-        return { allowed: true };
-    }
-}
-const rateLimiter = new RateLimiter();
 
 function toggleLanguage(){const ia=document.body.classList.toggle('arabic');localStorage.setItem('lang',ia?'ar':'en');document.documentElement.dir=ia?'rtl':'ltr';document.querySelectorAll('.en').forEach(e=>e.style.display=ia?'none':'');document.querySelectorAll('.ar').forEach(e=>e.style.display=ia?'':'');}
 if(localStorage.getItem('lang')==='ar')toggleLanguage();
@@ -496,81 +475,56 @@ async function fetchMatchFromAPI(fid){
     } catch(e) { return null; }
 }
 
-// [FIX 4] Robust recursive match batch fetching with caching fallback and retry structures
-async function fetchMatchesBatch(fids, existingDataMap = {}, retries = 2) {
+async function fetchMatchesBatch(fids, existingDataMap = {}) {
     if (!fids || !fids.length) return {};
     const batchResult = {};
-    let attempt = 0;
-    
-    while (attempt <= retries) {
-        try {
-            const { data, error } = await supabaseClient.from('sports_matches').select('*').in('fixture_id', fids);
-            if (!error && data) {
-                data.forEach(row => {
-                    batchResult[row.fixture_id] = parseMatchData(row, existingDataMap);
-                });
-            }
-            
-            const missingFids = fids.filter(fid => !batchResult[fid]);
-            if (missingFids.length === 0) break;
-            
-            const apiResults = await Promise.all(missingFids.map(async (fid) => {
-                const apiMatch = await fetchMatchFromAPI(fid);
-                return { fid, data: apiMatch };
-            }));
-            
-            apiResults.forEach(res => {
-                if (res.data) {
-                    batchResult[res.fid] = parseMatchData(res.data, existingDataMap);
-                }
+    try {
+        const { data, error } = await supabaseClient.from('sports_matches').select('*').in('fixture_id', fids);
+        if (!error && data) {
+            data.forEach(row => {
+                const previousHome = existingDataMap[row.fixture_id]?.home_team?.name || 'Home';
+                const previousAway = existingDataMap[row.fixture_id]?.away_team?.name || 'Away';
+                const homeDetails = extractTeamDetails(row.home_team, previousHome);
+                const awayDetails = extractTeamDetails(row.away_team, previousAway);
+                let score = row.score;
+                if (typeof score === 'string') { try { score = JSON.parse(score); } catch(e){} }
+                batchResult[row.fixture_id] = {
+                    fixture_id: row.fixture_id,
+                    status: row.status,
+                    elapsed: row.elapsed || 0,
+                    home_team: homeDetails,
+                    away_team: awayDetails,
+                    league_name: row.league_name || '',
+                    start_time: row.start_time || '',
+                    goals_home: score?.home !== undefined ? score.home : 0,
+                    goals_away: score?.away !== undefined ? score.away : 0,
+                    ht_home: score?.halftime?.home !== undefined ? score.halftime.home : 0,
+                    ht_away: score?.halftime?.away !== undefined ? score.halftime.away : 0
+                };
             });
-            
-            const stillMissing = fids.filter(fid => !batchResult[fid]);
-            stillMissing.forEach(fid => {
-                if (existingDataMap[fid]) {
-                    batchResult[fid] = existingDataMap[fid];
-                    console.warn(`⚠️ Fallback to cache arrays for match ${fid}`);
-                }
-            });
-            break;
-        } catch (e) {
-            attempt++;
-            if (attempt > retries) {
-                console.error(`❌ Batch fetch crashed completely after ${retries} attempts`, e);
-                return batchResult;
-            }
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
+    } catch(e) { console.warn('Batch DB fetch error', e); }
+
+    const missingFids = fids.filter(fid => !batchResult[fid]);
+    if (missingFids.length > 0) {
+        const liveFetches = await Promise.all(missingFids.map(async (fid) => {
+            const apiMatch = await fetchMatchFromAPI(fid);
+            return { fid, data: apiMatch };
+        }));
+        liveFetches.forEach(res => {
+            if (res.data) {
+                const previousHome = existingDataMap[res.fid]?.home_team?.name || 'Home';
+                const previousAway = existingDataMap[res.fid]?.away_team?.name || 'Away';
+                res.data.home_team = extractTeamDetails(res.data.home_team, previousHome);
+                res.data.away_team = extractTeamDetails(res.data.away_team, previousAway);
+                batchResult[res.fid] = res.data;
+            }
+        });
     }
     return batchResult;
 }
 
-function parseMatchData(row, existingDataMap) {
-    const fid = row.fixture_id;
-    const previousHome = existingDataMap[fid]?.home_team?.name || 'Home';
-    const previousAway = existingDataMap[fid]?.away_team?.name || 'Away';
-    const homeDetails = extractTeamDetails(row.home_team, previousHome);
-    const awayDetails = extractTeamDetails(row.away_team, previousAway);
-    let score = row.score;
-    if (typeof score === 'string') {
-        try { score = JSON.parse(score); } catch(e) { score = { home: 0, away: 0 }; }
-    }
-    return {
-        fixture_id: fid,
-        status: row.status || 'NS',
-        elapsed: row.elapsed || 0,
-        home_team: homeDetails,
-        away_team: awayDetails,
-        league_name: row.league_name || '',
-        start_time: row.start_time || '',
-        goals_home: score?.home !== undefined ? score.home : 0,
-        goals_away: score?.away !== undefined ? score.away : 0,
-        ht_home: score?.halftime?.home !== undefined ? score.halftime.home : 0,
-        ht_away: score?.halftime?.away !== undefined ? score.halftime.away : 0
-    };
-}
-
-// 🏛️ Win Probability Calculations [3, 4, 11]
+// Win Probability calculations [3, 4, 11]
 function calculateWinProbability(bt,hg,ag,tg,elapsed){const rm=Math.max(1,90-elapsed);const gpm=tg/Math.max(elapsed,1);
     switch(bt){case'home':return calcHomeWinProb(hg,ag,elapsed,rm);case'draw':return calcDrawProb(hg,ag,elapsed,rm);case'away':return calcAwayWinProb(hg,ag,elapsed,rm);
     case'1X':return Math.max(calcHomeWinProb(hg,ag,elapsed,rm),calcDrawProb(hg,ag,elapsed,rm));case'12':return 1-calcDrawProb(hg,ag,elapsed,rm);case'X2':return Math.max(calcDrawProb(hg,ag,elapsed,rm),calcAwayWinProb(hg,ag,elapsed,rm));
@@ -593,14 +547,14 @@ function getTimeDecay(elapsed){if(elapsed<=15)return 0.95;if(elapsed<=30)return 
 
 function isBetPlacedBeforeKickoff(bet,match){if(!bet.placed_at||!match||!match.start_time)return true;const bp=new Date(bet.placed_at);const mk=new Date(match.start_time);return bp<mk;}
 
-// [FIX 1] Multi-Factor Win Probability Model
+// 🏛️ Dynamic Multi-Factor Win Probability Model (Score, pre-match ELO, Momentum, xG API simulations) [1]
 function calculateWeightedWinProbability(match, bet) {
     const weights = {
-        scoreBased: 0.30,    // Current score + elapsed time
-        strengthBased: 0.25,  // Team ELO ratings
-        momentumBased: 0.20,  // Recent pressure
-        xGBased: 0.15,        // Expected goals
-        marketBased: 0.10     // odds metrics
+        scoreBased: 0.30,
+        strengthBased: 0.25,
+        momentumBased: 0.20,
+        xGBased: 0.15,
+        marketBased: 0.10
     };
     
     const scoreProb = calculateScoreBasedProb(match, bet);
@@ -662,23 +616,23 @@ function calculatexGProb(match) {
     return simulatedHomeXG / (simulatedHomeXG + simulatedAwayXG || 1);
 }
 
-// [FIX 2] Dynamic Fee/Margin Structure
+// 🏛️ Dynamic Risk Exposure Margin
 function calculateCashoutMargin(match, bet, winProb) {
-    let baseMargin = 0.02; // Fair margin [FIX 1.1]
+    let baseMargin = 0.04; // 4% [FIX 2]
     
     const elapsed = match.elapsed || 0;
-    if (elapsed < 30) baseMargin += 0.02;  // Uncertainty early
-    if (elapsed > 75) baseMargin -= 0.01;  // Late phase
+    if (elapsed < 30) baseMargin += 0.02; // early game volatility
+    if (elapsed > 75) baseMargin -= 0.01; // late game stabilization
     
     const goalDiff = Math.abs((match.goals_home || 0) - (match.goals_away || 0));
-    if (goalDiff === 0) baseMargin += 0.01;  
-    if (goalDiff >= 2) baseMargin -= 0.01;   
+    if (goalDiff === 0) baseMargin += 0.01; // tie volatility
+    if (goalDiff >= 2) baseMargin -= 0.01; // stable lead
     
-    if (winProb > 0.80) baseMargin -= 0.01;  
-    if (winProb < 0.20) baseMargin += 0.02;  
+    if (winProb > 0.80) baseMargin -= 0.01;
+    if (winProb < 0.20) baseMargin += 0.02; 
     
     const potentialPayout = parseFloat(bet.amount || 0) * parseFloat(bet.odds || 2);
-    if (potentialPayout > 500) baseMargin += 0.01;  
+    if (potentialPayout > 500) baseMargin += 0.01; // liability hedge
     
     return Math.max(0.02, Math.min(0.10, baseMargin));
 }
@@ -691,7 +645,7 @@ function calculateCashoutValue(bet, match, partialPct = 100) {
     const remainingMinutes = Math.max(1, 90 - elapsed);
     
     const winProb = calculateWeightedWinProbability(match, bet);
-    const timeFactor = Math.pow(remainingMinutes / 90, 0.3); // Less aggressive decay [FIX 1.2]
+    const timeFactor = Math.pow(remainingMinutes / 90, 0.7);
     
     let cashoutVal = potentialReturn * winProb * timeFactor;
     
@@ -702,93 +656,71 @@ function calculateCashoutValue(bet, match, partialPct = 100) {
     const margin = calculateCashoutMargin(match, bet, winProb);
     cashoutVal *= (1 - margin);
     
-    const floor = stake * 0.10; // 10% Floor minimum [FIX 1.4]
-    const ceiling = potentialReturn * 0.97; // 97% ceiling maximum
-    
-    const finalVal = Math.max(floor, Math.min(ceiling, cashoutVal));
+    const floor = stake * 0.05;
+    const ceiling = potentialReturn * 0.95;
     
     return {
-        value: parseFloat(finalVal.toFixed(2)),
+        value: parseFloat(Math.max(floor, Math.min(ceiling, cashoutVal)).toFixed(2)),
         winProbability: winProb,
-        profit: parseFloat((finalVal - stake).toFixed(2)),
+        profit: parseFloat((cashoutVal - stake).toFixed(2)),
         margin: margin,
         timeRemaining: remainingMinutes
     };
 }
 
-// [FIX 4] Continuous Accumulator Leg Cashout Engine
+// 🏛️ Advanced Accumulator Math Calculator [FIX 4]
 function calculateAccaCashout(bet, matches, partialPct = 100) {
     if (!bet.selections || !bet.selections.length) return null;
     
     let combinedWinProb = 1.0;
+    let allLegsHaveData = true;
+    let brokenLeg = false;
     let completedLegs = 0;
-    let wonLegs = 0;
-    let lostLegs = 0;
-    let pendingLegs = 0;
     
     for (const selection of bet.selections) {
         const match = matches[selection.fixtureId || selection.fixture_id];
-        const ms = (match?.status || '').toLowerCase();
-        const isFinished = ['finished', 'ft', 'aet', 'pen'].includes(ms);
+        if (!match || !match.status) {
+            allLegsHaveData = false;
+            break;
+        }
+        
+        const ms = (match.status || '').toLowerCase();
+        const isFinished = ms === 'finished' || ms === 'ft' || ms === 'aet' || ms === 'pen';
         
         if (isFinished) {
             completedLegs++;
             const result = determineBetResult({ bet_type: selection.betType || selection.bet_type }, match);
             if (result && result.won) {
-                wonLegs++;
                 combinedWinProb *= 1.0;  
-            } else if (result && result.refund) {
-                combinedWinProb *= 1.0;  // treat as void/refund
             } else {
-                lostLegs++;
                 combinedWinProb *= 0.0;  
+                brokenLeg = true;
             }
         } else if (ms === 'live' || ms === '1h' || ms === '2h' || ms === 'ht') {
-            pendingLegs++;
             const legProb = calculateWeightedWinProbability(match, { bet_type: selection.betType || selection.bet_type });
-            combinedWinProb *= Math.max(0.05, legProb); 
+            combinedWinProb *= legProb;
         } else {
-            pendingLegs++;
             const impliedProb = 1 / parseFloat(selection.odds || 2);
-            combinedWinProb *= Math.max(0.05, impliedProb);
+            combinedWinProb *= impliedProb;
         }
     }
     
-    // Partial payout rules on won accum legs [FIX 2.4]
-    if (wonLegs > 0 && lostLegs === 0 && pendingLegs > 0) {
-        const wonLegValue = parseFloat(bet.amount || 0) * (wonLegs / bet.selections.length);
-        const partialReturn = wonLegValue * parseFloat(bet.odds || 2) * 0.60;
-        
-        return {
-            value: parseFloat(partialReturn.toFixed(2)),
-            winProbability: combinedWinProb,
-            legsWon: wonLegs,
-            legsTotal: bet.selections.length,
-            broken: false,
-            partial: true,
-            message: `${wonLegs} legs won, ${pendingLegs} pending`
-        };
-    }
-    
-    if (lostLegs > 0) {
-        return {
-            value: 0,
-            winProbability: 0,
-            legsWon: wonLegs,
-            legsTotal: bet.selections.length,
-            broken: true,
-            message: `${lostLegs} leg(s) lost`
-        };
-    }
+    if (!allLegsHaveData) return null;
+    if (brokenLeg) return { value: 0, winProbability: 0, legsWon: completedLegs, legsTotal: bet.selections.length, broken: true };
     
     const stake = parseFloat(bet.amount || 0) * (partialPct / 100);
     const potentialReturn = stake * parseFloat(bet.odds || 2);
-    const cashoutValue = potentialReturn * combinedWinProb * (1 - 0.08); // 8% acca margin
+    
+    const accaMargin = 0.08; 
+    let cashoutValue = potentialReturn * combinedWinProb * (1 - accaMargin);
+    
+    cashoutValue = Math.max(cashoutValue, stake * 0.02);
+    cashoutValue = Math.min(cashoutValue, potentialReturn * 0.95);
     
     return {
-        value: parseFloat(Math.max(stake * 0.02, cashoutValue).toFixed(2)),
+        value: parseFloat(cashoutValue.toFixed(2)),
         winProbability: combinedWinProb,
-        legsWon: wonLegs,
+        legsWon: completedLegs,
         legsTotal: bet.selections.length,
         broken: false
     };
@@ -880,40 +812,33 @@ async function settleBet(bet,result){
     }catch(e){ console.error('Settle exception', e); }
 }
 
-// ===== CANCEL - SINGLE ONLY, BEFORE MATCH WITH SLIDING SCALE FEE =====
+// ===== CANCEL - SINGLE ONLY, BEFORE MATCH =====
 async function cancelBet(betId){
-    const bet = allBets.find(b => b.id === betId);
-    if (!bet || bet.status !== 'active') return;
-    if (bet.bet_type === 'accumulator') { showNotification('❌ Accumulators cannot be cancelled', 'error'); return; }
+    const bet=allBets.find(b=>b.id===betId);
+    if(!bet||bet.status!=='active'){showNotification('❌ Cannot cancel','error');return;}
+    if(bet.bet_type==='accumulator'){showNotification('❌ Accumulators cannot be cancelled','error');return;}
+    if(settledBets.has(betId)){showNotification('❌ Already processed','error');return;}
     if (localProcessingBets.has(betId)) return;
     
-    // Sliding fee scale calculations [FIX 3]
-    const now = new Date();
-    const kickoff = new Date(bet._kickoff);
-    const hoursToKickoff = (kickoff - now) / (1000 * 60 * 60);
-    
-    let feePercent = 0;
-    if (hoursToKickoff > 48) {
-        feePercent = 1;  
-    } else if (hoursToKickoff > 24) {
-        feePercent = 2;  
-    } else if (hoursToKickoff > 6) {
-        feePercent = 3;  
-    } else if (hoursToKickoff > 1) {
-        feePercent = 4;  
-    } else {
-        feePercent = 5;  
+    let ms=false;
+    if(bet.fixture_id){
+        const m=await getMatchDetails(bet.fixture_id);
+        if(m){
+            const n=new Date(),ko=new Date(m.start_time);
+            const msl=(m.status||'').toLowerCase();
+            ms=msl==='live'||msl==='1h'||msl==='2h'||msl==='ht'||msl==='finished'||msl==='ft'||ko<n;
+        }
     }
-    
-    const ra = bet.amount * (1 - feePercent / 100);
-    const fee = bet.amount - ra;
-    
-    if (!confirm(`Cancel Bet?\n\nStake: $${bet.amount.toFixed(2)}\nRefund: $${ra.toFixed(2)}\nFee: $${fee.toFixed(2)} (${feePercent}%)`)) return;
-    
+    if(ms){
+        showNotification('❌ Match started - Cancel unavailable','error');
+        return;
+    }
+    const fp=5,ra=bet.amount*(1-fp/100),fee=bet.amount-ra;
+    if(!confirm(`Cancel?\n\nStake: $${bet.amount.toFixed(2)}\nRefund: $${ra.toFixed(2)}\nFee (${fp}%): $${fee.toFixed(2)}`))return;
     try{
         localProcessingBets.add(betId);
         await supabaseClient.from('bets').update({
-            status:'cancelled', cancellation_fee:fee, refund_amount:ra, cancelled_at:new Date().toISOString(), settlement_reason:`Cancelled - ${feePercent}% fee`, updated_at:new Date().toISOString()
+            status:'cancelled', cancellation_fee:fee, refund_amount:ra, cancelled_at:new Date().toISOString(), settlement_reason:`Cancelled - ${fp}% fee`, updated_at:new Date().toISOString()
         }).eq('id',betId).eq('status','active');
         settledBets.add(betId);
         
@@ -931,24 +856,21 @@ async function cancelBet(betId){
     }
 }
 
-// ===== 🔥 CASHOUT - ANTI-FRAUD AND TIMELINE LOCKED =====
+// ===== 🔥 CASHOUT - ANTI-FRAUD =====
 async function cashoutBet(betId, partialPct = 100, isAutoTrigger = false){
     const bet=allBets.find(b=>b.id===betId);
     if(!bet||bet.status!=='active'){showNotification('❌ Cannot cash out','error');return;}
     if(settledBets.has(betId)){showNotification('❌ Already processed','error');return;}
-    if (localProcessingBets.has(betId)) {
-        showNotification('⏳ This bet is being processed. Please wait...', 'warning');
-        return;
-    }
+    if (localProcessingBets.has(betId)) return;
     
     const isAcc=bet.bet_type==='accumulator';
     const baseStake = parseFloat(bet.amount || 0);
     const partialAmt = baseStake * (partialPct / 100);
     const remainingStake = baseStake - partialAmt;
 
-    // Enforce Minimum Stake limits [3]
+    // Validation: Enforce Minimum Stake of $1.00 [3]
     if (partialPct < 100 && remainingStake < 1.00) {
-        showNotification('❌ Remaining stake cannot fall below $1.00.', 'error');
+        showNotification('❌ Remaining stake cannot fall below $1.00. Please cash out a smaller percentage or perform a Full Cash Out.', 'error');
         return;
     }
 
@@ -967,13 +889,13 @@ async function cashoutBet(betId, partialPct = 100, isAutoTrigger = false){
             }
         }
         
-        localProcessingBets.add(betId); // lock thread
+        localProcessingBets.add(betId); // thread lock
         const matchesMap = getMatchesMapForBet(bet);
         const accaCo = calculateAccaCashout(bet, matchesMap, partialPct);
         
         if (!accaCo || accaCo.broken) {
             localProcessingBets.delete(betId);
-            showNotification('❌ Cash out unavailable.', 'error');
+            showNotification('❌ Cash out unavailable. One of your Accumulator leg selections has lost.', 'error');
             return;
         }
 
@@ -1068,7 +990,7 @@ async function cashoutBet(betId, partialPct = 100, isAutoTrigger = false){
     if(!ml){showNotification('❌ Cash Out only during live matches','error');return;}
 }
 
-// Recalculates on slider changes dynamically [FIX 6]
+// New function to recalculate on slider change [FIX 6]
 function updatePartialCashout(betId, percentage) {
     const bet = allBets.find(b => b.id === betId);
     if (!bet || !bet._match) return;
@@ -1088,82 +1010,6 @@ function updatePartialCashout(betId, percentage) {
     
     const amtEl = document.getElementById(`cashout-amount-${betId}`);
     if (amtEl) amtEl.textContent = `$${coVal.toFixed(2)}`;
-}
-
-// Halftime locked value helper math [FIX 5.4]
-function calculateHalftimeLockedValue(bet) {
-    if (!bet || !bet._match) return 0;
-    const co = calculateCashoutValue(bet, bet._match, 100);
-    return Math.max(co.value * 0.90, parseFloat(bet.amount || 0) * 0.30);
-}
-
-function getHalftimeRemaining() {
-    const now = new Date();
-    const minutes = now.getMinutes();
-    return 15 - (minutes % 15); 
-}
-
-// Handle Auto Cash-Out thresholds [6]
-async function updateAutoCashoutThreshold(betId, val) {
-    const threshold = parseFloat(val);
-    if (isNaN(threshold) || threshold <= 0) {
-        try {
-            await supabaseClient.from('bets').update({ auto_cashout_threshold: null }).eq('id', betId);
-            const b = allBets.find(x => x.id === betId);
-            if (b) b.auto_cashout_threshold = null;
-            showNotification('Auto cashout threshold cleared.', 'info');
-        } catch(e) {}
-        return;
-    }
-    try {
-        await supabaseClient.from('bets').update({ auto_cashout_threshold: threshold }).eq('id', betId);
-        const b = allBets.find(x => x.id === betId);
-        if (b) b.auto_cashout_threshold = threshold;
-        showNotification(`🤖 Auto cashout set for value >= $${threshold.toFixed(2)}`, 'success');
-    } catch(e) { showNotification('Failed to configure auto cashout rule.', 'error'); }
-}
-
-// Handle slider updates in DOM
-function updatePartialCashoutLabel(betId, val) {
-    const label = document.getElementById(`pct-val-${betId}`);
-    if (label) label.textContent = `${val}%`;
-}
-
-// 🖨️ PDF & Receipt Generation [7]
-function printBetReceipt(betId) {
-    const bet = allBets.find(b => b.id === betId);
-    if (!bet) return;
-    const tk = 'XL' + (bet.id?.toString().slice(-8) || '00000000').toUpperCase();
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-        <html>
-        <head>
-            <title>Bet Slip Receipt - ${tk}</title>
-            <style>
-                body { font-family: 'Segoe UI', sans-serif; padding: 40px; color: #111827; background: #ffffff; }
-                .receipt-container { max-width: 480px; margin: 0 auto; border: 2px solid #111827; padding: 25px; border-radius: 12px; }
-                h2 { text-align: center; border-bottom: 2px solid #111827; padding-bottom: 12px; margin-top: 0; }
-                .row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed #d1d5db; font-size: 14px; }
-                .footer { margin-top: 25px; text-align: center; font-size: 12px; color: #6b7280; font-style: italic; }
-            </style>
-        </head>
-        <body onload="window.print(); window.close();">
-            <div class="receipt-container">
-                <h2>X LONDON BET RECEIPTS</h2>
-                <div class="row"><strong>Receipt Slip:</strong> <span>#${tk}</span></div>
-                <div class="row"><strong>Match Name:</strong> <span>${bet.match_name}</span></div>
-                <div class="row"><strong>Selection Market:</strong> <span>${formatBetTypeName(bet.bet_type)}</span></div>
-                <div class="row"><strong>Odds:</strong> <span>@${parseFloat(bet.odds).toFixed(2)}</span></div>
-                <div class="row"><strong>Active Stake:</strong> <span>$${parseFloat(bet.amount).toFixed(2)}</span></div>
-                <div class="row"><strong>Potential Payout:</strong> <span>$${parseFloat(bet.potential_win || bet.payout || 0).toFixed(2)}</span></div>
-                <div class="row"><strong>Placement Date:</strong> <span>${new Date(bet.placed_at).toLocaleString()}</span></div>
-                <div class="row"><strong>Ticket Status:</strong> <span>${bet.status.toUpperCase()}</span></div>
-                <div class="footer">Thank you for playing responsibly with X London Sports.</div>
-            </div>
-        </body>
-        </html>
-    `);
-    printWindow.document.close();
 }
 
 async function loadBets(){
@@ -1545,21 +1391,11 @@ function createBetCard(bet){
             pcStatus = co.value >= amt ? 'winning' : 'neutral';
         }
 
-        if (isHalftime) { // [FIX 5] Halftime break layout
+        if (isHalftime) { // [FIX 5] Halftime suspension instead of block
             cashoutPreview=`
             <div class="cashout-preview" style="border-color:var(--orange); background:rgba(255,152,0,0.05);">
                 <div style="color:var(--orange); font-weight:bold; display:flex; align-items:center; gap:6px;">
-                    <i class="fas fa-pause-circle"></i> ⏸️ Halftime Break
-                </div>
-                <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">
-                    <i class="fas fa-info-circle"></i> Cashout will resume when 2nd Half starts
-                    <br><small>Estimated: ~${getHalftimeRemaining()} minutes</small>
-                </div>
-                <div style="margin-top:8px;">
-                    <span style="font-size:11px;">Current value locked at:</span>
-                    <span style="font-weight:bold; color:var(--accent);" id="halftime-locked-value-${bet.id}">
-                        $${calculateHalftimeLockedValue(bet).toFixed(2)}
-                    </span>
+                    <i class="fas fa-pause-circle"></i> ⏸️ Cash Out temporarily suspended - Resumes in 2nd Half
                 </div>
             </div>`;
         } else {
