@@ -701,6 +701,7 @@
             .mobile-cart-trigger, .mobile-cart-drawer { display: flex; }
             .center-content { padding-bottom: 80px; }
             
+            /* Clean Bottom Sticky Navbar consolidation */
             .sidebar-left { 
                 display: flex !important; /* Ensure it is flex */
                 position: fixed;
@@ -739,6 +740,14 @@
                 font-size: 18px;
             }
             
+            /* Consolidate Header layout by hiding middle duplicate nav links on mobile */
+            .header-center-nav { display: none !important; }
+            .header { padding: 8px 12px; }
+            .brand-logo { font-size: 20px; }
+            .header-user-wallet { padding: 4px 10px; }
+            .btn-logout-header span { display: none; } /* Hide text, preserve logout icon only to conserve screen space */
+            .btn-logout-header { padding: 6px 10px; }
+
             /* MOBILE SCREEN SIZE CORRECTIONS */
             .mobile-market-switcher { display: flex; }
             .market-headers { display: none; }
@@ -776,6 +785,7 @@
         <div class="header-left">
             <a href="#" class="brand-logo"><span style="color:#ff3333;">X</span>lodon</a>
             
+            <!-- Hidden on mobile devices using display: none !important in media queries -->
             <div class="header-center-nav">
                 <button class="nav-link-btn" onclick="location.href='wallets.html'">
                     <i class="fas fa-coins"></i>
@@ -798,7 +808,7 @@
                     <i class="fas fa-calendar-alt"></i>
                     <span>Upcoming</span>
                 </button>
-                <!-- ✅ ADD THIS FOR MOBILE MY BETS ACCESS -->
+                <!-- ADD THIS FOR MOBILE MY BETS ACCESS -->
                 <button class="nav-link-btn" onclick="location.href='my-bets.html'">
                     <i class="fas fa-ticket-alt"></i>
                     <span>My Bets</span>
@@ -1610,7 +1620,7 @@
             container.innerHTML = html;
         }
 
-        // Render Quick Bets Grid Component along with Side-by-Side Competitions list
+        // Render Quick Bets Grid Component (Competitions side listing removed completely as requested)
         function renderQuickBetsDeck() {
             const container = document.getElementById('hierarchical-odds-grid');
             const quickBetsData = generateQuickBets();
@@ -1635,28 +1645,13 @@
                 </div>
             `).join('');
 
-            // Build side Competitions column listings
-            const compsHtml = uniqueCompetitions.map(l => `
-                <a href="upcoming-matches.html?league=${l.id}" class="competition-card" style="display: flex; flex-direction: row; align-items: center; justify-content: flex-start; text-align: left; padding: 8px 12px; gap: 10px; width: 100%;">
-                    <img class="competition-logo" src="${l.logo || 'https://via.placeholder.com/32'}" onerror="this.src='https://via.placeholder.com/32'; this.onerror=null;" style="margin-bottom: 0; width: 24px; height: 24px;">
-                    <div class="competition-name" style="-webkit-line-clamp: 1; font-size: 12px;">${l.name}</div>
-                </a>
-            `).join('');
-
+            // Clean full width layout without the vertical featured competitions listing
             container.innerHTML = `
-                <div class="quick-bets-layout" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
-                    <div class="quick-bets-column">
-                        <div style="font-size: 14px; font-weight: 700; color: var(--xlodon-blue); margin-bottom: 15px; text-transform: uppercase;">🔥 Dynamic Match Boosts</div>
-                        <div class="quick-bets-grid" style="grid-template-columns: 1fr; gap: 15px;">
-                            ${qbCardsHtml}
-                        </div>
-                    </div>
-                    <div class="competitions-column" style="background: var(--panel-dark); padding: 15px; border: 1px solid var(--border-color); border-radius: 8px; display: flex; flex-direction: column;">
-                        <h3 style="font-size: 13px; font-weight: 700; color: var(--xlodon-blue); text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;"><i class="fas fa-trophy"></i> Available Leagues</h3>
-                        <div class="competitions-vertical-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 500px; overflow-y: auto;">
-                            ${compsHtml}
-                        </div>
-                    </div>
+                <div style="font-size: 14px; font-weight: 700; color: var(--xlodon-blue); margin-bottom: 15px; text-transform: uppercase;">
+                    🔥 Dynamic Match Boosts
+                </div>
+                <div class="quick-bets-grid">
+                    ${qbCardsHtml}
                 </div>
             `;
         }
@@ -1702,7 +1697,6 @@
                     else if (matchData.status === 'finished') matchStatus = 'finished';
                 }
                 
-                // Structuring details accurately
                 const homeTeamName = matchData ? (matchData.home_team?.name || matchData.home_team || 'Home') : (matchName.split(' vs ')[0] || 'Home');
                 const awayTeamName = matchData ? (matchData.away_team?.name || matchData.away_team || 'Away') : (matchName.split(' vs ')[1] || 'Away');
                 const leagueNameVal = matchData ? (matchData.league_name || '') : '';
@@ -1954,7 +1948,7 @@
                     // Place Accumulator/System combination transaction
                     const betId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                     
-                    // BUILD COMPLETE ACCUMULATOR BET
+                    // BUILD COMPLETE ACCUMULATOR BET WITH COMPATIBLE DATABASE SCHEMA
                     const bet = {
                         id: betId,
                         user_id: currentUser.uid,
@@ -1966,7 +1960,9 @@
                         potential_win: parseFloat((totalDeduction * calculatedOdds).toFixed(2)),
                         status: 'active',
                         placed_at: new Date().toISOString(),
-                        selections: betSlip.map(b => ({
+                        // Fix: Saveaccumulator match string to existing 'match_name' column instead of non-existent 'match_names'
+                        match_name: betSlip.map(b => b.matchName).join(' + '),
+                        selections: JSON.stringify(betSlip.map(b => ({
                             ...b,
                             match_details: b.matchDetails ? JSON.stringify(b.matchDetails) : null,
                             match_name: b.matchName,
@@ -1974,11 +1970,8 @@
                             away_team: b.away_team,
                             league_name: b.league_name,
                             match_status_at_bet: b.match_status_at_bet || 'upcoming'
-                        })),
-                        match_status_at_bet: 'upcoming',
-                        // Store summary for display
-                        match_names: betSlip.map(b => b.matchName).join(' + '),
-                        total_selections: betSlip.length
+                        }))),
+                        match_status_at_bet: 'upcoming'
                     };
 
                     const { error } = await supabaseClient
