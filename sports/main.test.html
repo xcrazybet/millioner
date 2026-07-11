@@ -22,6 +22,10 @@
             --text-main: #ffffff;
             --text-grey: #8a97a5;
             --font-primary: 'Inter', 'Tajawal', sans-serif;
+            
+            /* Dynamic variables for full light/dark responsiveness */
+            --header-bg: #0c121d;
+            --sidebar-bg: #0c121d;
         }
 
         body.light-theme {
@@ -31,6 +35,9 @@
             --text-main: #131c2c;
             --text-grey: #5c6a79;
             --xlodon-blue: #0086ff;
+            
+            --header-bg: #ffffff;
+            --sidebar-bg: #ffffff;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -51,7 +58,7 @@
 
         /* Custom Header bar */
         .header { 
-            background: #0c121d; 
+            background: var(--header-bg); 
             padding: 10px 20px; 
             border-bottom: 1px solid var(--border-color); 
             position: sticky; 
@@ -143,7 +150,7 @@
 
         /* LEFT SIDEBAR */
         .sidebar-left {
-            background: #0c121d;
+            background: var(--sidebar-bg);
             border-right: 1px solid var(--border-color);
             padding: 15px;
             height: calc(100vh - 58px);
@@ -291,7 +298,7 @@
         .race-card-timer { font-size: 11px; color: var(--xlodon-blue); font-weight: 600; display: flex; align-items: center; gap: 4px; }
         .race-play-btn { position: absolute; right: 12px; bottom: 12px; color: var(--text-grey); font-size: 14px; }
 
-        /* Content-tabs: In-Play, Highlights, Upcoming, Quick Bets */
+        /* Content-tabs: In-Play, Highlights, Upcoming, Competitions, Quick Bets */
         .content-tabs { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; gap: 20px; }
         .content-tab { padding: 12px 5px; color: var(--text-grey); font-size: 13px; font-weight: 600; cursor: pointer; position: relative; }
         .content-tab.active { color: var(--text-main); }
@@ -575,7 +582,7 @@
 
         /* RIGHT DESKTOP SIDEBAR */
         .sidebar-right {
-            background: #0c121d;
+            background: var(--sidebar-bg);
             border-left: 1px solid var(--border-color);
             padding: 15px;
             height: calc(100vh - 58px);
@@ -710,6 +717,9 @@
             /* Quick bets mobile layout adjustments */
             .quick-bets-grid {
                 grid-template-columns: 1fr;
+            }
+            .quick-bets-layout {
+                grid-template-columns: 1fr !important;
             }
         }
     </style>
@@ -877,10 +887,11 @@
 
             <!-- Filters -->
             <div class="content-tabs">
-                <div class="content-tab active" onclick="switchFilter('live')">In-Play</div>
-                <div class="content-tab" onclick="switchFilter('highlights')">Highlights</div>
-                <div class="content-tab" onclick="switchFilter('upcoming')">Upcoming</div>
-                <div class="content-tab" onclick="switchFilter('quick_bets')">Quick Bets</div>
+                <div class="content-tab active" onclick="switchFilter('live', this)">In-Play</div>
+                <div class="content-tab" onclick="switchFilter('highlights', this)">Highlights</div>
+                <div class="content-tab" onclick="switchFilter('upcoming', this)">Upcoming</div>
+                <div class="content-tab" onclick="switchFilter('competitions', this)">Competitions</div>
+                <div class="content-tab" onclick="switchFilter('quick_bets', this)">Quick Bets</div>
             </div>
 
             <!-- Sports Horizontal Icon bar -->
@@ -989,6 +1000,7 @@
         let betSlip = [];
         let activeBetSlipTab = 'combi'; // Defaults to Combi Accumulator as requested
         let globalCombiStake = 10.0; // main stake accumulator box
+        let activeMobileMarket = 'winner'; // Preserves state of mobile market switches during updates
 
         // Sync and restore Bet Slip from LocalStorage on reload
         function loadPersistedBetSlip() {
@@ -1013,19 +1025,26 @@
 
         // Switch displayed mobile odds group
         function switchMobileMarket(marketType) {
+            activeMobileMarket = marketType;
             const grid = document.getElementById('hierarchical-odds-grid');
+            if (!grid) return;
+            
             grid.className = ''; // remove current class list
             
             document.querySelectorAll('.mobile-market-tab-btn').forEach(btn => btn.classList.remove('active'));
 
             if (marketType === 'winner') {
                 grid.classList.add('show-market-winner');
-                document.getElementById('btn-mkt-1x2').classList.add('active');
+                const btn = document.getElementById('btn-mkt-1x2');
+                if (btn) btn.classList.add('active');
             } else if (marketType === 'totals') {
                 grid.classList.add('show-market-totals');
-                document.getElementById('btn-mkt-overunder').classList.add('active');
+                const btn = document.getElementById('btn-mkt-overunder');
+                if (btn) btn.classList.add('active');
             } else if (marketType === 'btts') {
-                grid.classList.add('show-market-btts').classList.add('active');
+                grid.classList.add('show-market-btts');
+                const btn = document.getElementById('btn-mkt-btts');
+                if (btn) btn.classList.add('active');
             }
         }
 
@@ -1043,7 +1062,8 @@
         }
         if (localStorage.getItem('theme') === 'light') {
             document.body.classList.add('light-theme');
-            document.getElementById('theme-knob-icon').className = "fas fa-sun";
+            const icon = document.getElementById('theme-knob-icon');
+            if (icon) icon.className = "fas fa-sun";
         }
 
         // Sign out users
@@ -1058,7 +1078,8 @@
                 if (!currentUser) return;
                 const doc = await db.collection('wallets').doc(currentUser.uid).get();
                 const balance = doc.exists ? (doc.data().balance || 0) : 1000;
-                document.getElementById('balance-display').textContent = `$${balance.toFixed(2)}`;
+                const balDisp = document.getElementById('balance-display');
+                if (balDisp) balDisp.textContent = `$${balance.toFixed(2)}`;
             } catch(e) { console.error('Firestore wallet validation failure:', e); }
         }
 
@@ -1076,7 +1097,7 @@
             }
         }
 
-        // ===== FETCH ENGINE FROM WORKING OLD VERSION (QUERING 7 DATES IN PARALLEL) =====
+        // ===== FETCH ENGINE (QUERING 7 DATES IN PARALLEL) =====
         async function fetchMatches() {
             try {
                 const today = new Date();
@@ -1193,21 +1214,135 @@
             renderCompetitionsGrid(filtered);
         }
 
+        // Helpers to auto-generate realistic star player selections for Quick Bets
+        function getStarPlayer(teamName) {
+            const stars = {
+                'Real Madrid': 'Kylian Mbappé',
+                'Barcelona': 'Robert Lewandowski',
+                'Manchester City': 'Erling Haaland',
+                'Arsenal': 'Bukayo Saka',
+                'Liverpool': 'Mohamed Salah',
+                'Manchester United': 'Bruno Fernandes',
+                'Chelsea': 'Cole Palmer',
+                'Tottenham': 'Heung-min Son',
+                'Bayern Munich': 'Harry Kane',
+                'Paris Saint Germain': 'Ousmane Dembélé',
+                'Inter Milan': 'Lautaro Martínez',
+                'Juventus': 'Dusan Vlahovic',
+                'AC Milan': 'Rafael Leão',
+                'Argentina': 'Lionel Messi',
+                'Portugal': 'Cristiano Ronaldo',
+                'France': 'Kylian Mbappé',
+                'England': 'Jude Bellingham',
+                'Brazil': 'Vinícius Júnior',
+                'Spain': 'Lamine Yamal',
+                'Germany': 'Florian Wirtz',
+                'Italy': 'Federico Chiesa'
+            };
+            for (const key in stars) {
+                if (teamName.toLowerCase().includes(key.toLowerCase())) return stars[key];
+            }
+            return 'Star Forward';
+        }
+
+        function getFractionalOdds(decimal) {
+            const dec = parseFloat(decimal);
+            if (dec <= 1.5) return "2/5";
+            if (dec <= 1.8) return "4/6";
+            if (dec <= 2.2) return "1/1";
+            if (dec <= 2.6) return "6/4";
+            if (dec <= 3.0) return "2/1";
+            if (dec <= 3.5) return "5/2";
+            if (dec <= 4.0) return "3/1";
+            if (dec <= 5.0) return "4/1";
+            return "5/1";
+        }
+
+        // Dynamically constructs 3 Quick Bets from high-profile upcoming/live events
+        function generateQuickBets() {
+            const majorLeagues = ["Premier League", "La Liga", "Serie A", "Champions League", "World Cup", "Bundesliga", "Ligue 1", "Euro"];
+            let sourceMatches = allMatches.filter(m => 
+                majorLeagues.some(league => m.league_name.toLowerCase().includes(league.toLowerCase()))
+            );
+            
+            if (sourceMatches.length < 3) {
+                sourceMatches = [...allMatches];
+            }
+
+            const selectedMatches = sourceMatches.slice(0, 3);
+            
+            // Guarantee there are always exactly 3 cards using structured fallbacks if pool is empty
+            while (selectedMatches.length < 3) {
+                selectedMatches.push({
+                    fixture_id: 999100 + selectedMatches.length,
+                    home_team: { name: 'Manchester United' },
+                    away_team: { name: 'Chelsea' },
+                    league_name: 'Premier League',
+                    start_time: new Date().toISOString(),
+                    odds: { home: '2.10', draw: '3.40', away: '2.80', over25: '1.75' }
+                });
+            }
+
+            return selectedMatches.map((m) => {
+                const favTeam = parseFloat(m.odds.home) <= parseFloat(m.odds.away) ? m.home_team.name : m.away_team.name;
+                const favType = parseFloat(m.odds.home) <= parseFloat(m.odds.away) ? 'home' : 'away';
+                const star = getStarPlayer(favTeam);
+                
+                const baseOdds = (parseFloat(m.odds[favType]) * parseFloat(m.odds.over25) * 1.3).toFixed(2);
+                const boostedOdds = (parseFloat(baseOdds) * 1.25).toFixed(2);
+                
+                const fractWas = getFractionalOdds(baseOdds);
+                const fractNow = getFractionalOdds(boostedOdds);
+
+                return {
+                    id: `qb_auto_${m.fixture_id}`,
+                    matchName: `${m.home_team.name} vs ${m.away_team.name}`,
+                    subtext: new Date(m.start_time).toLocaleDateString() + ' • ' + m.league_name,
+                    selections: [
+                        `${favTeam} to Win`,
+                        `Over 2.5 Total Goals`,
+                        `${star} to Score Anytime`
+                    ],
+                    betTypeName: `${favTeam} Win + Over 2.5 + ${star} Goal`,
+                    odds: parseFloat(boostedOdds),
+                    wasOdds: fractWas,
+                    nowOdds: fractNow
+                };
+            });
+        }
+
         // Render hierarchical grid lists (Group Country > League > Matches)
         function displayMatchGrid() {
             const container = document.getElementById('hierarchical-odds-grid');
             const sportsIconWrapper = document.getElementById('sports-icon-wrapper-div');
             const competitionsWrapper = document.getElementById('competitions-wrapper');
             
-            // Manage dynamic tabs view rendering
-            if (activeFilter === 'quick_bets') {
-                sportsIconWrapper.style.display = 'none'; // hide sports bar under quickbets
-                if (competitionsWrapper) competitionsWrapper.style.display = 'none'; // hide competitions bar under quickbets
+            // Apply preservation of active mobile market switcher styles
+            container.className = 'show-market-' + activeMobileMarket;
+            
+            // Manage dynamic visibility of layout containers based on the active tab
+            if (activeFilter === 'live' || activeFilter === 'upcoming') {
+                if (competitionsWrapper) competitionsWrapper.style.display = 'none';
+                if (sportsIconWrapper) sportsIconWrapper.style.display = 'flex';
+            } else if (activeFilter === 'highlights') {
+                if (competitionsWrapper) competitionsWrapper.style.display = 'block';
+                if (sportsIconWrapper) sportsIconWrapper.style.display = 'flex';
+            } else if (activeFilter === 'competitions') {
+                if (competitionsWrapper) competitionsWrapper.style.display = 'block';
+                if (sportsIconWrapper) sportsIconWrapper.style.display = 'none';
+                
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: var(--text-grey); font-size: 13px;">
+                        <i class="fas fa-trophy" style="font-size: 40px; color: var(--xlodon-blue); margin-bottom: 15px; display: block;"></i>
+                        Select any of our featured sports competitions above to explore full match fixtures.
+                    </div>
+                `;
+                return;
+            } else if (activeFilter === 'quick_bets') {
+                if (competitionsWrapper) competitionsWrapper.style.display = 'none';
+                if (sportsIconWrapper) sportsIconWrapper.style.display = 'none';
                 renderQuickBetsDeck();
                 return;
-            } else {
-                sportsIconWrapper.style.display = 'flex';
-                if (competitionsWrapper) competitionsWrapper.style.display = 'block';
             }
 
             const todayStr = new Date().toISOString().split('T')[0];
@@ -1235,7 +1370,6 @@
             if (!filtered.length) {
                 let emptyMsg = `<div style="text-align:center; padding:40px; color:var(--text-grey); font-size:13px;">No active matches found under this filter.</div>`;
                 if (activeFilter === 'upcoming') {
-                    // Show a redirect link if no upcoming matches today
                     emptyMsg += `
                         <div class="schedule-btn-container">
                             <button onclick="location.href='upcoming-matches.html'" class="btn-schedule-redirect">
@@ -1358,54 +1492,50 @@
             container.innerHTML = html;
         }
 
-        // Render Quick Bets Grid Component
+        // Render Quick Bets Grid Component along with Side-by-Side Competitions list
         function renderQuickBetsDeck() {
             const container = document.getElementById('hierarchical-odds-grid');
-            
+            const quickBetsData = generateQuickBets();
+
+            // Build Quick Bet Card elements
+            const qbCardsHtml = quickBetsData.map(qb => `
+                <div class="quick-bet-card" style="margin-bottom: 15px;">
+                    <div>
+                        <div class="quick-bet-card-header">
+                            <i class="fas fa-futbol" style="color:var(--xlodon-blue);"></i> ${qb.matchName}
+                        </div>
+                        <div class="quick-bet-card-sub">${qb.subtext}</div>
+                        <ul class="quick-bets-list">
+                            ${qb.selections.map(sel => `<li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> ${sel}</li>`).join('')}
+                        </ul>
+                    </div>
+                    <button class="quick-bet-odds-btn boosted" onclick="addBet('${qb.id}', '${escapeQuote(qb.matchName)}', 'Quick Bets Spec', '${escapeQuote(qb.betTypeName)}', ${qb.odds})">
+                        <span style="font-size:10px; text-decoration:line-through; color:var(--text-grey); margin-right:5px;">Was ${qb.wasOdds}</span> Boost ${qb.nowOdds} (${qb.odds})
+                    </button>
+                </div>
+            `).join('');
+
+            // Build side Competitions column listings
+            const compsHtml = uniqueCompetitions.map(l => `
+                <a href="upcoming-matches.html?league=${l.id}" class="competition-card" style="display: flex; flex-direction: row; align-items: center; justify-content: flex-start; text-align: left; padding: 8px 12px; gap: 10px; width: 100%;">
+                    <img class="competition-logo" src="${l.logo || 'https://via.placeholder.com/32'}" onerror="this.src='https://via.placeholder.com/32'; this.onerror=null;" style="margin-bottom: 0; width: 24px; height: 24px;">
+                    <div class="competition-name" style="-webkit-line-clamp: 1; font-size: 12px;">${l.name}</div>
+                </a>
+            `).join('');
+
             container.innerHTML = `
-                <div class="quick-bets-grid">
-                    <!-- Card 1 -->
-                    <div class="quick-bet-card">
-                        <div>
-                            <div class="quick-bet-card-header"><i class="fas fa-futbol" style="color:var(--xlodon-blue);"></i> Norway vs England</div>
-                            <div class="quick-bet-card-sub">Tomorrow, 00:00</div>
-                            <ul class="quick-bets-list">
-                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> England to win</li>
-                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Over 2.5 goals</li>
-                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Harry Kane to score anytime</li>
-                            </ul>
+                <div class="quick-bets-layout" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+                    <div class="quick-bets-column">
+                        <div style="font-size: 14px; font-weight: 700; color: var(--xlodon-blue); margin-bottom: 15px; text-transform: uppercase;">🔥 Dynamic Match Boosts</div>
+                        <div class="quick-bets-grid" style="grid-template-columns: 1fr; gap: 15px;">
+                            ${qbCardsHtml}
                         </div>
-                        <button class="quick-bet-odds-btn" onclick="addBet('qb_1', 'Norway vs England (Combi)', 'Quick Bets Spec', 'England + Over2.5 + Kane score', 2.60)">13/5</button>
                     </div>
-
-                    <!-- Card 2 -->
-                    <div class="quick-bet-card">
-                        <div>
-                            <div class="quick-bet-card-header"><i class="fas fa-futbol" style="color:var(--xlodon-blue);"></i> Argentina vs Switzerland</div>
-                            <div class="quick-bet-card-sub">Tomorrow, 04:00</div>
-                            <ul class="quick-bets-list">
-                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Argentina to win</li>
-                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Over 2.5 goals</li>
-                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Lionel Messi to score anytime</li>
-                            </ul>
+                    <div class="competitions-column" style="background: var(--panel-dark); padding: 15px; border: 1px solid var(--border-color); border-radius: 8px; display: flex; flex-direction: column;">
+                        <h3 style="font-size: 13px; font-weight: 700; color: var(--xlodon-blue); text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;"><i class="fas fa-trophy"></i> Available Leagues</h3>
+                        <div class="competitions-vertical-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 500px; overflow-y: auto;">
+                            ${compsHtml}
                         </div>
-                        <button class="quick-bet-odds-btn" onclick="addBet('qb_2', 'Argentina vs Switzerland (Combi)', 'Quick Bets Spec', 'Argentina + Over2.5 + Messi score', 2.60)">13/5</button>
-                    </div>
-
-                    <!-- Card 3 -->
-                    <div class="quick-bet-card">
-                        <div>
-                            <div class="quick-bet-card-header"><i class="fas fa-futbol" style="color:var(--xlodon-blue);"></i> France vs Spain</div>
-                            <div class="quick-bet-card-sub">Jul 14, 22:00</div>
-                            <ul class="quick-bets-list">
-                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> France to win</li>
-                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Over 2.5 goals</li>
-                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Kylian Mbappe to score anytime</li>
-                            </ul>
-                        </div>
-                        <button class="quick-bet-odds-btn boosted" onclick="addBet('qb_3', 'France vs Spain (Combi Boost)', 'Quick Bets Spec', 'France + Over2.5 + Mbappe score', 3.75)">
-                            <span style="font-size:10px; text-decoration:line-through; color:var(--text-grey); margin-right:5px;">18/5</span> 15/4
-                        </button>
                     </div>
                 </div>
             `;
@@ -1429,7 +1559,7 @@
                 
                 // Pushes selection with properties structured exactly to match your system specs
                 betSlip.push({
-                    fixtureId: parseInt(fixtureId),
+                    fixtureId: fixtureId,
                     matchName: matchName,
                     betType: betType,          // 'home', 'over25', 'btts_yes'
                     betTypeName: betTypeName,   // '🏠 Home Win', etc.
@@ -1533,7 +1663,7 @@
             if (activeBetSlipTab === 'single') {
                 cardsHtml = betSlip.map((b, i) => `
                     <div class="slip-item">
-                        <i class="fas fa-times slip-item-delete" onclick="removeBet(${b.fixtureId}, '${b.betType}')"></i>
+                        <i class="fas fa-times slip-item-delete" onclick="removeBet('${b.fixtureId}', '${b.betType}')"></i>
                         <div class="slip-selection-title">${b.betTypeName} @ ${b.odds}</div>
                         <div class="slip-match-teams">${b.matchName}</div>
                         <div class="slip-stake-row">
@@ -1545,7 +1675,7 @@
             } else {
                 cardsHtml = betSlip.map((b) => `
                     <div class="slip-item">
-                        <i class="fas fa-times slip-item-delete" onclick="removeBet(${b.fixtureId}, '${b.betType}')"></i>
+                        <i class="fas fa-times slip-item-delete" onclick="removeBet('${b.fixtureId}', '${b.betType}')"></i>
                         <div class="slip-selection-title">${b.betTypeName} @ ${b.odds}</div>
                         <div class="slip-match-teams">${b.matchName}</div>
                     </div>
@@ -1629,7 +1759,7 @@
                         const bet = {
                             id: betId,
                             user_id: currentUser.uid,
-                            fixture_id: b.fixtureId,
+                            fixture_id: isNaN(b.fixtureId) ? null : parseInt(b.fixtureId),
                             bet_type: b.betType,
                             bet_name: b.betTypeName,
                             odds: b.odds,
@@ -1695,17 +1825,32 @@
             }
         }
 
-        function switchFilter(mode) {
+        function switchFilter(mode, element) {
             activeFilter = mode;
             document.querySelectorAll('.content-tab').forEach(t => t.classList.remove('active'));
-            event.target.classList.add('active');
+            if (element) {
+                element.classList.add('active');
+            } else {
+                document.querySelectorAll('.content-tab').forEach(t => {
+                    const text = t.textContent.toLowerCase();
+                    if ((mode === 'live' && text === 'in-play') || 
+                        (mode === 'highlights' && text === 'highlights') || 
+                        (mode === 'upcoming' && text === 'upcoming') || 
+                        (mode === 'competitions' && text === 'competitions') || 
+                        (mode === 'quick_bets' && text === 'quick bets')) {
+                        t.classList.add('active');
+                    }
+                });
+            }
             displayMatchGrid();
         }
 
         function filterSport(sport) {
             selectedSport = sport;
             document.querySelectorAll('.sport-icon-btn').forEach(btn => btn.classList.remove('active'));
-            event.currentTarget.classList.add('active');
+            if (event && event.currentTarget) {
+                event.currentTarget.classList.add('active');
+            }
             displayMatchGrid();
         }
 
