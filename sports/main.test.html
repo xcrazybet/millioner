@@ -291,7 +291,7 @@
         .race-card-timer { font-size: 11px; color: var(--xlodon-blue); font-weight: 600; display: flex; align-items: center; gap: 4px; }
         .race-play-btn { position: absolute; right: 12px; bottom: 12px; color: var(--text-grey); font-size: 14px; }
 
-        /* Content-tabs section containing: In-Play, Highlights, Upcoming, Quick Bets (input_file_4.png & 5) */
+        /* Content-tabs: In-Play, Highlights, Upcoming, Quick Bets (input_file_4.png & 5) */
         .content-tabs { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; gap: 20px; }
         .content-tab { padding: 12px 5px; color: var(--text-grey); font-size: 13px; font-weight: 600; cursor: pointer; position: relative; }
         .content-tab.active { color: var(--text-main); }
@@ -394,6 +394,31 @@
         .quick-bet-odds-btn:hover { background: var(--xlodon-blue); color: #000; }
         .quick-bet-odds-btn.boosted { border-color: #ff9800; color: #ff9800; }
         .quick-bet-odds-btn.boosted:hover { background: #ff9800; color: #000; }
+
+        /* Dynamic 7-day view schedule button */
+        .schedule-btn-container {
+            display: flex;
+            justify-content: center;
+            padding: 15px 0;
+        }
+        .btn-schedule-redirect {
+            background: var(--panel-dark);
+            border: 1px solid var(--xlodon-blue);
+            color: var(--xlodon-blue);
+            font-size: 12px;
+            font-weight: 700;
+            padding: 10px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+        .btn-schedule-redirect:hover {
+            background: var(--xlodon-blue);
+            color: #000;
+        }
 
         /* MOBILE RESPONSIVE MARKET SELECTOR PANEL (input_file_3.png matching layout) */
         .mobile-market-switcher {
@@ -807,7 +832,7 @@
                 </div>
             </div>
 
-            <!-- Content-tabs: In-Play, Highlights, Upcoming, Quick Bets (input_file_4.png & 5) -->
+            <!-- Filters -->
             <div class="content-tabs">
                 <div class="content-tab active" onclick="switchFilter('live')">In-Play</div>
                 <div class="content-tab" onclick="switchFilter('highlights')">Highlights</div>
@@ -910,7 +935,6 @@
         // Sync and restore Bet Slip from LocalStorage on reload
         function loadPersistedBetSlip() {
             try {
-                // Restores exact JSON slips matching both Single/Combi models from xlodon_bet_slip key
                 const stored = localStorage.getItem('xlodon_bet_slip');
                 if (stored) {
                     betSlip = JSON.parse(stored);
@@ -943,8 +967,7 @@
                 grid.classList.add('show-market-totals');
                 document.getElementById('btn-mkt-overunder').classList.add('active');
             } else if (marketType === 'btts') {
-                grid.classList.add('show-market-btts');
-                document.getElementById('btn-mkt-btts').classList.add('active');
+                grid.classList.add('show-market-btts').classList.add('active');
             }
         }
 
@@ -995,118 +1018,75 @@
             }
         }
 
-        // Resilient fetch helper with backoff retries to prevent Cloudflare 429 errors
-        async function fetchWithRetry(url, options = {}, retries = 3, backoff = 1000) {
-            try {
-                const response = await fetch(url, options);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                return await response.json();
-            } catch (error) {
-                if (retries > 0) {
-                    console.warn(`Fetch failed for ${url}. Retrying in ${backoff}ms... (${retries} retries left)`);
-                    await new Promise(resolve => setTimeout(resolve, backoff));
-                    return fetchWithRetry(url, options, retries - 1, backoff * 1.5);
-                }
-                throw error;
-            }
-        }
-
-        function getLocalDateString(offsetDays = 0) {
-            const d = new Date();
-            d.setDate(d.getDate() + offsetDays);
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        }
-
-        // Robust match data compiler helper
-        function processAPIMatch(m, statusOverride = null) {
-            const statusShort = m.fixture?.status?.short;
-            const isLive = ['1H', '2H', 'HT', 'ET', 'BT', 'LIVE', 'INT', 'P'].includes(statusShort);
-            const isFinished = ['FT', 'AET', 'PEN'].includes(statusShort);
-            
-            let status = statusOverride || 'upcoming';
-            if (isLive) status = 'live';
-            else if (isFinished) status = 'finished';
-
-            let countryGroup = "World";
-            const leagueName = m.league?.name || '';
-            if (leagueName.includes("Premier League")) countryGroup = "England";
-            else if (leagueName.includes("La Liga")) countryGroup = "Spain";
-            else if (leagueName.includes("Serie A")) countryGroup = "Italy";
-
-            return {
-                fixture_id: m.fixture?.id || 0,
-                start_time: m.fixture?.date || new Date().toISOString(),
-                status: status,
-                country_group: countryGroup,
-                league_id: m.league?.id || 0,
-                league_name: leagueName || 'International',
-                league_logo: m.league?.logo || '',
-                home_team: m.teams?.home || { name: 'Home', logo: '' },
-                away_team: m.teams?.away || { name: 'Away', logo: '' },
-                score: { home: m.goals?.home || 0, away: m.goals?.away || 0 },
-                elapsed: m.fixture?.status?.elapsed || 0,
-                odds: {
-                    home: (1.50 + ((m.fixture?.id % 15) / 100)).toFixed(2),
-                    draw: (3.10 + ((m.fixture?.id % 12) / 100)).toFixed(2),
-                    away: (2.40 + ((m.fixture?.id % 18) / 100)).toFixed(2),
-                    over25: (1.65 + ((m.fixture?.id % 10) / 100)).toFixed(2),
-                    under25: (1.95 + ((m.fixture?.id % 8) / 100)).toFixed(2),
-                    bttsYes: (1.70 + ((m.fixture?.id % 9) / 100)).toFixed(2),
-                    bttsNo: (2.05 + ((m.fixture?.id % 11) / 100)).toFixed(2)
-                }
-            };
-        }
-
-        // Fetch Matches
+        // ===== FETCH ENGINE FROM WORKING OLD VERSION (QUERING 7 DATES IN PARALLEL) =====
         async function fetchMatches() {
             try {
-                const fromDate = getLocalDateString(0);
+                const today = new Date();
+                const dates = [];
                 
-                // EXTENDED TO 7 DAYS TO RETRIEVE MASSIVE LIST OF UPCOMING MATCHES
-                const toDate = getLocalDateString(7); 
+                // Fetch next 7 days in parallel to extract a robust pool of matches (as in working old version)
+                for (let i = 0; i <= 7; i++) {
+                    const date = new Date(today);
+                    date.setDate(today.getDate() + i);
+                    dates.push(date.toISOString().split('T')[0]);
+                }
                 
-                const rangeUrl = `${API_BASE}/api/fixtures/range/${fromDate}/${toDate}`;
-                const liveUrl = `${API_BASE}/api/livescores`;
+                const fetchPromises = dates.map(date => 
+                    fetch(`${API_BASE}/api/fixtures/date/${date}`).then(r => r.json()).catch(() => ({ success: false, data: [] }))
+                );
+                
+                const results = await Promise.all(fetchPromises);
+                const matches = [];
+                const todayStr = today.toISOString().split('T')[0];
+                
+                for (const data of results) {
+                    if (data.success && data.data) {
+                        for (const m of data.data) {
+                            const statusShort = m.fixture.status?.short;
+                            const isLive = statusShort === '1H' || statusShort === '2H' || statusShort === 'HT';
+                            const isFinished = statusShort === 'FT' || statusShort === 'AET' || statusShort === 'PEN';
+                            const matchTime = new Date(m.fixture.date);
+                            
+                            let status = 'upcoming';
+                            if (isLive) status = 'live';
+                            else if (isFinished) status = 'finished';
+                            else if (matchTime < new Date()) status = 'finished';
 
-                const rangeData = await fetchWithRetry(rangeUrl).catch(() => null);
-                const liveData = await fetchWithRetry(liveUrl).catch(() => null);
+                            let countryGroup = "World";
+                            const leagueName = m.league?.name || '';
+                            if (leagueName.includes("Premier League")) countryGroup = "England";
+                            else if (leagueName.includes("La Liga")) countryGroup = "Spain";
+                            else if (leagueName.includes("Serie A")) countryGroup = "Italy";
 
-                // SWR Fallback: If both fail, preserve previously loaded memory cache
-                if (!rangeData && !liveData) {
-                    console.warn("API request failed. Reverting to memory cache.");
-                    return allMatches;
+                            matches.push({
+                                fixture_id: m.fixture.id,
+                                start_time: m.fixture.date,
+                                status: status,
+                                country_group: countryGroup,
+                                league_id: m.league.id,
+                                league_name: leagueName,
+                                league_logo: m.league.logo,
+                                home_team: m.teams.home,
+                                away_team: m.teams.away,
+                                score: { home: m.goals?.home || 0, away: m.goals?.away || 0 },
+                                elapsed: m.fixture.status?.elapsed || 0,
+                                odds: {
+                                    home: (1.50 + ((m.fixture.id % 15) / 100)).toFixed(2),
+                                    draw: (3.10 + ((m.fixture.id % 12) / 100)).toFixed(2),
+                                    away: (2.40 + ((m.fixture.id % 18) / 100)).toFixed(2),
+                                    over25: (1.65 + ((m.fixture.id % 10) / 100)).toFixed(2),
+                                    under25: (1.95 + ((m.fixture.id % 8) / 100)).toFixed(2),
+                                    bttsYes: (1.70 + ((m.fixture.id % 9) / 100)).toFixed(2),
+                                    bttsNo: (2.05 + ((m.fixture.id % 11) / 100)).toFixed(2)
+                                }
+                            });
+                        }
+                    }
                 }
-
-                const matchMap = new Map();
-
-                if (rangeData && rangeData.success && rangeData.data) {
-                    rangeData.data.forEach(m => {
-                        const statusShort = m.fixture?.status?.short;
-                        if (statusShort === 'FT' || statusShort === 'AET' || statusShort === 'PEN') return;
-                        
-                        const processed = processAPIMatch(m, 'upcoming');
-                        matchMap.set(processed.fixture_id, processed);
-                    });
-                }
-
-                if (liveData && liveData.success && liveData.data) {
-                    liveData.data.forEach(m => {
-                        const processed = processAPIMatch(m, 'live');
-                        matchMap.set(processed.fixture_id, processed);
-                    });
-                }
-
-                const compiled = Array.from(matchMap.values());
-                if (compiled.length > 0) {
-                    allMatches = compiled;
-                }
-                return allMatches;
+                return matches;
             } catch(e) {
-                console.error("Match fetch failed. Keeping current cache:", e);
-                return allMatches;
+                console.error('Fetch error:', e);
+                return [];
             }
         }
 
@@ -1124,9 +1104,16 @@
                 sportsIconWrapper.style.display = 'flex';
             }
 
+            const todayStr = new Date().toISOString().split('T')[0];
+
             let filtered = allMatches.filter(m => {
                 if (activeFilter === 'live') return m.status === 'live';
-                if (activeFilter === 'upcoming') return m.status === 'upcoming';
+                
+                // Upcoming shows TODAY'S upcoming matches only to prevent screen bloat (NetBet Style)
+                if (activeFilter === 'upcoming') {
+                    const matchDateStr = new Date(m.start_time).toISOString().split('T')[0];
+                    return m.status === 'upcoming' && matchDateStr === todayStr;
+                }
                 
                 // Highlights Category Layout (Featured / Curated Top Tournaments)
                 if (activeFilter === 'highlights') {
@@ -1140,7 +1127,18 @@
             }
 
             if (!filtered.length) {
-                container.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-grey); font-size:13px;">No active matches found under this filter.</div>`;
+                let emptyMsg = `<div style="text-align:center; padding:40px; color:var(--text-grey); font-size:13px;">No active matches found under this filter.</div>`;
+                if (activeFilter === 'upcoming') {
+                    // Show a redirect link if no upcoming matches today
+                    emptyMsg += `
+                        <div class="schedule-btn-container">
+                            <button onclick="location.href='upcoming-matches.html'" class="btn-schedule-redirect">
+                                <i class="fas fa-plus"></i> View Full 7-Day Schedule
+                            </button>
+                        </div>
+                    `;
+                }
+                container.innerHTML = emptyMsg;
                 return;
             }
 
@@ -1240,6 +1238,18 @@
                 }
                 html += `</div>`;
             }
+
+            if (activeFilter === 'upcoming') {
+                // Add the bottom "7-day schedule redirect" link for professional look
+                html += `
+                    <div class="schedule-btn-container">
+                        <button onclick="location.href='upcoming-matches.html'" class="btn-schedule-redirect">
+                            <i class="fas fa-plus"></i> View Full 7-Day Schedule
+                        </button>
+                    </div>
+                `;
+            }
+
             container.innerHTML = html;
         }
 
@@ -1579,7 +1589,6 @@
             }
         }
 
-        // Interactive tab filters switcher
         function switchFilter(mode) {
             activeFilter = mode;
             document.querySelectorAll('.content-tab').forEach(t => t.classList.remove('active'));
@@ -1599,6 +1608,8 @@
             if (!currentUser) return;
             try {
                 const liveCount = allMatches.filter(m => m.status === 'live').length;
+                
+                // Total upcoming pool over 7 days (thousands of matches)
                 const upcomingCount = allMatches.filter(m => m.status === 'upcoming').length;
                 
                 document.getElementById('stat-total').textContent = allMatches.length;
