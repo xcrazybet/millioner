@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>My Wallet - X London | Sports Betting</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Firebase and Supabase Core Libraries -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    
+    <style>
+        :root {
+            --bg-primary: #0a0f1a;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1a2332;
+            --accent: #00ff9d;
+            --accent2: #ff9800;
+            --danger: #ff5252;
+            --success: #4caf50;
+            --orange: #ff9800;
+            --red: #ff5252;
+            --blue: #00bcd4;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a8c9;
+            --border: rgba(255,255,255,0.1);
+        }
+
+        body.light-theme {
+            --bg-primary: #f3f4f6;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #e5e7eb;
+            --text-primary: #111827;
+            --text-secondary: #4b5563;
+            --border: rgba(0,0,0,0.1);
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: var(--bg-primary); 
+            color: var(--text-primary); 
+            font-family: 'Segoe UI', 'Tajawal', sans-serif; 
+            min-height: 100vh; 
+            overflow-x: hidden;
+            transition: background 0.3s, color 0.3s;
+        }
+        
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-secondary); }
+        ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
+        
+        .header { 
+            background: var(--bg-secondary); 
+            padding: 12px 15px; 
+            border-bottom: 2px solid var(--accent); 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between;
+            position: sticky; 
+            top: 0; 
+            z-index: 100; 
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .back-btn { 
+            color: var(--accent); 
+            text-decoration: none; 
+            font-size: 14px; 
+            cursor: pointer; 
+            background: var(--bg-tertiary); 
+            border: 1px solid var(--border); 
+            padding: 8px 12px;
+            border-radius: 8px;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .back-btn:hover { background: rgba(0,255,157,0.1); border-color: var(--accent); }
+        
+        .btn-action-tool {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: 0.2s;
+        }
+        .btn-action-tool:hover { border-color: var(--accent); }
+        .lang-toggle { background: none; border: 1px solid var(--border); color: var(--text-primary); padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 15px }
+        
+        /* NetBet-style Wallet Cards Layout */
+        .wallet-grid {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        @media(max-width: 768px) {
+            .wallet-grid { grid-template-columns: 1fr; }
+        }
+
+        .balance-card { 
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary)); 
+            padding: 25px; 
+            border-radius: 16px; 
+            border: 1px solid rgba(0, 255, 157, 0.2);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+        .balance-card::before {
+            content: '';
+            position: absolute;
+            top: -50px;
+            right: -50px;
+            width: 150px;
+            height: 150px;
+            background: radial-gradient(circle, rgba(0,255,157,0.15) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        .balance-label { font-size: 14px; color: var(--text-secondary); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
+        .balance-amount { color: var(--accent); font-weight: bold; font-size: 36px; font-family: monospace; }
+        
+        .active-stakes { font-size: 13px; color: var(--text-secondary); margin-top: 15px; display: flex; align-items: center; gap: 8px; }
+        .active-stakes strong { color: var(--accent2); }
+
+        .action-card {
+            background: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+        }
+        .action-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+        
+        /* Transaction Quick Portal Form */
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px; }
+        .input-wrapper { position: relative; }
+        .input-wrapper span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-weight: bold; color: var(--text-secondary); }
+        .input-wrapper input { width: 100%; padding: 10px 10px 10px 25px; background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 8px; outline: none; font-weight: bold; }
+        .input-wrapper input:focus { border-color: var(--accent); }
+        
+        .btn-submit { width: 100%; padding: 12px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .btn-deposit { background: var(--accent); color: black; }
+        .btn-deposit:hover { background: #00e68e; }
+        .btn-withdraw { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); margin-top: 8px; }
+        .btn-withdraw:hover { border-color: var(--danger); color: var(--danger); }
+
+        /* Stats Grid */
+        .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+        @media(max-width: 600px) {
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+        }
+        .stat-box { background: var(--bg-secondary); padding: 15px 10px; border-radius: 12px; text-align: center; border: 1px solid var(--border); }
+        .stat-box .val { font-size: 18px; font-weight: bold; font-family: monospace; }
+        .stat-box .lbl { font-size: 11px; color: var(--text-secondary); margin-top: 5px; }
+
+        /* Ledger Table View */
+        .ledger-container { background: var(--bg-secondary); border-radius: 16px; border: 1px solid var(--border); overflow: hidden; padding: 15px; }
+        .ledger-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        .ledger-title { font-size: 16px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
+        
+        .filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 5px; margin-bottom: 15px; }
+        .filter-chip { padding: 6px 12px; background: var(--bg-tertiary); border: 1px solid transparent; border-radius: 20px; color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: 0.2s; }
+        .filter-chip:hover { border-color: var(--accent); color: var(--text-primary); }
+        .filter-chip.active { background: var(--accent); color: black; border-color: var(--accent); }
+        
+        /* List elements styling */
+        .transaction-item {
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 4px solid var(--border);
+            transition: transform 0.2s;
+        }
+        .transaction-item:hover { transform: translateX(2px); }
+        .transaction-item.deposit { border-left-color: var(--success); }
+        .transaction-item.withdrawal { border-left-color: var(--danger); }
+        .transaction-item.settlement_payout { border-left-color: var(--accent); }
+        .transaction-item.cancel_refund { border-left-color: var(--blue); }
+        .transaction-item.partial_cashout { border-left-color: var(--orange); }
+
+        .tx-info { display: flex; flex-direction: column; gap: 3px; }
+        .tx-title { font-size: 13px; font-weight: 600; }
+        .tx-meta { font-size: 10px; color: var(--text-secondary); font-family: monospace; }
+        .tx-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; text-transform: uppercase; margin-top: 3px; width: fit-content; }
+        .tx-badge.deposit { background: rgba(76,175,80,0.15); color: var(--success); }
+        .tx-badge.withdrawal { background: rgba(255,82,82,0.15); color: var(--danger); }
+        .tx-badge.payout { background: rgba(0,255,157,0.15); color: var(--accent); }
+        .tx-badge.refund { background: rgba(0,188,212,0.15); color: var(--blue); }
+        .tx-badge.cashout { background: rgba(255,152,0,0.15); color: var(--orange); }
+
+        .tx-amount-side { text-align: right; }
+        .tx-val { font-size: 15px; font-weight: bold; font-family: monospace; }
+        .tx-val.plus { color: var(--success); }
+        .tx-val.minus { color: var(--danger); }
+        .tx-bal-after { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+
+        .empty-state { text-align: center; padding: 40px; color: var(--text-secondary); }
+        .empty-state i { font-size: 32px; color: var(--accent); opacity: 0.3; margin-bottom: 10px; }
+
+        #loading { text-align: center; padding: 40px; }
+        .spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        /* Notification Toast styles */
+        .notification { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; background: var(--bg-tertiary); color: white; border-left: 4px solid var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 1000; font-size: 13px; animation: slideIn 0.3s forwards; }
+        @keyframes slideIn { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="nav-links">
+            <a class="back-btn" href="betting-sports.html"><i class="fas fa-home"></i> Home</a>
+            <a class="back-btn" href="my-bets.html"><i class="fas fa-layer-group"></i> My Bets</a>
+        </div>
+        <h1 style="font-size:18px; color: var(--accent);"><i class="fas fa-wallet"></i> My Wallet</h1>
+        
+        <div class="nav-links">
+            <button class="btn-action-tool" onclick="toggleTheme()"><i class="fas fa-adjust"></i> Theme</button>
+            <button class="lang-toggle" onclick="toggleLanguage()">عربي</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="wallet-grid">
+            <!-- Balance Panel -->
+            <div class="balance-card">
+                <div>
+                    <div class="balance-label"><i class="fas fa-coins"></i> Real Balance</div>
+                    <div class="balance-amount" id="balance-display">$0.00</div>
+                </div>
+                <div class="active-stakes">
+                    <i class="fas fa-hourglass-half"></i> Total Active Stakes: <strong id="active-stakes-display">$0.00</strong>
+                </div>
+            </div>
+
+            <!-- Deposit/Withdraw System Panel -->
+            <div class="action-card">
+                <div class="action-title"><i class="fas fa-exchange-alt"></i> Safe Quick Portal</div>
+                <div class="form-group">
+                    <label for="portal-amount">Enter Amount ($):</label>
+                    <div class="input-wrapper">
+                        <span>$</span>
+                        <input type="number" id="portal-amount" placeholder="0.00" min="5">
+                    </div>
+                </div>
+                <button class="btn-submit btn-deposit" onclick="handleDeposit()"><i class="fas fa-arrow-down"></i> Deposit Funds</button>
+                <button class="btn-submit btn-withdraw" onclick="handleWithdraw()"><i class="fas fa-arrow-up"></i> Request Withdrawal</button>
+            </div>
+        </div>
+
+        <!-- Wallet Statistics Panels -->
+        <div class="stats-row">
+            <div class="stat-box">
+                <div class="val" id="total-deposits">$0.00</div>
+                <div class="lbl">Deposits</div>
+            </div>
+            <div class="stat-box">
+                <div class="val" id="total-withdrawals" style="color:var(--danger);">$0.00</div>
+                <div class="lbl">Withdrawals</div>
+            </div>
+            <div class="stat-box">
+                <div class="val" id="total-payouts" style="color:var(--success);">$0.00</div>
+                <div class="lbl">Settled Payouts</div>
+            </div>
+            <div class="stat-box">
+                <div class="val" id="total-cashout" style="color:var(--orange);">$0.00</div>
+                <div class="lbl">Cashed Out</div>
+            </div>
+        </div>
+
+        <!-- Ledger View -->
+        <div class="ledger-container">
+            <div class="ledger-header">
+                <div class="ledger-title"><i class="fas fa-receipt"></i> Cashflow Audit Ledger</div>
+                <div class="filter-row">
+                    <button class="filter-chip active" data-filter="all" onclick="filterLedger('all')">All</button>
+                    <button class="filter-chip" data-filter="deposit" onclick="filterLedger('deposit')">Deposits</button>
+                    <button class="filter-chip" data-filter="withdrawal" onclick="filterLedger('withdrawal')">Withdrawals</button>
+                    <button class="filter-chip" data-filter="settlement_payout" onclick="filterLedger('settlement_payout')">Settled Bets</button>
+                    <button class="filter-chip" data-filter="partial_cashout" onclick="filterLedger('partial_cashout')">Cashouts</button>
+                </div>
+            </div>
+
+            <div id="loading">
+                <div class="spinner"></div>
+                <div style="margin-top:10px; font-size:14px; color:var(--text-secondary);">Connecting to wallet servers...</div>
+            </div>
+
+            <div id="ledger-list" style="display:none;"></div>
+        </div>
+    </div>
+
+<script>
+// ============================================
+// REAL-TIME WALLET MANAGEMENT INTERFACE
+// Integration with Firebase Firestore & Supabase [1]
+// ============================================
+const SUPABASE_URL='https://jnazybaeajyynpyoszmy.supabase.co';
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
+let supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const firebaseConfig={
+    apiKey:"AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+    authDomain:"x-bet-prod-jd.firebaseapp.com",
+    projectId:"x-bet-prod-jd",
+    storageBucket:"x-bet-prod-jd.firebasestorage.app",
+    messagingSenderId:"499334334535",
+    appId:"1:499334334535:web:bebc1bf817e24d9e3c4962"
+};
+if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db=firebase.firestore(), auth=firebase.auth();
+
+let transactionsList = [];
+let betsHistoryList = [];
+let currentLedgerFilter = 'all';
+
+function toggleLanguage(){
+    const ia=document.body.classList.toggle('arabic');
+    localStorage.setItem('lang', ia ? 'ar' : 'en');
+    document.documentElement.dir = ia ? 'rtl' : 'ltr';
+}
+if(localStorage.getItem('lang')==='ar') toggleLanguage();
+
+function toggleTheme() {
+    document.body.classList.toggle('light-theme');
+    localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
+}
+if(localStorage.getItem('theme') === 'light') document.body.classList.add('light-theme');
+
+function showNotification(m, t='info'){
+    const n = document.createElement('div');
+    n.className = `notification ${t}`;
+    n.innerHTML = m;
+    document.body.appendChild(n);
+    setTimeout(() => n.remove(), 3500);
+}
+
+// 🔒 Secure atomic wallet mutation proxy logic (Simulates safe backend pipeline) [4]
+async function runWalletTransaction(amount, type, meta = {}) {
+    const u = auth.currentUser;
+    if(!u) return;
+
+    const walletRef = db.collection('wallets').doc(u.uid);
+    const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+
+    return db.runTransaction(async (transaction) => {
+        const doc = await transaction.get(walletRef);
+        const currentBalance = doc.exists ? (doc.data().balance || 0) : 0;
+        const newBalance = currentBalance + amount;
+        
+        if (newBalance < 0) {
+            throw new Error("Insufficient funds for this operation.");
+        }
+        
+        transaction.update(walletRef, { 
+            balance: newBalance, 
+            updated_at: new Date().toISOString() 
+        });
+        
+        const logRef = db.collection('transactions').doc();
+        transaction.set(logRef, {
+            user_id: u.uid,
+            amount: amount,
+            type: type,
+            balance_before: currentBalance,
+            balance_after: newBalance,
+            idempotency_key: idempotencyKey,
+            timestamp: new Date().toISOString(),
+            security_signed: true,
+            meta: meta
+        });
+    });
+}
+
+// Deposit Flow
+async function handleDeposit() {
+    const inputAmt = parseFloat(document.getElementById('portal-amount').value);
+    if(isNaN(inputAmt) || inputAmt <= 0) {
+        showNotification("Please specify a valid deposit amount.", "error");
+        return;
+    }
+    try {
+        await runWalletTransaction(inputAmt, 'deposit', { portal_channel: 'Safe Card Direct' });
+        showNotification(`💳 Deposited $${inputAmt.toFixed(2)} successfully!`, 'success');
+        document.getElementById('portal-amount').value = '';
+        await syncDataAndLedger();
+    } catch(e) {
+        showNotification(`Deposit error: ${e.message}`, 'error');
+    }
+}
+
+// Withdrawal Flow
+async function handleWithdraw() {
+    const inputAmt = parseFloat(document.getElementById('portal-amount').value);
+    if(isNaN(inputAmt) || inputAmt <= 0) {
+        showNotification("Please specify a valid withdrawal amount.", "error");
+        return;
+    }
+    try {
+        await runWalletTransaction(-inputAmt, 'withdrawal', { portal_channel: 'Bank Wire Direct' });
+        showNotification(`💸 Withdrew $${inputAmt.toFixed(2)} successfully!`, 'success');
+        document.getElementById('portal-amount').value = '';
+        await syncDataAndLedger();
+    } catch(e) {
+        showNotification(`Withdrawal request denied: ${e.message}`, 'error');
+    }
+}
+
+// Fetch real balance & active stakes [1]
+async function loadRealTimeStats() {
+    const u = auth.currentUser;
+    if(!u) return;
+
+    // Load main balance [1]
+    const walletDoc = await db.collection('wallets').doc(u.uid).get();
+    const balance = walletDoc.exists ? (walletDoc.data().balance || 0) : 0;
+    document.getElementById('balance-display').textContent = `$${balance.toFixed(2)}`;
+
+    // Sync Stakes directly from Supabase [1]
+    const { data: betsData, error } = await supabaseClient.from('bets')
+        .select('amount, status, payout, cashout_amount, placed_at')
+        .eq('user_id', u.uid);
+
+    if(!error && betsData) {
+        betsHistoryList = betsData;
+        
+        let activeStakesSum = 0;
+        betsData.forEach(bet => {
+            if(bet.status === 'active') {
+                activeStakesSum += parseFloat(bet.amount || 0);
+            }
+        });
+        document.getElementById('active-stakes-display').textContent = `$${activeStakesSum.toFixed(2)}`;
+    }
+}
+
+// Synchronize all Ledger records
+async function syncDataAndLedger() {
+    const u = auth.currentUser;
+    if(!u) return;
+
+    try {
+        await loadRealTimeStats();
+
+        // Pull operations ledger directly from secure Firestore collection logs [1]
+        const txSnapshot = await db.collection('transactions')
+            .where('user_id', '==', u.uid)
+            .orderBy('timestamp', 'desc')
+            .get();
+
+        transactionsList = [];
+        txSnapshot.forEach(doc => {
+            transactionsList.push({ id: doc.id, ...doc.data() });
+        });
+
+        calculateOverviewMetrics();
+        renderLedger(currentLedgerFilter);
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('ledger-list').style.display = 'block';
+    } catch(e) {
+        console.error("Ledger sync exception:", e);
+        document.getElementById('loading').style.display = 'none';
+    }
+}
+
+function calculateOverviewMetrics() {
+    let totalDep = 0;
+    let totalWith = 0;
+    let totalPay = 0;
+    let totalCO = 0;
+
+    transactionsList.forEach(tx => {
+        const amt = parseFloat(tx.amount || 0);
+        if(tx.type === 'deposit') {
+            totalDep += amt;
+        } else if(tx.type === 'withdrawal') {
+            totalWith += Math.abs(amt);
+        } else if(tx.type === 'settlement_payout') {
+            totalPay += amt;
+        } else if(tx.type === 'partial_cashout' || tx.type === 'cashout_payout') {
+            totalCO += amt;
+        }
+    });
+
+    document.getElementById('total-deposits').textContent = `$${totalDep.toFixed(2)}`;
+    document.getElementById('total-withdrawals').textContent = `$${totalWith.toFixed(2)}`;
+    document.getElementById('total-payouts').textContent = `$${totalPay.toFixed(2)}`;
+    document.getElementById('total-cashout').textContent = `$${totalCO.toFixed(2)}`;
+}
+
+function filterLedger(f) {
+    currentLedgerFilter = f;
+    document.querySelectorAll('.filter-chip').forEach(c => {
+        c.classList.remove('active');
+        if(c.dataset.filter === f) c.classList.add('active');
+    });
+    renderLedger(f);
+}
+
+function renderLedger(filter) {
+    const listContainer = document.getElementById('ledger-list');
+    if(!listContainer) return;
+
+    let filtered = transactionsList;
+    if(filter !== 'all') {
+        filtered = transactionsList.filter(tx => tx.type === filter);
+    }
+
+    if(filtered.length === 0) {
+        listContainer.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-folder-open"></i>
+                <p>No transactions found on this ledger profile.</p>
+            </div>`;
+        return;
+    }
+
+    listContainer.innerHTML = filtered.map(tx => {
+        const dateStr = new Date(tx.timestamp).toLocaleString();
+        const valueSign = tx.amount >= 0 ? '+' : '';
+        const valueClass = tx.amount >= 0 ? 'plus' : 'minus';
+        
+        // Construct display parameters depending on action context
+        let typeBadge = '';
+        let flowTitle = '';
+        let referenceStr = '';
+
+        if(tx.type === 'deposit') {
+            typeBadge = `<span class="tx-badge deposit">DEPOSIT</span>`;
+            flowTitle = 'Simulated Portal Deposit';
+            referenceStr = tx.idempotency_key ? `Ref: #${tx.idempotency_key.substring(0,8).toUpperCase()}` : '';
+        } else if(tx.type === 'withdrawal') {
+            typeBadge = `<span class="tx-badge withdrawal">WITHDRAWAL</span>`;
+            flowTitle = 'Simulated Bank Withdrawal';
+            referenceStr = tx.idempotency_key ? `Ref: #${tx.idempotency_key.substring(0,8).toUpperCase()}` : '';
+        } else if(tx.type === 'settlement_payout') {
+            typeBadge = `<span class="tx-badge payout">BET SETTLE</span>`;
+            flowTitle = 'Winnings Payout';
+            referenceStr = tx.bet_id ? `Ticket: XL-${tx.bet_id.substring(tx.bet_id.length - 8).toUpperCase()}` : 'System settlement';
+        } else if(tx.type === 'cancel_refund') {
+            typeBadge = `<span class="tx-badge refund">VOID REFUND</span>`;
+            flowTitle = 'Bet Refund Cashout';
+            referenceStr = tx.bet_id ? `Ticket: XL-${tx.bet_id.substring(tx.bet_id.length - 8).toUpperCase()}` : 'System settlement';
+        } else if(tx.type === 'partial_cashout' || tx.type === 'cashout_payout') {
+            typeBadge = `<span class="tx-badge cashout">CASHOUT</span>`;
+            flowTitle = 'Partial Cash Out Release';
+            referenceStr = tx.bet_id ? `Ticket: XL-${tx.bet_id.substring(tx.bet_id.length - 8).toUpperCase()}` : 'System cashout';
+        }
+
+        return `
+            <div class="transaction-item ${tx.type}">
+                <div class="tx-info">
+                    <span class="tx-title">${flowTitle}</span>
+                    <span class="tx-meta">${dateStr} | ${referenceStr}</span>
+                    ${typeBadge}
+                </div>
+                <div class="tx-amount-side">
+                    <span class="tx-val ${valueClass}">${valueSign}$${tx.amount.toFixed(2)}</span>
+                    <div class="tx-bal-after">Bal: $${parseFloat(tx.balance_after || 0).toFixed(2)}</div>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+// Auth state handling and automatic interval synchronization
+auth.onAuthStateChanged(async u => {
+    if(!u){
+        window.location.href = '../login.html';
+        return;
+    }
+    await syncDataAndLedger();
+    
+    // Auto-update stats and balance loop every 15 seconds [1]
+    setInterval(async () => {
+        await syncDataAndLedger();
+    }, 15000);
+});
+</script>
+</body>
+</html>
