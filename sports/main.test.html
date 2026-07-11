@@ -49,7 +49,7 @@
         ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--text-grey); }
 
-        /* Custom Xlodon Header bar */
+        /* Custom Header bar */
         .header { 
             background: #0c121d; 
             padding: 10px 20px; 
@@ -291,7 +291,7 @@
         .race-card-timer { font-size: 11px; color: var(--xlodon-blue); font-weight: 600; display: flex; align-items: center; gap: 4px; }
         .race-play-btn { position: absolute; right: 12px; bottom: 12px; color: var(--text-grey); font-size: 14px; }
 
-        /* Filters */
+        /* Content-tabs section containing: In-Play, Highlights, Upcoming, Quick Bets (input_file_4.png & 5) */
         .content-tabs { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; gap: 20px; }
         .content-tab { padding: 12px 5px; color: var(--text-grey); font-size: 13px; font-weight: 600; cursor: pointer; position: relative; }
         .content-tab.active { color: var(--text-main); }
@@ -331,6 +331,69 @@
         }
         .sport-icon-btn.active .sport-circle { background: var(--xlodon-green); border-color: var(--xlodon-green); color: white; }
         .sport-icon-btn span { font-size: 11px; font-weight: 500; }
+
+        /* Quick Bets Deck Section (input_file_6.png) */
+        .quick-bets-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .quick-bet-card {
+            background: var(--panel-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .quick-bet-card-header {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .quick-bet-card-sub { font-size: 10px; color: var(--text-grey); margin-bottom: 12px; }
+        .quick-bet-legs-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .quick-bet-leg-row {
+            font-size: 11px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .quick-bet-leg-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--border-color);
+            border-radius: 50%;
+        }
+        .quick-bet-odds-btn {
+            background: var(--bg-dark);
+            border: 1px solid var(--xlodon-blue);
+            color: var(--xlodon-blue);
+            font-size: 13px;
+            font-weight: 700;
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .quick-bet-odds-btn:hover { background: var(--xlodon-blue); color: #000; }
+        .quick-bet-odds-btn.boosted { border-color: #ff9800; color: #ff9800; }
+        .quick-bet-odds-btn.boosted:hover { background: #ff9800; color: #000; }
 
         /* MOBILE RESPONSIVE MARKET SELECTOR PANEL (input_file_3.png matching layout) */
         .mobile-market-switcher {
@@ -580,12 +643,17 @@
             .show-market-winner .group-1x2 { display: flex; }
             .show-market-totals .group-overunder { display: flex; }
             .show-market-btts .group-btts { display: flex; }
+
+            /* Quick bets mobile layout adjustments */
+            .quick-bets-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
 
-    <!-- Header component -->
+    <!-- Header bar -->
     <div class="header">
         <div class="header-left">
             <a href="#" class="brand-logo"><span style="color:#ff3333;">X</span>lodon</a>
@@ -739,14 +807,16 @@
                 </div>
             </div>
 
-            <!-- Filters -->
+            <!-- Content-tabs: In-Play, Highlights, Upcoming, Quick Bets (input_file_4.png & 5) -->
             <div class="content-tabs">
                 <div class="content-tab active" onclick="switchFilter('live')">In-Play</div>
+                <div class="content-tab" onclick="switchFilter('highlights')">Highlights</div>
                 <div class="content-tab" onclick="switchFilter('upcoming')">Upcoming</div>
+                <div class="content-tab" onclick="switchFilter('quick_bets')">Quick Bets</div>
             </div>
 
             <!-- Sports Horizontal Icon bar -->
-            <div class="sports-icon-bar">
+            <div class="sports-icon-bar" id="sports-icon-wrapper-div">
                 <div class="sport-icon-btn active" onclick="filterSport('all')">
                     <div class="sport-circle"><i class="fas fa-globe"></i></div>
                     <span>All Sports</span>
@@ -827,6 +897,7 @@
         const auth = firebase.auth();
         
         const API_BASE = 'https://muddy-wildflower-a70d.dilovantalan.workers.dev';
+        const REFRESH_INTERVAL = 10000;
 
         let currentUser = null;
         let allMatches = [];
@@ -993,13 +1064,13 @@
         async function fetchMatches() {
             try {
                 const fromDate = getLocalDateString(0);
-                const toDate = getLocalDateString(2);
                 
-                // Consolidates your queries into a single range query to decrease network requests
+                // EXTENDED TO 7 DAYS TO RETRIEVE MASSIVE LIST OF UPCOMING MATCHES
+                const toDate = getLocalDateString(7); 
+                
                 const rangeUrl = `${API_BASE}/api/fixtures/range/${fromDate}/${toDate}`;
                 const liveUrl = `${API_BASE}/api/livescores`;
 
-                // Fetches sequentially to bypass Cloudflare blockages
                 const rangeData = await fetchWithRetry(rangeUrl).catch(() => null);
                 const liveData = await fetchWithRetry(liveUrl).catch(() => null);
 
@@ -1042,10 +1113,25 @@
         // Render hierarchical grid lists (Group Country > League > Matches)
         function displayMatchGrid() {
             const container = document.getElementById('hierarchical-odds-grid');
+            const sportsIconWrapper = document.getElementById('sports-icon-wrapper-div');
             
+            // Manage dynamic tabs view rendering
+            if (activeFilter === 'quick_bets') {
+                sportsIconWrapper.style.display = 'none'; // hide sports bar under quickbets
+                renderQuickBetsDeck();
+                return;
+            } else {
+                sportsIconWrapper.style.display = 'flex';
+            }
+
             let filtered = allMatches.filter(m => {
                 if (activeFilter === 'live') return m.status === 'live';
                 if (activeFilter === 'upcoming') return m.status === 'upcoming';
+                
+                // Highlights Category Layout (Featured / Curated Top Tournaments)
+                if (activeFilter === 'highlights') {
+                    return m.country_group === 'England' || m.league_name.includes('World Cup') || m.league_name.includes('Champions League');
+                }
                 return true;
             });
 
@@ -1157,10 +1243,62 @@
             container.innerHTML = html;
         }
 
+        // Render Quick Bets Grid Component (input_file_6.png Layout)
+        function renderQuickBetsDeck() {
+            const container = document.getElementById('hierarchical-odds-grid');
+            
+            container.innerHTML = `
+                <div class="quick-bets-grid">
+                    <!-- Card 1 -->
+                    <div class="quick-bet-card">
+                        <div>
+                            <div class="quick-bet-card-header"><i class="fas fa-futbol" style="color:var(--xlodon-blue);"></i> Norway vs England</div>
+                            <div class="quick-bet-card-sub">Tomorrow, 00:00</div>
+                            <ul class="quick-bet-legs-list">
+                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> England to win</li>
+                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Over 2.5 goals</li>
+                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Harry Kane to score anytime</li>
+                            </ul>
+                        </div>
+                        <button class="quick-bet-odds-btn" onclick="addBet('qb_1', 'Norway vs England (Combi)', 'Quick Bets Spec', 'England + Over2.5 + Kane score', 2.60)">13/5</button>
+                    </div>
+
+                    <!-- Card 2 -->
+                    <div class="quick-bet-card">
+                        <div>
+                            <div class="quick-bet-card-header"><i class="fas fa-futbol" style="color:var(--xlodon-blue);"></i> Argentina vs Switzerland</div>
+                            <div class="quick-bet-card-sub">Tomorrow, 04:00</div>
+                            <ul class="quick-bet-legs-list">
+                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Argentina to win</li>
+                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Over 2.5 goals</li>
+                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Lionel Messi to score anytime</li>
+                            </ul>
+                        </div>
+                        <button class="quick-bet-odds-btn" onclick="addBet('qb_2', 'Argentina vs Switzerland (Combi)', 'Quick Bets Spec', 'Argentina + Over2.5 + Messi score', 2.60)">13/5</button>
+                    </div>
+
+                    <!-- Card 3 -->
+                    <div class="quick-bet-card">
+                        <div>
+                            <div class="quick-bet-card-header"><i class="fas fa-futbol" style="color:var(--xlodon-blue);"></i> France vs Spain</div>
+                            <div class="quick-bet-card-sub">Jul 14, 22:00</div>
+                            <ul class="quick-bet-legs-list">
+                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> France to win</li>
+                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Over 2.5 goals</li>
+                                <li class="quick-bet-leg-row"><div class="quick-bet-leg-dot"></div> Kylian Mbappe to score anytime</li>
+                            </ul>
+                        </div>
+                        <button class="quick-bet-odds-btn boosted" onclick="addBet('qb_3', 'France vs Spain (Combi Boost)', 'Quick Bets Spec', 'France + Over2.5 + Mbappe score', 3.75)">
+                            <span style="font-size:10px; text-decoration:line-through; color:var(--text-grey); margin-right:5px;">18/5</span> 15/4
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
         // Helpers
         function escapeQuote(str) { return str.replace(/'/g, "\\'"); }
         function isBetSelected(matchId, betType) {
-            // Checks dynamic state selections
             return betSlip.some(b => b.fixtureId == matchId && b.betType === betType);
         }
 
@@ -1441,6 +1579,7 @@
             }
         }
 
+        // Interactive tab filters switcher
         function switchFilter(mode) {
             activeFilter = mode;
             document.querySelectorAll('.content-tab').forEach(t => t.classList.remove('active'));
