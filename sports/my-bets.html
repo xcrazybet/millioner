@@ -338,7 +338,7 @@ const db=firebase.firestore(),auth=firebase.auth();
 
 let allBets=[],currentFilter='all',refreshInterval=null,settleInterval=null,settlementTimers=[];
 let isProcessingSettlement=false;
-let localProcessingBets = new Set(); // Multi-thread locking
+let localProcessingBets = new Set(); // Multi-thread session locking
 
 // ============================================
 // PERSISTENT STATE MANAGEMENT
@@ -386,8 +386,7 @@ function emergencyResume() {
 
 // Add keyboard shortcuts to listener
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
-    if (e.key === 'Escape') closeRG();
+    if (e.key === 'Escape') { closeModal(); closeRG(); }
     if (e.ctrlKey && e.shiftKey && e.key === 'S') { e.preventDefault(); emergencyStop(); }
     if (e.ctrlKey && e.shiftKey && e.key === 'R') { e.preventDefault(); emergencyResume(); }
 });
@@ -404,16 +403,13 @@ window.emergencyResume = emergencyResume;
 // 🔒 BULLETPROOF PAYOUT WITH IDEMPOTENCY
 // ============================================
 async function executeSecurePayoutAPI(userId,betId,amount,transactionType,metaData={}){
-    // Generate deterministic idempotency key
     const idempotencyKey=`${betId}_${transactionType}`;
     
-    // Check if payout already processed in local session memory
     if(processedPayouts.has(idempotencyKey)){
         console.warn(`⛔ Payout already processed: ${idempotencyKey}`);
         return;
     }
     
-    // Check Firestore for transaction record before processing
     try{
         const existingSnapshot=await db.collection('transactions')
             .where('idempotency_key','==',idempotencyKey)
@@ -443,7 +439,6 @@ async function executeSecurePayoutAPI(userId,betId,amount,transactionType,metaDa
                 updated_at:new Date().toISOString()
             });
             
-            // Build descriptive ledger entry
             const stake=parseFloat(metaData.stake||0);
             const odds=parseFloat(metaData.odds||1);
             const profit=parseFloat(metaData.profit||0);
@@ -453,7 +448,7 @@ async function executeSecurePayoutAPI(userId,betId,amount,transactionType,metaDa
             if(transactionType==='cancel_refund'){
                 desc=`Cancellation refund on ${mName}. Refund returned: $${amount.toFixed(2)}.`;
             }else if(transactionType==='partial_cashout'){
-                desc=`Cash out executed on ${mName}. Stake value evaluated: $${amount.toFixed(2)}.`;
+                desc=`Cash out executed on ${mName}. Amount returned: $${amount.toFixed(2)}.`;
             }else if(transactionType==='duplicate_refund'){
                 desc=`Duplicate wager refund on ${mName}. Refund returned: $${amount.toFixed(2)}.`;
             }else{
@@ -488,7 +483,7 @@ async function executeSecurePayoutAPI(userId,betId,amount,transactionType,metaDa
 async function loadBalance(){try{const u=auth.currentUser;if(!u)return 0;const d=await db.collection('wallets').doc(u.uid).get();const b=d.exists?(d.data().balance||0):1000;const el=document.getElementById('balance-display');if(el)el.textContent=`$${b.toFixed(2)}`;return b;}catch(e){return 0;}}
 
 // ============================================
-// TEAM AND TIMING UTILITY HELPERS
+// TEAM AND TIMING UTILITY HELPERS (REPAIRED v11.5)
 // ============================================
 function extractTeamDetails(teamInput, fallbackName) {
     const safeFallback = (fallbackName && fallbackName !== 'Home' && fallbackName !== 'Away') ? fallbackName : 'Team';
@@ -521,9 +516,16 @@ function isBetPlacedBeforeKickoff(bet, match) {
 function getMatchesMapForBet(bet) {
     const map = {};
     if (bet.selections) {
-        bet.selections.forEach(s => {
-            if (s._match) map[s.fixtureId || s.fixture_id] = s._match;
-        });
+        // Enforce safe Array parse prior to loop iteration
+        let selectionsArr = bet.selections;
+        if (typeof selectionsArr === 'string') {
+            try { selectionsArr = JSON.parse(selectionsArr); } catch(e) { selectionsArr = []; }
+        }
+        if (Array.isArray(selectionsArr)) {
+            selectionsArr.forEach(s => {
+                if (s._match) map[s.fixtureId || s.fixture_id] = s._match;
+            });
+        }
     }
     return map;
 }
@@ -556,7 +558,7 @@ function calculateCashoutValue(bet, match, partialPct = 100) {
     const winProb = calculateWinProbability(bet.bet_type, match.goals_home || 0, match.goals_away || 0, (match.goals_home || 0) + (match.goals_away || 0), elapsed);
     const timeFactor = Math.pow(remainingMinutes / 90, 0.7);
     let cashoutVal = potentialReturn * winProb * timeFactor;
-    cashoutVal *= 0.95; // 5% risk configuration margin
+    cashoutVal *= 0.95; // 5% risk margin
     const floor = stake * 0.05;
     const ceiling = potentialReturn * 0.95;
     return {
@@ -569,14 +571,19 @@ function calculateCashoutValue(bet, match, partialPct = 100) {
 }
 
 function calculateAccaCashout(bet, matches, partialPct = 100) {
-    if (!bet.selections || !bet.selections.length) return null;
+    // Enforce safe Array parse prior to loop iteration
+    let selectionsArr = bet.selections;
+    if (typeof selectionsArr === 'string') {
+        try { selectionsArr = JSON.parse(selectionsArr); } catch(e) { selectionsArr = []; }
+    }
+    if (!selectionsArr || !selectionsArr.length) return null;
     
     let combinedWinProb = 1.0;
     let allLegsHaveData = true;
     let brokenLeg = false;
     let completedLegs = 0;
     
-    for (const selection of bet.selections) {
+    for (const selection of selectionsArr) {
         const match = matches[selection.fixtureId || selection.fixture_id];
         if (!match || !match.status) { allLegsHaveData = false; break; }
         
@@ -597,11 +604,11 @@ function calculateAccaCashout(bet, matches, partialPct = 100) {
     }
     
     if (!allLegsHaveData) return null;
-    if (brokenLeg) return { value: 0, winProbability: 0, legsWon: completedLegs, legsTotal: bet.selections.length, broken: true };
+    if (brokenLeg) return { value: 0, winProbability: 0, legsWon: completedLegs, legsTotal: selectionsArr.length, broken: true };
     
     const stake = parseFloat(bet.amount || 0) * (partialPct / 100);
     const potentialReturn = stake * parseFloat(bet.odds || 2);
-    let cashoutValue = potentialReturn * combinedWinProb * 0.92; // 8% acca margin configuration
+    let cashoutValue = potentialReturn * combinedWinProb * 0.92; // 8% acca margin
     cashoutValue = Math.max(cashoutValue, stake * 0.02);
     cashoutValue = Math.min(cashoutValue, potentialReturn * 0.95);
     
@@ -609,7 +616,7 @@ function calculateAccaCashout(bet, matches, partialPct = 100) {
         value: parseFloat(cashoutValue.toFixed(2)),
         winProbability: combinedWinProb,
         legsWon: completedLegs,
-        legsTotal: bet.selections.length,
+        legsTotal: selectionsArr.length,
         broken: false
     };
 }
@@ -634,8 +641,12 @@ async function updateAutoCashoutThreshold(betId, value) {
 // DUPLICATE DETECTION ENGINE
 // ============================================
 function createDuplicateKey(bet){
-    if(bet.bet_type==='accumulator'&&bet.selections&&Array.isArray(bet.selections)){
-        const selHash=bet.selections.map(s=>`${s.fixtureId||s.fixture_id}_${s.betType||s.bet_type}_${s.odds}`).sort().join('|');
+    let selectionsArr = bet.selections;
+    if (typeof selectionsArr === 'string') {
+        try { selectionsArr = JSON.parse(selectionsArr); } catch(e) { selectionsArr = []; }
+    }
+    if(bet.bet_type==='accumulator'&&selectionsArr&&Array.isArray(selectionsArr)){
+        const selHash=selectionsArr.map(s=>`${s.fixtureId||s.fixture_id}_${s.betType||s.bet_type}_${s.odds}`).sort().join('|');
         return `ACC_${bet.user_id}_${bet.amount}_${bet.odds}_${selHash}`;
     }
     return `SGL_${bet.user_id}_${bet.fixture_id}_${bet.bet_type}_${bet.amount}_${bet.odds}`;
@@ -915,34 +926,40 @@ async function autoSettleBets(){
             if(settledBetIds.has(bet.id))continue;
             
             try{
-                if(bet.bet_type==='accumulator'&&bet.selections&&bet.selections.length>0){
-                    let allWon=true,hasRefund=false,allFinished=true;
-                    const selectionResults=[];
-                    
-                    for(const sel of bet.selections){
-                        const fid=sel.fixtureId||sel.fixture_id;
-                        const sm=matchMap[fid];
+                if(bet.bet_type==='accumulator'){
+                    let selectionsArr = bet.selections;
+                    if (typeof selectionsArr === 'string') {
+                        try { selectionsArr = JSON.parse(selectionsArr); } catch(e) { selectionsArr = []; }
+                    }
+                    if(selectionsArr&&selectionsArr.length>0){
+                        let allWon=true,hasRefund=false,allFinished=true;
+                        const selectionResults=[];
                         
-                        if(!sm||!isMatchConcluded(sm)){
-                            allFinished=false;
-                            break;
+                        for(const sel of selectionsArr){
+                            const fid=sel.fixtureId||sel.fixture_id;
+                            const sm=matchMap[fid];
+                            
+                            if(!sm||!isMatchConcluded(sm)){
+                                allFinished=false;
+                                break;
+                            }
+                            
+                            const sr=determineBetResult({bet_type:sel.betType||sel.bet_type},sm);
+                            if(!sr){allFinished=false;break;}
+                            
+                            selectionResults.push(sr);
+                            if(sr.refund)hasRefund=true;
+                            else if(!sr.won)allWon=false;
                         }
                         
-                        const sr=determineBetResult({bet_type:sel.betType||sel.bet_type},sm);
-                        if(!sr){allFinished=false;break;}
+                        if(!allFinished)continue;
                         
-                        selectionResults.push(sr);
-                        if(sr.refund)hasRefund=true;
-                        else if(!sr.won)allWon=false;
+                        let accaResult;
+                        if(hasRefund){accaResult={refund:true,reason:'Acca with refund(s)'};}
+                        else{accaResult={won:allWon,reason:allWon?'All legs won':'One or more legs lost'};}
+                        
+                        if(await settleBet(bet,accaResult))settledCount++;
                     }
-                    
-                    if(!allFinished)continue;
-                    
-                    let accaResult;
-                    if(hasRefund){accaResult={refund:true,reason:'Acca with refund(s)'};}
-                    else{accaResult={won:allWon,reason:allWon?'All legs won':'One or more legs lost'};}
-                    
-                    if(await settleBet(bet,accaResult))settledCount++;
                     
                 }else{
                     const match=matchMap[bet.fixture_id];
@@ -1083,10 +1100,17 @@ async function loadBets(){
             }
             
             if (b.bet_type === 'accumulator' && b.selections) {
-                b.selections.forEach(s => {
-                    const sm = matchMap[s.fixtureId || s.fixture_id];
-                    if (sm) s._match = sm;
-                });
+                let selectionsArr = b.selections;
+                if (typeof selectionsArr === 'string') {
+                    try { selectionsArr = JSON.parse(selectionsArr); } catch(e) { selectionsArr = []; }
+                }
+                b.selections = selectionsArr; // Parse on initial fetch securely
+                if (Array.isArray(b.selections)) {
+                    b.selections.forEach(s => {
+                        const sm = matchMap[s.fixtureId || s.fixture_id];
+                        if (sm) s._match = sm;
+                    });
+                }
             }
         }
         
@@ -1106,11 +1130,20 @@ async function loadBets(){
         console.error('Load bets error',e);
         document.getElementById('loading').style.display='none';
         document.getElementById('content').style.display='block';
+        
+        const elContainer = document.getElementById('bet-list-container');
+        if (elContainer) {
+            elContainer.innerHTML=`<div class="empty-state">
+                <i class="fas fa-exclamation-triangle" style="color:var(--danger);"></i>
+                <p>Failed to load data from Supabase.</p>
+                <p style="font-size:11px; color:var(--text-secondary); margin-top:5px;">Error details: ${escapeHtml(e.message || e)}</p>
+            </div>`;
+        }
     }
 }
 
 // ============================================
-// UI AND RENDER UTILITIES
+// UI FUNCTIONS
 // ============================================
 function sortBets(bets){
     const now=new Date();
@@ -1160,7 +1193,7 @@ function filterBets(f){
     const sVal=document.getElementById('bet-search-input')?.value?.toLowerCase().trim();
     if(sVal)fl=fl.filter(b=>{const mn=(b.match_name||'').toLowerCase(),lg=(b._league||'').toLowerCase(),tk=('XL'+(b.id?.slice(-8)||'')).toLowerCase();return mn.includes(sVal)||lg.includes(sVal)||tk.includes(sVal);});
     const c=document.getElementById('bet-list-container');
-    if(c){c.innerHTML=fl.length?fl.map(b=>createBetCard(b)).join(''):`<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>No bets found</p></div>`;}
+    if(c){c.innerHTML=fl.length?fl.map(b=>createBetCard(b)).join(''):`<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>No wagers found</p></div>`;}
     startSettlementTimers();
 }
 
@@ -1229,19 +1262,23 @@ function createBetCard(bet){
     const se=bet._kickoff?formatFullDate(new Date(new Date(bet._kickoff).getTime()+115*60000)):'TBD';
     
     let sh='';
-    if(isAcc&&bet.selections?.length>0){
+    let selectionsArr = bet.selections;
+    if (typeof selectionsArr === 'string') {
+        try { selectionsArr = JSON.parse(selectionsArr); } catch(e) { selectionsArr = []; }
+    }
+    if(isAcc&&selectionsArr?.length>0){
         const matchesMap = getMatchesMapForBet(bet);
         const accaCo = calculateAccaCashout(bet, matchesMap, 100);
         const coValStr = accaCo && !accaCo.broken ? `$${accaCo.value.toFixed(2)}` : 'N/A';
         const wonLegs = accaCo ? accaCo.legsWon : 0;
-        const totalLegs = bet.selections.length;
+        const totalLegs = selectionsArr.length;
         
         sh=`<div class="selections-container" style="margin-top: 10px; padding: 12px; background: var(--bg-tertiary); border-radius: 12px; border: 1px solid var(--border);">
             <div style="font-size:11px; font-weight:bold; color:var(--accent); margin-bottom:10px; display:flex; justify-content:space-between;">
                 <span><i class="fas fa-list-ol"></i> Acca Progress Tracker</span>
                 <span>${wonLegs}/${totalLegs} Completed</span>
             </div>
-            ${bet.selections.map((s, idx) => {
+            ${selectionsArr.map((s, idx) => {
                 const m = s._match;
                 let statusBadge = `<span style="color:var(--text-secondary);"><i class="fas fa-hourglass-start"></i> Not started</span>`;
                 let scoreStr = '';
@@ -1327,8 +1364,12 @@ function showDetails(betId){
     const pr=bet.status==='won'?pay-amt:(bet.status==='lost'?-amt:(bet.status==='cashed-out'?(parseFloat(bet.cashout_amount||0)-amt):0));
     
     let sh='';
-    if(bet.bet_type==='accumulator'&&bet.selections?.length>0){
-        sh=`<div class="modal-section"><h4>Selections (${bet.selections.length})</h4>${bet.selections.map((s,i)=>`<div class="modal-row"><span class="lbl">#${i+1}</span><span>${escapeHtml(s.matchName)} - ${escapeHtml(formatBetTypeName(s.betType || s.bet_type))} @${s.odds}</span></div>`).join('')}</div>`;
+    let selectionsArr = bet.selections;
+    if (typeof selectionsArr === 'string') {
+        try { selectionsArr = JSON.parse(selectionsArr); } catch(e) { selectionsArr = []; }
+    }
+    if(bet.bet_type==='accumulator'&&selectionsArr?.length>0){
+        sh=`<div class="modal-section"><h4>Selections (${selectionsArr.length})</h4>${selectionsArr.map((s,i)=>`<div class="modal-row"><span class="lbl">#${i+1}</span><span>${escapeHtml(s.matchName)} - ${escapeHtml(formatBetTypeName(s.betType || s.bet_type))} @${s.odds}</span></div>`).join('')}</div>`;
     }
     
     body.innerHTML=`<div class="modal-section"><h4>Ticket #${tk}</h4><div class="modal-row"><span class="lbl">Status</span><span>${bet.status?.toUpperCase()}</span></div><div class="modal-row"><span class="lbl">Match</span><span>${escapeHtml(bet.match_name||'N/A')}</span></div><div class="modal-row"><span class="lbl">Score</span><span>${bet._score?`${bet._score.home}-${bet._score.away}`:'N/A'}</span></div></div><div class="modal-section"><h4>Financial</h4><div class="modal-row"><span class="lbl">Stake</span><span>$${amt.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Odds</span><span>@${parseFloat(bet.odds||2).toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Payout</span><span>$${pay.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Profit / Loss</span><span style="color:${pr>=0?'#4caf50':'var(--danger)'}">${pr>=0?'+':''}$${pr.toFixed(2)}</span></div></div>${sh}${bet.settlement_reason?`<div class="modal-section"><h4>Settlement</h4><div class="modal-row"><span class="lbl">Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div></div>`:''}`;
@@ -1354,19 +1395,6 @@ function startSettlementTimers(){
         update();
         settlementTimers.push(setInterval(update,60000));
     });
-}
-
-async function safeAutoSettle() {
-    if (localStorage.getItem('xl_emergency_stop') === 'true') {
-        console.warn('🚨 Settlements are paused via EMERGENCY STOP.');
-        return;
-    }
-    if (isProcessingSettlement) return;
-    try {
-        await autoSettleBets();
-    } catch(e) {
-        console.error("Auto settlement failed to process on loop:", e);
-    }
 }
 
 // ============================================
