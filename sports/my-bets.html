@@ -73,9 +73,24 @@
         .last-updated {
             font-size: 10px; color: var(--text-secondary); text-align: right;
             margin-bottom: 15px; display: flex; align-items: center; justify-content: flex-end;
-            gap: 6px;
+            gap: 6px; flex-wrap: wrap;
         }
         .last-updated i { font-size: 9px; }
+        
+        .rate-limit-indicator {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 9px; color: var(--accent2); margin-left: 8px;
+            animation: pulse 1s infinite;
+        }
+        
+        /* v18.2: Supabase connection status */
+        .supabase-status {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 9px; margin-left: 8px; font-weight: 600;
+        }
+        .supabase-status.online { color: var(--success); }
+        .supabase-status.slow { color: var(--orange); animation: pulse 1.5s infinite; }
+        .supabase-status.offline { color: var(--danger); }
         
         .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
         
@@ -88,6 +103,13 @@
         .balance-amount { color: var(--accent); font-weight: 700; font-size: 24px; letter-spacing: -0.5px; }
         .balance-label { font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
         
+        .settlement-status-banner {
+            display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+            border-radius: 10px; font-size: 12px; font-weight: 600; margin-bottom: 15px;
+            background: rgba(0,255,157,0.08); border: 1px solid rgba(0,255,157,0.15); color: var(--accent);
+        }
+        .settlement-status-banner.running { background: rgba(255,152,0,0.08); border: 1px solid rgba(255,152,0,0.15); color: var(--orange); }
+        
         .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
         .stat-box {
             background: var(--bg-secondary); padding: 16px 12px; border-radius: 14px;
@@ -95,10 +117,7 @@
             transition: all var(--transition-smooth); cursor: default;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
-        .stat-box:hover {
-            transform: translateY(-3px); border-color: rgba(0,255,157,0.2);
-            box-shadow: var(--card-hover-shadow);
-        }
+        .stat-box:hover { transform: translateY(-3px); border-color: rgba(0,255,157,0.2); box-shadow: var(--card-hover-shadow); }
         .stat-box .val { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
         .stat-box .lbl { font-size: 10px; color: var(--text-secondary); margin-top: 5px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
         .stat-box .sub { font-size: 10px; margin-top: 3px; font-weight: 500; }
@@ -107,14 +126,6 @@
         .win-rate-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
         .win-rate-bar { height: 6px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; }
         .win-rate-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--success)); border-radius: 3px; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-        
-        /* v18: Settlement Status Banner */
-        .settlement-status-banner {
-            display: flex; align-items: center; gap: 10px; padding: 10px 16px;
-            border-radius: 10px; font-size: 12px; font-weight: 600; margin-bottom: 15px;
-            background: rgba(0,255,157,0.08); border: 1px solid rgba(0,255,157,0.15); color: var(--accent);
-        }
-        .settlement-status-banner.running { background: rgba(255,152,0,0.08); border: 1px solid rgba(255,152,0,0.15); color: var(--orange); }
         
         .search-wrapper { margin-bottom: 18px; }
         .search-input-container { position: relative; }
@@ -322,12 +333,6 @@
             pointer-events: none;
         }
         
-        .rate-limit-indicator {
-            display: inline-flex; align-items: center; gap: 4px;
-            font-size: 9px; color: var(--accent2); margin-left: 8px;
-            animation: pulse 1s infinite;
-        }
-        
         @keyframes spin { 100% { transform: rotate(360deg); } }
         @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
         @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
@@ -346,7 +351,7 @@
     </style>
 </head>
 <body>
-    <!-- v18: Chrome Extension Noise Suppression -->
+    <!-- v18.2: Chrome Extension Noise Suppression -->
     <div class="offline-banner" id="offline-banner">
         <i class="fas fa-wifi"></i> You are offline. Some features may be unavailable.
     </div>
@@ -365,7 +370,7 @@
             <span class="balance-amount" id="balance-display">$0.00</span>
         </div>
         
-        <!-- v18: Settlement Status Banner -->
+        <!-- v18.2: Settlement Status Banner -->
         <div id="settlement-status" class="settlement-status-banner" style="display:none;">
             <i class="fas fa-sync-alt fa-spin"></i>
             <span id="settlement-status-text">Settling bets...</span>
@@ -376,6 +381,10 @@
             <i class="fas fa-clock"></i> <span id="last-updated-text">Loading...</span>
             <span class="rate-limit-indicator" id="rate-indicator" style="display:none;">
                 <i class="fas fa-hourglass-half"></i> Rate limited
+            </span>
+            <!-- v18.2: Supabase connection status -->
+            <span class="supabase-status online" id="supabase-status" style="display:none;">
+                <i class="fas fa-database"></i> <span id="supabase-status-text">Connected</span>
             </span>
         </div>
         
@@ -425,28 +434,17 @@
 
 <script>
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  MY BETS v18.0 — ULTIMATE PRODUCTION RELEASE                ║
-// ║  🔥 v17.2 Architecture + v16.7 Performance Optimizations    ║
-// ║  ✅ Parallel batch settlement (5x faster)                    ║
-// ║  ✅ Debounced immediate settlement (2s vs 30s)               ║
-// ║  ✅ 404 fixture cache (reduces API calls)                    ║
-// ║  ✅ Chrome extension noise suppression                       ║
-// ║  ✅ Recent fixture filter (7 days)                           ║
-// ║  ✅ Settlement progress banner                               ║
-// ║  ✅ Timer-triggered settlement detection                     ║
-// ║  ✅ Smart settlement (grace period + early acca)             ║
-// ║  ✅ Score-aware cashout formula                              ║
-// ║  ✅ Rate limit protection with queue                         ║
-// ║  ✅ Notification deduplication & throttling                  ║
-// ║  ✅ Modal live-refresh on settlement                         ║
-// ║  ✅ localStorage quota handling                              ║
-// ║  ✅ Extended bet type coverage (35+ types)                   ║
-// ║  ✅ Animated settlement transitions                          ║
+// ║  MY BETS v18.2 — PERFORMANCE & CACHE FIXES                  ║
+// ║  ✅ Persistent 404 fixture cache (survives page reloads)     ║
+// ║  ✅ Supabase timeout + retry (15s timeout, 2 retries)        ║
+// ║  ✅ Supabase connection warmup                               ║
+// ║  ✅ Cached data first render                                 ║
+// ║  ✅ Auto-clean expired 404 cache (7 days)                    ║
+// ║  ✅ Database connection status indicator                     ║
+// ║  ✅ All v18.0 features preserved                             ║
 // ╚══════════════════════════════════════════════════════════════╝
 
-// ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: CHROME EXTENSION NOISE SUPPRESSION                    ║
-// ╚══════════════════════════════════════════════════════════════╝
+// ── v18.2: SUPPRESS CHROME EXTENSION NOISE ─────────────────
 (function() {
     const originalError = window.onerror;
     window.onerror = function(message, source, lineno, colno, error) {
@@ -485,59 +483,45 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: CONFIGURATION (MERGED BEST OF BOTH)                   ║
+// ║  v18.2: CONFIGURATION                                       ║
 // ╚══════════════════════════════════════════════════════════════╝
 const CONFIG = {
-    // ── Settlement Timing ──
     SETTLEMENT_GRACE_PERIOD_MINUTES: 2,
     SETTLEMENT_TIMEOUT_MINUTES: 120,
-    AUTO_SETTLE_INTERVAL: 15000,            // v18: 15s polling (from v16.7)
+    AUTO_SETTLE_INTERVAL: 15000,
+    SETTLEMENT_DEBOUNCE_MS: 2000,
+    BATCH_SIZE: 5,
     ACCA_EARLY_SETTLE_ENABLED: true,
-    SETTLEMENT_DEBOUNCE_MS: 2000,           // v18: Immediate settlement debounce
-    BATCH_SIZE: 5,                           // v18: Parallel batch size
-    
-    // ── Cashout Formula ──
     CASHOUT_BASE_MULTIPLIER: 0.45,
     CASHOUT_TIME_DECAY: 0.7,
     CASHOUT_FEE_MULTIPLIER: 0.95,
     CASHOUT_SCORE_IMPACT_ENABLED: true,
-    
-    // ── Cancellation ──
     CANCELLATION_FEE_PERCENT: 0.05,
     CANCELLATION_ENABLED: true,
-    
-    // ── Rate Limiting ──
     RATE_LIMIT_MAX_CALLS: 30,
     RATE_LIMIT_WINDOW_MS: 60000,
     RATE_LIMIT_QUEUE_ENABLED: true,
-    
-    // ── Notifications ──
     MAX_VISIBLE_NOTIFICATIONS: 3,
     NOTIFICATION_DURATION_MS: 4000,
     NOTIFICATION_THROTTLE_MS: 2000,
-    
-    // ── Data Refresh ──
     REFRESH_INTERVAL: 30000,
-    DELTA_SYNC_ENABLED: false,              // v18: Disabled delta sync, using full refresh with recent filter
-    RECENT_MATCH_WINDOW_MS: 7 * 24 * 60 * 60 * 1000,  // v18: 7 days (from v16.7)
-    
-    // ── Storage ──
     MAX_STORED_IDS: 5000,
     STORAGE_TTL_DAYS: 30,
-    
-    // ── Retry ──
     MAX_RETRIES: 3,
     RETRY_DELAY: 5000,
     MATCH_FETCH_MAX_RETRIES: 2,
     MATCH_FETCH_RETRY_DELAY: 2000,
-    
-    // ── UI ──
+    RECENT_MATCH_WINDOW_MS: 7 * 24 * 60 * 60 * 1000,
+    SUPABASE_QUERY_TIMEOUT_MS: 15000,
+    SUPABASE_MAX_RETRIES: 2,
+    MISSING_FIXTURE_CACHE_MAX: 500,
+    MISSING_FIXTURE_CACHE_TTL_DAYS: 7,
     SEARCH_DEBOUNCE_MS: 300,
     SETTLE_GLOW_DURATION_MS: 2000,
 };
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: RESULT PATTERN                                        ║
+// ║  v18.2: RESULT PATTERN                                      ║
 // ╚══════════════════════════════════════════════════════════════╝
 class Result {
     constructor(success, data = null, error = null) {
@@ -551,7 +535,7 @@ class Result {
 }
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: RATE LIMITER                                          ║
+// ║  v18.2: RATE LIMITER                                        ║
 // ╚══════════════════════════════════════════════════════════════╝
 class RateLimiter {
     constructor(maxCalls, windowMs) {
@@ -580,7 +564,7 @@ class RateLimiter {
 const apiRateLimiter = new RateLimiter(CONFIG.RATE_LIMIT_MAX_CALLS, CONFIG.RATE_LIMIT_WINDOW_MS);
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: NOTIFICATION MANAGER                                  ║
+// ║  v18.2: NOTIFICATION MANAGER                                ║
 // ╚══════════════════════════════════════════════════════════════╝
 const notificationState = {
     lastMessages: new Map(),
@@ -635,7 +619,7 @@ function showNotification(msg, type = 'info') {
 }
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: SETTLEMENT STATUS BANNER (from v16.7)                 ║
+// ║  v18.2: SETTLEMENT STATUS BANNER                            ║
 // ╚══════════════════════════════════════════════════════════════╝
 function showSettlementStatus(message, count = '', isRunning = true) {
     const banner = document.getElementById('settlement-status');
@@ -652,30 +636,138 @@ function showSettlementStatus(message, count = '', isRunning = true) {
     }
 }
 
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  v18.2: SUPABASE CONNECTION STATUS                          ║
+// ╚══════════════════════════════════════════════════════════════╝
+let supabaseLatency = 0;
+
+function updateSupabaseStatus(status, latencyMs = null) {
+    const el = document.getElementById('supabase-status');
+    const text = document.getElementById('supabase-status-text');
+    if (!el || !text) return;
+    
+    el.style.display = 'inline-flex';
+    el.className = `supabase-status ${status}`;
+    
+    if (status === 'online') {
+        text.textContent = latencyMs ? `DB ${latencyMs}ms` : 'Connected';
+    } else if (status === 'slow') {
+        text.textContent = latencyMs ? `Slow ${latencyMs}ms` : 'Slow...';
+    } else {
+        text.textContent = 'Offline';
+    }
+}
+
 // ── GLOBAL STATE ──────────────────────────
 let allBets = [];
 let currentFilter = 'all';
 let refreshInterval = null;
 let settleInterval = null;
+let cleanMissingFixturesInterval = null;
 let settlementTimers = [];
 let settlementManager = null;
 let settlementTimeout = null;
 let settlementInProgress = false;
 const processingBetIds = new Set();
 const failedPayouts = new Set();
-const missingFixtureCache = new Set();      // v18: 404 fixture cache (from v16.7)
 let lastFetchTimestamp = null;
 let isOnline = navigator.onLine;
 let newlySettledBetIds = new Set();
 let openModalBetId = null;
 
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  v18.2: PERSISTENT 404 FIXTURE CACHE                        ║
+// ╚══════════════════════════════════════════════════════════════╝
+const missingFixtureCache = {
+    _data: null,
+    _loaded: false,
+    
+    _load() {
+        if (this._loaded) return;
+        try {
+            const raw = localStorage.getItem('xl_missing_fixtures');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                this._data = new Set(Array.isArray(parsed) ? parsed : (parsed._data || []));
+            } else {
+                this._data = new Set();
+            }
+        } catch (e) {
+            this._data = new Set();
+        }
+        this._loaded = true;
+    },
+    
+    _save() {
+        try {
+            const arr = [...this._data];
+            if (arr.length > CONFIG.MISSING_FIXTURE_CACHE_MAX) {
+                arr.splice(0, arr.length - Math.floor(CONFIG.MISSING_FIXTURE_CACHE_MAX * 0.8));
+            }
+            localStorage.setItem('xl_missing_fixtures', JSON.stringify({
+                _data: arr,
+                _timestamp: Date.now()
+            }));
+        } catch (e) {
+            try {
+                localStorage.removeItem('xl_missing_fixtures');
+                const trimmed = [...this._data].slice(-100);
+                localStorage.setItem('xl_missing_fixtures', JSON.stringify({
+                    _data: trimmed,
+                    _timestamp: Date.now()
+                }));
+            } catch (e2) {}
+        }
+    },
+    
+    has(fid) {
+        this._load();
+        return this._data.has(fid);
+    },
+    
+    add(fid) {
+        this._load();
+        if (!this._data.has(fid)) {
+            this._data.add(fid);
+            this._save();
+            debugLog(`📦 Cached missing fixture: ${fid} (total: ${this._data.size})`);
+        }
+    },
+    
+    get size() {
+        this._load();
+        return this._data.size;
+    },
+    
+    cleanExpired() {
+        this._load();
+        const now = Date.now();
+        const ttl = CONFIG.MISSING_FIXTURE_CACHE_TTL_DAYS * 24 * 60 * 60 * 1000;
+        try {
+            const raw = localStorage.getItem('xl_missing_fixtures');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed._timestamp && (now - parsed._timestamp) > ttl) {
+                    localStorage.removeItem('xl_missing_fixtures');
+                    this._data = new Set();
+                    this._loaded = true;
+                    debugLog('🧹 Expired missing fixture cache cleared');
+                }
+            }
+        } catch (e) {}
+    }
+};
+
+// Clean expired cache on startup
+missingFixtureCache.cleanExpired();
+
 const DEBUG = localStorage.getItem('xl_debug') === 'true' || new URLSearchParams(window.location.search).has('debug');
-function debugLog(...args) { if (DEBUG) console.log('%c[MyBets v18]%c', 'color:#00ff9d;font-weight:bold;', '', ...args); }
-function debugWarn(...args) { if (DEBUG) console.warn('%c[MyBets v18]%c', 'color:#ff9800;font-weight:bold;', '', ...args); }
-function debugError(...args) { console.error('%c[MyBets v18]%c', 'color:#ff5252;font-weight:bold;', '', ...args); }
+function debugLog(...args) { if (DEBUG) console.log('%c[MyBets v18.2]%c', 'color:#00ff9d;font-weight:bold;', '', ...args); }
+function debugWarn(...args) { if (DEBUG) console.warn('%c[MyBets v18.2]%c', 'color:#ff9800;font-weight:bold;', '', ...args); }
+function debugError(...args) { console.error('%c[MyBets v18.2]%c', 'color:#ff5252;font-weight:bold;', '', ...args); }
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: OFFLINE DETECTION                                     ║
+// ║  v18.2: OFFLINE DETECTION                                   ║
 // ╚══════════════════════════════════════════════════════════════╝
 function updateOnlineStatus() {
     isOnline = navigator.onLine;
@@ -693,382 +785,165 @@ window.addEventListener('online', updateOnlineStatus);
 window.addEventListener('offline', updateOnlineStatus);
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: LOCALSTORAGE WITH QUOTA HANDLING                      ║
+// ║  v18.2: LOCALSTORAGE WITH QUOTA HANDLING                    ║
 // ╚══════════════════════════════════════════════════════════════╝
 function safeLocalStorageSet(key, value) {
-    try { localStorage.setItem(key, value); return true; }
-    catch (e) {
-        if (e.name === 'QuotaExceededError') {
-            debugWarn('localStorage quota exceeded — cleaning old entries');
-            cleanOldStorageEntries();
-            try { localStorage.setItem(key, value); return true; }
-            catch (e2) { debugError('localStorage still full after cleanup'); return false; }
-        }
+    try { localStorage.setItem(key, value); return true; } catch (e) {
+        if (e.name === 'QuotaExceededError') { cleanOldStorageEntries(); try { localStorage.setItem(key, value); return true; } catch (e2) { return false; } }
         return false;
     }
 }
-
-function safeLocalStorageGet(key, defaultValue = null) {
-    try { const val = localStorage.getItem(key); return val !== null ? val : defaultValue; }
-    catch (e) { return defaultValue; }
-}
-
+function safeLocalStorageGet(key, defaultValue = null) { try { const val = localStorage.getItem(key); return val !== null ? val : defaultValue; } catch (e) { return defaultValue; } }
 function cleanOldStorageEntries() {
     try {
-        const now = Date.now();
-        const ttlMs = CONFIG.STORAGE_TTL_DAYS * 24 * 60 * 60 * 1000;
-        let cleaned = 0;
-        const keysToRemove = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith('xl_')) {
-                try {
-                    const raw = localStorage.getItem(key);
-                    const data = JSON.parse(raw);
-                    if (data && data._timestamp && (now - data._timestamp) > ttlMs) keysToRemove.push(key);
-                } catch (e) { keysToRemove.push(key); }
-            }
-        }
-        keysToRemove.forEach(key => { localStorage.removeItem(key); cleaned++; });
-        if (cleaned > 0) debugLog(`🧹 Cleaned ${cleaned} expired localStorage entries`);
-    } catch (e) { debugWarn('Storage cleanup failed:', e.message); }
+        const now = Date.now(), ttlMs = CONFIG.STORAGE_TTL_DAYS * 24 * 60 * 60 * 1000, keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key && key.startsWith('xl_')) { try { const data = JSON.parse(localStorage.getItem(key)); if (data && data._timestamp && (now - data._timestamp) > ttlMs) keysToRemove.push(key); } catch (e) { keysToRemove.push(key); } } }
+        keysToRemove.forEach(key => { localStorage.removeItem(key); }); if (keysToRemove.length) debugLog(`🧹 Cleaned ${keysToRemove.length} expired localStorage entries`);
+    } catch (e) {}
 }
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  SETTLEMENT MANAGER v18 — PARALLEL + SMART + CACHED         ║
+// ║  SETTLEMENT MANAGER v18.2 — SMART + PARALLEL + INSTANT      ║
 // ╚══════════════════════════════════════════════════════════════╝
 class DuplicateProofSettlementManager {
     constructor(userId) {
-        this.userId = userId;
-        this.isRunning = false;
+        this.userId = userId; this.isRunning = false;
         this.emergencyStop = safeLocalStorageGet('xl_emergency_stop') === 'true';
         this.settledBetIds = this._loadSet('xl_settled_ids');
         this.processedPayouts = this._loadSet('xl_payout_ids');
         this.failedPayouts = this._loadSet('xl_failed_payouts');
     }
 
-    _loadSet(key) {
-        try {
-            const raw = safeLocalStorageGet(`${key}_${this.userId}`);
-            if (!raw) return new Set();
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) return new Set(parsed);
-            if (parsed && parsed._data) return new Set(parsed._data);
-            return new Set();
-        } catch (e) { return new Set(); }
-    }
+    _loadSet(key) { try { const raw = safeLocalStorageGet(`${key}_${this.userId}`); if (!raw) return new Set(); const parsed = JSON.parse(raw); return new Set(Array.isArray(parsed) ? parsed : parsed._data || []); } catch (e) { return new Set(); } }
+    _saveSet(key, s) { const arr = [...s]; let dataToStore = arr; if (arr.length > CONFIG.MAX_STORED_IDS) dataToStore = arr.slice(-Math.floor(CONFIG.MAX_STORED_IDS * 0.8)); safeLocalStorageSet(`${key}_${this.userId}`, JSON.stringify({ _data: dataToStore, _timestamp: Date.now() })); }
 
-    _saveSet(key, s) {
-        const arr = [...s];
-        let dataToStore = arr;
-        if (arr.length > CONFIG.MAX_STORED_IDS) {
-            dataToStore = arr.slice(-Math.floor(CONFIG.MAX_STORED_IDS * 0.8));
-        }
-        safeLocalStorageSet(`${key}_${this.userId}`, JSON.stringify({ _data: dataToStore, _timestamp: Date.now() }));
-    }
-
-    // ╔══════════════════════════════════════════════════════════╗
-    // ║  v18: PARALLEL BATCH SETTLEMENT (from v16.7)            ║
-    // ╚══════════════════════════════════════════════════════════╝
     async processBets(bets) {
-        if (this.emergencyStop || this.isRunning || !isOnline) {
-            return { processed: 0, duplicates: 0, errors: 0 };
-        }
-        
-        this.isRunning = true;
-        settlementInProgress = true;
+        if (this.emergencyStop || this.isRunning || !isOnline) return { processed: 0, duplicates: 0, errors: 0 };
+        this.isRunning = true; settlementInProgress = true;
         let processed = 0, duplicates = 0, errors = 0;
-        
         try {
-            const pending = bets.filter(b => 
-                b.status === 'active' && 
-                !this.settledBetIds.has(b.id) &&
-                !processingBetIds.has(b.id)
-            );
-            
+            const pending = bets.filter(b => b.status === 'active' && !this.settledBetIds.has(b.id) && !processingBetIds.has(b.id));
             if (!pending.length) return { processed: 0, duplicates: 0, errors: 0 };
-            
-            debugLog(`⚡ Processing ${pending.length} pending bets...`);
-            showSettlementStatus(`Settling ${pending.length} bets...`, `0/${pending.length}`, true);
             
             const { cleanBets, duplicateCount } = await this._handleDuplicates(pending);
             duplicates = duplicateCount;
             
-            // v18: Collect ALL fixture IDs including accumulator selections
-            const allFids = new Set();
-            cleanBets.forEach(b => {
-                if (b.fixture_id) allFids.add(b.fixture_id);
-                if (b.selections) {
-                    b.selections.forEach(s => {
-                        const fid = s.fixtureId || s.fixture_id;
-                        if (fid) allFids.add(fid);
-                    });
-                }
-            });
+            const fids = [...new Set(cleanBets.flatMap(b => [b.fixture_id, ...(b.selections || []).map(s => s.fixtureId || s.fixture_id)].filter(Boolean)))];
+            let mm = {}; if (fids.length && await apiRateLimiter.acquire()) mm = await this._fetchMatchesWithRetry(fids, CONFIG.MATCH_FETCH_MAX_RETRIES);
             
-            let mm = {};
-            if (allFids.size) {
-                const canFetch = await apiRateLimiter.acquire();
-                if (canFetch) {
-                    mm = await this._fetchMatchesWithRetry([...allFids], CONFIG.MATCH_FETCH_MAX_RETRIES);
-                }
-            }
-            
-            // v18: PARALLEL BATCH PROCESSING (5 at a time)
-            const totalBets = cleanBets.length;
-            let completedBets = 0;
+            const totalBets = cleanBets.length; let completedBets = 0;
+            showSettlementStatus(`Settling ${totalBets} bets...`, `0/${totalBets}`, true);
             
             for (let i = 0; i < cleanBets.length; i += CONFIG.BATCH_SIZE) {
                 const batch = cleanBets.slice(i, i + CONFIG.BATCH_SIZE);
-                
-                await Promise.allSettled(
-                    batch.map(async (bet) => {
-                        try {
-                            if (this.settledBetIds.has(bet.id) || processingBetIds.has(bet.id)) return;
-                            processingBetIds.add(bet.id);
-                            const result = await this._settleSingleBet(bet, mm[bet.fixture_id] || null, mm);
-                            if (result.isOk() && result.getData()) {
-                                this.settledBetIds.add(bet.id);
-                                this._saveSet('xl_settled_ids', this.settledBetIds);
-                                newlySettledBetIds.add(bet.id);
-                                processed++;
-                            } else if (!result.isOk()) errors++;
-                        } catch (err) { errors++; }
-                        finally {
-                            processingBetIds.delete(bet.id);
-                            completedBets++;
-                            showSettlementStatus(`Settling bets...`, `${completedBets}/${totalBets}`, true);
-                        }
-                    })
-                );
+                await Promise.allSettled(batch.map(async (bet) => {
+                    try {
+                        if (this.settledBetIds.has(bet.id) || processingBetIds.has(bet.id)) return;
+                        processingBetIds.add(bet.id);
+                        const result = await this._settleSingleBet(bet, mm[bet.fixture_id] || null, mm);
+                        if (result.isOk() && result.getData()) { this.settledBetIds.add(bet.id); this._saveSet('xl_settled_ids', this.settledBetIds); newlySettledBetIds.add(bet.id); processed++; }
+                        else if (!result.isOk()) errors++;
+                    } catch (err) { errors++; }
+                    finally { processingBetIds.delete(bet.id); completedBets++; showSettlementStatus(`Settling bets...`, `${completedBets}/${totalBets}`, true); }
+                }));
             }
         } catch (err) { errors++; }
-        finally {
-            this.isRunning = false;
-            settlementInProgress = false;
-            showSettlementStatus(null);
-            debugLog(`✅ Settlement complete — processed:${processed} duplicates:${duplicates} errors:${errors}`);
-        }
-        
-        if (processed > 0) {
-            showNotification(`✅ ${processed} bet${processed > 1 ? 's' : ''} settled`, 'settlement');
-        }
-        
+        finally { this.isRunning = false; settlementInProgress = false; showSettlementStatus(null); if (processed > 0) showNotification(`✅ ${processed} bet${processed > 1 ? 's' : ''} settled`, 'settlement'); }
         return { processed, duplicates, errors };
     }
 
-    // ╔══════════════════════════════════════════════════════════╗
-    // ║  v18: CACHED MATCH FETCH (from v16.7)                   ║
-    // ╚══════════════════════════════════════════════════════════╝
     async _fetchMatchesWithRetry(fids, maxRetries) {
         const fidsToFetch = fids.filter(f => !missingFixtureCache.has(f));
         if (fidsToFetch.length === 0) return {};
-        
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                const result = await fetchMatchesBatch(fidsToFetch);
-                if (Object.keys(result).length > 0) return result;
-            } catch (e) { debugWarn(`Match fetch attempt ${attempt}/${maxRetries} failed:`, e.message); }
-            if (attempt < maxRetries) {
-                await new Promise(r => setTimeout(r, CONFIG.MATCH_FETCH_RETRY_DELAY * attempt));
-            }
-        }
+        for (let attempt = 1; attempt <= maxRetries; attempt++) { try { const result = await fetchMatchesBatch(fidsToFetch); if (Object.keys(result).length > 0) return result; } catch (e) { debugWarn(`Match fetch attempt ${attempt}/${maxRetries} failed:`, e.message); } if (attempt < maxRetries) await new Promise(r => setTimeout(r, CONFIG.MATCH_FETCH_RETRY_DELAY * attempt)); }
         return {};
     }
 
     async _handleDuplicates(bets) {
-        const groups = {};
-        for (const b of bets) { const k = this._dupKey(b); if (!groups[k]) groups[k] = []; groups[k].push(b); }
+        const groups = {}; for (const b of bets) { const k = this._dupKey(b); if (!groups[k]) groups[k] = []; groups[k].push(b); }
         const clean = []; let dc = 0;
         for (const [key, group] of Object.entries(groups)) {
             if (group.length === 1) { clean.push(group[0]); continue; }
-            const sorted = group.sort((a, b) => new Date(a.placed_at || 0).getTime() - new Date(b.placed_at || 0).getTime());
-            clean.push(sorted[0]);
-            for (let i = 1; i < sorted.length; i++) {
-                try { const r = await this._cancelDuplicate(sorted[i], sorted[0].id); if (r.isOk()) { this.settledBetIds.add(sorted[i].id); dc++; } }
-                catch (e) { debugError(`Failed to cancel duplicate ${sorted[i].id}:`, e.message); }
-            }
+            const sorted = group.sort((a, b) => new Date(a.placed_at || 0).getTime() - new Date(b.placed_at || 0).getTime()); clean.push(sorted[0]);
+            for (let i = 1; i < sorted.length; i++) { try { const r = await this._cancelDuplicate(sorted[i], sorted[0].id); if (r.isOk()) { this.settledBetIds.add(sorted[i].id); dc++; } } catch (e) { debugError(`Failed to cancel duplicate ${sorted[i].id}:`, e.message); } }
             this._saveSet('xl_settled_ids', this.settledBetIds);
         }
         return { cleanBets: clean, duplicateCount: dc };
     }
 
-    _dupKey(bet) {
-        if (bet.selections && Array.isArray(bet.selections) && bet.selections.length > 0) {
-            const h = bet.selections.map(s => `${s.fixtureId || s.fixture_id}_${s.betType || s.bet_type}_${s.odds}`).sort().join('|');
-            return `ACC_${bet.user_id}_${bet.amount}_${bet.odds}_${h}`;
-        }
-        return `SGL_${bet.user_id}_${bet.fixture_id}_${bet.bet_type}_${bet.amount}_${bet.odds}`;
-    }
+    _dupKey(bet) { if (bet.selections && Array.isArray(bet.selections) && bet.selections.length > 0) { const h = bet.selections.map(s => `${s.fixtureId || s.fixture_id}_${s.betType || s.bet_type}_${s.odds}`).sort().join('|'); return `ACC_${bet.user_id}_${bet.amount}_${bet.odds}_${h}`; } return `SGL_${bet.user_id}_${bet.fixture_id}_${bet.bet_type}_${bet.amount}_${bet.odds}`; }
 
     async _cancelDuplicate(dup, originalId) {
-        const stk = parseFloat(dup.amount || 0);
-        if (stk <= 0) return Result.fail('Stake is zero or negative');
-        const { error, data } = await supabaseClient.from('bets').update({
-            status: 'cancelled', settlement_reason: `DUPLICATE - Original: ${originalId}`,
-            refund_amount: stk, cancelled_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(), settled_by: 'auto'
-        }).eq('id', dup.id).eq('status', 'active').select('id');
+        const stake = parseFloat(dup.amount || 0); if (stake <= 0) return Result.fail('Stake is zero or negative');
+        const { error, data } = await supabaseClient.from('bets').update({ status: 'cancelled', settlement_reason: `DUPLICATE - Original: ${originalId}`, refund_amount: stake, cancelled_at: new Date().toISOString(), updated_at: new Date().toISOString(), settled_by: 'auto' }).eq('id', dup.id).eq('status', 'active').select('id');
         if (error || !data?.length) return Result.fail(error?.message || 'Update failed');
-        await this._refundAtomic(dup.user_id, dup.id, stk, 'duplicate_cancellation');
-        dup.status = 'cancelled';
+        await this._refundAtomic(dup.user_id, dup.id, stake, 'duplicate_cancellation'); dup.status = 'cancelled';
         return Result.ok(true);
     }
 
     async _settleSingleBet(bet, match, allMatches = {}) {
-        const hasSelections = bet.selections && Array.isArray(bet.selections) && bet.selections.length > 0;
-        if (hasSelections) return await this._settleAccumulatorSmart(bet, allMatches);
+        if (bet.selections && Array.isArray(bet.selections) && bet.selections.length > 0) return await this._settleAccumulatorSmart(bet, allMatches);
         if (!match) return Result.fail(`No match data for fixture ${bet.fixture_id}`);
-
-        const matchStatus = (match.status || '').toUpperCase();
-        const kickoff = bet._kickoff ? new Date(bet._kickoff) : null;
-        const now = new Date();
-        
-        const finishedStatuses = ['FINISHED', 'FT', 'AET', 'PEN'];
-        const isMatchFinished = finishedStatuses.includes(matchStatus);
-        const isTimerExpired = kickoff && (now >= new Date(kickoff.getTime() + CONFIG.SETTLEMENT_TIMEOUT_MINUTES * 60000));
-        
-        let shouldWaitForGracePeriod = false;
-        if (isMatchFinished && !isTimerExpired) {
-            const estimatedEndTime = kickoff ? new Date(kickoff.getTime() + 105 * 60000) : now;
-            const graceEndTime = new Date(estimatedEndTime.getTime() + CONFIG.SETTLEMENT_GRACE_PERIOD_MINUTES * 60000);
-            if (now < graceEndTime) shouldWaitForGracePeriod = true;
-        }
-
-        let shouldSettle = false, settleReason = '';
-        if (isMatchFinished && !shouldWaitForGracePeriod) { shouldSettle = true; settleReason = 'match_finished'; }
-        else if (isTimerExpired) { shouldSettle = true; settleReason = 'timer_expired'; }
-        if (!shouldSettle) return Result.fail(isMatchFinished ? 'Grace period active' : 'Not ready to settle');
-
-        const result = this._determineResult(bet, match);
-        if (!result) return Result.fail(`Could not determine result for bet type: ${bet.bet_type}`);
-        return await this._finalizeSettlement(bet, result, settleReason, match);
+        const matchStatus = (match.status || '').toUpperCase(), finishedStatuses = ['FINISHED', 'FT', 'AET', 'PEN'];
+        const kickoff = bet._kickoff ? new Date(bet._kickoff) : null, now = new Date();
+        const isFinished = finishedStatuses.includes(matchStatus), isTimerExpired = kickoff && (now >= new Date(kickoff.getTime() + CONFIG.SETTLEMENT_TIMEOUT_MINUTES * 60000));
+        let shouldWait = false;
+        if (isFinished && !isTimerExpired) { const estEnd = kickoff ? new Date(kickoff.getTime() + 105 * 60000) : now; if (now < new Date(estEnd.getTime() + CONFIG.SETTLEMENT_GRACE_PERIOD_MINUTES * 60000)) shouldWait = true; }
+        if (!((isFinished && !shouldWait) || isTimerExpired)) return Result.fail(isFinished ? 'Grace period active' : 'Not ready to settle');
+        const result = this._determineResult(bet, match); if (!result) return Result.fail(`Unknown bet type: ${bet.bet_type}`);
+        return await this._finalizeSettlement(bet, result, isTimerExpired && !isFinished ? 'timer_expired' : 'match_finished', match);
     }
 
     async _settleAccumulatorSmart(bet, allMatches) {
-        if (!bet.selections?.length) return Result.fail('No selections in accumulator');
-        const now = new Date();
-        const finishedStatuses = ['FINISHED', 'FT', 'AET', 'PEN'];
-        const results = [];
-        let allFinished = true, hasEarlyLoss = false;
-        
+        if (!bet.selections?.length) return Result.fail('No selections');
+        const now = new Date(), finished = ['FINISHED', 'FT', 'AET', 'PEN'], results = []; let allDone = true, earlyLoss = false;
         for (const sel of bet.selections) {
-            const fid = sel.fixtureId || sel.fixture_id;
-            const m = allMatches[fid] || null;
-            if (!m) { allFinished = false; continue; }
-            
-            const mStatus = (m.status || '').toUpperCase();
-            const isFinished = finishedStatuses.includes(mStatus);
-            const ko = m.start_time ? new Date(m.start_time) : null;
-            const isTimerExpired = ko && (now >= new Date(ko.getTime() + CONFIG.SETTLEMENT_TIMEOUT_MINUTES * 60000));
-            
-            if (!isFinished && !isTimerExpired) { allFinished = false; continue; }
-            if (isFinished && !isTimerExpired) {
-                const estimatedEnd = ko ? new Date(ko.getTime() + 105 * 60000) : now;
-                const graceEnd = new Date(estimatedEnd.getTime() + CONFIG.SETTLEMENT_GRACE_PERIOD_MINUTES * 60000);
-                if (now < graceEnd) { allFinished = false; continue; }
-            }
-            
-            const r = this._determineResult({ bet_type: sel.betType || sel.bet_type }, m);
-            if (!r) { allFinished = false; continue; }
-            results.push(r);
-            
-            if (CONFIG.ACCA_EARLY_SETTLE_ENABLED && r.won === false && !r.refund) {
-                hasEarlyLoss = true;
-                debugLog(`Accumulator ${bet.id}: Early loss detected — settling immediately`);
-            }
+            const fid = sel.fixtureId || sel.fixture_id, m = allMatches[fid] || null; if (!m) { allDone = false; continue; }
+            const ms = (m.status || '').toUpperCase(), isF = finished.includes(ms), ko = m.start_time ? new Date(m.start_time) : null, isTE = ko && (now >= new Date(ko.getTime() + CONFIG.SETTLEMENT_TIMEOUT_MINUTES * 60000));
+            if (!isF && !isTE) { allDone = false; continue; }
+            if (isF && !isTE) { const est = ko ? new Date(ko.getTime() + 105 * 60000) : now; if (now < new Date(est.getTime() + CONFIG.SETTLEMENT_GRACE_PERIOD_MINUTES * 60000)) { allDone = false; continue; } }
+            const r = this._determineResult({ bet_type: sel.betType || sel.bet_type }, m); if (!r) { allDone = false; continue; }
+            results.push(r); if (CONFIG.ACCA_EARLY_SETTLE_ENABLED && r.won === false && !r.refund) { earlyLoss = true; break; }
         }
-        
-        if (hasEarlyLoss) {
-            return await this._finalizeSettlement(bet, { won: false, refund: false, reason: 'One or more legs lost' }, 'early_loss_detection');
-        }
-        if (!allFinished || results.length !== bet.selections.length) {
-            return Result.fail('Not all accumulator legs finished');
-        }
-        
-        const anyLost = results.some(r => r.won === false && !r.refund);
-        const allWon = results.every(r => r.won === true);
-        const hasRefund = results.some(r => r.refund);
-        
-        let finalResult;
-        if (anyLost) finalResult = { won: false, refund: false, reason: 'One or more legs lost' };
-        else if (hasRefund) finalResult = { won: true, refund: true, reason: 'Leg(s) refunded' };
-        else if (allWon) finalResult = { won: true, refund: false, reason: 'All legs won!' };
-        else return Result.fail('Incomplete accumulator result');
-        
-        return await this._finalizeSettlement(bet, finalResult, 'acca_settled');
+        if (earlyLoss) return await this._finalizeSettlement(bet, { won: false, refund: false, reason: 'One or more legs lost' }, 'early_loss_detection');
+        if (!allDone || results.length !== bet.selections.length) return Result.fail('Not all legs finished');
+        const anyLost = results.some(r => r.won === false && !r.refund), allWon = results.every(r => r.won === true), hasRefund = results.some(r => r.refund);
+        let fr; if (anyLost) fr = { won: false, refund: false, reason: 'One or more legs lost' }; else if (hasRefund) fr = { won: true, refund: true, reason: 'Leg(s) refunded' }; else if (allWon) fr = { won: true, refund: false, reason: 'All legs won!' }; else return Result.fail('Incomplete');
+        return await this._finalizeSettlement(bet, fr, 'acca_settled');
     }
 
     async _finalizeSettlement(bet, result, settleReason, match = null) {
-        const stake = parseFloat(bet.amount || 0), odds = parseFloat(bet.odds || 1);
-        let newStatus, payout, profit;
-        if (result.refund) { newStatus = 'cancelled'; payout = stake; profit = 0; }
-        else if (result.won) { newStatus = 'won'; payout = parseFloat((stake * odds).toFixed(2)); profit = parseFloat((payout - stake).toFixed(2)); }
-        else { newStatus = 'lost'; payout = 0; profit = parseFloat((-stake).toFixed(2)); }
-
-        const settledAt = new Date().toISOString();
-        const matchScore = match ? `${match.goals_home || 0}-${match.goals_away || 0}` : 'N/A';
-
-        const updateResult = await this._atomicBetUpdate(bet.id, {
-            status: newStatus, payout, profit_loss: profit,
-            settlement_reason: `${result.reason} (${settleReason})`,
-            settled_at: settledAt, settled_by: 'auto',
-            match_score: matchScore, updated_at: settledAt
-        });
-        if (!updateResult.isOk()) return updateResult;
-
-        if (payout > 0) {
-            const payoutResult = await this._payoutAtomic(bet.user_id, bet.id, payout, profit, { stake, odds, reason: result.reason, settleReason });
-            if (!payoutResult.isOk()) { this.failedPayouts.add(bet.id); this._saveSet('xl_failed_payouts', this.failedPayouts); }
-        }
-
-        Object.assign(bet, { status: newStatus, payout, profit_loss: profit, settlement_reason: result.reason, settled_at: settledAt, settled_by: 'auto' });
+        const stake = parseFloat(bet.amount || 0), odds = parseFloat(bet.odds || 1); let ns, pay, pr;
+        if (result.refund) { ns = 'cancelled'; pay = stake; pr = 0; } else if (result.won) { ns = 'won'; pay = parseFloat((stake * odds).toFixed(2)); pr = parseFloat((pay - stake).toFixed(2)); } else { ns = 'lost'; pay = 0; pr = parseFloat((-stake).toFixed(2)); }
+        const settledAt = new Date().toISOString(), score = match ? `${match.goals_home || 0}-${match.goals_away || 0}` : 'N/A';
+        const ur = await this._atomicBetUpdate(bet.id, { status: ns, payout: pay, profit_loss: pr, settlement_reason: `${result.reason} (${settleReason})`, settled_at: settledAt, settled_by: 'auto', match_score: score, updated_at: settledAt }); if (!ur.isOk()) return ur;
+        if (pay > 0) { const pr2 = await this._payoutAtomic(bet.user_id, bet.id, pay, pr, { stake, odds, reason: result.reason, settleReason }); if (!pr2.isOk()) { this.failedPayouts.add(bet.id); this._saveSet('xl_failed_payouts', this.failedPayouts); } }
+        Object.assign(bet, { status: ns, payout: pay, profit_loss: pr, settlement_reason: result.reason, settled_at: settledAt, settled_by: 'auto' });
         return Result.ok(true);
     }
 
     _determineResult(bet, match) {
         const hg = parseInt(match.goals_home || 0), ag = parseInt(match.goals_away || 0), tg = hg + ag;
         const map = {
-            home: { won: hg > ag, reason: `${hg}-${ag} (Home Win)` },
-            away: { won: ag > hg, reason: `${hg}-${ag} (Away Win)` },
-            draw: { won: hg === ag, reason: `${hg}-${ag} (Draw)` },
-            '1X': { won: hg >= ag, reason: `${hg}-${ag} (1X)` },
-            '12': { won: hg !== ag, reason: `${hg}-${ag} (12)` },
-            X2: { won: ag >= hg, reason: `${hg}-${ag} (X2)` },
-            over05: { won: tg > 0.5, reason: `${hg}-${ag} (Over 0.5)` },
-            under05: { won: tg < 0.5, reason: `${hg}-${ag} (Under 0.5)` },
-            over15: { won: tg > 1.5, reason: `${hg}-${ag} (Over 1.5)` },
-            under15: { won: tg < 1.5, reason: `${hg}-${ag} (Under 1.5)` },
-            over25: { won: tg > 2.5, reason: `${hg}-${ag} (Over 2.5)` },
-            under25: { won: tg < 2.5, reason: `${hg}-${ag} (Under 2.5)` },
-            over35: { won: tg > 3.5, reason: `${hg}-${ag} (Over 3.5)` },
-            under35: { won: tg < 3.5, reason: `${hg}-${ag} (Under 3.5)` },
-            btts_yes: { won: hg > 0 && ag > 0, reason: `${hg}-${ag} (BTTS Yes)` },
-            btts_no: { won: !(hg > 0 && ag > 0), reason: `${hg}-${ag} (BTTS No)` },
+            home: { won: hg > ag, reason: `${hg}-${ag} (Home Win)` }, away: { won: ag > hg, reason: `${hg}-${ag} (Away Win)` }, draw: { won: hg === ag, reason: `${hg}-${ag} (Draw)` },
+            '1X': { won: hg >= ag, reason: `${hg}-${ag} (1X)` }, '12': { won: hg !== ag, reason: `${hg}-${ag} (12)` }, X2: { won: ag >= hg, reason: `${hg}-${ag} (X2)` },
+            over05: { won: tg > 0.5, reason: `${hg}-${ag} (Over 0.5)` }, under05: { won: tg < 0.5, reason: `${hg}-${ag} (Under 0.5)` },
+            over15: { won: tg > 1.5, reason: `${hg}-${ag} (Over 1.5)` }, under15: { won: tg < 1.5, reason: `${hg}-${ag} (Under 1.5)` },
+            over25: { won: tg > 2.5, reason: `${hg}-${ag} (Over 2.5)` }, under25: { won: tg < 2.5, reason: `${hg}-${ag} (Under 2.5)` },
+            over35: { won: tg > 3.5, reason: `${hg}-${ag} (Over 3.5)` }, under35: { won: tg < 3.5, reason: `${hg}-${ag} (Under 3.5)` },
+            btts_yes: { won: hg > 0 && ag > 0, reason: `${hg}-${ag} (BTTS Yes)` }, btts_no: { won: !(hg > 0 && ag > 0), reason: `${hg}-${ag} (BTTS No)` },
             home_dnb: hg === ag ? { refund: true, reason: `${hg}-${ag} (DNB Refund)` } : { won: hg > ag, reason: `${hg}-${ag} (Home DNB)` },
             away_dnb: hg === ag ? { refund: true, reason: `${hg}-${ag} (DNB Refund)` } : { won: ag > hg, reason: `${hg}-${ag} (Away DNB)` },
-            home_over05: { won: hg > 0.5, reason: `${hg}-${ag} (Home Over 0.5)` },
-            away_over05: { won: ag > 0.5, reason: `${hg}-${ag} (Away Over 0.5)` },
-            home_over15: { won: hg > 1.5, reason: `${hg}-${ag} (Home Over 1.5)` },
-            away_over15: { won: ag > 1.5, reason: `${hg}-${ag} (Away Over 1.5)` },
-            home_over25: { won: hg > 2.5, reason: `${hg}-${ag} (Home Over 2.5)` },
-            away_over25: { won: ag > 2.5, reason: `${hg}-${ag} (Away Over 2.5)` },
-            home_under05: { won: hg < 0.5, reason: `${hg}-${ag} (Home Under 0.5)` },
-            away_under05: { won: ag < 0.5, reason: `${hg}-${ag} (Away Under 0.5)` },
-            home_under15: { won: hg < 1.5, reason: `${hg}-${ag} (Home Under 1.5)` },
-            away_under15: { won: ag < 1.5, reason: `${hg}-${ag} (Away Under 1.5)` },
-            double_chance_1x: { won: hg >= ag, reason: `${hg}-${ag} (1X)` },
-            double_chance_12: { won: hg !== ag, reason: `${hg}-${ag} (12)` },
-            double_chance_x2: { won: ag >= hg, reason: `${hg}-${ag} (X2)` },
-            exact_goals_0: { won: tg === 0, reason: `${hg}-${ag} (Exact 0)` },
-            exact_goals_1: { won: tg === 1, reason: `${hg}-${ag} (Exact 1)` },
-            exact_goals_2: { won: tg === 2, reason: `${hg}-${ag} (Exact 2)` },
-            exact_goals_3: { won: tg === 3, reason: `${hg}-${ag} (Exact 3)` },
-            exact_goals_4plus: { won: tg >= 4, reason: `${hg}-${ag} (Exact 4+)` },
-            handicap_home_1: { won: (hg + 1) > ag, reason: `${hg}-${ag} (Home +1)` },
-            handicap_away_1: { won: (ag + 1) > hg, reason: `${hg}-${ag} (Away +1)` },
-            handicap_home_m1: { won: (hg - 1) > ag, reason: `${hg}-${ag} (Home -1)` },
-            handicap_away_m1: { won: (ag - 1) > hg, reason: `${hg}-${ag} (Away -1)` },
+            home_over05: { won: hg > 0.5, reason: `${hg}-${ag} (Home O0.5)` }, away_over05: { won: ag > 0.5, reason: `${hg}-${ag} (Away O0.5)` },
+            home_over15: { won: hg > 1.5, reason: `${hg}-${ag} (Home O1.5)` }, away_over15: { won: ag > 1.5, reason: `${hg}-${ag} (Away O1.5)` },
+            home_over25: { won: hg > 2.5, reason: `${hg}-${ag} (Home O2.5)` }, away_over25: { won: ag > 2.5, reason: `${hg}-${ag} (Away O2.5)` },
+            home_under05: { won: hg < 0.5, reason: `${hg}-${ag} (Home U0.5)` }, away_under05: { won: ag < 0.5, reason: `${hg}-${ag} (Away U0.5)` },
+            home_under15: { won: hg < 1.5, reason: `${hg}-${ag} (Home U1.5)` }, away_under15: { won: ag < 1.5, reason: `${hg}-${ag} (Away U1.5)` },
+            double_chance_1x: { won: hg >= ag, reason: `${hg}-${ag} (DC 1X)` }, double_chance_12: { won: hg !== ag, reason: `${hg}-${ag} (DC 12)` }, double_chance_x2: { won: ag >= hg, reason: `${hg}-${ag} (DC X2)` },
+            exact_goals_0: { won: tg === 0, reason: `${hg}-${ag} (Exact 0)` }, exact_goals_1: { won: tg === 1, reason: `${hg}-${ag} (Exact 1)` },
+            exact_goals_2: { won: tg === 2, reason: `${hg}-${ag} (Exact 2)` }, exact_goals_3: { won: tg === 3, reason: `${hg}-${ag} (Exact 3)` }, exact_goals_4plus: { won: tg >= 4, reason: `${hg}-${ag} (Exact 4+)` },
+            handicap_home_1: { won: (hg + 1) > ag, reason: `${hg}-${ag} (H +1)` }, handicap_away_1: { won: (ag + 1) > hg, reason: `${hg}-${ag} (A +1)` },
+            handicap_home_m1: { won: (hg - 1) > ag, reason: `${hg}-${ag} (H -1)` }, handicap_away_m1: { won: (ag - 1) > hg, reason: `${hg}-${ag} (A -1)` },
         };
         return map[bet.bet_type] || null;
     }
@@ -1076,85 +951,31 @@ class DuplicateProofSettlementManager {
     async _atomicBetUpdate(betId, payload) {
         let result = await supabaseClient.from('bets').update(payload).eq('id', betId).eq('status', 'active').select('id');
         if (!result.error && result.data?.length) return Result.ok(result.data);
-        
-        const minimalPayload = {
-            status: payload.status, payout: payload.payout, profit_loss: payload.profit_loss,
-            settlement_reason: payload.settlement_reason, match_score: payload.match_score, updated_at: payload.updated_at
-        };
-        result = await supabaseClient.from('bets').update(minimalPayload).eq('id', betId).eq('status', 'active').select('id');
-        if (result.error || !result.data?.length) return Result.fail(result.error?.message || 'Bet update failed');
-        return Result.ok(result.data);
+        result = await supabaseClient.from('bets').update({ status: payload.status, payout: payload.payout, profit_loss: payload.profit_loss, settlement_reason: payload.settlement_reason, match_score: payload.match_score, updated_at: payload.updated_at }).eq('id', betId).eq('status', 'active').select('id');
+        return (!result.error && result.data?.length) ? Result.ok(result.data) : Result.fail(result.error?.message || 'Update failed');
     }
 
     async _payoutAtomic(userId, betId, total, profit, meta) {
         if (this.processedPayouts.has(betId)) return Result.fail('Payout already processed');
         try {
             const wRef = db.collection('wallets').doc(userId), lRef = db.collection('payout_logs').doc(betId);
-            await db.runTransaction(async (txn) => {
-                if ((await txn.get(lRef)).exists) throw new Error('DUPLICATE_PAYOUT');
-                const wDoc = await txn.get(wRef);
-                const before = wDoc.exists ? (parseFloat(wDoc.data().balance) || 0) : 0;
-                const after = parseFloat((before + total).toFixed(2));
-                txn.set(lRef, { user_id: userId, bet_id: betId, amount: total, profit, type: 'settlement_payout', balance_before: before, balance_after: after, timestamp: firebase.firestore.FieldValue.serverTimestamp(), metadata: meta });
-                txn.set(wRef, { balance: after, updated_at: new Date().toISOString() }, { merge: true });
-                txn.set(db.collection('transactions').doc(), { user_id: userId, bet_id: betId, amount: total, profit, type: 'settlement_payout', balance_before: before, balance_after: after, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
-            });
-            this.processedPayouts.add(betId); this._saveSet('xl_payout_ids', this.processedPayouts);
-            return Result.ok(true);
-        } catch (e) {
-            if (e.message === 'DUPLICATE_PAYOUT') { this.processedPayouts.add(betId); this._saveSet('xl_payout_ids', this.processedPayouts); return Result.fail('Duplicate payout prevented'); }
-            return Result.fail(e.message);
-        }
+            await db.runTransaction(async (txn) => { if ((await txn.get(lRef)).exists) throw new Error('DUPLICATE_PAYOUT'); const wDoc = await txn.get(wRef), before = wDoc.exists ? (parseFloat(wDoc.data().balance) || 0) : 0, after = parseFloat((before + total).toFixed(2)); txn.set(lRef, { user_id: userId, bet_id: betId, amount: total, profit, type: 'settlement_payout', balance_before: before, balance_after: after, timestamp: firebase.firestore.FieldValue.serverTimestamp(), metadata: meta }); txn.set(wRef, { balance: after, updated_at: new Date().toISOString() }, { merge: true }); txn.set(db.collection('transactions').doc(), { user_id: userId, bet_id: betId, amount: total, profit, type: 'settlement_payout', balance_before: before, balance_after: after, timestamp: firebase.firestore.FieldValue.serverTimestamp() }); });
+            this.processedPayouts.add(betId); this._saveSet('xl_payout_ids', this.processedPayouts); return Result.ok(true);
+        } catch (e) { if (e.message === 'DUPLICATE_PAYOUT') { this.processedPayouts.add(betId); this._saveSet('xl_payout_ids', this.processedPayouts); } return Result.fail(e.message); }
     }
 
     async _refundAtomic(userId, betId, amount, reason) {
-        const key = `refund_${betId}`;
-        if (this.processedPayouts.has(key)) return Result.fail('Refund already processed');
+        const key = `refund_${betId}`; if (this.processedPayouts.has(key)) return Result.fail('Already refunded');
         try {
             const wRef = db.collection('wallets').doc(userId), lRef = db.collection('refund_logs').doc(betId);
-            await db.runTransaction(async (txn) => {
-                if ((await txn.get(lRef)).exists) throw new Error('DUPLICATE_REFUND');
-                const wDoc = await txn.get(wRef);
-                const before = wDoc.exists ? (parseFloat(wDoc.data().balance) || 0) : 0;
-                const after = parseFloat((before + amount).toFixed(2));
-                txn.set(lRef, { user_id: userId, bet_id: betId, amount, type: 'refund', reason, balance_before: before, balance_after: after, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
-                txn.set(wRef, { balance: after, updated_at: new Date().toISOString() }, { merge: true });
-            });
-            this.processedPayouts.add(key); this._saveSet('xl_payout_ids', this.processedPayouts);
-            return Result.ok(true);
-        } catch (e) {
-            if (e.message === 'DUPLICATE_REFUND') { this.processedPayouts.add(key); this._saveSet('xl_payout_ids', this.processedPayouts); return Result.fail('Duplicate refund prevented'); }
-            return Result.fail(e.message);
-        }
+            await db.runTransaction(async (txn) => { if ((await txn.get(lRef)).exists) throw new Error('DUPLICATE_REFUND'); const wDoc = await txn.get(wRef), before = wDoc.exists ? (parseFloat(wDoc.data().balance) || 0) : 0, after = parseFloat((before + amount).toFixed(2)); txn.set(lRef, { user_id: userId, bet_id: betId, amount, type: 'refund', reason, balance_before: before, balance_after: after, timestamp: firebase.firestore.FieldValue.serverTimestamp() }); txn.set(wRef, { balance: after, updated_at: new Date().toISOString() }, { merge: true }); });
+            this.processedPayouts.add(key); this._saveSet('xl_payout_ids', this.processedPayouts); return Result.ok(true);
+        } catch (e) { if (e.message === 'DUPLICATE_REFUND') { this.processedPayouts.add(key); this._saveSet('xl_payout_ids', this.processedPayouts); } return Result.fail(e.message); }
     }
 
-    async _payoutWithRetry(userId, betId, total, profit, meta, attempt = 1) {
-        const result = await this._payoutAtomic(userId, betId, total, profit, meta);
-        if (result.isOk()) { this.failedPayouts.delete(betId); this._saveSet('xl_failed_payouts', this.failedPayouts); return true; }
-        if (attempt < CONFIG.MAX_RETRIES) {
-            await new Promise(r => setTimeout(r, CONFIG.RETRY_DELAY * attempt));
-            return this._payoutWithRetry(userId, betId, total, profit, meta, attempt + 1);
-        }
-        return false;
-    }
+    async _payoutWithRetry(userId, betId, total, profit, meta, attempt = 1) { const r = await this._payoutAtomic(userId, betId, total, profit, meta); if (r.isOk()) { this.failedPayouts.delete(betId); this._saveSet('xl_failed_payouts', this.failedPayouts); return true; } if (attempt < CONFIG.MAX_RETRIES) { await new Promise(r => setTimeout(r, CONFIG.RETRY_DELAY * attempt)); return this._payoutWithRetry(userId, betId, total, profit, meta, attempt + 1); } return false; }
 
-    async retryFailedPayouts() {
-        if (this.failedPayouts.size === 0 || !isOnline) return;
-        showSettlementStatus(`Retrying ${this.failedPayouts.size} failed payouts...`, '', true);
-        for (const betId of [...this.failedPayouts]) {
-            try {
-                const bet = allBets.find(b => b.id === betId);
-                if (!bet || bet.status === 'active') { this.failedPayouts.delete(betId); continue; }
-                const payout = parseFloat(bet.payout || 0);
-                if (payout > 0) {
-                    const result = await this._payoutAtomic(bet.user_id, betId, payout, parseFloat(bet.profit_loss || 0), { stake: parseFloat(bet.amount || 0), odds: parseFloat(bet.odds || 1), reason: bet.settlement_reason || 'retry' });
-                    if (result.isOk()) this.failedPayouts.delete(betId);
-                } else { this.failedPayouts.delete(betId); }
-            } catch (e) { debugWarn(`Retry failed for bet ${betId}:`, e.message); }
-        }
-        this._saveSet('xl_failed_payouts', this.failedPayouts);
-        showSettlementStatus(null);
-    }
+    async retryFailedPayouts() { if (this.failedPayouts.size === 0 || !isOnline) return; for (const betId of [...this.failedPayouts]) { try { const bet = allBets.find(b => b.id === betId); if (!bet || bet.status === 'active') { this.failedPayouts.delete(betId); continue; } const pay = parseFloat(bet.payout || 0); if (pay > 0) { const r = await this._payoutAtomic(bet.user_id, betId, pay, parseFloat(bet.profit_loss || 0), { stake: parseFloat(bet.amount || 0), odds: parseFloat(bet.odds || 1), reason: bet.settlement_reason || 'retry' }); if (r.isOk()) this.failedPayouts.delete(betId); } else this.failedPayouts.delete(betId); } catch (e) {} } this._saveSet('xl_failed_payouts', this.failedPayouts); }
 }
 
 // ╔══════════════════════════════════════════════════════════════╗
@@ -1166,67 +987,27 @@ function extractTeamLogo(d) { if (!d) return ''; if (typeof d === 'string') { co
 function extractScore(d) { if (!d) return { home: 0, away: 0 }; if (typeof d === 'object') return { home: d.home || 0, away: d.away || 0 }; const p = safeParseJSON(d); return p ? { home: p.home || 0, away: p.away || 0 } : { home: 0, away: 0 }; }
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: MATCH DATA FETCHING (WITH 404 CACHE from v16.7)      ║
+// ║  MATCH DATA FETCHING (WITH 404 CACHE + RATE LIMITING)       ║
 // ╚══════════════════════════════════════════════════════════════╝
 async function fetchMatchFromAPI(fid, attempt = 1) {
     if (missingFixtureCache.has(fid)) return null;
     const MAX_ATTEMPTS = 2;
     try {
-        const canFetch = await apiRateLimiter.acquire();
-        if (!canFetch) return null;
-        
-        const ctrl = new AbortController();
-        const timeout = setTimeout(() => ctrl.abort(), 10000);
-        const response = await fetch(`${API_BASE}/api/fixture/${fid}`, { signal: ctrl.signal });
-        clearTimeout(timeout);
-        
-        if (!response.ok) {
-            if (response.status === 404) { missingFixtureCache.add(fid); debugLog(`Fixture ${fid} cached as missing`); return null; }
-            if (response.status === 429 && attempt < MAX_ATTEMPTS) { await new Promise(r => setTimeout(r, 2000 * attempt)); return fetchMatchFromAPI(fid, attempt + 1); }
-            return null;
-        }
-        
+        if (!await apiRateLimiter.acquire()) return null;
+        const ctrl = new AbortController(), timeout = setTimeout(() => ctrl.abort(), 10000);
+        const response = await fetch(`${API_BASE}/api/fixture/${fid}`, { signal: ctrl.signal }); clearTimeout(timeout);
+        if (!response.ok) { if (response.status === 404) { missingFixtureCache.add(fid); debugLog(`📦 Cached missing fixture: ${fid}`); return null; } if (response.status === 429 && attempt < MAX_ATTEMPTS) { await new Promise(r => setTimeout(r, 2000 * attempt)); return fetchMatchFromAPI(fid, attempt + 1); } return null; }
         const data = await response.json();
-        if (data.success && data.fixture) {
-            const f = data.fixture;
-            return {
-                fixture_id: fid, status: f.fixture?.status?.short || 'NS', elapsed: f.fixture?.status?.elapsed || 0,
-                goals_home: f.goals?.home || 0, goals_away: f.goals?.away || 0,
-                start_time: f.fixture?.date || '', league_name: f.league?.name || '',
-                home_team: { name: extractTeamName(f.teams?.home, 'Home'), logo: f.teams?.home?.logo || '' },
-                away_team: { name: extractTeamName(f.teams?.away, 'Away'), logo: f.teams?.away?.logo || '' }
-            };
-        }
+        if (data.success && data.fixture) { const f = data.fixture; return { fixture_id: fid, status: f.fixture?.status?.short || 'NS', elapsed: f.fixture?.status?.elapsed || 0, goals_home: f.goals?.home || 0, goals_away: f.goals?.away || 0, start_time: f.fixture?.date || '', league_name: f.league?.name || '', home_team: { name: extractTeamName(f.teams?.home, 'Home'), logo: f.teams?.home?.logo || '' }, away_team: { name: extractTeamName(f.teams?.away, 'Away'), logo: f.teams?.away?.logo || '' } }; }
         return null;
     } catch (e) { if (e.name === 'AbortError' && attempt < MAX_ATTEMPTS) return fetchMatchFromAPI(fid, attempt + 1); return null; }
 }
 
 async function fetchMatchesBatch(fids) {
-    if (!fids?.length) return {};
-    const fidsToFetch = fids.filter(f => !missingFixtureCache.has(f));
-    if (fidsToFetch.length === 0) return {};
-    
+    if (!fids?.length) return {}; const fidsToFetch = fids.filter(f => !missingFixtureCache.has(f)); if (fidsToFetch.length === 0) return {};
     const result = {};
-    try {
-        const { data, error } = await supabaseClient.from('sports_matches').select('*').in('fixture_id', fidsToFetch);
-        if (!error && data?.length) {
-            for (const row of data) {
-                const score = extractScore(row.score), hn = extractTeamName(row.home_team, 'Home'), an = extractTeamName(row.away_team, 'Away');
-                result[row.fixture_id] = {
-                    fixture_id: row.fixture_id, status: row.status || 'NS', elapsed: row.elapsed || 0,
-                    goals_home: score.home, goals_away: score.away, start_time: row.start_time || '', league_name: row.league_name || '',
-                    home_team: { name: hn, logo: extractTeamLogo(row.home_team) || `https://ui-avatars.com/api/?name=${encodeURIComponent(hn.substring(0,2))}&size=32&background=1a2332&color=00ff9d` },
-                    away_team: { name: an, logo: extractTeamLogo(row.away_team) || `https://ui-avatars.com/api/?name=${encodeURIComponent(an.substring(0,2))}&size=32&background=1a2332&color=ff9800` }
-                };
-            }
-        }
-    } catch (e) { debugWarn('Supabase match fetch failed:', e.message); }
-    
-    const missing = fidsToFetch.filter(f => !result[f]);
-    if (missing.length) {
-        const apiResults = await Promise.allSettled(missing.map(f => fetchMatchFromAPI(f)));
-        apiResults.forEach((r, i) => { if (r.status === 'fulfilled' && r.value) result[missing[i]] = r.value; });
-    }
+    try { const { data, error } = await supabaseClient.from('sports_matches').select('*').in('fixture_id', fidsToFetch); if (!error && data?.length) for (const row of data) { const score = extractScore(row.score), hn = extractTeamName(row.home_team, 'Home'), an = extractTeamName(row.away_team, 'Away'); result[row.fixture_id] = { fixture_id: row.fixture_id, status: row.status || 'NS', elapsed: row.elapsed || 0, goals_home: score.home, goals_away: score.away, start_time: row.start_time || '', league_name: row.league_name || '', home_team: { name: hn, logo: extractTeamLogo(row.home_team) || `https://ui-avatars.com/api/?name=${encodeURIComponent(hn.substring(0,2))}&size=32&background=1a2332&color=00ff9d` }, away_team: { name: an, logo: extractTeamLogo(row.away_team) || `https://ui-avatars.com/api/?name=${encodeURIComponent(an.substring(0,2))}&size=32&background=1a2332&color=ff9800` } }; } } catch (e) { debugWarn('Supabase match fetch failed:', e.message); }
+    const missing = fidsToFetch.filter(f => !result[f]); if (missing.length) { const apiResults = await Promise.allSettled(missing.map(f => fetchMatchFromAPI(f))); apiResults.forEach((r, i) => { if (r.status === 'fulfilled' && r.value) result[missing[i]] = r.value; }); }
     return result;
 }
 
@@ -1237,92 +1018,33 @@ function escapeHtml(s) { if (!s) return ''; return String(s).replace(/[&<>"']/g,
 function formatFullDate(d) { return d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'; }
 function formatFullDateTime(d) { return d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'; }
 function timeAgo(d) { if (!d) return ''; const diff = Math.floor((new Date() - new Date(d)) / 1000); if (diff < 60) return `${diff}s ago`; if (diff < 3600) return `${Math.floor(diff / 60)}m ago`; if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`; return `${Math.floor(diff / 86400)}d ago`; }
-function formatBetTypeName(bt) {
-    const names = {
-        home: '🏠 Home Win', draw: '🤝 Draw', away: '✈️ Away Win',
-        '1X': '1X (Home/Draw)', '12': '12 (No Draw)', X2: 'X2 (Away/Draw)',
-        over05: 'Over 0.5', under05: 'Under 0.5', over15: 'Over 1.5', under15: 'Under 1.5',
-        over25: 'Over 2.5', under25: 'Under 2.5', over35: 'Over 3.5', under35: 'Under 3.5',
-        btts_yes: 'BTTS Yes', btts_no: 'BTTS No', home_dnb: 'Home DNB', away_dnb: 'Away DNB',
-        home_over05: 'Home Over 0.5', away_over05: 'Away Over 0.5',
-        home_over15: 'Home Over 1.5', away_over15: 'Away Over 1.5',
-        home_over25: 'Home Over 2.5', away_over25: 'Away Over 2.5',
-        home_under05: 'Home Under 0.5', away_under05: 'Away Under 0.5',
-        home_under15: 'Home Under 1.5', away_under15: 'Away Under 1.5',
-        double_chance_1x: 'Double Chance 1X', double_chance_12: 'Double Chance 12', double_chance_x2: 'Double Chance X2',
-        exact_goals_0: 'Exact Goals 0', exact_goals_1: 'Exact Goals 1', exact_goals_2: 'Exact Goals 2',
-        exact_goals_3: 'Exact Goals 3', exact_goals_4plus: 'Exact Goals 4+',
-        handicap_home_1: 'Home +1', handicap_away_1: 'Away +1',
-        handicap_home_m1: 'Home -1', handicap_away_m1: 'Away -1', accumulator: 'Accumulator'
-    };
-    return names[bt] || bt.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-}
-function debounce(fn, delay) { let t; return function(...a) { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), delay); }; }
-function updateLastUpdated() {
-    const el = document.getElementById('last-updated-text');
-    if (el) { lastFetchTimestamp = new Date(); el.textContent = `Last updated: ${lastFetchTimestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`; }
-}
+function formatBetTypeName(bt) { const names = { home: '🏠 Home Win', draw: '🤝 Draw', away: '✈️ Away Win', '1X': '1X (Home/Draw)', '12': '12 (No Draw)', X2: 'X2 (Away/Draw)', over05: 'Over 0.5', under05: 'Under 0.5', over15: 'Over 1.5', under15: 'Under 1.5', over25: 'Over 2.5', under25: 'Under 2.5', over35: 'Over 3.5', under35: 'Under 3.5', btts_yes: 'BTTS Yes', btts_no: 'BTTS No', home_dnb: 'Home DNB', away_dnb: 'Away DNB', home_over05: 'Home Over 0.5', away_over05: 'Away Over 0.5', home_over15: 'Home Over 1.5', away_over15: 'Away Over 1.5', home_over25: 'Home Over 2.5', away_over25: 'Away Over 2.5', home_under05: 'Home Under 0.5', away_under05: 'Away Under 0.5', home_under15: 'Home Under 1.5', away_under15: 'Away Under 1.5', double_chance_1x: 'Double Chance 1X', double_chance_12: 'Double Chance 12', double_chance_x2: 'Double Chance X2', exact_goals_0: 'Exact Goals 0', exact_goals_1: 'Exact Goals 1', exact_goals_2: 'Exact Goals 2', exact_goals_3: 'Exact Goals 3', exact_goals_4plus: 'Exact Goals 4+', handicap_home_1: 'Home +1', handicap_away_1: 'Away +1', handicap_home_m1: 'Home -1', handicap_away_m1: 'Away -1', accumulator: 'Accumulator' }; return names[bt] || bt.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()); }
+function debounce(fn, delay) { let timeout; return function(...args) { clearTimeout(timeout); timeout = setTimeout(() => fn.apply(this, args), delay); }; }
+function updateLastUpdated() { const el = document.getElementById('last-updated-text'); if (el) { lastFetchTimestamp = new Date(); el.textContent = `Last updated: ${lastFetchTimestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`; } }
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: DATA LOADING (WITH RECENT FIXTURE FILTER)             ║
+// ║  v18.2: DATA LOADING (WITH TIMEOUT + CACHED FIRST RENDER)   ║
 // ╚══════════════════════════════════════════════════════════════╝
-async function loadBalance() {
-    try { const u = auth.currentUser; if (!u) return 0; const d = await db.collection('wallets').doc(u.uid).get(); const b = d.exists ? (parseFloat(d.data().balance) || 0) : 1000; document.getElementById('balance-display').textContent = `$${b.toFixed(2)}`; return b; } catch (e) { return 0; }
-}
+async function loadBalance() { try { const u = auth.currentUser; if (!u) return 0; const doc = await db.collection('wallets').doc(u.uid).get(); const balance = doc.exists ? (parseFloat(doc.data().balance) || 0) : 1000; document.getElementById('balance-display').textContent = `$${balance.toFixed(2)}`; return balance; } catch (e) { return 0; } }
 
 async function enrichBets(bets) {
-    const now = new Date();
-    const allFixtureIds = new Set();
-    
-    // v18: Only fetch recent + active fixtures (from v16.7)
+    const now = new Date(), allFixtureIds = new Set();
     for (const bet of bets) {
-        const isActive = bet.status === 'active';
-        const isRecent = bet.placed_at && (now - new Date(bet.placed_at)) < CONFIG.RECENT_MATCH_WINDOW_MS;
-        
-        if (bet.fixture_id && (isActive || isRecent)) {
-            allFixtureIds.add(bet.fixture_id);
-        }
-        
-        let selections = bet.selections;
-        if (typeof selections === 'string') selections = safeParseJSON(selections);
-        if (Array.isArray(selections)) {
-            bet.selections = selections;
-            selections.forEach(s => {
-                const fid = s.fixtureId || s.fixture_id;
-                if (fid) allFixtureIds.add(fid);
-            });
-        }
+        const isActive = bet.status === 'active', isRecent = bet.placed_at && (now - new Date(bet.placed_at)) < CONFIG.RECENT_MATCH_WINDOW_MS;
+        if (bet.fixture_id && (isActive || isRecent)) allFixtureIds.add(bet.fixture_id);
+        let selections = bet.selections; if (typeof selections === 'string') selections = safeParseJSON(selections);
+        if (Array.isArray(selections)) { bet.selections = selections; selections.forEach(s => { const fid = s.fixtureId || s.fixture_id; if (fid) allFixtureIds.add(fid); }); }
     }
-    
     const matchMap = [...allFixtureIds].length > 0 ? await fetchMatchesBatch([...allFixtureIds]) : {};
-    
     for (const bet of bets) {
         if (bet.selections && typeof bet.selections === 'string') bet.selections = safeParseJSON(bet.selections) || [];
         const hasMulti = Array.isArray(bet.selections) && bet.selections.length > 0;
         if (hasMulti && bet.bet_type !== 'accumulator') bet.bet_type = 'accumulator';
         if (!hasMulti && bet.bet_type === 'accumulator') bet.bet_type = 'home';
         if (hasMulti) bet.selections.forEach(s => { const fid = s.fixtureId || s.fixture_id; if (fid && matchMap[fid]) s._match = matchMap[fid]; });
-        
-        let hFb = 'Home', aFb = 'Away';
-        if (bet.match_name?.includes(' vs ')) { const p = bet.match_name.split(' vs '); if (p[0]?.trim()) hFb = p[0].trim(); if (p[1]?.trim()) aFb = p[1].trim(); }
-        
-        if (bet.fixture_id && matchMap[bet.fixture_id]) {
-            const m = matchMap[bet.fixture_id];
-            const hn = m.home_team?.name && m.home_team.name !== 'Home' ? m.home_team.name : hFb;
-            const an = m.away_team?.name && m.away_team.name !== 'Away' ? m.away_team.name : aFb;
-            bet.match_name = `${hn} vs ${an}`;
-            bet._homeTeam = { name: hn, logo: m.home_team?.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent(hn.substring(0,2))}&size=36&background=1a2332&color=00ff9d` };
-            bet._awayTeam = { name: an, logo: m.away_team?.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent(an.substring(0,2))}&size=36&background=1a2332&color=ff9800` };
-            bet._league = m.league_name || ''; bet._kickoff = m.start_time || bet.placed_at;
-            bet._matchStatus = m.status || 'NS'; bet._elapsed = m.elapsed || 0;
-            bet._score = { home: m.goals_home || 0, away: m.goals_away || 0 }; bet._match = m;
-        } else {
-            bet._homeTeam = { name: hFb, logo: `https://ui-avatars.com/api/?name=${encodeURIComponent(hFb.substring(0,2))}&size=36&background=1a2332&color=00ff9d` };
-            bet._awayTeam = { name: aFb, logo: `https://ui-avatars.com/api/?name=${encodeURIComponent(aFb.substring(0,2))}&size=36&background=1a2332&color=ff9800` };
-            bet._score = { home: 0, away: 0 }; bet._league = bet.league_name || 'Sports Match';
-            bet._kickoff = bet.placed_at || bet.kickoff_time || null; bet._matchStatus = bet.match_status || 'NS';
-            bet._elapsed = bet.match_elapsed || 0; bet._match = null;
-        }
+        let homeFallback = 'Home', awayFallback = 'Away'; if (bet.match_name?.includes(' vs ')) { const parts = bet.match_name.split(' vs '); if (parts[0]?.trim()) homeFallback = parts[0].trim(); if (parts[1]?.trim()) awayFallback = parts[1].trim(); }
+        if (bet.fixture_id && matchMap[bet.fixture_id]) { const m = matchMap[bet.fixture_id]; const hn = m.home_team?.name && m.home_team.name !== 'Home' ? m.home_team.name : homeFallback, an = m.away_team?.name && m.away_team.name !== 'Away' ? m.away_team.name : awayFallback; bet.match_name = `${hn} vs ${an}`; bet._homeTeam = { name: hn, logo: m.home_team?.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent(hn.substring(0,2))}&size=36&background=1a2332&color=00ff9d` }; bet._awayTeam = { name: an, logo: m.away_team?.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent(an.substring(0,2))}&size=36&background=1a2332&color=ff9800` }; bet._league = m.league_name || ''; bet._kickoff = m.start_time || bet.placed_at; bet._matchStatus = m.status || 'NS'; bet._elapsed = m.elapsed || 0; bet._score = { home: m.goals_home || 0, away: m.goals_away || 0 }; bet._match = m; }
+        else { bet._homeTeam = { name: homeFallback, logo: `https://ui-avatars.com/api/?name=${encodeURIComponent(homeFallback.substring(0,2))}&size=36&background=1a2332&color=00ff9d` }; bet._awayTeam = { name: awayFallback, logo: `https://ui-avatars.com/api/?name=${encodeURIComponent(awayFallback.substring(0,2))}&size=36&background=1a2332&color=ff9800` }; bet._score = { home: 0, away: 0 }; bet._league = bet.league_name || 'Sports Match'; bet._kickoff = bet.placed_at || bet.kickoff_time || null; bet._matchStatus = bet.match_status || 'NS'; bet._elapsed = bet.match_elapsed || 0; bet._match = null; }
         bet._isCashoutProcessing = false; bet._settlementTriggered = false;
     }
 }
@@ -1331,64 +1053,113 @@ async function loadBets() {
     if (!isOnline) { updateStats(); updateCounts(); filterBets(currentFilter); return; }
     const u = auth.currentUser; if (!u) return;
     const statusEl = document.getElementById('loading-status');
+    
+    // v18.2: Show cached data immediately while fetching fresh data
+    const loadingEl = document.getElementById('loading');
+    const contentEl = document.getElementById('content');
+    if (allBets.length > 0) {
+        loadingEl.style.display = 'none';
+        contentEl.style.display = 'block';
+        updateStats(); updateCounts(); filterBets(currentFilter);
+        debugLog('📦 Showing cached data while fetching updates...');
+    }
+    
     try {
+        // v18.2: Warm up Supabase connection
+        if (!window._supabaseWarmed) {
+            try {
+                if (statusEl) statusEl.textContent = 'Warming up connection...';
+                await Promise.race([
+                    supabaseClient.from('bets').select('id').limit(1),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('WARMUP_TIMEOUT')), 5000))
+                ]);
+                window._supabaseWarmed = true;
+                debugLog('🔥 Supabase connection warmed up');
+            } catch (e) { debugWarn('Supabase warmup failed — proceeding normally'); }
+        }
+        
         if (statusEl) statusEl.textContent = 'Connecting...';
-        const { data, error } = await supabaseClient.from('bets').select('*').eq('user_id', u.uid).order('placed_at', { ascending: false });
+        
+        // v18.2: Supabase query with timeout + retry
+        let data, error;
+        let supabaseAttempts = 0;
+        const queryStart = performance.now();
+        
+        while (supabaseAttempts <= CONFIG.SUPABASE_MAX_RETRIES) {
+            try {
+                const result = await Promise.race([
+                    supabaseClient.from('bets').select('*').eq('user_id', u.uid).order('placed_at', { ascending: false }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('SUPABASE_TIMEOUT')), CONFIG.SUPABASE_QUERY_TIMEOUT_MS))
+                ]);
+                data = result.data; error = result.error;
+                
+                const queryTime = Math.round(performance.now() - queryStart);
+                supabaseLatency = queryTime;
+                if (queryTime > 5000) { updateSupabaseStatus('slow', queryTime); }
+                else { updateSupabaseStatus('online', queryTime); }
+                debugLog(`⏱️ Supabase query: ${queryTime}ms`);
+                break;
+            } catch (e) {
+                supabaseAttempts++;
+                if (e.message === 'SUPABASE_TIMEOUT') {
+                    debugWarn(`Supabase timeout (attempt ${supabaseAttempts}/${CONFIG.SUPABASE_MAX_RETRIES + 1})`);
+                    if (statusEl) statusEl.textContent = `Database slow — retrying (${supabaseAttempts})...`;
+                    updateSupabaseStatus('slow');
+                } else { throw e; }
+                if (supabaseAttempts > CONFIG.SUPABASE_MAX_RETRIES) {
+                    error = { message: 'Database timeout after retries' }; data = null;
+                }
+            }
+        }
+        
         if (error) throw new Error(`Database error: ${error.message}`);
+        
         const rawBets = data || [];
         if (statusEl) statusEl.textContent = `Processing ${rawBets.length} bets...`;
+        
         await enrichBets(rawBets);
         allBets = rawBets;
-        document.getElementById('loading').style.display = 'none'; document.getElementById('content').style.display = 'block';
+        
+        if (!allBets.length || loadingEl.style.display !== 'none') {
+            loadingEl.style.display = 'none';
+            contentEl.style.display = 'block';
+        }
+        
         updateLastUpdated(); updateStats(); updateCounts(); filterBets(currentFilter); startSettlementTimers();
         
-        // v18: Trigger immediate settlement if any finished matches detected
         const hasFinished = allBets.some(b => b.status === 'active' && ['finished', 'ft', 'aet', 'pen'].includes((b._matchStatus || '').toLowerCase()));
-        if (hasFinished) { debugLog('Found finished matches on load — triggering immediate settlement'); scheduleImmediateSettlement(); }
+        if (hasFinished) { debugLog('Found finished matches — triggering immediate settlement'); scheduleImmediateSettlement(); }
         
-        await autoSettleBets();
-        if (settlementManager) { await settlementManager.retryFailedPayouts(); await loadBalance(); }
+        await autoSettleBets(); if (settlementManager) { await settlementManager.retryFailedPayouts(); await loadBalance(); }
         if (openModalBetId) showDetails(openModalBetId);
         debugLog(`Loaded ${allBets.length} bets successfully`);
     } catch (e) {
-        debugError('Load failed:', e.message); document.getElementById('loading').style.display = 'none'; document.getElementById('content').style.display = 'block';
-        const c = document.getElementById('bet-list-container');
-        if (c) c.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-triangle" style="color:var(--danger);"></i><p style="font-size:15px;font-weight:600;">Failed to load bets</p><p style="font-size:11px;margin-top:6px;">${escapeHtml(e.message)}</p><button class="btn-action-tool" onclick="loadBets()" style="margin-top:16px;"><i class="fas fa-redo"></i> Retry</button></div>`;
+        debugError('Load failed:', e.message);
+        updateSupabaseStatus('offline');
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = 'block';
+        const container = document.getElementById('bet-list-container');
+        if (container) { container.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-triangle" style="color:var(--danger);"></i><p style="font-size:15px;font-weight:600;">Failed to load bets</p><p style="font-size:11px;margin-top:6px;">${escapeHtml(e.message)}</p><button class="btn-action-tool" onclick="loadBets()" style="margin-top:16px;"><i class="fas fa-redo"></i> Retry</button></div>`; }
     }
 }
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: DEBOUNCED IMMEDIATE SETTLEMENT (from v16.7)           ║
+// ║  v18.2: INSTANT SETTLEMENT (DEBOUNCED)                      ║
 // ╚══════════════════════════════════════════════════════════════╝
 function scheduleImmediateSettlement() {
-    if (settlementTimeout) { clearTimeout(settlementTimeout); debugLog('Debounced: resetting immediate settlement timer'); }
-    settlementTimeout = setTimeout(async () => {
-        debugLog('⚡ Running immediate settlement...');
-        showSettlementStatus('Settling finished matches...', '', true);
-        await autoSettleBets();
-        if (settlementManager) await settlementManager.retryFailedPayouts();
-        await loadBalance(); updateStats(); updateCounts(); filterBets(currentFilter);
-        showSettlementStatus(null); settlementTimeout = null;
-        debugLog('✅ Immediate settlement complete');
-    }, CONFIG.SETTLEMENT_DEBOUNCE_MS);
+    if (settlementTimeout) { clearTimeout(settlementTimeout); debugLog('Debounced: resetting settlement timer'); }
+    settlementTimeout = setTimeout(async () => { debugLog('⚡ Running immediate settlement...'); showSettlementStatus('Settling finished matches...', '', true); await autoSettleBets(); if (settlementManager) await settlementManager.retryFailedPayouts(); await loadBalance(); updateStats(); updateCounts(); filterBets(currentFilter); showSettlementStatus(null); settlementTimeout = null; }, CONFIG.SETTLEMENT_DEBOUNCE_MS);
 }
 
 async function autoSettleBets() {
-    if (!isOnline) return;
-    const u = auth.currentUser; if (!u) return;
+    if (!isOnline) return; const u = auth.currentUser; if (!u) return;
     if (!settlementManager) settlementManager = new DuplicateProofSettlementManager(u.uid);
     if (settlementManager.emergencyStop) return;
-    
     newlySettledBetIds.clear();
     const active = allBets.filter(b => b.status === 'active' && !settlementManager.settledBetIds.has(b.id));
     if (!active.length) return;
-    
     const result = await settlementManager.processBets(active);
-    if (result.processed > 0 || result.duplicates > 0) {
-        await loadBalance(); updateStats(); updateCounts(); filterBets(currentFilter);
-        if (openModalBetId && newlySettledBetIds.has(openModalBetId)) showDetails(openModalBetId);
-        setTimeout(() => { document.querySelectorAll('.bet-card.just-settled').forEach(card => card.classList.remove('just-settled')); }, CONFIG.SETTLE_GLOW_DURATION_MS);
-    }
+    if (result.processed > 0 || result.duplicates > 0) { await loadBalance(); updateStats(); updateCounts(); filterBets(currentFilter); if (openModalBetId && newlySettledBetIds.has(openModalBetId)) showDetails(openModalBetId); setTimeout(() => document.querySelectorAll('.bet-card.just-settled').forEach(c => c.classList.remove('just-settled')), CONFIG.SETTLE_GLOW_DURATION_MS); }
 }
 
 // ╔══════════════════════════════════════════════════════════════╗
@@ -1402,19 +1173,17 @@ async function cancelBet(betId) {
     if (!isOnline) return showNotification('📴 Cannot cancel while offline', 'warning');
     if (!CONFIG.CANCELLATION_ENABLED) return showNotification('❌ Cancellation disabled', 'error');
     if (isBetLocked(betId)) return showNotification('⏳ Operation in progress...', 'warning');
-    const bet = allBets.find(b => b.id === betId);
-    if (!bet || bet.status !== 'active') return showNotification('❌ Cannot cancel', 'error');
+    const bet = allBets.find(b => b.id === betId); if (!bet || bet.status !== 'active') return showNotification('❌ Cannot cancel', 'error');
     if (bet.selections?.length > 0) return showNotification('❌ Accumulators cannot be cancelled', 'error');
     if (settlementManager?.settledBetIds.has(betId)) return showNotification('❌ Being settled', 'error');
     if (bet._kickoff && new Date() > new Date(bet._kickoff)) return showNotification('❌ Match started', 'error');
     const stake = parseFloat(bet.amount || 0), fee = parseFloat((stake * CONFIG.CANCELLATION_FEE_PERCENT).toFixed(2)), refund = parseFloat((stake - fee).toFixed(2));
-    if (!confirm(`Cancel?\n\nStake: $${stake.toFixed(2)}\nRefund: $${refund.toFixed(2)}${CONFIG.CANCELLATION_FEE_PERCENT > 0 ? `\nFee: $${fee.toFixed(2)}` : ''}`)) return;
+    if (!confirm(`Cancel this bet?\n\nStake: $${stake.toFixed(2)}\nRefund: $${refund.toFixed(2)}\nFee (${(CONFIG.CANCELLATION_FEE_PERCENT * 100).toFixed(0)}%): $${fee.toFixed(2)}`)) return;
     lockBet(betId, bet);
     try {
-        const up = { status: 'cancelled', refund_amount: refund, cancelled_at: new Date().toISOString(), settlement_reason: CONFIG.CANCELLATION_FEE_PERCENT > 0 ? `Cancelled – ${(CONFIG.CANCELLATION_FEE_PERCENT * 100).toFixed(0)}% fee` : 'Cancelled – no fee', updated_at: new Date().toISOString() };
-        if (CONFIG.CANCELLATION_FEE_PERCENT > 0) up.cancellation_fee = fee;
-        const { error, data } = await supabaseClient.from('bets').update(up).eq('id', betId).eq('status', 'active').select('id');
-        if (error || !data?.length) { unlockBet(betId, bet); return showNotification('❌ Cancel failed', 'error'); }
+        const updatePayload = { status: 'cancelled', refund_amount: refund, cancelled_at: new Date().toISOString(), settlement_reason: `Cancelled – ${(CONFIG.CANCELLATION_FEE_PERCENT * 100).toFixed(0)}% fee`, updated_at: new Date().toISOString() }; if (CONFIG.CANCELLATION_FEE_PERCENT > 0) updatePayload.cancellation_fee = fee;
+        const { error, data } = await supabaseClient.from('bets').update(updatePayload).eq('id', betId).eq('status', 'active').select('id');
+        if (error || !data?.length) { unlockBet(betId, bet); return showNotification('❌ Cancellation failed', 'error'); }
         if (settlementManager) { settlementManager.settledBetIds.add(betId); settlementManager._saveSet('xl_settled_ids', settlementManager.settledBetIds); await settlementManager._refundAtomic(bet.user_id, bet.id, refund, 'user_cancellation'); }
         bet.status = 'cancelled'; showNotification(`✅ Refunded $${refund.toFixed(2)}`, 'success');
         await loadBalance(); updateStats(); updateCounts(); filterBets(currentFilter);
@@ -1424,261 +1193,51 @@ async function cancelBet(betId) {
 async function cashoutBet(betId, partialPct = 100) {
     if (!isOnline) return showNotification('📴 Cannot cash out while offline', 'warning');
     if (isBetLocked(betId)) return showNotification('⏳ Cashout in progress...', 'warning');
-    const bet = allBets.find(b => b.id === betId);
-    if (!bet || bet.status !== 'active') return showNotification('❌ Cannot cash out', 'error');
+    const bet = allBets.find(b => b.id === betId); if (!bet || bet.status !== 'active') return showNotification('❌ Cannot cash out', 'error');
     if (bet._isCashoutProcessing) return showNotification('⏳ Processing...', 'warning');
     if (settlementManager?.settledBetIds.has(betId)) return showNotification('❌ Being settled', 'error');
     const baseStake = parseFloat(bet.amount || 0), partialAmt = parseFloat((baseStake * (partialPct / 100)).toFixed(2)), remaining = parseFloat((baseStake - partialAmt).toFixed(2));
     if (partialPct < 100 && remaining < 1) return showNotification('❌ Remaining stake < $1.00', 'error');
     const odds = parseFloat(bet.odds || 2), elapsed = bet._elapsed || 45, rm = Math.max(1, 90 - elapsed);
     let cv = partialAmt * odds * CONFIG.CASHOUT_BASE_MULTIPLIER * Math.pow(rm / 90, CONFIG.CASHOUT_TIME_DECAY) * CONFIG.CASHOUT_FEE_MULTIPLIER;
-    if (CONFIG.CASHOUT_SCORE_IMPACT_ENABLED && bet._score) {
-        const s = bet._score;
-        if (s.home > s.away && bet.bet_type === 'home') cv *= 1.3;
-        if (s.away > s.home && bet.bet_type === 'away') cv *= 1.3;
-        if (s.home === s.away && bet.bet_type === 'draw') cv *= 1.3;
-        if (s.home < s.away && bet.bet_type === 'home') cv *= 0.7;
-        if (s.away < s.home && bet.bet_type === 'away') cv *= 0.7;
-    }
-    cv = parseFloat(Math.max(partialAmt * 0.05, Math.min(partialAmt * odds * 0.95, cv)).toFixed(2));
-    const profit = parseFloat((cv - partialAmt).toFixed(2)), label = partialPct === 100 ? 'Full' : `${partialPct}% Partial`;
-    if (!confirm(`${label} Cash Out?\n\nStake: $${partialAmt.toFixed(2)}\nReceive: $${cv.toFixed(2)}\n${profit >= 0 ? 'Profit' : 'Loss'}: $${Math.abs(profit).toFixed(2)}`)) return;
+    if (CONFIG.CASHOUT_SCORE_IMPACT_ENABLED && bet._score) { const sc = bet._score; if (sc.home > sc.away && bet.bet_type === 'home') cv *= 1.3; if (sc.away > sc.home && bet.bet_type === 'away') cv *= 1.3; if (sc.home === sc.away && bet.bet_type === 'draw') cv *= 1.3; if (sc.home < sc.away && bet.bet_type === 'home') cv *= 0.7; if (sc.away < sc.home && bet.bet_type === 'away') cv *= 0.7; }
+    cv = parseFloat(Math.max(partialAmt * 0.05, Math.min(partialAmt * odds * 0.95, cv)).toFixed(2)); const profit = parseFloat((cv - partialAmt).toFixed(2)), label = partialPct === 100 ? 'Full' : `${partialPct}% Partial`;
+    if (!confirm(`${label} Cash Out?\n\nStake: $${partialAmt.toFixed(2)}\nYou receive: $${cv.toFixed(2)}\n${profit >= 0 ? 'Profit' : 'Loss'}: $${Math.abs(profit).toFixed(2)}`)) return;
     lockBet(betId, bet);
     try {
-        if (partialPct === 100) {
-            const { error, data } = await supabaseClient.from('bets').update({ status: 'cashed-out', cashout_amount: cv, cashed_out_at: new Date().toISOString(), settlement_reason: 'Cashed out 100%', updated_at: new Date().toISOString() }).eq('id', betId).eq('status', 'active').select('id');
-            if (error || !data?.length) { unlockBet(betId, bet); return showNotification('❌ Cashout failed', 'error'); }
-            if (settlementManager) { settlementManager.settledBetIds.add(betId); settlementManager._saveSet('xl_settled_ids', settlementManager.settledBetIds); }
-            bet.status = 'cashed-out'; bet.cashout_amount = cv;
-        } else {
-            let hist = bet.partial_history || []; hist.push({ timestamp: new Date().toISOString(), percentage: partialPct, cashed_out_val: cv, stake_before: baseStake, stake_after: remaining });
-            const { error } = await supabaseClient.from('bets').update({ amount: remaining, partial_history: hist, updated_at: new Date().toISOString() }).eq('id', betId).eq('status', 'active');
-            if (error) { unlockBet(betId, bet); return showNotification('❌ Partial failed', 'error'); }
-            bet.amount = remaining; bet.partial_history = hist;
-        }
-        if (settlementManager) { const s = await settlementManager._payoutWithRetry(bet.user_id, bet.id, cv, profit, { type: 'cashout', percentage: partialPct }); if (!s) showNotification('⚠️ Payout delayed — will retry', 'warning'); }
-        showNotification(`✅ ${label} cashout: $${cv.toFixed(2)}`, 'success');
-        await loadBalance(); updateStats(); updateCounts(); filterBets(currentFilter);
+        if (partialPct === 100) { const { error, data } = await supabaseClient.from('bets').update({ status: 'cashed-out', cashout_amount: cv, cashed_out_at: new Date().toISOString(), settlement_reason: 'Cashed out 100%', updated_at: new Date().toISOString() }).eq('id', betId).eq('status', 'active').select('id'); if (error || !data?.length) { unlockBet(betId, bet); return showNotification('❌ Cashout failed', 'error'); } if (settlementManager) { settlementManager.settledBetIds.add(betId); settlementManager._saveSet('xl_settled_ids', settlementManager.settledBetIds); } bet.status = 'cashed-out'; bet.cashout_amount = cv; }
+        else { let history = bet.partial_history || []; history.push({ timestamp: new Date().toISOString(), percentage: partialPct, cashed_out_val: cv, stake_before: baseStake, stake_after: remaining }); const { error } = await supabaseClient.from('bets').update({ amount: remaining, partial_history: history, updated_at: new Date().toISOString() }).eq('id', betId).eq('status', 'active'); if (error) { unlockBet(betId, bet); return showNotification('❌ Partial cashout failed', 'error'); } bet.amount = remaining; bet.partial_history = history; }
+        if (settlementManager) { const ok = await settlementManager._payoutWithRetry(bet.user_id, bet.id, cv, profit, { type: 'cashout', percentage: partialPct }); if (!ok) showNotification('⚠️ Payout delayed — will retry', 'warning'); }
+        showNotification(`✅ ${label} cashout: $${cv.toFixed(2)}`, 'success'); await loadBalance(); updateStats(); updateCounts(); filterBets(currentFilter);
     } catch (e) { unlockBet(betId, bet); showNotification(`Error: ${e.message}`, 'error'); }
 }
 
-function disableBetButtons(betId) { const c = document.querySelector(`[data-bet-id="${betId}"]`); if (c) { c.classList.add('processing'); c.querySelectorAll('button').forEach(b => b.disabled = true); } }
-function enableBetButtons(betId) { const c = document.querySelector(`[data-bet-id="${betId}"]`); if (c) { c.classList.remove('processing'); c.querySelectorAll('button').forEach(b => b.disabled = false); } }
+function disableBetButtons(betId) { const card = document.querySelector(`[data-bet-id="${betId}"]`); if (card) { card.classList.add('processing'); card.querySelectorAll('button').forEach(b => b.disabled = true); } }
+function enableBetButtons(betId) { const card = document.querySelector(`[data-bet-id="${betId}"]`); if (card) { card.classList.remove('processing'); card.querySelectorAll('button').forEach(b => b.disabled = false); } }
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  UI RENDERING                                               ║
 // ╚══════════════════════════════════════════════════════════════╝
-function updateStats() {
-    const t = allBets.length, w = allBets.filter(b => b.status === 'won'), l = allBets.filter(b => b.status === 'lost'), a = allBets.filter(b => b.status === 'active'), co = allBets.filter(b => b.status === 'cashed-out');
-    let wa = 0, la = 0, np = 0;
-    w.forEach(b => { const p = parseFloat(b.payout || 0); wa += p; np += p - parseFloat(b.amount || 0); });
-    l.forEach(b => { const s = parseFloat(b.amount || 0); la += s; np -= s; });
-    co.forEach(b => { np += parseFloat(b.cashout_amount || 0) - parseFloat(b.amount || 0); });
-    const wr = (w.length + l.length) > 0 ? ((w.length / (w.length + l.length)) * 100).toFixed(1) : 0;
-    document.getElementById('total-bets').textContent = t; document.getElementById('total-won').textContent = w.length;
-    document.getElementById('total-lost').textContent = l.length; document.getElementById('total-active').textContent = a.length;
-    document.getElementById('won-amount').textContent = `$${wa.toFixed(2)}`; document.getElementById('lost-amount').textContent = `$${la.toFixed(2)}`;
-    document.getElementById('win-rate-display').textContent = `${wr}%`; document.getElementById('win-rate-fill').style.width = `${wr}%`;
-    const pe = document.getElementById('total-pl'); pe.textContent = (np >= 0 ? '+' : '') + '$' + np.toFixed(2); pe.style.color = np >= 0 ? 'var(--success)' : 'var(--danger)';
-}
+function updateStats() { const total = allBets.length, won = allBets.filter(b => b.status === 'won'), lost = allBets.filter(b => b.status === 'lost'), active = allBets.filter(b => b.status === 'active'), cashedOut = allBets.filter(b => b.status === 'cashed-out'); let wonAmount = 0, lostAmount = 0, netProfit = 0; won.forEach(b => { const p = parseFloat(b.payout || 0); wonAmount += p; netProfit += p - parseFloat(b.amount || 0); }); lost.forEach(b => { const s = parseFloat(b.amount || 0); lostAmount += s; netProfit -= s; }); cashedOut.forEach(b => { netProfit += parseFloat(b.cashout_amount || 0) - parseFloat(b.amount || 0); }); const wr = (won.length + lost.length) > 0 ? ((won.length / (won.length + lost.length)) * 100).toFixed(1) : 0; document.getElementById('total-bets').textContent = total; document.getElementById('total-won').textContent = won.length; document.getElementById('total-lost').textContent = lost.length; document.getElementById('total-active').textContent = active.length; document.getElementById('won-amount').textContent = `$${wonAmount.toFixed(2)}`; document.getElementById('lost-amount').textContent = `$${lostAmount.toFixed(2)}`; document.getElementById('win-rate-display').textContent = `${wr}%`; document.getElementById('win-rate-fill').style.width = `${wr}%`; const plEl = document.getElementById('total-pl'); plEl.textContent = (netProfit >= 0 ? '+' : '') + '$' + netProfit.toFixed(2); plEl.style.color = netProfit >= 0 ? 'var(--success)' : 'var(--danger)'; }
+function updateCounts() { const counts = { all: allBets.length, active: allBets.filter(b => b.status === 'active').length, won: allBets.filter(b => b.status === 'won').length, lost: allBets.filter(b => b.status === 'lost').length, cancelled: allBets.filter(b => b.status === 'cancelled').length, 'cashed-out': allBets.filter(b => b.status === 'cashed-out').length }; for (const [key, value] of Object.entries(counts)) { const el = document.getElementById(`cnt-${key}`); if (el) el.textContent = value; } }
 
-function updateCounts() {
-    const c = { all: allBets.length, active: allBets.filter(b => b.status === 'active').length, won: allBets.filter(b => b.status === 'won').length, lost: allBets.filter(b => b.status === 'lost').length, cancelled: allBets.filter(b => b.status === 'cancelled').length, 'cashed-out': allBets.filter(b => b.status === 'cashed-out').length };
-    for (const [k, v] of Object.entries(c)) { const el = document.getElementById(`cnt-${k}`); if (el) el.textContent = v; }
-}
+function filterBets(filter) { currentFilter = filter; let filtered = [...allBets]; if (filter !== 'all') filtered = filtered.filter(b => b.status === filter); const searchValue = document.getElementById('bet-search-input')?.value?.toLowerCase().trim(); if (searchValue) filtered = filtered.filter(b => { const mn = (b.match_name || '').toLowerCase(), lg = (b._league || '').toLowerCase(), tk = ('XL' + (b.id?.slice(-8) || '')).toLowerCase(); return mn.includes(searchValue) || lg.includes(searchValue) || tk.includes(searchValue); }); filtered.sort((a, b) => { if (a.status === 'active' && b.status !== 'active') return -1; if (a.status !== 'active' && b.status === 'active') return 1; if (a.status === 'active') { const ka = a._kickoff ? new Date(a._kickoff).getTime() : Infinity, kb = b._kickoff ? new Date(b._kickoff).getTime() : Infinity; return ka - kb; } return new Date(b.settled_at || b.cashed_out_at || b.placed_at || 0).getTime() - new Date(a.settled_at || a.cashed_out_at || a.placed_at || 0).getTime(); }); const container = document.getElementById('bet-list-container'); if (!container) return; if (!filtered.length) container.innerHTML = `<div class="empty-state"><i class="fas fa-ticket-alt"></i><p style="font-size:15px;font-weight:600;">No bets found</p><p style="font-size:11px;margin-top:4px;color:var(--text-secondary);">${filter !== 'all' ? 'Try a different filter' : 'Place your first bet!'}</p></div>`; else container.innerHTML = filtered.map(b => { try { return createBetCard(b); } catch (e) { return `<div class="bet-card render-error" data-bet-id="${b.id}"><div class="bet-top"><span class="bet-status-badge lost">⚠️ Render Error</span></div><p style="font-size:11px;padding:8px 0;">Bet #${escapeHtml(b.id?.slice(-8) || '?')} could not be displayed.</p></div>`; } }).join(''); startSettlementTimers(); }
 
-function filterBets(filter) {
-    currentFilter = filter; let fl = [...allBets]; if (filter !== 'all') fl = fl.filter(b => b.status === filter);
-    const sv = document.getElementById('bet-search-input')?.value?.toLowerCase().trim();
-    if (sv) fl = fl.filter(b => { const mn = (b.match_name || '').toLowerCase(), lg = (b._league || '').toLowerCase(), tk = ('XL' + (b.id?.slice(-8) || '')).toLowerCase(); return mn.includes(sv) || lg.includes(sv) || tk.includes(sv); });
-    fl.sort((a, b) => {
-        if (a.status === 'active' && b.status !== 'active') return -1; if (a.status !== 'active' && b.status === 'active') return 1;
-        if (a.status === 'active') { const ka = a._kickoff ? new Date(a._kickoff).getTime() : Infinity, kb = b._kickoff ? new Date(b._kickoff).getTime() : Infinity; return ka - kb; }
-        return new Date(b.settled_at || b.cashed_out_at || b.placed_at || 0).getTime() - new Date(a.settled_at || a.cashed_out_at || a.placed_at || 0).getTime();
-    });
-    const c = document.getElementById('bet-list-container'); if (!c) return;
-    if (!fl.length) c.innerHTML = `<div class="empty-state"><i class="fas fa-ticket-alt"></i><p style="font-size:15px;font-weight:600;">No bets found</p><p style="font-size:11px;margin-top:4px;color:var(--text-secondary);">${filter !== 'all' ? 'Try a different filter' : 'Place your first bet!'}</p></div>`;
-    else c.innerHTML = fl.map(b => { try { return createBetCard(b); } catch (e) { return `<div class="bet-card render-error" data-bet-id="${b.id}"><div class="bet-top"><span class="bet-status-badge lost">⚠️ Render Error</span></div><p style="font-size:11px;padding:8px 0;">Bet #${escapeHtml(b.id?.slice(-8) || '?')} error</p></div>`; } }).join('');
-    startSettlementTimers();
-}
+function createBetCard(bet) { const amount = parseFloat(bet.amount || 0), odds = parseFloat(bet.odds || 2), payout = parseFloat(bet.payout || bet.potential_win || 0); let profit = 0; if (bet.status === 'won') profit = payout - amount; else if (bet.status === 'lost') profit = -amount; else if (bet.status === 'cashed-out') profit = parseFloat(bet.cashout_amount || 0) - amount; const ticketNum = 'XL' + (bet.id?.slice(-8) || '').toUpperCase(), isActive = bet.status === 'active', hasSelections = bet.selections && Array.isArray(bet.selections) && bet.selections.length > 0, isAcc = bet.bet_type === 'accumulator' || hasSelections; const matchStatus = (bet._matchStatus || '').toLowerCase(), isLive = ['live', '1h', '2h', 'ht'].includes(matchStatus), matchStarted = isLive || ['finished', 'ft', 'aet', 'pen'].includes(matchStatus), isHalftime = matchStatus === 'ht'; const canCancel = isActive && !isAcc && !matchStarted && CONFIG.CANCELLATION_ENABLED && !settlementManager?.settledBetIds.has(bet.id); const canCashout = isActive && matchStarted && isLive && !isHalftime && !isAcc && !settlementManager?.settledBetIds.has(bet.id); const isProcessing = isBetLocked(bet.id) || bet._isCashoutProcessing, justSettled = newlySettledBetIds.has(bet.id); const homeTeam = bet._homeTeam || { name: 'Home', logo: '' }, awayTeam = bet._awayTeam || { name: 'Away', logo: '' }; const homeLogo = homeTeam.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent((homeTeam.name || 'H').substring(0,2))}&size=36&background=1a2332&color=00ff9d`, awayLogo = awayTeam.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent((awayTeam.name || 'A').substring(0,2))}&size=36&background=1a2332&color=ff9800`; const scoreDisplay = bet._score ? `<span class="bet-score-display${isLive ? ' live' : ''}">${bet._score.home} - ${bet._score.away}</span>` : ''; const statusClass = bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : bet.status === 'cancelled' ? 'cancelled' : bet.status === 'cashed-out' ? 'cashed-out' : 'active'; let cashoutHTML = ''; if (canCashout && !isProcessing) { const elapsed = bet._elapsed || 45, rm = Math.max(1, 90 - elapsed); let cv = amount * odds * CONFIG.CASHOUT_BASE_MULTIPLIER * Math.pow(rm / 90, CONFIG.CASHOUT_TIME_DECAY) * CONFIG.CASHOUT_FEE_MULTIPLIER; if (CONFIG.CASHOUT_SCORE_IMPACT_ENABLED && bet._score) { const sc = bet._score; if (sc.home > sc.away && bet.bet_type === 'home') cv *= 1.3; if (sc.away > sc.home && bet.bet_type === 'away') cv *= 1.3; if (sc.home === sc.away && bet.bet_type === 'draw') cv *= 1.3; if (sc.home < sc.away && bet.bet_type === 'home') cv *= 0.7; if (sc.away < sc.home && bet.bet_type === 'away') cv *= 0.7; } cv = Math.max(amount * 0.05, Math.min(amount * odds * 0.95, cv)); cashoutHTML = `<div class="cashout-preview"><div class="cashout-metrics"><span>Est. Cash Out: <strong>$${cv.toFixed(2)}</strong></span><span>Profit: <span style="color:${cv >= amount ? 'var(--success)' : 'var(--danger)'}">${cv >= amount ? '+' : ''}$${(cv - amount).toFixed(2)}</span></span></div><div class="partial-cashout-box"><span>Stake: <strong class="pct-val">100%</strong></span><input type="range" class="partial-slider" min="10" max="100" step="10" value="100"></div></div>`; } else if (isActive && isHalftime && !isAcc) cashoutHTML = `<div class="cashout-preview" style="border-color:var(--orange);"><div style="color:var(--orange);font-weight:700;">⏸️ Cash Out suspended (Half-time)</div></div>`; let accaHTML = ''; if (isAcc && hasSelections) accaHTML = `<div class="selections-container"><div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:10px;"><i class="fas fa-list-ol"></i> Accumulator (${bet.selections.length} legs)</div>${bet.selections.map((s, i) => { const m = s._match; let badge = '<span style="color:var(--text-secondary);">⏳ Pending</span>', scoreStr = ''; if (m) { const mst = (m.status || '').toLowerCase(); if (['finished', 'ft', 'aet', 'pen'].includes(mst)) { const lr = settlementManager?._determineResult({ bet_type: s.betType || s.bet_type }, m); badge = lr?.won ? '<span style="color:var(--success);">✅ WON</span>' : lr?.refund ? '<span style="color:var(--orange);">↩️ REFUND</span>' : '<span style="color:var(--danger);">❌ LOST</span>'; scoreStr = `(${m.goals_home || 0}-${m.goals_away || 0})`; } else if (['live', '1h', '2h', 'ht'].includes(mst)) { badge = `<span style="color:var(--orange);">🔴 LIVE ${m.elapsed || ''}'</span>`; scoreStr = `(${m.goals_home || 0}-${m.goals_away || 0})`; } } return `<div class="selection-item"><span class="selection-match">[${i + 1}] ${escapeHtml(s.matchName || 'Match')} ${scoreStr}</span><span class="selection-pick">${escapeHtml(formatBetTypeName(s.betType || s.bet_type))}</span><span class="selection-odds">@${parseFloat(s.odds || 1).toFixed(2)}</span> ${badge}</div>`; }).join('')}</div>`; let actionsHTML = ''; if (isActive) { actionsHTML = '<div class="bet-actions"><div class="bet-action-row-buttons">'; if (canCancel && !isProcessing && isOnline) actionsHTML += '<button class="cancel-btn" data-action="cancel"><i class="fas fa-ban"></i> Cancel</button>'; if (canCashout && !isProcessing && isOnline) actionsHTML += '<button class="cashout-btn" data-action="cashout"><i class="fas fa-money-bill-wave"></i> Cash Out</button>'; if (isProcessing) actionsHTML += '<button disabled style="background:var(--bg-tertiary);color:var(--text-secondary);"><i class="fas fa-spinner fa-spin"></i> Processing...</button>'; if (!isOnline && isActive) actionsHTML += '<button disabled style="background:var(--bg-tertiary);color:var(--text-secondary);"><i class="fas fa-wifi"></i> Offline</button>'; actionsHTML += '</div></div>'; } let settlementInfoHTML = ''; if (!isActive && bet.settled_at) { const settledBy = bet.settled_by || 'auto', settledLabel = settledBy === 'admin' ? '👤 Admin' : '🤖 Auto-Settlement', settledClass = settledBy === 'admin' ? 'admin' : 'auto'; settlementInfoHTML = `<div class="settlement-info-bar ${settledClass}"><i class="fas ${settledBy === 'admin' ? 'fa-user-shield' : 'fa-robot'}"></i><span>Settled by: <strong>${settledLabel}</strong> • ${formatFullDateTime(bet.settled_at)} (${timeAgo(bet.settled_at)})</span></div>`; } return `<div class="bet-card ${statusClass}${isProcessing ? ' processing' : ''}${justSettled ? ' just-settled' : ''}" data-bet-id="${bet.id}"><div class="bet-top"><div><span class="bet-type-tag ${isAcc ? 'accumulator' : 'single'}">${isAcc ? 'ACCUMULATOR' : 'SINGLE'}</span><span class="bet-ticket-num">#${ticketNum}</span>${matchStarted && isActive ? '<span class="live-bet-badge"><i class="fas fa-bolt"></i> LIVE</span>' : ''}</div><span class="bet-status-badge ${statusClass}">${bet.status === 'won' ? '🏆 WON' : bet.status === 'lost' ? '❌ LOST' : bet.status === 'cancelled' ? '⛔ CANCELLED' : bet.status === 'cashed-out' ? '💰 CASHED OUT' : '⏳ ACTIVE'}</span></div><div class="bet-body">${isAcc ? `<div class="bet-match-name"><i class="fas fa-layer-group" style="color:var(--orange);"></i> ${bet.selections?.length || 0}-Fold Accumulator</div><div class="bet-league">${bet.selections?.map(s => escapeHtml(s.matchName || '?')).join(' • ') || 'Multiple Selections'}</div>` : `<div class="bet-match-row"><img class="team-logo-small" src="${homeLogo}" onerror="this.style.display='none'" alt=""><div class="bet-match-name">${escapeHtml(homeTeam.name)} <span style="color:var(--text-secondary);">vs</span> ${escapeHtml(awayTeam.name)}${scoreDisplay}</div><img class="team-logo-small" src="${awayLogo}" onerror="this.style.display='none'" alt=""></div><div class="bet-league">${escapeHtml(bet._league || 'Sports Match')}${bet._elapsed ? ` | ${bet._elapsed}'` : ''}${matchStatus ? ` | ${matchStatus.toUpperCase()}` : ''}</div>`}<div class="bet-pick">${escapeHtml(formatBetTypeName(isAcc ? 'accumulator' : bet.bet_type))} <span>@${odds.toFixed(2)}</span></div></div>${accaHTML}<div class="bet-meta-row"><span><i class="fas fa-calendar-plus"></i> ${formatFullDate(bet.placed_at)}</span><span><i class="fas fa-clock"></i> ${formatFullDate(bet._kickoff)}</span></div>${cashoutHTML}<div class="bet-details-grid"><div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amount.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">${isActive ? 'Potential' : 'Payout'}</div><div class="val">$${payout.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${profit >= 0 ? 'var(--success)' : 'var(--danger)'}">${profit >= 0 ? '+' : ''}$${Math.abs(profit).toFixed(2)}</div></div>${isActive ? `<div class="bet-detail"><div class="lbl">⏱️ Time to Settle</div><div class="val"><span class="settlement-timer timer-${bet.id}">--:--:--</span></div></div>` : ''}</div>${bet.settlement_reason ? `<div class="bet-result-row ${statusClass}"><i class="fas fa-gavel"></i> ${escapeHtml(bet.settlement_reason)}</div>` : ''}${settlementInfoHTML}${actionsHTML}</div>`; }
 
-function createBetCard(bet) {
-    const amt = parseFloat(bet.amount || 0), odds = parseFloat(bet.odds || 2), payout = parseFloat(bet.payout || bet.potential_win || 0);
-    let profit = 0; if (bet.status === 'won') profit = payout - amt; else if (bet.status === 'lost') profit = -amt; else if (bet.status === 'cashed-out') profit = parseFloat(bet.cashout_amount || 0) - amt;
-    const tk = 'XL' + (bet.id?.slice(-8) || '').toUpperCase(), isActive = bet.status === 'active', hasSelections = bet.selections && Array.isArray(bet.selections) && bet.selections.length > 0, isAcc = bet.bet_type === 'accumulator' || hasSelections;
-    const ms = (bet._matchStatus || '').toLowerCase(), isLive = ['live', '1h', '2h', 'ht'].includes(ms), matchStarted = isLive || ['finished', 'ft', 'aet', 'pen'].includes(ms), isHalftime = ms === 'ht';
-    const canCancel = isActive && !isAcc && !matchStarted && CONFIG.CANCELLATION_ENABLED && !settlementManager?.settledBetIds.has(bet.id);
-    const canCashout = isActive && matchStarted && isLive && !isHalftime && !isAcc && !settlementManager?.settledBetIds.has(bet.id);
-    const isProcessing = isBetLocked(bet.id) || bet._isCashoutProcessing;
-    const justSettled = newlySettledBetIds.has(bet.id);
-    const ht = bet._homeTeam || { name: 'Home', logo: '' }, at = bet._awayTeam || { name: 'Away', logo: '' };
-    const hl = ht.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent((ht.name || 'H').substring(0,2))}&size=36&background=1a2332&color=00ff9d`;
-    const al = at.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent((at.name || 'A').substring(0,2))}&size=36&background=1a2332&color=ff9800`;
-    const sd = bet._score ? `<span class="bet-score-display${isLive ? ' live' : ''}">${bet._score.home} - ${bet._score.away}</span>` : '';
-    const sc = bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : bet.status === 'cancelled' ? 'cancelled' : bet.status === 'cashed-out' ? 'cashed-out' : 'active';
-    
-    let coHTML = '';
-    if (canCashout && !isProcessing) {
-        const el = bet._elapsed || 45, rm = Math.max(1, 90 - el);
-        let cv = amt * odds * CONFIG.CASHOUT_BASE_MULTIPLIER * Math.pow(rm / 90, CONFIG.CASHOUT_TIME_DECAY) * CONFIG.CASHOUT_FEE_MULTIPLIER;
-        if (CONFIG.CASHOUT_SCORE_IMPACT_ENABLED && bet._score) {
-            const s = bet._score;
-            if (s.home > s.away && bet.bet_type === 'home') cv *= 1.3;
-            if (s.away > s.home && bet.bet_type === 'away') cv *= 1.3;
-            if (s.home === s.away && bet.bet_type === 'draw') cv *= 1.3;
-            if (s.home < s.away && bet.bet_type === 'home') cv *= 0.7;
-            if (s.away < s.home && bet.bet_type === 'away') cv *= 0.7;
-        }
-        cv = Math.max(amt * 0.05, Math.min(amt * odds * 0.95, cv));
-        coHTML = `<div class="cashout-preview"><div class="cashout-metrics"><span>Est. Cash Out: <strong>$${cv.toFixed(2)}</strong></span><span>Profit: <span style="color:${cv >= amt ? 'var(--success)' : 'var(--danger)'}">${cv >= amt ? '+' : ''}$${(cv - amt).toFixed(2)}</span></span></div><div class="partial-cashout-box"><span>Stake: <strong class="pct-val">100%</strong></span><input type="range" class="partial-slider" min="10" max="100" step="10" value="100"></div></div>`;
-    } else if (isActive && isHalftime && !isAcc) coHTML = `<div class="cashout-preview" style="border-color:var(--orange);"><div style="color:var(--orange);font-weight:700;">⏸️ Cash Out suspended (Half-time)</div></div>`;
-    
-    let accaHTML = '';
-    if (isAcc && hasSelections) accaHTML = `<div class="selections-container"><div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:10px;"><i class="fas fa-list-ol"></i> Accumulator (${bet.selections.length} legs)</div>${bet.selections.map((s, i) => { const m = s._match; let badge = '<span style="color:var(--text-secondary);">⏳ Pending</span>', scoreStr = ''; if (m) { const mst = (m.status || '').toLowerCase(); if (['finished', 'ft', 'aet', 'pen'].includes(mst)) { const lr = settlementManager?._determineResult({ bet_type: s.betType || s.bet_type }, m); badge = lr?.won ? '<span style="color:var(--success);">✅ WON</span>' : lr?.refund ? '<span style="color:var(--orange);">↩️ REFUND</span>' : '<span style="color:var(--danger);">❌ LOST</span>'; scoreStr = `(${m.goals_home || 0}-${m.goals_away || 0})`; } else if (['live', '1h', '2h', 'ht'].includes(mst)) { badge = `<span style="color:var(--orange);">🔴 LIVE ${m.elapsed || ''}'</span>`; scoreStr = `(${m.goals_home || 0}-${m.goals_away || 0})`; } } return `<div class="selection-item"><span class="selection-match">[${i + 1}] ${escapeHtml(s.matchName || 'Match')} ${scoreStr}</span><span class="selection-pick">${escapeHtml(formatBetTypeName(s.betType || s.bet_type))}</span><span class="selection-odds">@${parseFloat(s.odds || 1).toFixed(2)}</span> ${badge}</div>`; }).join('')}</div>`;
-    
-    let acts = '';
-    if (isActive) { acts = '<div class="bet-actions"><div class="bet-action-row-buttons">'; if (canCancel && !isProcessing && isOnline) acts += '<button class="cancel-btn" data-action="cancel"><i class="fas fa-ban"></i> Cancel</button>'; if (canCashout && !isProcessing && isOnline) acts += '<button class="cashout-btn" data-action="cashout"><i class="fas fa-money-bill-wave"></i> Cash Out</button>'; if (isProcessing) acts += '<button disabled style="background:var(--bg-tertiary);color:var(--text-secondary);"><i class="fas fa-spinner fa-spin"></i> Processing...</button>'; if (!isOnline && isActive) acts += '<button disabled style="background:var(--bg-tertiary);color:var(--text-secondary);"><i class="fas fa-wifi"></i> Offline</button>'; acts += '</div></div>'; }
-    
-    let siHTML = '';
-    if (!isActive && bet.settled_at) { const sb = bet.settled_by || 'auto', sl = sb === 'admin' ? '👤 Admin' : '🤖 Auto-Settlement', scl = sb === 'admin' ? 'admin' : 'auto'; siHTML = `<div class="settlement-info-bar ${scl}"><i class="fas ${sb === 'admin' ? 'fa-user-shield' : 'fa-robot'}"></i><span>Settled by: <strong>${sl}</strong> • ${formatFullDateTime(bet.settled_at)} (${timeAgo(bet.settled_at)})</span></div>`; }
-    
-    return `<div class="bet-card ${sc}${isProcessing ? ' processing' : ''}${justSettled ? ' just-settled' : ''}" data-bet-id="${bet.id}"><div class="bet-top"><div><span class="bet-type-tag ${isAcc ? 'accumulator' : 'single'}">${isAcc ? 'ACCUMULATOR' : 'SINGLE'}</span><span class="bet-ticket-num">#${tk}</span>${matchStarted && isActive ? '<span class="live-bet-badge"><i class="fas fa-bolt"></i> LIVE</span>' : ''}</div><span class="bet-status-badge ${sc}">${bet.status === 'won' ? '🏆 WON' : bet.status === 'lost' ? '❌ LOST' : bet.status === 'cancelled' ? '⛔ CANCELLED' : bet.status === 'cashed-out' ? '💰 CASHED OUT' : '⏳ ACTIVE'}</span></div><div class="bet-body">${isAcc ? `<div class="bet-match-name"><i class="fas fa-layer-group" style="color:var(--orange);"></i> ${bet.selections?.length || 0}-Fold Accumulator</div><div class="bet-league">${bet.selections?.map(s => escapeHtml(s.matchName || '?')).join(' • ') || 'Multiple Selections'}</div>` : `<div class="bet-match-row"><img class="team-logo-small" src="${hl}" onerror="this.style.display='none'" alt=""><div class="bet-match-name">${escapeHtml(ht.name)} <span style="color:var(--text-secondary);">vs</span> ${escapeHtml(at.name)}${sd}</div><img class="team-logo-small" src="${al}" onerror="this.style.display='none'" alt=""></div><div class="bet-league">${escapeHtml(bet._league || 'Sports Match')}${bet._elapsed ? ` | ${bet._elapsed}'` : ''}${ms ? ` | ${ms.toUpperCase()}` : ''}</div>`}<div class="bet-pick">${escapeHtml(formatBetTypeName(isAcc ? 'accumulator' : bet.bet_type))} <span>@${odds.toFixed(2)}</span></div></div>${accaHTML}<div class="bet-meta-row"><span><i class="fas fa-calendar-plus"></i> ${formatFullDate(bet.placed_at)}</span><span><i class="fas fa-clock"></i> ${formatFullDate(bet._kickoff)}</span></div>${coHTML}<div class="bet-details-grid"><div class="bet-detail"><div class="lbl">Stake</div><div class="val">$${amt.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">${isActive ? 'Potential' : 'Payout'}</div><div class="val">$${payout.toFixed(2)}</div></div><div class="bet-detail"><div class="lbl">P/L</div><div class="val" style="color:${profit >= 0 ? 'var(--success)' : 'var(--danger)'}">${profit >= 0 ? '+' : ''}$${Math.abs(profit).toFixed(2)}</div></div>${isActive ? `<div class="bet-detail"><div class="lbl">⏱️ Time to Settle</div><div class="val"><span class="settlement-timer timer-${bet.id}">--:--:--</span></div></div>` : ''}</div>${bet.settlement_reason ? `<div class="bet-result-row ${sc}"><i class="fas fa-gavel"></i> ${escapeHtml(bet.settlement_reason)}</div>` : ''}${siHTML}${acts}</div>`;
-}
-
-function showDetails(betId) {
-    const bet = allBets.find(b => b.id === betId); if (!bet) return;
-    openModalBetId = betId;
-    const modal = document.getElementById('bet-modal'), body = document.getElementById('modal-body');
-    const tk = 'XL' + (bet.id?.slice(-8) || '').toUpperCase(), amt = parseFloat(bet.amount || 0), odds = parseFloat(bet.odds || 2), payout = parseFloat(bet.payout || bet.potential_win || 0);
-    let profit = 0; if (bet.status === 'won') profit = payout - amt; else if (bet.status === 'lost') profit = -amt; else if (bet.status === 'cashed-out') profit = parseFloat(bet.cashout_amount || 0) - amt;
-    const isAcc = bet.bet_type === 'accumulator' || (bet.selections?.length > 0), sb = bet.settled_by === 'admin' ? '👤 Admin' : bet.settled_by === 'auto' ? '🤖 Auto-Settlement' : 'N/A';
-    let sHTML = ''; if (isAcc && bet.selections?.length) sHTML = `<div class="modal-section"><h4><i class="fas fa-list-ol"></i> Selections (${bet.selections.length})</h4>${bet.selections.map((s, i) => `<div class="modal-row"><span class="lbl">Leg ${i + 1}</span><span>${escapeHtml(s.matchName || 'Match')} — ${escapeHtml(formatBetTypeName(s.betType || s.bet_type))} @${parseFloat(s.odds || 1).toFixed(2)}</span></div>`).join('')}</div>`;
-    body.innerHTML = `<div class="modal-section"><h4><i class="fas fa-ticket-alt"></i> Ticket #${tk}</h4><div class="modal-row"><span class="lbl">Status</span><span>${bet.status?.toUpperCase()}</span></div><div class="modal-row"><span class="lbl">Type</span><span>${isAcc ? `Accumulator (${bet.selections?.length || 0} legs)` : 'Single'}</span></div>${!isAcc ? `<div class="modal-row"><span class="lbl">Match</span><span>${escapeHtml(bet.match_name || 'N/A')}</span></div><div class="modal-row"><span class="lbl">Score</span><span style="font-family:monospace;color:var(--orange);">${bet._score ? `${bet._score.home}-${bet._score.away}` : 'N/A'}</span></div><div class="modal-row"><span class="lbl">League</span><span>${escapeHtml(bet._league || 'N/A')}</span></div>` : ''}<div class="modal-row"><span class="lbl">Placed</span><span>${formatFullDateTime(bet.placed_at)}</span></div>${bet.settled_at ? `<div class="modal-row"><span class="lbl">Settled</span><span>${formatFullDateTime(bet.settled_at)}</span></div><div class="modal-row"><span class="lbl">Settled By</span><span>${sb}</span></div>` : ''}</div>${sHTML}<div class="modal-section"><h4><i class="fas fa-chart-line"></i> Financial</h4><div class="modal-row"><span class="lbl">Stake</span><span>$${amt.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Odds</span><span>@${odds.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Payout</span><span>$${payout.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">P/L</span><span style="color:${profit >= 0 ? 'var(--success)' : 'var(--danger)'}">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</span></div></div>${bet.settlement_reason ? `<div class="modal-section"><h4><i class="fas fa-gavel"></i> Settlement</h4><div class="modal-row"><span class="lbl">Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div></div>` : ''}`;
-    modal.classList.add('show');
-}
+function showDetails(betId) { const bet = allBets.find(b => b.id === betId); if (!bet) return; openModalBetId = betId; const modal = document.getElementById('bet-modal'), body = document.getElementById('modal-body'); const ticketNum = 'XL' + (bet.id?.slice(-8) || '').toUpperCase(), amount = parseFloat(bet.amount || 0), odds = parseFloat(bet.odds || 2), payout = parseFloat(bet.payout || bet.potential_win || 0); let profit = 0; if (bet.status === 'won') profit = payout - amount; else if (bet.status === 'lost') profit = -amount; else if (bet.status === 'cashed-out') profit = parseFloat(bet.cashout_amount || 0) - amount; const isAcc = bet.bet_type === 'accumulator' || (bet.selections?.length > 0), settledBy = bet.settled_by === 'admin' ? '👤 Admin' : bet.settled_by === 'auto' ? '🤖 Auto-Settlement' : 'N/A'; let selectionsHTML = ''; if (isAcc && bet.selections?.length) selectionsHTML = `<div class="modal-section"><h4><i class="fas fa-list-ol"></i> Selections (${bet.selections.length})</h4>${bet.selections.map((s, i) => `<div class="modal-row"><span class="lbl">Leg ${i + 1}</span><span>${escapeHtml(s.matchName || 'Match')} — ${escapeHtml(formatBetTypeName(s.betType || s.bet_type))} @${parseFloat(s.odds || 1).toFixed(2)}</span></div>`).join('')}</div>`; body.innerHTML = `<div class="modal-section"><h4><i class="fas fa-ticket-alt"></i> Ticket #${ticketNum}</h4><div class="modal-row"><span class="lbl">Status</span><span>${bet.status?.toUpperCase()}</span></div><div class="modal-row"><span class="lbl">Type</span><span>${isAcc ? `Accumulator (${bet.selections?.length || 0} legs)` : 'Single'}</span></div>${!isAcc ? `<div class="modal-row"><span class="lbl">Match</span><span>${escapeHtml(bet.match_name || 'N/A')}</span></div><div class="modal-row"><span class="lbl">Score</span><span style="font-family:monospace;color:var(--orange);">${bet._score ? `${bet._score.home}-${bet._score.away}` : 'N/A'}</span></div><div class="modal-row"><span class="lbl">League</span><span>${escapeHtml(bet._league || 'N/A')}</span></div>` : ''}<div class="modal-row"><span class="lbl">Placed</span><span>${formatFullDateTime(bet.placed_at)}</span></div>${bet.settled_at ? `<div class="modal-row"><span class="lbl">Settled</span><span>${formatFullDateTime(bet.settled_at)}</span></div><div class="modal-row"><span class="lbl">Settled By</span><span>${settledBy}</span></div>` : ''}</div>${selectionsHTML}<div class="modal-section"><h4><i class="fas fa-chart-line"></i> Financial</h4><div class="modal-row"><span class="lbl">Stake</span><span>$${amount.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Odds</span><span>@${odds.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">Payout</span><span>$${payout.toFixed(2)}</span></div><div class="modal-row"><span class="lbl">P/L</span><span style="color:${profit >= 0 ? 'var(--success)' : 'var(--danger)'}">${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}</span></div></div>${bet.settlement_reason ? `<div class="modal-section"><h4><i class="fas fa-gavel"></i> Settlement</h4><div class="modal-row"><span class="lbl">Reason</span><span>${escapeHtml(bet.settlement_reason)}</span></div></div>` : ''}`; modal.classList.add('show'); }
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  v18: SETTLEMENT TIMER (WITH TRIGGER from v16.7)            ║
+// ║  SETTLEMENT TIMER (WITH INSTANT TRIGGER)                    ║
 // ╚══════════════════════════════════════════════════════════════╝
-function startSettlementTimers() {
-    settlementTimers.forEach(clearInterval); settlementTimers = [];
-    const triggeredBets = new Set(); // v18: Track bets that triggered settlement
-    
-    const upd = () => {
-        let hasNew = false;
-        allBets.filter(b => b.status === 'active').forEach(bet => {
-            const els = document.querySelectorAll(`.timer-${bet.id}`); if (!els.length) return;
-            const ms = (bet._matchStatus || '').toLowerCase();
-            
-            // v18: Timer-triggered settlement detection (from v16.7)
-            if (['finished', 'ft', 'aet', 'pen'].includes(ms)) {
-                els.forEach(el => { el.innerHTML = '<span style="color:var(--success);font-weight:700;">✅ Settling…</span>'; el.classList.remove('urgent'); });
-                if (!triggeredBets.has(bet.id) && !settlementManager?.settledBetIds.has(bet.id)) {
-                    triggeredBets.add(bet.id);
-                    hasNew = true;
-                }
-                return;
-            }
-            
-            const ko = bet._kickoff ? new Date(bet._kickoff) : null;
-            if (!ko) { els.forEach(el => { el.textContent = '--:--:--'; el.classList.remove('urgent'); }); return; }
-            const diff = new Date(ko.getTime() + CONFIG.SETTLEMENT_TIMEOUT_MINUTES * 60000) - new Date();
-            if (diff <= 0) {
-                els.forEach(el => { el.innerHTML = '<span style="color:var(--success);font-weight:700;">🔄 Settling Now…</span>'; el.classList.remove('urgent'); });
-                if (!triggeredBets.has(bet.id) && !settlementManager?.settledBetIds.has(bet.id)) {
-                    triggeredBets.add(bet.id);
-                    hasNew = true;
-                }
-            } else {
-                const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000), s = Math.floor((diff % 60000) / 1000), ts = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-                els.forEach(el => { el.textContent = ts; if (h === 0 && m < 5) el.classList.add('urgent'); else el.classList.remove('urgent'); });
-            }
-        });
-        // v18: Trigger immediate settlement when timer detects finished matches
-        if (hasNew) scheduleImmediateSettlement();
-    };
-    upd(); settlementTimers.push(setInterval(upd, 1000));
-}
+function startSettlementTimers() { settlementTimers.forEach(clearInterval); settlementTimers = []; const triggeredBets = new Set(); const updateAllTimers = () => { let hasNew = false; allBets.filter(b => b.status === 'active').forEach(bet => { const timerElements = document.querySelectorAll(`.timer-${bet.id}`); if (!timerElements.length) return; const matchStatus = (bet._matchStatus || '').toLowerCase(); if (['finished', 'ft', 'aet', 'pen'].includes(matchStatus)) { timerElements.forEach(el => { el.innerHTML = '<span style="color:var(--success);font-weight:700;">✅ Settling…</span>'; el.classList.remove('urgent'); }); if (!triggeredBets.has(bet.id) && !settlementManager?.settledBetIds.has(bet.id)) { triggeredBets.add(bet.id); hasNew = true; } return; } const kickoff = bet._kickoff ? new Date(bet._kickoff) : null; if (!kickoff) { timerElements.forEach(el => { el.textContent = '--:--:--'; el.classList.remove('urgent'); }); return; } const diff = new Date(kickoff.getTime() + CONFIG.SETTLEMENT_TIMEOUT_MINUTES * 60000) - new Date(); if (diff <= 0) { timerElements.forEach(el => { el.innerHTML = '<span style="color:var(--success);font-weight:700;">🔄 Settling Now…</span>'; el.classList.remove('urgent'); }); if (!triggeredBets.has(bet.id) && !settlementManager?.settledBetIds.has(bet.id)) { triggeredBets.add(bet.id); hasNew = true; } } else { const hours = Math.floor(diff / 3600000), minutes = Math.floor((diff % 3600000) / 60000), seconds = Math.floor((diff % 60000) / 1000), timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`; timerElements.forEach(el => { el.textContent = timeStr; if (hours === 0 && minutes < 5) el.classList.add('urgent'); else el.classList.remove('urgent'); }); } }); if (hasNew) scheduleImmediateSettlement(); }; updateAllTimers(); settlementTimers.push(setInterval(updateAllTimers, 1000)); }
 
-async function forceSettleBet(bet) {
-    if (isBetLocked(bet.id)) return;
-    if (!settlementManager) settlementManager = new DuplicateProofSettlementManager(auth.currentUser?.uid);
-    try {
-        lockBet(bet.id, bet);
-        const mm = bet.fixture_id ? await fetchMatchesBatch([bet.fixture_id]) : {};
-        const result = await settlementManager._settleSingleBet(bet, mm[bet.fixture_id] || null, mm);
-        if (result.isOk()) { await loadBalance(); updateStats(); updateCounts(); filterBets(currentFilter); }
-    } catch (e) { debugWarn(`Force settle failed for ${bet.id}:`, e.message); }
-    finally { unlockBet(bet.id, bet); }
-}
+async function forceSettleBet(bet) { if (isBetLocked(bet.id)) return; if (!settlementManager) settlementManager = new DuplicateProofSettlementManager(auth.currentUser?.uid); try { lockBet(bet.id, bet); const matchMap = bet.fixture_id ? await fetchMatchesBatch([bet.fixture_id]) : {}; const result = await settlementManager._settleSingleBet(bet, matchMap[bet.fixture_id] || null, matchMap); if (result.isOk()) { await loadBalance(); updateStats(); updateCounts(); filterBets(currentFilter); } } catch (e) { debugWarn(`Force settle failed for ${bet.id}:`, e.message); } finally { unlockBet(bet.id, bet); } }
 
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  EVENT LISTENERS                                            ║
 // ╚══════════════════════════════════════════════════════════════╝
-document.addEventListener('DOMContentLoaded', () => {
-    cleanOldStorageEntries();
-    updateOnlineStatus();
-    
-    document.getElementById('bet-list-container').addEventListener('click', function(e) {
-        const card = e.target.closest('.bet-card'); if (!card || card.classList.contains('processing')) return;
-        const bid = card.dataset.betId, ab = e.target.closest('button[data-action]');
-        if (ab) { e.stopPropagation(); if (ab.dataset.action === 'cancel') cancelBet(bid); if (ab.dataset.action === 'cashout') { const s = card.querySelector('.partial-slider'); cashoutBet(bid, s ? parseInt(s.value) : 100); } }
-        else showDetails(bid);
-    });
-    
-    document.getElementById('bet-list-container').addEventListener('input', function(e) {
-        if (e.target.classList.contains('partial-slider')) { const v = e.target.closest('.bet-card')?.querySelector('.pct-val'); if (v) v.textContent = e.target.value + '%'; }
-    });
-    
-    document.getElementById('bet-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'bet-modal' || e.target.id === 'modalCloseBtn') { document.getElementById('bet-modal').classList.remove('show'); openModalBetId = null; }
-    });
-    
-    document.getElementById('bet-search-input').addEventListener('input', debounce(() => filterBets(currentFilter), CONFIG.SEARCH_DEBOUNCE_MS));
-    
-    document.querySelectorAll('.filter-chip').forEach(ch => ch.addEventListener('click', function() {
-        document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active')); this.classList.add('active'); filterBets(this.dataset.filter);
-    }));
-    
-    document.getElementById('themeToggleBtn').addEventListener('click', () => { document.body.classList.toggle('light-theme'); safeLocalStorageSet('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark'); });
-    document.getElementById('langToggleBtn').addEventListener('click', () => { const ia = document.body.classList.toggle('arabic'); safeLocalStorageSet('lang', ia ? 'ar' : 'en'); document.documentElement.dir = ia ? 'rtl' : 'ltr'; });
-    document.getElementById('refreshBtn').addEventListener('click', async () => {
-        if (!isOnline) { showNotification('📴 Cannot refresh while offline', 'warning'); return; }
-        const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.querySelector('i').classList.add('fa-spin');
-        await loadBets(); await loadBalance(); btn.disabled = false; btn.querySelector('i').classList.remove('fa-spin');
-        showNotification('✅ Bets refreshed', 'success');
-    });
-    
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { document.getElementById('bet-modal').classList.remove('show'); openModalBetId = null; } });
-    
-    auth.onAuthStateChanged(async u => {
-        if (!u) { window.location.href = '../login.html'; return; }
-        if (safeLocalStorageGet('theme') === 'light') document.body.classList.add('light-theme');
-        if (safeLocalStorageGet('lang') === 'ar') { document.body.classList.add('arabic'); document.documentElement.dir = 'rtl'; }
-        if (DEBUG) console.log('%c🐛 Debug Mode Active %c| %cMy Bets v18.0', 'color:#00ff9d;font-weight:bold;', '', 'color:#aaa;');
-        
-        settlementManager = new DuplicateProofSettlementManager(u.uid);
-        await loadBalance(); await loadBets();
-        
-        if (refreshInterval) clearInterval(refreshInterval);
-        refreshInterval = setInterval(async () => { if (isOnline) { await loadBets(); await loadBalance(); } }, CONFIG.REFRESH_INTERVAL);
-        
-        if (settleInterval) clearInterval(settleInterval);
-        if (!safeLocalStorageGet('xl_emergency_stop')) {
-            settleInterval = setInterval(async () => {
-                if (isOnline) { await autoSettleBets(); if (settlementManager) await settlementManager.retryFailedPayouts(); await loadBalance(); }
-            }, CONFIG.AUTO_SETTLE_INTERVAL);
-        }
-    });
-    
-    window.addEventListener('beforeunload', () => { if (refreshInterval) clearInterval(refreshInterval); if (settleInterval) clearInterval(settleInterval); if (settlementTimeout) clearTimeout(settlementTimeout); settlementTimers.forEach(clearInterval); });
-});
-
-window.loadBets = loadBets;
-window.loadBalance = loadBalance;
-window.CONFIG = CONFIG;
-
-console.log('%c✅ My Bets v18.0 %c| %cULTIMATE RELEASE %c| %cAll Features • Zero Compromises • Production Ready',
+document.addEventListener('DOMContentLoaded', () => { cleanOldStorageEntries(); updateOnlineStatus(); document.getElementById('bet-list-container').addEventListener('click', function(e) { const card = e.target.closest('.bet-card'); if (!card || card.classList.contains('processing')) return; const betId = card.dataset.betId, actionBtn = e.target.closest('button[data-action]'); if (actionBtn) { e.stopPropagation(); if (actionBtn.dataset.action === 'cancel') cancelBet(betId); if (actionBtn.dataset.action === 'cashout') { const slider = card.querySelector('.partial-slider'); cashoutBet(betId, slider ? parseInt(slider.value) : 100); } } else showDetails(betId); }); document.getElementById('bet-list-container').addEventListener('input', function(e) { if (e.target.classList.contains('partial-slider')) { const valDisplay = e.target.closest('.bet-card')?.querySelector('.pct-val'); if (valDisplay) valDisplay.textContent = e.target.value + '%'; } }); document.getElementById('bet-modal').addEventListener('click', (e) => { if (e.target.id === 'bet-modal' || e.target.id === 'modalCloseBtn') { document.getElementById('bet-modal').classList.remove('show'); openModalBetId = null; } }); const debouncedFilter = debounce(() => filterBets(currentFilter), CONFIG.SEARCH_DEBOUNCE_MS); document.getElementById('bet-search-input').addEventListener('input', debouncedFilter); document.querySelectorAll('.filter-chip').forEach(chip => { chip.addEventListener('click', function() { document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active')); this.classList.add('active'); filterBets(this.dataset.filter); }); }); document.getElementById('themeToggleBtn').addEventListener('click', () => { document.body.classList.toggle('light-theme'); safeLocalStorageSet('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark'); }); document.getElementById('langToggleBtn').addEventListener('click', () => { const isArabic = document.body.classList.toggle('arabic'); safeLocalStorageSet('lang', isArabic ? 'ar' : 'en'); document.documentElement.dir = isArabic ? 'rtl' : 'ltr'; }); document.getElementById('refreshBtn').addEventListener('click', async () => { if (!isOnline) { showNotification('📴 Cannot refresh while offline', 'warning'); return; } const btn = document.getElementById('refreshBtn'); btn.disabled = true; btn.querySelector('i').classList.add('fa-spin'); await loadBets(); await loadBalance(); btn.disabled = false; btn.querySelector('i').classList.remove('fa-spin'); showNotification('✅ Bets refreshed', 'success'); }); document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { document.getElementById('bet-modal').classList.remove('show'); openModalBetId = null; } }); auth.onAuthStateChanged(async u => { if (!u) { window.location.href = '../login.html'; return; } if (safeLocalStorageGet('theme') === 'light') document.body.classList.add('light-theme'); if (safeLocalStorageGet('lang') === 'ar') { document.body.classList.add('arabic'); document.documentElement.dir = 'rtl'; } if (DEBUG) console.log('%c🐛 Debug Mode Active %c| %cMy Bets v18.2', 'color:#00ff9d;font-weight:bold;', '', 'color:#aaa;'); settlementManager = new DuplicateProofSettlementManager(u.uid); await loadBalance(); await loadBets(); if (refreshInterval) clearInterval(refreshInterval); refreshInterval = setInterval(async () => { if (isOnline) { await loadBets(); await loadBalance(); } }, CONFIG.REFRESH_INTERVAL); if (settleInterval) clearInterval(settleInterval); if (!safeLocalStorageGet('xl_emergency_stop')) settleInterval = setInterval(async () => { if (isOnline) { await autoSettleBets(); if (settlementManager) await settlementManager.retryFailedPayouts(); await loadBalance(); } }, CONFIG.AUTO_SETTLE_INTERVAL); if (cleanMissingFixturesInterval) clearInterval(cleanMissingFixturesInterval); cleanMissingFixturesInterval = setInterval(() => { if (missingFixtureCache.size > 100) { missingFixtureCache.cleanExpired(); } }, 3600000); }); window.addEventListener('beforeunload', () => { if (refreshInterval) clearInterval(refreshInterval); if (settleInterval) clearInterval(settleInterval); if (settlementTimeout) clearTimeout(settlementTimeout); if (cleanMissingFixturesInterval) clearInterval(cleanMissingFixturesInterval); settlementTimers.forEach(clearInterval); }); }); window.loadBets = loadBets; window.loadBalance = loadBalance; window.CONFIG = CONFIG; console.log('%c✅ My Bets v18.2 %c| %cPerformance Fixed %c| %cPersistent Cache • Timeout Retry • Warmup • DB Status',
     'color:#00ff9d;font-weight:bold;font-size:14px;', '', 'color:#ff9800;font-weight:bold;', '', 'color:#aaa;font-size:10px;');
 </script>
 </body>
