@@ -496,7 +496,7 @@
             showNotification('Bet slip cleared');
         }
         
-        // ===== PLACE ACCUMULATOR BET (FIXED - No max(uuid), no Date.now()) =====
+        // ===== PLACE ACCUMULATOR BET =====
         async function placeAccumulatorBet() {
             if (accumulatorSlip.length < 2) {
                 showNotification(`Add at least 2 selections (currently ${accumulatorSlip.length})`, 'error');
@@ -536,7 +536,25 @@
             btn.innerHTML = '<div class="loading-spinner"></div> Processing...';
             
             try {
-                // FIXED: No manual id - let Supabase trigger generate UUID
+                // Save match data to sports_matches for settlement
+                for (const sel of accumulatorSlip) {
+                    const match = upcomingMatches.find(m => m.fixture_id == sel.fixtureId);
+                    if (match) {
+                        await supabaseClient.from('sports_matches').upsert({
+                            fixture_id: match.fixture_id,
+                            status: 'upcoming',
+                            start_time: match.start_time,
+                            league_name: match.league_name,
+                            league_logo: match.league_logo,
+                            home_team: match.home_team,
+                            away_team: match.away_team,
+                            score: { home: 0, away: 0 },
+                            updated_at: new Date().toISOString()
+                        }, { onConflict: 'fixture_id' });
+                    }
+                }
+                
+                // Insert the bet
                 const bet = {
                     user_id: user.uid,
                     fixture_id: accumulatorSlip[0]?.fixtureId || null,
