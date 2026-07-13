@@ -496,7 +496,7 @@
             showNotification('Bet slip cleared');
         }
         
-        // ===== PLACE ACCUMULATOR BET =====
+        // ===== PLACE ACCUMULATOR BET (FIXED - No max(uuid), no Date.now()) =====
         async function placeAccumulatorBet() {
             if (accumulatorSlip.length < 2) {
                 showNotification(`Add at least 2 selections (currently ${accumulatorSlip.length})`, 'error');
@@ -536,11 +536,10 @@
             btn.innerHTML = '<div class="loading-spinner"></div> Processing...';
             
             try {
-                const betId = Date.now();
+                // FIXED: No manual id - let Supabase trigger generate UUID
                 const bet = {
-                    id: betId,
                     user_id: user.uid,
-                    fixture_id: null,
+                    fixture_id: accumulatorSlip[0]?.fixtureId || null,
                     bet_type: 'accumulator',
                     bet_name: `${accumulatorSlip.length}-fold Accumulator`,
                     odds: totalOdds,
@@ -548,10 +547,15 @@
                     potential_win: potentialWin,
                     status: 'active',
                     placed_at: new Date().toISOString(),
-                    selections: accumulatorSlip
+                    selections: accumulatorSlip,
+                    match_name: accumulatorSlip.map(s => s.matchName).join(' vs '),
+                    kickoff_time: new Date().toISOString(),
+                    is_pre_match: true,
+                    bet_category: 'accumulator',
+                    total_odds: totalOdds
                 };
                 
-                const { error } = await supabaseClient.from('bets').insert(bet);
+                const { data, error } = await supabaseClient.from('bets').insert(bet).select();
                 if (error) throw new Error(error.message);
                 
                 await updateWalletBalance(user.uid, -stake);
@@ -560,7 +564,7 @@
                 
                 accumulatorSlip = [];
                 updateCartUI();
-                toggleCart(); // Close cart after placing bet
+                toggleCart();
                 await loadBalance();
                 
                 setTimeout(() => {
