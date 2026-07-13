@@ -161,7 +161,7 @@
 
 <script>
 // ============================================
-// MY BETS v16.2 — CRITICAL FIXES APPLIED
+// MY BETS v17 — FIXED: Silent 404s, No false settlement, UUID compatibility
 // ============================================
 
 const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
@@ -185,11 +185,10 @@ const auth = firebase.auth();
 
 let allBets = [], currentFilter = 'all', refreshInterval = null, settleInterval = null, settlementTimers = [];
 let settlementManager = null;
-// FIX: Track processing bet IDs globally to prevent concurrent operations
 const processingBetIds = new Set();
 
 // ============================================
-// SETTLEMENT MANAGER (FIXED)
+// SETTLEMENT MANAGER (v17 — FIXED)
 // ============================================
 class DuplicateProofSettlementManager {
     constructor(userId) {
@@ -267,18 +266,25 @@ class DuplicateProofSettlementManager {
         } catch (e) { return false; }
     }
 
+    // FIXED v17: Only settle when match is actually FINISHED with real score data
     async _settleSingleBet(bet, match) {
         const hasSelections = bet.selections && Array.isArray(bet.selections) && bet.selections.length > 0;
         if (hasSelections) return await this._settleAccumulator(bet);
+        
+        // FIX: Don't settle if match data is null or incomplete
         if (!match) return false;
-
+        
         const ms = (match.status || '').toUpperCase();
         const isFinished = ['FINISHED', 'FT', 'AET', 'PEN'].includes(ms);
-        const ko = bet._kickoff ? new Date(bet._kickoff) : null;
-        const isTimerExpired = ko && (new Date() >= new Date(ko.getTime() + 115 * 60000));
-
-        if (!isFinished && !isTimerExpired) return false;
-
+        
+        // FIX: Only settle if match is actually finished — NO timer-based settlement
+        if (!isFinished) return false;
+        
+        // Double-check: match must have actual score data
+        const hg = parseInt(match.goals_home);
+        const ag = parseInt(match.goals_away);
+        if (isNaN(hg) || isNaN(ag)) return false;
+        
         const result = this._determineResult(bet, match);
         if (!result) return false;
 
@@ -291,21 +297,18 @@ class DuplicateProofSettlementManager {
         else { newStatus = 'lost'; payout = 0; profit = -stake; }
 
         const settledAt = new Date().toISOString();
-        const settledBy = 'auto';
-
-        // FIX: Use update without settled_at/settled_by to avoid column errors
+        
         let updateResult;
         try {
             updateResult = await supabaseClient.from('bets').update({
                 status: newStatus, payout, profit_loss: profit, settlement_reason: result.reason,
-                settled_at: settledAt, settled_by: settledBy,
-                match_score: `${match.goals_home || 0}-${match.goals_away || 0}`, updated_at: settledAt
+                settled_at: settledAt, settled_by: 'auto',
+                match_score: `${hg}-${ag}`, updated_at: settledAt
             }).eq('id', bet.id).eq('status', 'active').select('id');
         } catch (colErr) {
-            console.warn('settled_at column may not exist, using fallback update');
             updateResult = await supabaseClient.from('bets').update({
                 status: newStatus, payout, profit_loss: profit, settlement_reason: result.reason,
-                match_score: `${match.goals_home || 0}-${match.goals_away || 0}`, updated_at: settledAt
+                match_score: `${hg}-${ag}`, updated_at: settledAt
             }).eq('id', bet.id).eq('status', 'active').select('id');
         }
 
@@ -313,27 +316,38 @@ class DuplicateProofSettlementManager {
         if (error || !data?.length) return false;
         if (payout > 0) await this._payout(bet.user_id, bet.id, payout, profit, { stake, odds, reason: result.reason });
 
-        Object.assign(bet, { status: newStatus, payout, profit_loss: profit, settlement_reason: result.reason, settled_at: settledAt, settled_by: settledBy });
+        Object.assign(bet, { status: newStatus, payout, profit_loss: profit, settlement_reason: result.reason, settled_at: settledAt, settled_by: 'auto' });
         return true;
     }
 
+    // FIXED v17: Only settle accumulator when ALL legs are finished with real data
     async _settleAccumulator(bet) {
         if (!bet.selections?.length) return false;
         const fids = bet.selections.map(s => s.fixtureId || s.fixture_id).filter(Boolean);
         if (!fids.length) return false;
         const mm = await fetchMatchesBatch(fids);
+        
         const finished = ['FINISHED', 'FT', 'AET', 'PEN'];
         const results = [];
+        
         for (const sel of bet.selections) {
             const m = mm[sel.fixtureId || sel.fixture_id];
+            // FIX: If any leg has no match data, don't settle
             if (!m) return false;
+            
             const ms = (m.status || '').toUpperCase();
-            const ko = m.start_time ? new Date(m.start_time) : null;
-            if (!finished.includes(ms) && !(ko && new Date() >= new Date(ko.getTime() + 115 * 60000))) return false;
+            // FIX: Only settle finished matches
+            if (!finished.includes(ms)) return false;
+            
+            const hg = parseInt(m.goals_home);
+            const ag = parseInt(m.goals_away);
+            if (isNaN(hg) || isNaN(ag)) return false;
+            
             const r = this._determineResult({ bet_type: sel.betType || sel.bet_type }, m);
             if (!r) return false;
             results.push(r);
         }
+        
         const anyLost = results.some(r => r.won === false && !r.refund);
         const allWon = results.every(r => r.won === true);
         const hasRefund = results.some(r => r.refund);
@@ -383,7 +397,6 @@ class DuplicateProofSettlementManager {
         return map[bet.bet_type] || null;
     }
 
-    // FIX: Use txn.set with merge:true instead of txn.update to handle missing wallet docs
     async _payout(userId, betId, total, profit, meta) {
         if (this.processedPayouts.has(betId)) return;
         try {
@@ -394,7 +407,6 @@ class DuplicateProofSettlementManager {
                 const before = wDoc.exists ? (wDoc.data().balance || 0) : 0;
                 const after = parseFloat((before + total).toFixed(2));
                 txn.set(lRef, { user_id: userId, bet_id: betId, amount: total, profit, type: 'settlement_payout', balance_before: before, balance_after: after, timestamp: firebase.firestore.FieldValue.serverTimestamp(), metadata: meta });
-                // FIX: set with merge:true creates the doc if it doesn't exist
                 txn.set(wRef, { balance: after, updated_at: new Date().toISOString() }, { merge: true });
                 txn.set(db.collection('transactions').doc(), { user_id: userId, bet_id: betId, amount: total, profit, type: 'settlement_payout', balance_before: before, balance_after: after, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
             });
@@ -402,7 +414,6 @@ class DuplicateProofSettlementManager {
         } catch (e) { if (e.message === 'DUPLICATE') { this.processedPayouts.add(betId); this._save('xl_payout_ids', this.processedPayouts); } }
     }
 
-    // FIX: Use txn.set with merge:true instead of txn.update
     async _refund(userId, betId, amount, reason) {
         const key = `refund_${betId}`;
         if (this.processedPayouts.has(key)) return;
@@ -414,7 +425,6 @@ class DuplicateProofSettlementManager {
                 const before = wDoc.exists ? (wDoc.data().balance || 0) : 0;
                 const after = parseFloat((before + amount).toFixed(2));
                 txn.set(lRef, { user_id: userId, bet_id: betId, amount, type: 'refund', reason, balance_before: before, balance_after: after, timestamp: firebase.firestore.FieldValue.serverTimestamp() });
-                // FIX: set with merge:true
                 txn.set(wRef, { balance: after, updated_at: new Date().toISOString() }, { merge: true });
             });
             this.processedPayouts.add(key); this._save('xl_payout_ids', this.processedPayouts);
@@ -436,20 +446,16 @@ function extractTeamLogo(d) { if (!d) return ''; if (typeof d === 'string') { co
 function extractScore(d) { if (!d) return { home: 0, away: 0 }; if (typeof d === 'object') return { home: d.home || 0, away: d.away || 0 }; const p = safeParseJSON(d); return p ? { home: p.home || 0, away: p.away || 0 } : { home: 0, away: 0 }; }
 
 // ============================================
-// MATCH DATA FETCHING
+// MATCH DATA FETCHING (v17 — Silent 404s)
 // ============================================
 async function fetchMatchFromAPI(fid) {
     try {
         const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 8000);
+        const t = setTimeout(() => ctrl.abort(), 5000);
         const r = await fetch(`${API_BASE}/api/fixture/${fid}`, { signal: ctrl.signal });
         clearTimeout(t);
         
-        if (!r.ok) {
-            if (r.status === 404) return null;
-            console.warn(`API returned ${r.status} for fixture ${fid}`);
-            return null;
-        }
+        if (!r.ok) return null;  // Silently return null — no console noise
         
         const d = await r.json();
         if (d.success && d.fixture) {
@@ -468,8 +474,7 @@ async function fetchMatchFromAPI(fid) {
         }
         return null;
     } catch (e) {
-        if (e.name === 'AbortError') return null;
-        return null;
+        return null;  // Silently catch all errors
     }
 }
 
@@ -491,9 +496,7 @@ async function fetchMatchesBatch(fids) {
                 };
             }
         }
-    } catch (e) {
-        // Supabase fetch failed — continue to API fallback
-    }
+    } catch (e) {}
     
     const missing = fids.filter(f => !result[f]);
     if (missing.length) {
@@ -576,18 +579,22 @@ async function loadBets() {
                 b.match_name = `${hn} vs ${an}`;
                 b._homeTeam = { name: hn, logo: m.home_team?.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent(hn)}&size=36&background=1a2332&color=00ff9d` };
                 b._awayTeam = { name: an, logo: m.away_team?.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent(an)}&size=36&background=1a2332&color=ff9800` };
-                b._league = m.league_name || ''; b._kickoff = m.start_time || b.placed_at;
+                b._league = m.league_name || ''; 
+                // FIXED v17: Use kickoff_time from DB, don't fallback to placed_at
+                b._kickoff = b.kickoff_time || null;
                 b._matchStatus = m.status || 'NS'; b._elapsed = m.elapsed || 0;
                 b._score = { home: m.goals_home || 0, away: m.goals_away || 0 }; b._match = m;
             } else {
                 b._homeTeam = { name: hFb, logo: `https://ui-avatars.com/api/?name=${encodeURIComponent(hFb)}&size=36&background=1a2332&color=00ff9d` };
                 b._awayTeam = { name: aFb, logo: `https://ui-avatars.com/api/?name=${encodeURIComponent(aFb)}&size=36&background=1a2332&color=ff9800` };
                 b._score = { home: 0, away: 0 }; b._league = b.league_name || 'Sports Match';
-                b._kickoff = b.placed_at || b.kickoff_time || null; b._matchStatus = b.match_status || 'NS';
+                // FIXED v17: Use kickoff_time from DB, don't fallback to placed_at
+                b._kickoff = b.kickoff_time || null;
+                b._matchStatus = b.match_status || 'NS';
                 b._elapsed = b.match_elapsed || 0; b._match = null;
             }
-            b._isPreMatch = b.placed_at && b._kickoff ? new Date(b.placed_at) < new Date(b._kickoff) : true;
-            // FIX: Initialize processing flag
+            // FIXED v17: Use is_pre_match from DB, default false for safety
+            b._isPreMatch = b.is_pre_match !== undefined ? b.is_pre_match : (b._kickoff ? new Date(b.placed_at) < new Date(b._kickoff) : false);
             b._isCashoutProcessing = false;
         }
         
@@ -616,9 +623,8 @@ async function autoSettleBets() {
 }
 
 // ============================================
-// CANCEL + CASHOUT (FIXED)
+// CANCEL + CASHOUT
 // ============================================
-// FIX: Check processingBetIds to prevent concurrent operations
 async function cancelBet(betId) {
     if (processingBetIds.has(betId)) return showNotification('⏳ Operation in progress...', 'warning');
     const bet = allBets.find(b => b.id === betId);
@@ -629,7 +635,6 @@ async function cancelBet(betId) {
     const stake = parseFloat(bet.amount || 0), refund = parseFloat((stake * 0.95).toFixed(2));
     if (!confirm(`Cancel?\n\nStake: $${stake.toFixed(2)}\nRefund: $${refund.toFixed(2)}\nFee (5%): $${(stake-refund).toFixed(2)}`)) return;
     
-    // FIX: Lock the bet immediately
     processingBetIds.add(betId);
     disableBetButtons(betId);
     
@@ -652,13 +657,11 @@ async function cancelBet(betId) {
     }
 }
 
-// FIX: Prevent double-click exploit with processing lock
 async function cashoutBet(betId, partialPct = 100) {
     if (processingBetIds.has(betId)) return showNotification('⏳ Cashout in progress...', 'warning');
     const bet = allBets.find(b => b.id === betId);
     if (!bet || bet.status !== 'active') return showNotification('❌ Cannot cash out', 'error');
     
-    // FIX: Check local processing flag
     if (bet._isCashoutProcessing) return;
     bet._isCashoutProcessing = true;
     processingBetIds.add(betId);
@@ -685,7 +688,6 @@ async function cashoutBet(betId, partialPct = 100) {
         return;
     }
     
-    // FIX: Disable buttons immediately before API call
     disableBetButtons(betId);
     
     try {
@@ -698,7 +700,6 @@ async function cashoutBet(betId, partialPct = 100) {
                 return showNotification('❌ Cashout failed', 'error');
             }
             settlementManager.settledBetIds.add(betId); settlementManager._save('xl_settled_ids', settlementManager.settledBetIds);
-            // FIX: Update local state instantly
             bet.status = 'cashed-out'; bet.cashout_amount = cv;
         } else {
             let hist = bet.partial_history || [];
@@ -710,7 +711,6 @@ async function cashoutBet(betId, partialPct = 100) {
                 enableBetButtons(betId);
                 return showNotification('❌ Partial cashout failed', 'error');
             }
-            // FIX: Update local state instantly
             bet.amount = remaining; bet.partial_history = hist;
         }
         await settlementManager._payout(bet.user_id, bet.id, cv, profit, { type: 'cashout', percentage: partialPct });
@@ -724,7 +724,6 @@ async function cashoutBet(betId, partialPct = 100) {
     }
 }
 
-// FIX: Helper functions to disable/enable bet card buttons
 function disableBetButtons(betId) {
     document.querySelectorAll(`[data-bet-id="${betId}"] button`).forEach(b => b.disabled = true);
     const card = document.querySelector(`[data-bet-id="${betId}"]`);
@@ -772,7 +771,6 @@ function filterBets(filter) {
         return new Date(b.settled_at || b.cashed_out_at || b.placed_at || 0).getTime() - new Date(a.settled_at || a.cashed_out_at || a.placed_at || 0).getTime();
     });
     const c = document.getElementById('bet-list-container');
-    // FIX: Wrap each card render in try/catch to prevent one bad bet from breaking all
     if (c) c.innerHTML = fl.length ? fl.map(b => { try { return createBetCard(b); } catch(e) { console.error(`Error rendering bet ${b.id}:`, e); return `<div class="bet-card" style="border-left-color:var(--danger);"><div class="bet-top"><span class="bet-status-badge lost">⚠️ Render Error</span></div><p style="font-size:11px;">Bet #${b.id?.slice(-8)||'?'} could not be displayed</p></div>`; } }).join('') : '<div class="empty-state"><i class="fas fa-ticket-alt"></i><p>No bets found</p></div>';
     startSettlementTimers();
 }
@@ -794,7 +792,6 @@ function createBetCard(bet) {
     const al = at.logo || `https://ui-avatars.com/api/?name=${encodeURIComponent((at.name || 'A').substring(0,2))}&size=36&background=1a2332&color=ff9800`;
     const sd = bet._score ? `<span class="bet-score-display${isLive?' live':''}">${bet._score.home} - ${bet._score.away}</span>` : '';
     const sc = bet.status === 'won' ? 'won' : bet.status === 'lost' ? 'lost' : bet.status === 'cancelled' ? 'cancelled' : bet.status === 'cashed-out' ? 'cashed-out' : 'active';
-    // FIX: Check if bet is currently being processed
     const isProcessing = processingBetIds.has(bet.id) || bet._isCashoutProcessing;
     
     let coHTML = '';
@@ -827,7 +824,6 @@ function createBetCard(bet) {
         settlementInfoHTML = `<div class="settlement-info-bar ${settledClass}"><i class="fas ${settledBy === 'admin' ? 'fa-user-shield' : 'fa-robot'}"></i><span>Settled by: <strong>${settledLabel}</strong> • ${formatFullDateTime(bet.settled_at)} (${timeAgo(bet.settled_at)})</span></div>`;
     }
     
-    // FIX: Removed duplicate timer ID — only one timer per card in bet-details-grid
     return `<div class="bet-card ${sc}${isProcessing?' processing':''}" data-bet-id="${bet.id}">
         <div class="bet-top"><div><span class="bet-type-tag ${isAcc?'accumulator':'single'}">${isAcc?'ACCUMULATOR':'SINGLE'}</span><span class="bet-ticket-num">#${tk}</span>${!isPreMatch&&isActive?'<span class="live-bet-badge"><i class="fas fa-bolt"></i> LIVE BET</span>':''}</div><span class="bet-status-badge ${sc}">${bet.status==='won'?'🏆 WON':bet.status==='lost'?'❌ LOST':bet.status==='cancelled'?'⛔ CANCELLED':bet.status==='cashed-out'?'💰 CASHED OUT':'⏳ ACTIVE'}</span></div>
         <div class="bet-body">${isAcc?`<div class="bet-match-name"><i class="fas fa-layer-group" style="color:var(--orange);"></i> ${bet.selections?.length||0}-Fold Accumulator</div><div class="bet-league">${bet.selections?.map(s=>escapeHtml(s.matchName||'?')).join(' • ')||'Multiple Selections'}</div>`:`<div class="bet-match-row"><img class="team-logo-small" src="${hl}" onerror="this.style.display='none'" alt=""><div class="bet-match-name">${escapeHtml(ht.name)} <span style="color:var(--text-secondary);">vs</span> ${escapeHtml(at.name)}${sd}</div><img class="team-logo-small" src="${al}" onerror="this.style.display='none'" alt=""></div><div class="bet-league">${escapeHtml(bet._league||'Sports Match')}${bet._elapsed?` | ${bet._elapsed}'`:''} | ${ms.toUpperCase()}</div>`}<div class="bet-pick">${escapeHtml(formatBetTypeName(isAcc?'accumulator':bet.bet_type))} <span>@${odds.toFixed(2)}</span></div></div>
@@ -858,16 +854,14 @@ function showDetails(betId) {
 }
 
 // ============================================
-// REAL-TIME SETTLEMENT TIMER (FIXED)
+// REAL-TIME SETTLEMENT TIMER
 // ============================================
 function startSettlementTimers() {
     settlementTimers.forEach(clearInterval);
     settlementTimers = [];
     
-    // FIX: Use a single interval for all timers
     const upd = () => {
         allBets.filter(b => b.status === 'active').forEach(bet => {
-            // FIX: Use class selector to update all timer elements
             const timerElements = document.querySelectorAll(`.timer-${bet.id}`);
             if (!timerElements.length) return;
             
@@ -914,7 +908,6 @@ function startSettlementTimers() {
     };
     
     upd();
-    // FIX: Single interval instead of N intervals
     settlementTimers.push(setInterval(upd, 1000));
 }
 
@@ -934,7 +927,6 @@ async function forceSettleBet(bet) {
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('bet-list-container').addEventListener('click', function(e) {
         const card = e.target.closest('.bet-card'); if (!card) return;
-        // FIX: Don't allow clicks on processing cards
         if (card.classList.contains('processing')) return;
         const betId = card.dataset.betId;
         const actionBtn = e.target.closest('button[data-action]');
@@ -999,7 +991,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.loadBets = loadBets;
-console.log('✅ My Bets v16.2 — Critical Fixes: Wallet creation, Cashout locking, Timer dedup, Error boundaries');
+console.log('✅ My Bets v17 — Fixed: Silent 404s, No false settlement, UUID compatible, Match-data-only settlement');
 </script>
 </body>
 </html>
