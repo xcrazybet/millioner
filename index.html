@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>DeepLookers - AI Social Media Platform | Earn While You Share</title>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --dl-primary: #6c5ce7;
+            --dl-secondary: #00cec9;
+            --dl-accent: #fd79a8;
+            --dl-gold: #fdcb6e;
+            --dl-dark: #0a0a1a;
+            --dl-dark-light: #1a1a2e;
+            --dl-light: #f8f9fa;
+            --dl-text: #ffffff;
+            --dl-text-secondary: rgba(255,255,255,0.7);
+            --dl-gradient: linear-gradient(135deg, #6c5ce7 0%, #00cec9 100%);
+            --dl-success: #00b894;
+            --dl-danger: #ff7675;
+            --dl-warning: #fdcb6e;
+        }
+        
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 50%, #0a0a1a 100%);
+            color: var(--dl-text);
+            min-height: 100vh;
+            font-size: 16px;
+            overflow-x: hidden;
+            padding-top: 70px;
+        }
+        
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--dl-dark);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.5s;
+        }
+        .loading-overlay.hidden { opacity: 0; pointer-events: none; }
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 3px solid rgba(108,92,231,0.3);
+            border-top-color: var(--dl-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 10000;
+        }
+        .toast {
+            background: var(--dl-dark-light);
+            border-left: 6px solid var(--dl-success);
+            padding: 14px 20px;
+            margin: 10px 0;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            animation: slideIn 0.3s;
+            max-width: 350px;
+        }
+        .toast.error { border-left-color: var(--dl-danger); }
+        .toast.warning { border-left-color: var(--dl-warning); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } }
+        
+        /* Header & Navigation */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(10, 10, 26, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            border-bottom: 1px solid rgba(108,92,231,0.3);
+        }
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--dl-primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo i {
+            font-size: 32px;
+            color: var(--dl-secondary);
+        }
+        .logo span {
+            background: var(--dl-gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        
+        /* Desktop Navigation */
+        .nav-menu {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            list-style: none;
+        }
+        .nav-menu a {
+            color: var(--dl-text);
+            text-decoration: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            transition: all 0.3s;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .nav-menu a:hover {
+            background: var(--dl-primary);
+            color: white;
+        }
+        .nav-menu a.active {
+            background: var(--dl-gradient);
+            color: white;
+        }
+        
+        /* Auth Buttons */
+        .auth-buttons {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .btn-login {
+            background: transparent;
+            border: 2px solid var(--dl-primary);
+            color: var(--dl-primary);
+            padding: 8px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-login:hover {
+            background: var(--dl-primary);
+            color: white;
+        }
+        .btn-signup {
+            background: var(--dl-gradient);
+            border: none;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-signup:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(108,92,231,0.4);
+        }
+        
+        /* User Profile Menu (After Login) */
+        .user-menu {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--dl-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: white;
+        }
+        .user-info {
+            display: flex;
+            flex-direction: column;
+        }
+        .user-name {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .user-balance {
+            font-size: 12px;
+            color: var(--dl-gold);
+        }
+        .btn-logout {
+            background: transparent;
+            border: 1px solid var(--dl-danger);
+            color: var(--dl-danger);
+            padding: 8px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-logout:hover {
+            background: var(--dl-danger);
+            color: white;
+        }
+        
+        /* Hamburger Menu */
+        .hamburger {
+            display: none;
+            font-size: 28px;
+            background: none;
+            border: none;
+            color: var(--dl-text);
+            cursor: pointer;
+            padding: 5px;
+        }
+        
+        /* Mobile Navigation */
+        .mobile-nav {
+            display: none;
+            position: fixed;
+            top: 70px;
+            left: 0;
+            right: 0;
+            background: rgba(10, 10, 26, 0.98);
+            backdrop-filter: blur(10px);
+            z-index: 999;
+            padding: 20px;
+            border-bottom: 1px solid rgba(108,92,231,0.3);
+        }
+        .mobile-nav.active {
+            display: block;
+        }
+        .mobile-nav a {
+            display: block;
+            color: var(--dl-text);
+            text-decoration: none;
+            padding: 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s;
+        }
+        .mobile-nav a:hover {
+            background: var(--dl-primary);
+            padding-left: 25px;
+        }
+        
+        /* Hero Section */
+        .hero {
+            text-align: center;
+            padding: 60px 20px;
+            background: linear-gradient(135deg, rgba(108,92,231,0.1) 0%, rgba(0,206,201,0.1) 100%);
+            border-radius: 0 0 50px 50px;
+            margin-bottom: 50px;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(108,92,231,0.1) 0%, transparent 70%);
+            animation: rotate 20s linear infinite;
+        }
+        @keyframes rotate { 100% { transform: rotate(360deg); } }
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+        .hero h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            background: var(--dl-gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .hero p {
+            font-size: 18px;
+            line-height: 1.6;
+            color: var(--dl-text-secondary);
+            max-width: 800px;
+            margin: 0 auto 30px;
+        }
+        .hero-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .btn-hero {
+            padding: 15px 40px;
+            border-radius: 30px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn-hero-primary {
+            background: var(--dl-gradient);
+            color: white;
+            border: none;
+            box-shadow: 0 10px 30px rgba(108,92,231,0.4);
+        }
+        .btn-hero-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px rgba(108,92,231,0.6);
+        }
+        .btn-hero-secondary {
+            background: transparent;
+            color: var(--dl-secondary);
+            border: 2px solid var(--dl-secondary);
+        }
+        .btn-hero-secondary:hover {
+            background: var(--dl-secondary);
+            color: white;
+        }
+        
+        /* Features Section */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            padding: 50px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .feature-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s;
+            border: 1px solid rgba(108,92,231,0.2);
+        }
+        .feature-card:hover {
+            transform: translateY(-10px);
+            background: rgba(108,92,231,0.1);
+            border-color: var(--dl-primary);
+        }
+        .feature-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: var(--dl-secondary);
+        }
+        .feature-card h3 {
+            font-size: 20px;
+            margin-bottom: 15px;
+        }
+        .feature-card p {
+            color: var(--dl-text-secondary);
+            line-height: 1.6;
+        }
+        
+        /* Posts Feed (After Login) */
+        .posts-feed {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .post-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            margin-bottom: 30px;
+            overflow: hidden;
+            border: 1px solid rgba(108,92,231,0.2);
+        }
+        .post-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .post-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--dl-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+        }
+        .post-user-info {
+            flex: 1;
+        }
+        .post-username {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .post-time {
+            font-size: 12px;
+            color: var(--dl-text-secondary);
+        }
+        .post-content {
+            padding: 20px;
+        }
+        .post-text {
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        .post-media {
+            width: 100%;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .post-actions {
+            display: flex;
+            gap: 20px;
+            padding: 15px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .post-action {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: var(--dl-text-secondary);
+        }
+        .post-action:hover {
+            color: var(--dl-primary);
+        }
+        .post-action.active {
+            color: var(--dl-accent);
+        }
+        
+        /* Floating Action Buttons */
+        .floating-actions {
+            position: fixed;
+            bottom: 30px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            z-index: 100;
+            pointer-events: none;
+        }
+        .floating-btn {
+            pointer-events: auto;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--dl-gradient);
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 5px 20px rgba(108,92,231,0.5);
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+        .floating-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 30px rgba(108,92,231,0.7);
+        }
+        .floating-btn.chat {
+            position: fixed;
+            left: 30px;
+            bottom: 30px;
+        }
+        .floating-btn.friends {
+            position: fixed;
+            right: 30px;
+            bottom: 30px;
+        }
+        .floating-btn.create {
+            background: var(--dl-accent);
+            width: 70px;
+            height: 70px;
+            font-size: 30px;
+        }
+        
+        /* Popup Modals */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 2000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal {
+            background: var(--dl-dark-light);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            position: relative;
+            border: 1px solid var(--dl-primary);
+        }
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: var(--dl-text);
+            font-size: 24px;
+            cursor: pointer;
+        }
+        
+        /* Footer */
+        .footer {
+            background: rgba(10, 10, 26, 0.9);
+            padding: 40px 20px;
+            margin-top: 50px;
+            border-top: 1px solid rgba(108,92,231,0.3);
+        }
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 30px;
+        }
+        .footer-section h4 {
+            color: var(--dl-primary);
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+        .footer-section a {
+            display: block;
+            color: var(--dl-text-secondary);
+            text-decoration: none;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+        .footer-section a:hover {
+            color: var(--dl-primary);
+            padding-left: 5px;
+        }
+        .footer-bottom {
+            text-align: center;
+            padding-top: 30px;
+            margin-top: 30px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            color: var(--dl-text-secondary);
+            font-size: 14px;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            body {
+                padding-top: 60px;
+            }
+            .nav-menu {
+                display: none;
+            }
+            .hamburger {
+                display: block;
+            }
+            .mobile-nav {
+                display: none;
+            }
+            .mobile-nav.active {
+                display: block;
+            }
+            .hero h1 {
+                font-size: 32px;
+            }
+            .hero p {
+                font-size: 16px;
+            }
+            .features {
+                grid-template-columns: 1fr;
+                padding: 30px 15px;
+            }
+            .floating-btn {
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+            }
+            .floating-btn.create {
+                width: 60px;
+                height: 60px;
+                font-size: 25px;
+            }
+            .footer-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loader"></div>
+        <p style="margin-top: 20px;">Loading DeepLookers...</p>
+    </div>
+    
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+    
+    <!-- Header -->
+    <header class="header">
+        <div class="nav-container">
+            <a href="index.html" class="logo">
+                <i class="fas fa-eye"></i>
+                <span>DeepLookers</span>
+            </a>
+            
+            <!-- Desktop Navigation -->
+            <nav class="nav-menu" id="desktopNav">
+                <a href="index.html" class="active"><i class="fas fa-home"></i> Home</a>
+                <a href="HuzniAI.html"><i class="fas fa-robot"></i> AI</a>
+                <a href="Post.html"><i class="fas fa-newspaper"></i> Posts</a>
+                <a href="chats.html"><i class="fas fa-comments"></i> Chat</a>
+                <a href="Friends.html"><i class="fas fa-users"></i> Friends</a>
+                <a href="ads.html"><i class="fas fa-ad"></i> Ads</a>
+                <a href="crypto.forex.html"><i class="fas fa-chart-line"></i> Exchange</a>
+                <a href="privacy.html"><i class="fas fa-shield-alt"></i> Privacy</a>
+                <a href="aboutus.html"><i class="fas fa-info-circle"></i> About</a>
+                <a href="contact.html"><i class="fas fa-envelope"></i> Contact</a>
+            </nav>
+            
+            <!-- Auth Buttons (Before Login) -->
+            <div class="auth-buttons" id="authButtons">
+                <button class="btn-login" onclick="openLoginModal()">Login</button>
+                <button class="btn-signup" onclick="openSignupModal()">Sign Up</button>
+            </div>
+            
+            <!-- User Menu (After Login) -->
+            <div class="user-menu" id="userMenu" style="display: none;">
+                <a href="profile.html" class="user-profile" style="text-decoration: none; color: inherit;">
+                    <div class="user-avatar" id="userAvatar">U</div>
+                    <div class="user-info">
+                        <span class="user-name" id="userName">User</span>
+                        <span class="user-balance" id="userBalance">$0.00</span>
+                    </div>
+                </a>
+                <button class="btn-logout" onclick="logout()">Logout</button>
+            </div>
+            
+            <!-- Hamburger -->
+            <button class="hamburger" onclick="toggleMobileNav()">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+        
+        <!-- Mobile Navigation -->
+        <nav class="mobile-nav" id="mobileNav">
+            <a href="index.html"><i class="fas fa-home"></i> Home</a>
+            <a href="HuzniAI.html"><i class="fas fa-robot"></i> AI</a>
+            <a href="Post.html"><i class="fas fa-newspaper"></i> Posts</a>
+            <a href="chats.html"><i class="fas fa-comments"></i> Chat</a>
+            <a href="Friends.html"><i class="fas fa-users"></i> Friends</a>
+            <a href="ads.html"><i class="fas fa-ad"></i> Ads</a>
+            <a href="crypto.forex.html"><i class="fas fa-chart-line"></i> Exchange</a>
+            <a href="privacy.html"><i class="fas fa-shield-alt"></i> Privacy</a>
+            <a href="aboutus.html"><i class="fas fa-info-circle"></i> About</a>
+            <a href="contact.html"><i class="fas fa-envelope"></i> Contact</a>
+            <a href="profile.html"><i class="fas fa-user"></i> Profile</a>
+        </nav>
+    </header>
+    
+    <!-- Hero Section (Before Login) -->
+    <section class="hero" id="heroSection">
+        <div class="hero-content">
+            <h1>🌐 DeepLookers</h1>
+            <p>
+                Welcome to DeepLookers platform that we connect AI with your other requirement include the apis, short videos, chats, ads not only this but still we have a surprise for you that non of the other platform has been activate this function which we pay you for your participation and using our platform without any much efforts, we pays your for using our platform and sharing your videos, shorts or long and notes, paying for you post. Because your time is valuable and we wished to bring a differenticality to the ground, mixing AI with social media and creating new jobs for a hundred of peoples those who seeks for job. DeepLookers platform is for you. Now create an account free and use it for free then post it for free later earn your income. Stop wasting your time on the other platform, start with us and we are here for you.
+            </p>
+            <div class="hero-buttons">
+                <button class="btn-hero btn-hero-primary" onclick="openSignupModal()">
+                    <i class="fas fa-user-plus"></i> Signup Now
+                </button>
+                <button class="btn-hero btn-hero-secondary" onclick="openLoginModal()">
+                    <i class="fas fa-sign-in-alt"></i> Login Now
+                </button>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Features Section -->
+    <section class="features" id="featuresSection">
+        <div class="feature-card">
+            <div class="feature-icon">🤖</div>
+            <h3>AI Integration</h3>
+            <p>Advanced AI powered features to enhance your content and experience</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">💰</div>
+            <h3>Earn Money</h3>
+            <p>Get paid for your posts, videos, and participation on the platform</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">📱</div>
+            <h3>Short Videos</h3>
+            <p>Share your moments with short and long video content</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">💬</div>
+            <h3>Real-time Chat</h3>
+            <p>Connect with friends and community instantly</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">📊</div>
+            <h3>Exchange Market</h3>
+            <p>Access crypto and forex markets directly from the platform</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">🎯</div>
+            <h3>Targeted Ads</h3>
+            <p>Reach your audience with our advanced advertising system</p>
+        </div>
+    </section>
+    
+    <!-- Posts Feed (After Login) -->
+    <section class="posts-feed" id="postsFeed" style="display: none;">
+        <h2 style="text-align: center; margin-bottom: 30px;">📱 Community Posts</h2>
+        <div id="postsContainer"></div>
+    </section>
+    
+    <!-- Floating Actions (After Login) -->
+    <div class="floating-actions" id="floatingActions" style="display: none;">
+        <a href="chats.html" class="floating-btn chat">
+            <i class="fas fa-comments"></i>
+        </a>
+        <a href="Post.html" class="floating-btn create">
+            <i class="fas fa-plus"></i>
+        </a>
+        <a href="Friends.html" class="floating-btn friends">
+            <i class="fas fa-users"></i>
+        </a>
+    </div>
+    
+    <!-- Login Modal -->
+    <div class="modal-overlay" id="loginModal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeLoginModal()">&times;</button>
+            <h2 style="text-align: center; margin-bottom: 30px; color: var(--dl-primary);">Login</h2>
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px;">Email</label>
+                    <input type="email" id="loginEmail" required style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #333; color: white;">
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px;">Password</label>
+                    <input type="password" id="loginPassword" required style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #333; color: white;">
+                </div>
+                <button type="submit" style="width: 100%; padding: 12px; background: var(--dl-gradient); border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer;">
+                    Login
+                </button>
+            </form>
+            <p style="text-align: center; margin-top: 20px;">
+                Don't have an account? <a href="#" onclick="switchToSignup()" style="color: var(--dl-primary);">Sign Up</a>
+            </p>
+        </div>
+    </div>
+    
+    <!-- Signup Modal -->
+    <div class="modal-overlay" id="signupModal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeSignupModal()">&times;</button>
+            <h2 style="text-align: center; margin-bottom: 30px; color: var(--dl-primary);">Create Account</h2>
+            <form id="signupForm" onsubmit="handleSignup(event)">
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px;">Username</label>
+                    <input type="text" id="signupUsername" required style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #333; color: white;">
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px;">Email</label>
+                    <input type="email" id="signupEmail" required style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #333; color: white;">
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px;">Password</label>
+                    <input type="password" id="signupPassword" required style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #333; color: white;">
+                </div>
+                <button type="submit" style="width: 100%; padding: 12px; background: var(--dl-gradient); border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer;">
+                    Sign Up
+                </button>
+            </form>
+            <p style="text-align: center; margin-top: 20px;">
+                Already have an account? <a href="#" onclick="switchToLogin()" style="color: var(--dl-primary);">Login</a>
+            </p>
+        </div>
+    </div>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>DeepLookers</h4>
+                <p style="color: var(--dl-text-secondary);">AI-powered social media platform that pays you for your content.</p>
+            </div>
+            <div class="footer-section">
+                <h4>Quick Links</h4>
+                <a href="index.html">Home</a>
+                <a href="HuzniAI.html">AI Assistant</a>
+                <a href="Post.html">Posts</a>
+                <a href="chats.html">Chat</a>
+                <a href="Friends.html">Friends</a>
+            </div>
+            <div class="footer-section">
+                <h4>Legal</h4>
+                <a href="policy.html">Privacy Policy</a>
+                <a href="privacy.html">Privacy</a>
+                <a href="aboutus.html">About Us</a>
+                <a href="contact.html">Contact</a>
+                <a href="partner.html">Partner</a>
+            </div>
+            <div class="footer-section">
+                <h4>Support</h4>
+                <a href="wallets.html">Payments</a>
+                <a href="offers.html">Offers</a>
+                <a href="contact.html">Contact Support</a>
+                <a href="partner.html">Become a Partner</a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>All Rights Reserved @ 2026 Powered By Huzni's Family and TDA developers</p>
+        </div>
+    </footer>
+
+    <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyA72Yo_YGqno9PX25p3yQBvyflcaM-NqEM",
+            authDomain: "x-bet-prod-jd.firebaseapp.com",
+            projectId: "x-bet-prod-jd",
+            storageBucket: "x-bet-prod-jd.firebasestorage.app",
+            messagingSenderId: "499334334535",
+            appId: "1:499334334535:web:bebc1bf817e24d9e3c4962",
+            measurementId: "G-PTV4XMYQ6P"
+        };
+        
+        // Supabase Configuration
+        const SUPABASE_URL = 'https://jnazybaeajyynpyoszmy.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuYXp5YmFlYWp5eW5weW9zem15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNzgwMDMsImV4cCI6MjA5Mjg1NDAwM30.P_8V-_s6DQDiYekZX1yaNup48WBRaLhb3ILAkvzTDTY';
+        
+        let auth, db, supabaseClient, currentUser = null;
+        
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Initialize Firebase
+            firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+            db = firebase.firestore();
+            
+            // Initialize Supabase
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            
+            // Hide loading overlay
+            setTimeout(() => {
+                document.getElementById('loadingOverlay').classList.add('hidden');
+            }, 1000);
+            
+            // Check auth state
+            auth.onAuthStateChanged(handleAuthStateChange);
+        });
+        
+        function handleAuthStateChange(user) {
+            if (user) {
+                currentUser = user;
+                loadUserData(user.uid);
+            } else {
+                currentUser = null;
+                showLoggedOutUI();
+            }
+        }
+        
+        async function loadUserData(uid) {
+            try {
+                const doc = await db.collection('wallets').doc(uid).get();
+                if (doc.exists) {
+                    const userData = doc.data();
+                    showLoggedInUI(userData);
+                    loadPosts();
+                }
+            } catch (error) {
+                console.error('Error loading user data:', error);
+                showToast('Error loading user data', 'error');
+            }
+        }
+        
+        function showLoggedInUI(userData) {
+            document.getElementById('authButtons').style.display = 'none';
+            document.getElementById('userMenu').style.display = 'flex';
+            document.getElementById('heroSection').style.display = 'none';
+            document.getElementById('featuresSection').style.display = 'none';
+            document.getElementById('postsFeed').style.display = 'block';
+            document.getElementById('floatingActions').style.display = 'flex';
+            
+            // Update user info
+            const username = userData.username || 'User';
+            const balance = userData.balance || 0;
+            document.getElementById('userName').textContent = username;
+            document.getElementById('userBalance').textContent = `$${balance.toFixed(2)}`;
+            document.getElementById('userAvatar').textContent = username.charAt(0).toUpperCase();
+        }
+        
+        function showLoggedOutUI() {
+            document.getElementById('authButtons').style.display = 'flex';
+            document.getElementById('userMenu').style.display = 'none';
+            document.getElementById('heroSection').style.display = 'block';
+            document.getElementById('featuresSection').style.display = 'grid';
+            document.getElementById('postsFeed').style.display = 'none';
+            document.getElementById('floatingActions').style.display = 'none';
+        }
+        
+        async function loadPosts() {
+            try {
+                const { data: posts, error } = await supabaseClient
+                    .from('posts')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(50);
+                
+                if (error) throw error;
+                
+                const postsContainer = document.getElementById('postsContainer');
+                postsContainer.innerHTML = '';
+                
+                if (!posts || posts.length === 0) {
+                    postsContainer.innerHTML = '<p style="text-align: center; color: #999;">No posts yet. Be the first to post!</p>';
+                    return;
+                }
+                
+                posts.forEach(post => {
+                    postsContainer.appendChild(createPostCard(post));
+                });
+            } catch (error) {
+                console.error('Error loading posts:', error);
+            }
+        }
+        
+        function createPostCard(post) {
+            const card = document.createElement('div');
+            card.className = 'post-card';
+            card.innerHTML = `
+                <div class="post-header">
+                    <div class="post-avatar">${(post.username || 'U').charAt(0).toUpperCase()}</div>
+                    <div class="post-user-info">
+                        <div class="post-username">${post.username || 'User'}</div>
+                        <div class="post-time">${new Date(post.created_at).toLocaleString()}</div>
+                    </div>
+                </div>
+                <div class="post-content">
+                    <div class="post-text">${post.content || ''}</div>
+                    ${post.image_url ? `<img src="${post.image_url}" class="post-media" alt="Post image">` : ''}
+                    ${post.video_url ? `<video src="${post.video_url}" class="post-media" controls></video>` : ''}
+                </div>
+                <div class="post-actions">
+                    <span class="post-action" onclick="likePost('${post.id}')">
+                        <i class="far fa-heart"></i> ${post.likes || 0}
+                    </span>
+                    <span class="post-action" onclick="lovePost('${post.id}')">
+                        <i class="fas fa-heart"></i> ${post.loves || 0}
+                    </span>
+                    <span class="post-action" onclick="sharePost('${post.id}')">
+                        <i class="fas fa-share"></i> ${post.shares || 0}
+                    </span>
+                    <span class="post-action">
+                        <i class="far fa-comment"></i> ${post.comments || 0}
+                    </span>
+                </div>
+            `;
+            return card;
+        }
+        
+        async function likePost(postId) {
+            try {
+                const { data, error } = await supabaseClient
+                    .rpc('increment_likes', { post_id: postId });
+                
+                if (error) throw error;
+                loadPosts();
+            } catch (error) {
+                console.error('Error liking post:', error);
+            }
+        }
+        
+        async function lovePost(postId) {
+            try {
+                const { data, error } = await supabaseClient
+                    .rpc('increment_loves', { post_id: postId });
+                
+                if (error) throw error;
+                loadPosts();
+            } catch (error) {
+                console.error('Error loving post:', error);
+            }
+        }
+        
+        async function sharePost(postId) {
+            try {
+                const { data, error } = await supabaseClient
+                    .rpc('increment_shares', { post_id: postId });
+                
+                if (error) throw error;
+                loadPosts();
+            } catch (error) {
+                console.error('Error sharing post:', error);
+            }
+        }
+        
+        function openLoginModal() {
+            document.getElementById('loginModal').classList.add('active');
+        }
+        
+        function closeLoginModal() {
+            document.getElementById('loginModal').classList.remove('active');
+        }
+        
+        function openSignupModal() {
+            document.getElementById('signupModal').classList.add('active');
+        }
+        
+        function closeSignupModal() {
+            document.getElementById('signupModal').classList.remove('active');
+        }
+        
+        function switchToSignup() {
+            closeLoginModal();
+            openSignupModal();
+        }
+        
+        function switchToLogin() {
+            closeSignupModal();
+            openLoginModal();
+        }
+        
+        async function handleLogin(event) {
+            event.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            try {
+                await auth.signInWithEmailAndPassword(email, password);
+                closeLoginModal();
+                showToast('Logged in successfully!', 'success');
+            } catch (error) {
+                showToast('Login failed: ' + error.message, 'error');
+            }
+        }
+        
+        async function handleSignup(event) {
+            event.preventDefault();
+            const username = document.getElementById('signupUsername').value;
+            const email = document.getElementById('signupEmail').value;
+            const password = document.getElementById('signupPassword').value;
+            
+            try {
+                const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                const user = userCredential.user;
+                
+                // Create wallet
+                await db.collection('wallets').doc(user.uid).set({
+                    balance: 0,
+                    username: username,
+                    email: email,
+                    userId: user.uid,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    status: 'active'
+                });
+                
+                closeSignupModal();
+                showToast('Account created successfully!', 'success');
+            } catch (error) {
+                showToast('Signup failed: ' + error.message, 'error');
+            }
+        }
+        
+        async function logout() {
+            try {
+                await auth.signOut();
+                showToast('Logged out successfully!', 'success');
+            } catch (error) {
+                showToast('Logout failed: ' + error.message, 'error');
+            }
+        }
+        
+        function toggleMobileNav() {
+            document.getElementById('mobileNav').classList.toggle('active');
+        }
+        
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
